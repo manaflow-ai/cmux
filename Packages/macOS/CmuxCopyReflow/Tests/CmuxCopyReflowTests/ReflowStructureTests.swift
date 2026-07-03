@@ -25,6 +25,11 @@ struct ReflowStructureTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func backtickFenceIgnoresMarkerWithTrailingContent() {
+        let input = "```text\n``` not closing\n  keep spaces\n```\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func tildeFenceIgnoresBacktickMarkerBodyLine() {
         let input = "~~~\n``` not closing\n  keep spaces\n~~~\n"
         #expect(reflow(input) == input)

@@ -54,6 +54,7 @@ private extension ReflowOptions {
                 }
             }
         }
+        promoteMarkdownTableRows(rawLines, lineKinds: &lineKinds)
 
         let commonIndent = computeCommonIndent(rawLines, isFenceLine: isFenceLine)
 
@@ -184,7 +185,7 @@ private extension ReflowOptions {
                     let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
 
                     if canJoin {
-                        let joiner = p.isURL ? "" : " "
+                        let joiner = s3 ? "" : " "
                         p.text += joiner + content.trimmingLeadingWhitespace()
                         p.hasJoined = true
                         p.prevVisibleLength = visLen
@@ -209,6 +210,42 @@ private extension ReflowOptions {
             result += "\n"
         }
         return result
+    }
+
+    /// Promote loose pipe rows around a Markdown separator row into structural
+    /// table rows without treating every shell pipeline as a table.
+    func promoteMarkdownTableRows(_ lines: [Substring], lineKinds: inout [LineKind]) {
+        guard lines.count == lineKinds.count else { return }
+        for i in lines.indices {
+            guard isPromotableTableKind(lineKinds[i]),
+                  LineKind.isMarkdownTableSeparatorRow(lines[i]) else { continue }
+
+            lineKinds[i] = .tableRow
+
+            let headerIndex = i - 1
+            if headerIndex >= 0,
+               isPromotableTableKind(lineKinds[headerIndex]),
+               LineKind.isMarkdownTableCandidateRow(lines[headerIndex]) {
+                lineKinds[headerIndex] = .tableRow
+            }
+
+            var bodyIndex = i + 1
+            while bodyIndex < lines.count,
+                  isPromotableTableKind(lineKinds[bodyIndex]),
+                  LineKind.isMarkdownTableCandidateRow(lines[bodyIndex]) {
+                lineKinds[bodyIndex] = .tableRow
+                bodyIndex += 1
+            }
+        }
+    }
+
+    func isPromotableTableKind(_ kind: LineKind) -> Bool {
+        switch kind {
+        case .prose, .tableRow:
+            return true
+        case .blank, .fenceDelimiter, .insideFence, .heading, .blockquote, .listItem, .urlLine:
+            return false
+        }
     }
 
     /// Minimum leading-whitespace column count across blank-excluded, fence-excluded

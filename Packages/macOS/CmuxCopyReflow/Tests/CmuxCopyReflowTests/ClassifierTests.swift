@@ -27,6 +27,7 @@ struct ClassifierTests {
         #expect(classify("~~~", activeFence: backtickFence) == .insideFence)
         #expect(classify("```", activeFence: tildeFence) == .insideFence)
         #expect(classify("``", activeFence: backtickFence) == .insideFence)
+        #expect(classify("``` not closing", activeFence: backtickFence) == .insideFence)
         #expect(classify("```", activeFence: backtickFence) == .fenceDelimiter)
         #expect(classify("````", activeFence: backtickFence) == .fenceDelimiter)
     }
@@ -68,7 +69,9 @@ struct ClassifierTests {
         #expect(classify("| a | b |") == .tableRow)
         #expect(classify("|---|---|") == .tableRow)
         #expect(classify("| left | right |") == .tableRow)
-        #expect(classify("left | right") == .tableRow)
+        #expect(classify("---|---") == .tableRow)
+        #expect(classify("left | right") == .prose)
+        #expect(classify("find . | tee /tmp/out") == .prose)
     }
 
     @Test func urlLines() {
@@ -76,6 +79,7 @@ struct ClassifierTests {
         #expect(classify("www.x.io") == .urlLine)
         #expect(classify("- https://x.io") == .urlLine)
         #expect(classify("> https://x.io") == .urlLine)
+        #expect(classify("https://x.io needs review") == .prose)
     }
 
     @Test func urlMentionIsProse() {

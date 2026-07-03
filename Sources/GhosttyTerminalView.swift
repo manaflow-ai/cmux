@@ -3536,10 +3536,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeVisualActive = false
     private var keyboardCopyModeVisualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
     private var keyboardCopyModeVisualLineRuntimeSelectionSynced = false
+    /// libghostty tracks rectangle selection internally but does not expose that
+    /// bit through `ghostty_surface_read_selection`; cmux sets this on Option
+    /// drags and clears it whenever cmux creates or clears a known-linear
+    /// selection.
     private var activeSelectionMayBeRectangular = false
     private var keyboardCopyModeVisualLineActive: Bool {
         keyboardCopyModeVisualLineSelection != nil
     }
+    private static let copyReflowMaxBytes = 2 * 1024 * 1024
+    private static let copyReflowMaxLines = 20_000
     private static let keyboardCopyModeVisualLineFallbackMaxBytes: UInt = 2 * 1024 * 1024
     private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
@@ -4237,6 +4243,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualActive = false
         keyboardCopyModeVisualLineSelection = nil
         keyboardCopyModeVisualLineRuntimeSelectionSynced = false
+        activeSelectionMayBeRectangular = false
         keyboardCopyModePendingViewportJumpGeneration += 1
         clearKeyboardCopyModeViewportJumpCursorSync()
         keyboardCopyModeActive = active
@@ -4580,6 +4587,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func selectKeyboardCopyModeCursorCell(surface: ghostty_surface_t) -> Bool {
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return false }
+        activeSelectionMayBeRectangular = false
 
         let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
             .clamped(rows: metrics.rows, columns: metrics.columns)
@@ -4619,6 +4627,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         lineCount: Int
     ) -> Bool {
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return false }
+        activeSelectionMayBeRectangular = false
         let clampedCount = terminalKeyboardCopyModeClampCount(lineCount)
         let rows = metrics.rows
         let targetRow = max(0, min(rows - 1, startRow))
@@ -4691,6 +4700,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualActive = false
         keyboardCopyModeVisualLineSelection = nil
         keyboardCopyModeVisualLineRuntimeSelectionSynced = false
+        activeSelectionMayBeRectangular = false
         _ = GhosttyRuntimeCInterop.clearSelection(surface)
     }
 
@@ -4741,12 +4751,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let generalPasteboard = NSPasteboard.general
         let previousChangeCount = generalPasteboard.changeCount
         let copied = performBindingAction("copy_to_clipboard")
+        let bypassReflowForRectangularSelection = activeSelectionShouldBypassCopyReflow(surface: surface)
 
         // Ghostty owns clipboard formatting; the raw selection snapshot is only the no-op pasteboard fallback.
         let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
             && generalPasteboard.availableType(from: [.string]) != nil
         if ghosttyWroteFormattedText {
-            if reflow && !activeSelectionMayBeRectangular { reflowClipboardTextIfEnabled(generalPasteboard) }
+            if reflow && !bypassReflowForRectangularSelection {
+                reflowClipboardTextIfEnabled(generalPasteboard)
+            }
             return true
         }
 
@@ -4754,8 +4767,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return copied
         }
 
-        let text = (reflow && !activeSelectionMayBeRectangular && TerminalReflowCopySettings.isEnabled()) ? ReflowOptions.default.reflow(selectedText) : selectedText
+        let shouldReflow = reflow
+            && !bypassReflowForRectangularSelection
+            && TerminalReflowCopySettings.isEnabled()
+            && shouldReflowCopiedText(selectedText)
+        let text = shouldReflow ? ReflowOptions.default.reflow(selectedText) : selectedText
         GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
+        return true
+    }
+
+    private func activeSelectionShouldBypassCopyReflow(surface: ghostty_surface_t) -> Bool {
+        guard activeSelectionMayBeRectangular else { return false }
+        guard ghostty_surface_has_selection(surface) else {
+            activeSelectionMayBeRectangular = false
+            return false
+        }
         return true
     }
 
@@ -4765,7 +4791,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// application hard wrapping and is a no-op for ordinary soft-wrapped prose.
     private func reflowClipboardTextIfEnabled(_ pasteboard: NSPasteboard) {
         guard TerminalReflowCopySettings.isEnabled(),
-              let original = pasteboard.string(forType: .string),
+              let original = boundedPasteboardStringForReflow(pasteboard),
               !original.isEmpty else { return }
         let reflowed = ReflowOptions.default.reflow(original)
         guard reflowed != original else { return }
@@ -4773,12 +4799,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pasteboard.setString(reflowed, forType: .string)
     }
 
+    private func boundedPasteboardStringForReflow(_ pasteboard: NSPasteboard) -> String? {
+        guard let data = pasteboard.data(forType: .string),
+              data.count <= Self.copyReflowMaxBytes,
+              let text = String(data: data, encoding: .utf8),
+              shouldReflowCopiedText(text) else {
+            return nil
+        }
+        return text
+    }
+
+    private func shouldReflowCopiedText(_ text: String) -> Bool {
+        guard text.utf8.count <= Self.copyReflowMaxBytes else { return false }
+        var lineCount = 1
+        for byte in text.utf8 where byte == 10 {
+            lineCount += 1
+            if lineCount > Self.copyReflowMaxLines { return false }
+        }
+        return true
+    }
+
     private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
         if keyboardCopyModeVisualLineActive {
             guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
             // The engine right-trims each line, so per-row padding here cannot
             // become seam gaps.
-            let text = TerminalReflowCopySettings.isEnabled() ? ReflowOptions.default.reflow(selectedText) : selectedText
+            let shouldReflow = TerminalReflowCopySettings.isEnabled()
+                && shouldReflowCopiedText(selectedText)
+            let text = shouldReflow ? ReflowOptions.default.reflow(selectedText) : selectedText
             GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
             return true
         }

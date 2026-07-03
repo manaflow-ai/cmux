@@ -17,6 +17,17 @@ struct FenceMarker: Equatable, Sendable {
         count = marker.count
     }
 
+    init?(closingLine trimmedLine: Substring) {
+        guard let marker = FenceMarker(trimmedLine: trimmedLine) else {
+            return nil
+        }
+        let rest = trimmedLine.dropFirst(marker.count)
+        guard rest.allSatisfy({ $0 == " " || $0 == "\t" }) else {
+            return nil
+        }
+        self = marker
+    }
+
     func closes(_ opening: FenceMarker) -> Bool {
         character == opening.character && count >= opening.count
     }

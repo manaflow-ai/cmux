@@ -114,6 +114,22 @@ struct ReflowParagraphTests {
         )
     }
 
+    @Test func shellPipelineCommandRejoinsWrappedContinuation() {
+        let input =
+            "find . -name \"*.log\" -mtime +7 -delete | tee /tmp/deleted-log-files.txt\n"
+            + "--verbose /tmp/cmux-cleanup-report.txt\n"
+        #expect(
+            reflow(input)
+                == "find . -name \"*.log\" -mtime +7 -delete | tee /tmp/deleted-log-files.txt --verbose /tmp/cmux-cleanup-report.txt\n"
+        )
+    }
+
+    @Test func urlLedProseContinuationJoinsWithSpace() {
+        let lead = "https://example.com/main branch is broken and needs fixing before the release"
+        let input = "\(lead)\n  please take a look today\n"
+        #expect(reflow(input) == "\(lead) please take a look today\n")
+    }
+
     @Test func unindentedShortLinesNotJoined() {
         // No indent signal, below min width -> left alone.
         let input = "alpha\nbeta\ngamma\n"

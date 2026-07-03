@@ -33,7 +33,7 @@ public enum LineKind: Equatable, Sendable {
         let trimmed = rawLine.drop { $0 == " " || $0 == "\t" }
 
         if let activeFence {
-            if let marker = FenceMarker(trimmedLine: trimmed), marker.closes(activeFence) {
+            if let marker = FenceMarker(closingLine: trimmed), marker.closes(activeFence) {
                 self = .fenceDelimiter
             } else {
                 self = .insideFence
@@ -70,10 +70,36 @@ public enum LineKind: Equatable, Sendable {
         return rest.isEmpty || rest.first == " "
     }
 
-    /// Markdown table rows, including rows without outer pipes such as
-    /// `left | right`, are structural and must be preserved verbatim.
+    /// Markdown table rows with outer pipes or separator rows. Rows without
+    /// outer pipes are promoted by the reflow pass only when adjacent to a
+    /// separator row, so shell pipelines stay eligible for command reflow.
     private static func isTableRow(_ trimmed: Substring) -> Bool {
-        trimmed.contains("|")
+        isOuterPipeTableRow(trimmed) || isMarkdownTableSeparator(trimmed)
+    }
+
+    static func isMarkdownTableCandidateRow(_ rawLine: Substring) -> Bool {
+        let trimmed = rawLine.drop { $0 == " " || $0 == "\t" }
+        return !trimmed.isEmpty && trimmed.contains("|") && !isMarkdownTableSeparator(trimmed)
+    }
+
+    static func isMarkdownTableSeparatorRow(_ rawLine: Substring) -> Bool {
+        let trimmed = rawLine.drop { $0 == " " || $0 == "\t" }
+        return isMarkdownTableSeparator(trimmed)
+    }
+
+    private static func isOuterPipeTableRow(_ trimmed: Substring) -> Bool {
+        guard trimmed.first == "|", trimmed.last == "|" else { return false }
+        return trimmed.filter { $0 == "|" }.count >= 2
+    }
+
+    private static func isMarkdownTableSeparator(_ trimmed: Substring) -> Bool {
+        guard trimmed.contains("|"), trimmed.contains("-") else { return false }
+        for ch in trimmed {
+            if ch != "|" && ch != "-" && ch != ":" && ch != " " && ch != "\t" {
+                return false
+            }
+        }
+        return true
     }
 
     /// `- `, `* `, `+ `, `• `, `N. `, or `N) ` (marker followed by a space).
@@ -99,7 +125,8 @@ public enum LineKind: Equatable, Sendable {
     /// then a URL prefix. "Mentions a URL somewhere" does not count.
     private static func isURLLine(_ trimmed: Substring) -> Bool {
         let afterMarker = stripSingleLeadingMarker(trimmed)
-        return urlPrefixes.contains { afterMarker.lowercased().hasPrefix($0) }
+        return !afterMarker.contains { $0 == " " || $0 == "\t" }
+            && urlPrefixes.contains { afterMarker.lowercased().hasPrefix($0) }
     }
 
     /// Drop at most one leading list/quote marker (`- `, `* `, `+ `, `• `,
