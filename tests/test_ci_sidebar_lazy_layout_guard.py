@@ -313,6 +313,32 @@ def main():
             False, "per-row .anchorPreference (#5323 shape) fails",
         ) else 1
 
+        # (n) --file on a row-view source (no container functions) must not
+        # emit false "could not locate func" violations; row scanning still
+        # applies. (Greptile P2 on #7221.)
+        header_like = (
+            "import SwiftUI\n"
+            "struct SidebarWorkspaceGroupHeaderView: View, Equatable {\n"
+            "    var body: some View {\n"
+            "        HStack { Text(\"group\") }\n"
+            "    }\n"
+            "}\n"
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "HeaderLike.swift", header_like)),
+            True, "--file on row-view source without container functions passes",
+        ) else 1
+
+        header_like_bad = header_like.replace(
+            "        HStack { Text(\"group\") }\n",
+            "        HStack { Text(\"group\") }\n"
+            "            .background { GeometryReader { p in Color.clear } }\n",
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "HeaderLikeBad.swift", header_like_bad)),
+            False, "--file row-view source with GeometryReader still fails",
+        ) else 1
+
         # (m) A required row type missing from its file must fail loudly.
         guard_mod = load_guard_module()
         missing_row_violations = guard_mod.check_source(

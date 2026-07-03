@@ -388,8 +388,11 @@ def check_source(
     """Return a list of human-readable violation strings (empty == clean).
 
     ``require_functions`` controls whether the two container functions must be
-    present (True for ContentView.swift; False for row-view files like
-    SidebarWorkspaceGroupHeaderView.swift, which do not contain them).
+    present: True for ContentView.swift, False for row-view files like
+    SidebarWorkspaceGroupHeaderView.swift (which do not contain them), or
+    "auto" for ad-hoc ``--file`` runs -- container checks then apply only when
+    at least one guarded function exists in the source, so a row-view file
+    scans cleanly while a fixture that renamed ONE function still fails loudly.
     ``required_row_types`` names GUARDED_ROW_TYPES that must exist in this
     source -- a rename fails loudly instead of silently skipping the region.
     Row types that are merely present are always scanned.
@@ -398,6 +401,11 @@ def check_source(
     neutralized = neutralize_swift(source)
     violations = []
     bodies = {}
+    if require_functions == "auto":
+        require_functions = any(
+            re.search(r"\bfunc\s+" + re.escape(name) + r"\s*\(", neutralized)
+            for name in GUARDED_FUNCTIONS
+        )
     if require_functions:
         for func_name in GUARDED_FUNCTIONS:
             body = extract_function_body(neutralized, func_name)
@@ -509,7 +517,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.file:
-        targets = ((args.file, True, ()),)
+        # "auto": ad-hoc scans of a row-view file (no container functions)
+        # skip the container checks instead of failing on their absence; a
+        # source containing any guarded function still has both enforced.
+        targets = ((args.file, "auto", ()),)
     else:
         targets = default_targets()
 
