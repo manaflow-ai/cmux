@@ -100,35 +100,35 @@ import Testing
     /// and stays coupled to the serving decision: exactly the kinds that prove a
     /// live listener (`pong`, `authChallenge`) are the ones treated as serving.
     @Test func pingResponseKindClassifiesEveryResponse() {
-        typealias Policy = SocketListenerActivationRecoveryPolicy
-        #expect(Policy.pingResponseKind(nil) == .missing)
-        #expect(Policy.pingResponseKind("") == .empty)
-        #expect(Policy.pingResponseKind("   \n") == .empty)
-        #expect(Policy.pingResponseKind("PONG") == .pong)
-        #expect(Policy.pingResponseKind("  PONG\n") == .pong)
+        let policy = SocketListenerActivationRecoveryPolicy()
+        #expect(policy.pingResponseKind(nil) == .missing)
+        #expect(policy.pingResponseKind("") == .empty)
+        #expect(policy.pingResponseKind("   \n") == .empty)
+        #expect(policy.pingResponseKind("PONG") == .pong)
+        #expect(policy.pingResponseKind("  PONG\n") == .pong)
         #expect(
-            Policy.pingResponseKind("ERROR: Authentication required — send auth <password> first")
+            policy.pingResponseKind("ERROR: Authentication required — send auth <password> first")
                 == .authChallenge
         )
-        #expect(Policy.pingResponseKind("ERROR: unknown command") == .unexpected)
+        #expect(policy.pingResponseKind("ERROR: unknown command") == .unexpected)
 
         // Coupling guarantee: a kind proves the listener is serving iff it is one
         // of the known live-listener replies.
-        for kind in Policy.PingResponseKind.allCases {
+        for kind in SocketListenerActivationPingResponseKind.allCases {
             let proves = (kind == .pong || kind == .authChallenge)
             switch kind {
             case .pong:
-                #expect(Policy.pingResponseProvesListenerServing("PONG") == proves)
+                #expect(policy.pingResponseProvesListenerServing("PONG") == proves)
             case .authChallenge:
                 #expect(
-                    Policy.pingResponseProvesListenerServing(
+                    policy.pingResponseProvesListenerServing(
                         "ERROR: Authentication required — send auth <password> first"
                     ) == proves
                 )
             case .empty:
-                #expect(Policy.pingResponseProvesListenerServing("") == proves)
+                #expect(policy.pingResponseProvesListenerServing("") == proves)
             case .unexpected:
-                #expect(Policy.pingResponseProvesListenerServing("nope") == proves)
+                #expect(policy.pingResponseProvesListenerServing("nope") == proves)
             case .missing:
                 break  // `missing` is the nil case, exercised via listenerIsServing.
             }

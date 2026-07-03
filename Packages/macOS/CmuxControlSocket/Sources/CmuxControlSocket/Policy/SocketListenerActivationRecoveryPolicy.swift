@@ -90,41 +90,20 @@ public struct SocketListenerActivationRecoveryPolicy: Sendable {
         pingResponse: String?
     ) -> Bool {
         guard health.isHealthy, let pingResponse else { return false }
-        return Self.pingResponseProvesListenerServing(pingResponse)
-    }
-
-    /// A bounded, telemetry-safe classification of a `ping` probe response.
-    ///
-    /// The raw probe response is socket-controlled text that can carry local
-    /// filesystem details or arbitrary bytes, so it must never be logged
-    /// verbatim. This coarse kind is the only shape of the response safe to put
-    /// in a breadcrumb, and it is also the single source of truth the serving
-    /// decision reads (see ``pingResponseProvesListenerServing(_:)``).
-    public enum PingResponseKind: String, Sendable, CaseIterable {
-        /// No line at all (`nil`) — a refused, timed-out, or skipped probe.
-        case missing
-        /// A line that is empty after trimming whitespace.
-        case empty
-        /// The healthy `PONG` reply from a live listener.
-        case pong
-        /// The password-mode auth-required challenge; still proves the accept
-        /// loop is alive and dispatching.
-        case authChallenge = "auth_challenge"
-        /// A non-empty line that matches none of the known live-listener replies.
-        case unexpected
+        return pingResponseProvesListenerServing(pingResponse)
     }
 
     /// Classifies a `ping` probe response into a bounded, telemetry-safe kind.
     ///
     /// - Parameter response: The first line returned by a `ping` probe, or `nil`
     ///   when the probe failed, timed out, or was skipped.
-    /// - Returns: The coarse ``PingResponseKind`` — never the raw text.
-    public static func pingResponseKind(_ response: String?) -> PingResponseKind {
+    /// - Returns: The coarse ``SocketListenerActivationPingResponseKind`` — never the raw text.
+    public func pingResponseKind(_ response: String?) -> SocketListenerActivationPingResponseKind {
         guard let response else { return .missing }
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return .empty }
-        if trimmed == healthyPingResponse { return .pong }
-        if trimmed.contains(passwordAuthRequiredResponseMarker) { return .authChallenge }
+        if trimmed == Self.healthyPingResponse { return .pong }
+        if trimmed.contains(Self.passwordAuthRequiredResponseMarker) { return .authChallenge }
         return .unexpected
     }
 
@@ -139,7 +118,7 @@ public struct SocketListenerActivationRecoveryPolicy: Sendable {
     ///
     /// - Parameter response: The first line returned by the `ping` probe.
     /// - Returns: True when the response could only come from a live listener.
-    public static func pingResponseProvesListenerServing(_ response: String) -> Bool {
+    public func pingResponseProvesListenerServing(_ response: String) -> Bool {
         switch pingResponseKind(response) {
         case .pong, .authChallenge:
             return true

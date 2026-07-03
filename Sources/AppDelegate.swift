@@ -4119,7 +4119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "source": "app.didBecomeActive",
             "socketPath": Self.redactedSocketPathForTelemetry(path),
             "failureSignals": health.failureSignals.joined(separator: ","),
-            "pingResponseKind": SocketListenerActivationRecoveryPolicy
+            "pingResponseKind": socketListenerActivationRecoveryPolicy
                 .pingResponseKind(pingResponse).rawValue,
             "pingResponseBytes": pingResponse?.utf8.count ?? 0
         ])
