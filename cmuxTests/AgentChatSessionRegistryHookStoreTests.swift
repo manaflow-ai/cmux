@@ -57,6 +57,44 @@ struct AgentChatSessionRegistryHookStoreTests {
         #expect(session.workingDirectory == "/Users/example/opaque-project")
     }
 
+    @Test func unidentifiedClaudeLivenessFallbackOnlyAppliesToUnresolvedPendingAlias() {
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let now = Date(timeIntervalSince1970: 120)
+        var pending = AgentChatSessionRecord(
+            sessionID: pendingID,
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: now,
+            title: nil,
+            pid: nil
+        )
+
+        #expect(AgentChatSessionRegistry.allowsUnidentifiedClaudeLivenessFallback(for: pending))
+
+        pending.rememberHookStoreSessionID(realSessionID)
+        #expect(!AgentChatSessionRegistry.allowsUnidentifiedClaudeLivenessFallback(for: pending))
+
+        let real = AgentChatSessionRecord(
+            sessionID: realSessionID,
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: now,
+            title: nil,
+            pid: nil
+        )
+        #expect(!AgentChatSessionRegistry.allowsUnidentifiedClaudeLivenessFallback(for: real))
+    }
+
     @MainActor
     @Test func hookStoreSeedKeepsStaleRealEntrySeparateFromPendingClaudeSession() async throws {
         let home = try temporaryHomeDirectory()

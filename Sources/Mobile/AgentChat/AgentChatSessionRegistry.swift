@@ -197,7 +197,7 @@ final class AgentChatSessionRegistry {
                 surfaceID: surfaceID,
                 kind: kind,
                 matchingSessionIDs: expectedSessionIDs,
-                allowUnidentifiedFallback: kind == .claude
+                allowUnidentifiedFallback: Self.allowsUnidentifiedClaudeLivenessFallback(for: record)
             )
             await MainActor.run { [weak self] in
                 guard let self,
@@ -213,6 +213,12 @@ final class AgentChatSessionRegistry {
                 }
             }
         }
+    }
+
+    nonisolated static func allowsUnidentifiedClaudeLivenessFallback(for record: AgentChatSessionRecord) -> Bool {
+        record.agentKind == .claude
+            && isPendingClaudeSessionID(record.sessionID)
+            && record.hookStoreSessionID == nil
     }
 
     /// One session's record.
