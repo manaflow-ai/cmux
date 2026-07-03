@@ -317,10 +317,14 @@ import Testing
         columns: 24,
         full: false
     ))
-    let partialDelivered = try await pollUntil {
-        collector.lines.contains { $0.contains("partial-live-delta") }
+    // Merged cold-attach contract: a partial delta with no delivered baseline
+    // is gated instead of painting onto the blank surface, so it must not
+    // advance the delivered sequence underneath the held replay.
+    let partialGated = try await pollUntil {
+        store.deliveredTerminalByteEndSeqBySurfaceID["live-terminal"] == nil
+            && !collector.lines.contains { $0.contains("partial-live-delta") }
     }
-    #expect(partialDelivered, "a live partial render-grid delta may arrive before the held replay")
+    #expect(partialGated, "a baseline-less partial delta must be gated, not painted")
 
     await router.enqueueReplayRenderGridFrames([
         try MobileTerminalRenderGridFrame(
@@ -341,7 +345,11 @@ import Testing
     }
     #expect(
         replayDelivered,
-        "a same-sequence replay is still required when the only delivered live output was a partial delta"
+        "a same-sequence replay is still required when live output was only a gated partial delta"
+    )
+    #expect(
+        !collector.lines.contains { $0.contains("partial-live-delta") },
+        "the gated partial must never paint before the authoritative snapshot"
     )
     collector.unmount()
 }
