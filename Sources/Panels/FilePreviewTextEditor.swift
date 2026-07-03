@@ -264,6 +264,7 @@ final class SavingTextView: NSTextView {
     private var pendingSyntaxHighlightTask: Task<Void, Never>?
 
     private static let maximumHighlightedUTF16Length = 600_000
+    private static let maximumHighlightedTokenCount = 12_000
     private static let syntaxHighlightDebounceNanoseconds: UInt64 = 180_000_000
 
     convenience init() {
@@ -379,9 +380,7 @@ final class SavingTextView: NSTextView {
 
     // MARK: - Syntax highlighting
 
-    private var canApplySyntaxHighlighting: Bool {
-        syntaxHighlightingEnabled && syntaxLanguage != nil && (string as NSString).length <= Self.maximumHighlightedUTF16Length
-    }
+    private var canApplySyntaxHighlighting: Bool { syntaxHighlightingEnabled && syntaxLanguage != nil && (string as NSString).length <= Self.maximumHighlightedUTF16Length }
 
     @discardableResult
     func configureSyntaxHighlighting(
@@ -425,6 +424,7 @@ final class SavingTextView: NSTextView {
             guard !Task.isCancelled,
                   let self,
                   self.syntaxHighlightGeneration == generation else { return }
+            guard tokens.count <= Self.maximumHighlightedTokenCount else { self.clearSyntaxHighlighting(); return }
             self.applySyntaxTokens(tokens, prefersDark: prefersDark)
         }
     }
