@@ -397,6 +397,11 @@ cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إ
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> امسح رمز QR للانضمام إلى المجتمع.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="رمز QR على WeChat للانضمام إلى مجتمع cmux" width="240" />
+</p>
+
 ## إصدار المؤسسين
 
 cmux مجاني ومفتوح المصدر وسيظل كذلك دائمًا. إذا كنت ترغب في دعم التطوير والحصول على وصول مبكر لما هو قادم:
