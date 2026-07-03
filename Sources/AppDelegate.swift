@@ -4036,6 +4036,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        restorableAgentLivenessIsFresh: Bool = false,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringRestore(
@@ -4068,6 +4069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let snapshotBuildResult = buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
+            restorableAgentLivenessIsFresh: restorableAgentLivenessIsFresh,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
         guard let snapshot = snapshotBuildResult.snapshot else {
@@ -4297,6 +4299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            restorableAgentLivenessIsFresh: true,
             surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
@@ -4319,6 +4322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            restorableAgentLivenessIsFresh: true,
             surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
     }
@@ -4339,6 +4343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 removeWhenEmpty: removeWhenEmpty,
                 preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary,
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                restorableAgentLivenessIsFresh: true,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
         }
@@ -4459,11 +4464,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func buildSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        restorableAgentLivenessIsFresh suppliedRestorableAgentLivenessIsFresh: Bool = false,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: suppliedRestorableAgentIndex,
+            restorableAgentLivenessIsFresh: suppliedRestorableAgentLivenessIsFresh,
             surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
         ).snapshot
     }
@@ -4471,12 +4478,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func buildSessionSnapshotResult(
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        restorableAgentLivenessIsFresh suppliedRestorableAgentLivenessIsFresh: Bool = false,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
         guard !contexts.isEmpty else { return (nil, false) }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let restorableAgentIndex: RestorableAgentSessionIndex
+        let restorableAgentLivenessIsFresh: Bool
+        if let suppliedRestorableAgentIndex {
+            restorableAgentIndex = suppliedRestorableAgentIndex
+            restorableAgentLivenessIsFresh = suppliedRestorableAgentLivenessIsFresh
+        } else {
+            restorableAgentIndex = RestorableAgentSessionIndex.load()
+            restorableAgentLivenessIsFresh = true
+        }
 
         var windows: [SessionWindowSnapshot] = []
         var removedCrashDiagnosticState = false
@@ -4486,10 +4502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for: context,
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
-                // The quit/save build loads the index freshly (see the fresh
-                // `?? RestorableAgentSessionIndex.load()` above), so its live-PID set is
-                // authoritative and may override a prompt-idle agent as still running.
-                restorableAgentLivenessIsFresh: true,
+                restorableAgentLivenessIsFresh: restorableAgentLivenessIsFresh,
                 surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
             )
             // A dedicated remote-tmux mirror window needs a live SSH control
