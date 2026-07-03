@@ -59,11 +59,11 @@ export function DownloadButton({
   // padding, so the divider sits a touch closer to the caret than to "Mac".
   const downloadZone = `flex items-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
     isSmall
-      ? "gap-2 pl-4 pr-2.5 py-1.5 text-xs"
-      : "gap-2.5 pl-5 pr-3 py-2.5 text-[15px]"
+      ? "gap-2 pl-4 pr-2 py-1.5 text-xs"
+      : "gap-2.5 pl-5 pr-[11px] py-2.5 text-[15px]"
   }`;
   const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
-    isSmall ? "px-2" : "px-2.5"
+    isSmall ? "pl-1.5 pr-2" : "px-2"
   }`;
 
   const captureMac = () =>
