@@ -27,9 +27,25 @@ extension MobileShellComposite {
         } else if endSeq == currentSeq, fullReplacement {
             markTerminalFullReplacementObserved(surfaceID: surfaceID, seq: endSeq)
         }
+        // A live delivery releases the pre-barrier floor only once the
+        // delivered sequence catches up to it; a stale buffered chunk below
+        // the floor must not wipe the one guard that keeps other pre-barrier
+        // frames from establishing an outdated baseline.
+        if let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID],
+           (deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0) >= floorSeq {
+            terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        }
+        let clearBaselineReplayCount = terminalOutputTransport != .hybrid
+            || terminalActiveScreenBySurfaceID[surfaceID] != .alternate
+            || terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
+        if clearBaselineReplayCount {
+            terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
+        }
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+            terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
     }
@@ -57,20 +73,28 @@ extension MobileShellComposite {
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
+        stashTerminalPreBarrierDeliveredEndSeq(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+        // The alternate baseline flag survives here: the surface keeps its
+        // content under a barrier; only the surface-destroying resets clear it.
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         let token = UUID()
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         if !preservingFollowUpCount {
             terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         }
+        terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         return token
     }
@@ -82,6 +106,7 @@ extension MobileShellComposite {
         }
         if supportedHostCapabilities.contains(Self.terminalReplayCapability) {
             let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
             return
         }
@@ -109,6 +134,7 @@ extension MobileShellComposite {
             }
             guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { continue }
             let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+            terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
             requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
         }
     }
@@ -129,13 +155,30 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux("terminal.output.replay_barrier_preserved_\(reason) surface=\(surfaceID)")
             return false
         }
+        let wasMissingBaselineBarrier = terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == token
+        // Restoring the floor keeps later deltas flowing instead of stalling
+        // them behind an exhausted missing-baseline budget.
+        let restoredBaselineFromFloor = restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+        // A restored baseline is NOT a delivered one for budget purposes: the
+        // gate that armed this barrier is still unsatisfied, and clearing the
+        // budget here would let an empty-answering host be hammered with one
+        // replay per gated delta.
+        let baselineDelivered = terminalOutputTransport == .hybrid
+            ? terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID)
+            : (!restoredBaselineFromFloor && deliveredTerminalByteEndSeqBySurfaceID[surfaceID] != nil)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+        if !wasMissingBaselineBarrier || baselineDelivered {
+            terminalRenderGridBaselineReplayRequestCountsBySurfaceID.removeValue(forKey: surfaceID)
+        }
+        terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_\(reason) surface=\(surfaceID)")
         return true
@@ -256,5 +299,69 @@ extension MobileShellComposite {
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
+    }
+
+    func resolveTerminalReplayFailureBarrier(surfaceID: String, token: UUID?) {
+        let coldAttachBarrier = token.map {
+            terminalColdAttachReplayBarrierTokensBySurfaceID[surfaceID] == $0
+        } ?? false
+        let missingBaselineBarrier = token.map {
+            terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] == $0
+        } ?? false
+        guard coldAttachBarrier || missingBaselineBarrier else {
+            preserveTerminalReplayBarrierIfCurrent(surfaceID: surfaceID, token: token, reason: "failed")
+            return
+        }
+        if clearTerminalReplayBarrierIfCurrent(surfaceID: surfaceID, token: token, reason: "cold_attach_failed") {
+            if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil {
+                terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = Self.maxTerminalReplayFailureRetries
+            }
+        }
+    }
+
+    func requestTerminalReplayForMissingRenderGridBaseline(surfaceID: String) {
+        let requestCount = terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] ?? 0
+        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil,
+              !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+              requestCount < Self.maxTerminalReplayFailureRetries else {
+            return
+        }
+        let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
+        terminalRenderGridBaselineReplayRequestCountsBySurfaceID[surfaceID] = requestCount + 1
+        terminalRenderGridBaselineReplayBarrierTokensBySurfaceID[surfaceID] = replayBarrierToken
+        requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    }
+
+    /// An authoritative replay was accepted: its state supersedes the
+    /// pre-barrier floor even when the host's sequence counter restarted lower
+    /// (surface recreate), so live frames from the new epoch flow afterwards.
+    /// Only replay acceptance may re-base BELOW the floor; live deliveries
+    /// release the floor solely by catching up to it (see
+    /// ``markTerminalBytesDelivered(surfaceID:endSeq:)``).
+    func rebaseTerminalReplayStaleFloor(surfaceID: String) {
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
+    /// Barrier released without delivering: the surface still shows the
+    /// pre-barrier content, so the stashed floor IS the truthful baseline.
+    /// Restores it (returning whether it did) and always drops the floor.
+    @discardableResult
+    func restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: String) -> Bool {
+        var restored = false
+        if deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil,
+           let floorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] {
+            deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = floorSeq
+            restored = true
+        }
+        terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        return restored
+    }
+
+    /// Move the delivered high-water mark into the pre-barrier stale floor so
+    /// buffered pre-barrier frames stay rejected while the replay is pending.
+    func stashTerminalPreBarrierDeliveredEndSeq(surfaceID: String) {
+        guard let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] else { return }
+        let stashedSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] ?? 0
+        terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] = max(stashedSeq, deliveredSeq)
     }
 }
