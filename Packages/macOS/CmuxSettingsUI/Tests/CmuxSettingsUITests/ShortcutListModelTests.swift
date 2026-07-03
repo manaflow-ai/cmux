@@ -128,7 +128,7 @@ import CmuxSettings
         let (store, catalog, errorLog) = makeStore()
         let conflictAction = ShortcutAction.closeWindow
         let targetAction = ShortcutAction.openSettings
-        let stroke = ShortcutStroke(key: "q", command: true, shift: false, option: false, control: false)
+        let stroke = ShortcutStroke(key: "u", command: true, shift: true, option: true, control: true)
 
         try await store.set(
             [conflictAction.rawValue: StoredShortcut(first: stroke)],
@@ -147,6 +147,74 @@ import CmuxSettings
         try await store.set(
             [conflictAction.rawValue: StoredShortcut.unbound],
             for: catalog.shortcuts.bindings
+        )
+        await spin(until: { model.conflictRejections[targetAction.rawValue] == nil })
+
+        #expect(model.conflictRejections[targetAction.rawValue] == nil)
+    }
+
+    @Test func unrelatedBindingChangeKeepsStillConflictingRejection() async throws {
+        // WHY: the rejected shortcut, not the row's current effective binding,
+        // is the source of truth for whether a conflict banner is still valid.
+        let (store, catalog, errorLog) = makeStore()
+        let conflictAction = ShortcutAction.closeWindow
+        let targetAction = ShortcutAction.openSettings
+        let unrelatedAction = ShortcutAction.toggleFullScreen
+        let stroke = ShortcutStroke(key: "u", command: true, shift: true, option: true, control: true)
+        let unrelatedStroke = ShortcutStroke(key: "f", command: true, shift: true, option: false, control: false)
+
+        try await store.set(
+            [conflictAction.rawValue: StoredShortcut(first: stroke)],
+            for: catalog.shortcuts.bindings
+        )
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[conflictAction.rawValue] != nil })
+
+        await model.assign(stroke: stroke, to: targetAction)
+        #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+
+        try await store.set(
+            [
+                conflictAction.rawValue: StoredShortcut(first: stroke),
+                unrelatedAction.rawValue: StoredShortcut(first: unrelatedStroke),
+            ],
+            for: catalog.shortcuts.bindings
+        )
+        await spin(until: { model.bindings[unrelatedAction.rawValue] != nil })
+
+        #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+    }
+
+    @Test func whenOverrideChangePrunesResolvedConflictRejection() async throws {
+        // WHY: shortcuts.when edits can make a rejected shortcut non-conflicting
+        // without changing any binding, so the when observer must prune banners too.
+        let (store, catalog, errorLog) = makeStore()
+        let conflictAction = ShortcutAction.browserBack
+        let targetAction = ShortcutAction.openSettings
+        let stroke = ShortcutStroke(key: "y", command: true, shift: true, option: true, control: true)
+
+        try await store.set(
+            [conflictAction.rawValue: StoredShortcut(first: stroke)],
+            for: catalog.shortcuts.bindings
+        )
+        try await store.set(
+            [conflictAction.rawValue: "", targetAction.rawValue: ""],
+            for: catalog.shortcuts.when
+        )
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.whenOverrideClauses[targetAction.rawValue] == .always })
+        await spin(until: { model.bindings[conflictAction.rawValue] != nil })
+
+        await model.assign(stroke: stroke, to: targetAction)
+        #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+
+        try await store.set(
+            [conflictAction.rawValue: "browserFocus", targetAction.rawValue: "!browserFocus"],
+            for: catalog.shortcuts.when
         )
         await spin(until: { model.conflictRejections[targetAction.rawValue] == nil })
 
