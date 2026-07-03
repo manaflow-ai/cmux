@@ -102,6 +102,77 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(session.workingDirectory == "/Users/example/versioned-project")
     }
 
+    @Test func mobileChatObserverDetectsClaudeShortResumeFlag() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 104,
+                    name: "claude",
+                    path: "/opt/homebrew/bin/claude",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 104),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 104 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["claude", "-r", sessionID],
+                    environment: [
+                        "CMUX_AGENT_LAUNCH_CWD": "/Users/example/short-resume",
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .claude)
+    }
+
+    @Test func mobileChatObserverRejectsOptionLikeClaudeResumeValues() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let optionUUID = "b6fbc8e1-2c4b-4e51-a2b8-fd17c2ad59f0"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 105,
+                    name: "claude",
+                    path: "/opt/homebrew/bin/claude",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 105),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 105 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["claude", "--resume", "--flag=\(optionUUID)"],
+                    environment: [:]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        #expect(observed.isEmpty)
+    }
+
     @Test func mobileChatObserverScopedScanIgnoresOtherSurfacesWithoutReadingDetails() throws {
         let workspaceID = UUID()
         let includedSurfaceID = UUID()

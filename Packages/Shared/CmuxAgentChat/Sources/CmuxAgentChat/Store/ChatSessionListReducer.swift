@@ -74,7 +74,10 @@ public struct ChatSessionListReducer: Sendable {
             // directly for its own live state (it is not version-reconciled).
             return sessions
         case .sessionRemoved(let version):
-            let currentVersion = sessions.first { $0.id == frame.sessionID }?.version ?? 0
+            guard let current = sessions.first(where: { $0.id == frame.sessionID }) else {
+                return sessions
+            }
+            let currentVersion = current.version
             guard version >= currentVersion else { return sessions }
             if version != Int.max {
                 removedVersionBySessionID[frame.sessionID] = max(

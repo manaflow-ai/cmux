@@ -601,7 +601,7 @@ public final class ChatConversationStore {
             guard descriptor.version > self.descriptor.version || (descriptor.version == self.descriptor.version && agentState != .ended) else { return }; self.descriptor = descriptor
             agentState = descriptor.state; if case .idle = descriptor.state {} else { didFlushThisIdleWindow = false }
         case .sessionRemoved(let version):
-            guard version == Int.max || version >= descriptor.version else { return }; if version != Int.max { self.descriptor.version = max(descriptor.version, version) }; agentState = .ended
+            guard version == Int.max || version >= descriptor.version else { return }; let nextVersion = version == Int.max ? descriptor.version : max(descriptor.version, version); self.descriptor = descriptor.withState(.ended); self.descriptor.version = nextVersion; agentState = .ended
         case .terminalBlocks(let blocks):
             // Upsert by id: a new id appends to the order; an existing id
             // replaces in place (output grew / command finished). Whole-block

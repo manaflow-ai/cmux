@@ -358,26 +358,37 @@ extension AgentChatSessionRegistry {
     }
 
     /// Extracts a session id from an agent's argv (`--session-id <id>`,
-    /// `--session-id=<id>`, `--resume <id>`, `--resume=<id>`).
+    /// `--session-id=<id>`, `--resume <id>`, `--resume=<id>`, `-r <id>`).
     nonisolated static func sessionIDFromArguments(_ arguments: [String]) -> String? {
         var index = 0
         while index < arguments.count {
             let arg = arguments[index]
-            if arg == "--session-id" || arg == "--resume", index + 1 < arguments.count,
-               let id = firstUUIDLike(in: arguments[index + 1]) {
+            if (arg == "--session-id" || arg == "--resume" || arg == "-r"),
+               index + 1 < arguments.count,
+               let id = sessionIDFromOptionValue(arguments[index + 1]) {
                 return id
             }
             if arg.hasPrefix("--session-id="),
-               let id = firstUUIDLike(in: String(arg.dropFirst("--session-id=".count))) {
+               let id = sessionIDFromOptionValue(String(arg.dropFirst("--session-id=".count))) {
                 return id
             }
             if arg.hasPrefix("--resume="),
-               let id = firstUUIDLike(in: String(arg.dropFirst("--resume=".count))) {
+               let id = sessionIDFromOptionValue(String(arg.dropFirst("--resume=".count))) {
+                return id
+            }
+            if arg.hasPrefix("-r="),
+               let id = sessionIDFromOptionValue(String(arg.dropFirst("-r=".count))) {
                 return id
             }
             index += 1
         }
         return nil
+    }
+
+    private nonisolated static func sessionIDFromOptionValue(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("-") else { return nil }
+        return firstUUIDLike(in: trimmed)
     }
 
     /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process

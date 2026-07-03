@@ -56,6 +56,25 @@ struct ChatConversationStoreSessionRemovalTests {
         #expect(await Self.waitUntil { store.agentState == ChatAgentState.idle })
     }
 
+    @Test("sessionRemoved keeps the public descriptor state in sync")
+    func sessionRemovedUpdatesPublicDescriptorState() async {
+        let source = EventSource()
+        let store = ChatConversationStore(
+            descriptor: Self.descriptor(state: .working(since: Self.baseTime), version: 5),
+            source: source,
+            now: { Self.baseTime }
+        )
+        let runTask = Task { await store.run() }
+        defer { runTask.cancel() }
+
+        #expect(await Self.waitUntil { store.isConnected })
+        await source.emit(.sessionRemoved(version: 6))
+        #expect(await Self.waitUntil { store.agentState == ChatAgentState.ended })
+
+        #expect(store.descriptor.state == .ended)
+        #expect(store.descriptor.version == 6)
+    }
+
     private static func descriptor(
         state: ChatAgentState,
         version: Int
