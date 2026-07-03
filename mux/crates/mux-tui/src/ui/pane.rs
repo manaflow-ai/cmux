@@ -1,18 +1,18 @@
-//! Pane drawing: per-pane tab bar plus terminal content from the ghostty
-//! render state.
+//! Pane drawing: per-pane tab bar, terminal content from the ghostty
+//! render state (with selection highlight), and a thin scrollbar when
+//! the surface is scrolled back.
 
-use ghostty_vt::{Cell as VtCell, RenderState};
+use ghostty_vt::{Cell as VtCell, RenderState, Scrollbar};
 use mux_core::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
 use super::{bar_active_style, bar_base_style, truncate};
-use crate::app::{App, PaneArea, TabBarHit};
+use crate::app::{App, Hit, PaneArea, Selection};
 
 /// Draw every pane of the current frame. Returns the terminal cursor
 /// position for the focused pane, if visible.
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
-    app.tab_hits.clear();
     let active_pane = app.tree.active_workspace().map(|ws| ws.active_pane);
     let areas = app.pane_areas.clone();
     let mut cursor = None;
@@ -24,6 +24,7 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         if let Some(c) = draw_content(app, frame, area, focused) {
             cursor = Some(c);
         }
+        draw_scrollbar(app, frame, area);
     }
     cursor
 }
@@ -59,10 +60,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, bar: Rect, fo
         let label = format!(" {} ", truncate(tab.display_title(), 16));
         let width = (label.chars().count() as u16).min(max_x - x);
         buf.set_stringn(x, bar.y, &label, width as usize, style);
-        hits.push((
-            Rect { x, y: bar.y, width, height: 1 },
-            TabBarHit::Select { pane: area.pane, index: i },
-        ));
+        hits.push((Rect { x, y: bar.y, width, height: 1 }, Hit::Tab { pane: area.pane, index: i }));
         x += width;
     }
     // Trailing "+" opens a new tab in this pane.
@@ -70,9 +68,9 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, bar: Rect, fo
         let label = " + ";
         let width = (label.len() as u16).min(max_x - x);
         buf.set_stringn(x, bar.y, label, width as usize, base.fg(Color::Indexed(250)));
-        hits.push((Rect { x, y: bar.y, width, height: 1 }, TabBarHit::NewTab { pane: area.pane }));
+        hits.push((Rect { x, y: bar.y, width, height: 1 }, Hit::NewTab { pane: area.pane }));
     }
-    app.tab_hits.extend(hits);
+    app.hits.extend(hits);
 }
 
 /// Draw one pane's terminal content; returns the frame cursor position
@@ -99,6 +97,9 @@ fn draw_content(
     }
     rs.set_clean();
 
+    let selection: Option<Selection> =
+        app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
+
     let screen = frame.area();
     let buf = frame.buffer_mut();
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x)) as usize;
@@ -114,7 +115,8 @@ fn draw_content(
                 break;
             }
             let x = rect.x + col as u16;
-            apply_cell(&mut buf[(x, y)], cell);
+            let selected = selection.is_some_and(|s| s.contains(col as u16, row as u16));
+            apply_cell(&mut buf[(x, y)], cell, selected);
         }
         // Pane narrower than the rect (during resize races): blank the rest.
         for col in cells.len()..max_cols {
@@ -144,7 +146,55 @@ fn draw_content(
     None
 }
 
-fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell) {
+/// Thin scrollbar in the content rect's last column, shown only while
+/// the surface is scrolled back (like a transient overlay scrollbar).
+/// The whole track is clickable/draggable.
+fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea) {
+    let rect = area.content;
+    if rect.width < 2 || rect.height < 2 {
+        return;
+    }
+    let Some(surface) = app.session.surface(area.surface) else { return };
+    let Some(sb) = surface.with_terminal(|t| t.scrollbar()) else { return };
+    if !sb.scrolled_back() {
+        return;
+    }
+
+    let track = Rect { x: rect.x + rect.width - 1, y: rect.y, width: 1, height: rect.height };
+    let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
+
+    let screen = frame.area();
+    let buf = frame.buffer_mut();
+    let track_style = Style::default().fg(Color::Indexed(238));
+    let thumb_style = Style::default().fg(Color::Indexed(246));
+    for dy in 0..track.height {
+        let y = track.y + dy;
+        if track.x >= screen.width || y >= screen.height {
+            continue;
+        }
+        // ▕ is a thin right-edge bar, so the scrollbar overlays the last
+        // column without hiding much content.
+        let in_thumb = dy >= thumb_y && dy < thumb_y + thumb_len;
+        buf[(track.x, y)].set_symbol("▕").set_style(if in_thumb {
+            thumb_style
+        } else {
+            track_style
+        });
+    }
+    app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
+}
+
+/// Thumb position and length (in track cells) for a scrollbar state.
+fn thumb_geometry(sb: &Scrollbar, track_height: u16) -> (u16, u16) {
+    let track = track_height.max(1) as f64;
+    let len = ((sb.len as f64 / sb.total as f64) * track).ceil().clamp(1.0, track) as u16;
+    let denom = (sb.total - sb.len).max(1) as f64;
+    let frac = (sb.offset as f64 / denom).clamp(0.0, 1.0);
+    let y = (frac * (track_height.saturating_sub(len)) as f64).round() as u16;
+    (y, len)
+}
+
+fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: bool) {
     if cell.text.is_empty() {
         target.set_symbol(" ");
     } else {
@@ -184,6 +234,11 @@ fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell) {
     }
     if cell.invisible {
         modifier |= Modifier::HIDDEN;
+    }
+    // Selection renders as reverse video on top of the cell's own style
+    // (double-reverse cancels out, which still reads correctly).
+    if selected {
+        modifier ^= Modifier::REVERSED;
     }
     style = style.add_modifier(modifier);
     target.set_style(style);

@@ -1,15 +1,18 @@
-//! Frame drawing: sidebar, panes (tab bar + ghostty render state),
-//! separators, status bar, and overlays (context menu, rename prompt).
+//! Frame drawing: sidebar, panes (tab bar + ghostty render state +
+//! scrollbar), separators, status bar, and overlays (context menu,
+//! rename prompt). Every renderer that draws something interactive also
+//! pushes a [`Hit`] so clicks always match what is on screen.
 
 mod overlay;
 mod pane;
 mod sidebar;
 
+use mux_core::Rect;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
-use crate::app::App;
+use crate::app::{App, Hit};
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
@@ -17,10 +20,9 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         return;
     }
 
+    app.hits.clear();
     if app.sidebar_width > 0 {
         sidebar::draw(app, frame);
-    } else {
-        app.sidebar_hits.clear();
     }
 
     let cursor = pane::draw_all(app, frame);
@@ -53,12 +55,14 @@ fn draw_separators(app: &App, frame: &mut Frame) {
     }
 }
 
+/// Status bar: session label, then one clickable segment per workspace,
+/// and the active pane's tabs (also clickable).
 fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let status_y = area.height - 1;
-    let status_style = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(250));
+    let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(250));
     for x in 0..area.width {
-        frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(status_style);
+        frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
     }
 
     if let Some(prompt) = &app.prompt {
@@ -70,8 +74,53 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         return;
     }
 
-    let status = status_line(app);
-    frame.buffer_mut().set_stringn(0, status_y, &status, area.width as usize, status_style);
+    let active_style = base.fg(Color::Indexed(255)).add_modifier(Modifier::BOLD);
+    let mut x: u16 = 0;
+    let mut hits = Vec::new();
+    let put = |frame: &mut Frame, x: &mut u16, text: &str, style: Style| -> (u16, u16) {
+        let start = *x;
+        let width = (text.chars().count() as u16).min(area.width.saturating_sub(*x));
+        if width > 0 {
+            frame.buffer_mut().set_stringn(*x, status_y, text, width as usize, style);
+            *x += width;
+        }
+        (start, width)
+    };
+
+    put(frame, &mut x, &format!("[{}]", app.session_label), base);
+    let workspaces = app.tree.workspaces.clone();
+    let active_ws = app.tree.active_workspace;
+    for (i, ws) in workspaces.iter().enumerate() {
+        let active = i == active_ws;
+        let label = if active { format!(" {}*", ws.name) } else { format!(" {}", ws.name) };
+        let (start, width) = put(frame, &mut x, &label, if active { active_style } else { base });
+        if width > 0 {
+            hits.push((
+                Rect { x: start, y: status_y, width, height: 1 },
+                Hit::Workspace { index: i, id: ws.id },
+            ));
+        }
+        if !active {
+            continue;
+        }
+        // The active workspace also lists its active pane's tabs.
+        let Some(pane) = ws.pane(ws.active_pane) else { continue };
+        put(frame, &mut x, " ", base);
+        for (t, tab) in pane.tabs.iter().enumerate() {
+            let marker = if t == pane.active_tab { "*" } else { "" };
+            let label = format!(" {}:{}{}", t + 1, truncate(tab.display_title(), 18), marker);
+            let style = if t == pane.active_tab { active_style } else { base };
+            let (start, width) = put(frame, &mut x, &label, style);
+            if width > 0 {
+                hits.push((
+                    Rect { x: start, y: status_y, width, height: 1 },
+                    Hit::Tab { pane: pane.id, index: t },
+                ));
+            }
+        }
+    }
+    app.hits.extend(hits);
+
     if app.prefix_armed {
         let indicator = " C-b ";
         let x = area.width.saturating_sub(indicator.len() as u16);
@@ -83,31 +132,6 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
             Style::default().bg(Color::Yellow).fg(Color::Black),
         );
     }
-}
-
-fn status_line(app: &App) -> String {
-    let mut status = format!("[{}]", app.session_label);
-    for (i, ws) in app.tree.workspaces.iter().enumerate() {
-        if i == app.tree.active_workspace {
-            status.push_str(&format!(" {}*", ws.name));
-            if let Some(pane) = ws.pane(ws.active_pane) {
-                let tabs = pane
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .map(|(t, tab)| {
-                        let marker = if t == pane.active_tab { "*" } else { "" };
-                        format!("{}:{}{}", t + 1, truncate(tab.display_title(), 18), marker)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                status.push_str(&format!("  {tabs}"));
-            }
-        } else {
-            status.push_str(&format!(" {}", ws.name));
-        }
-    }
-    status
 }
 
 pub(crate) fn truncate(s: &str, max: usize) -> String {

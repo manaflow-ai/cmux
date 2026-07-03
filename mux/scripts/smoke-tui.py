@@ -57,12 +57,38 @@ pane_id = panes[0]["id"]
 surface_id = panes[0]["tabs"][0]["surface"]
 print("initial tree ok, pane", pane_id, "surface", surface_id)
 
+# Spawn-at-size: the first surface was created at its final render size
+# (window 100x30, sidebar 22, status bar 1 -> 78x29), not 80x24 then
+# resized (a post-spawn resize makes zsh repaint its prompt and leave a
+# reverse-video % artifact).
+size = panes[0]["tabs"][0]["size"]
+assert size == {"cols": 78, "rows": 29}, size
+print("initial surface spawned at final size ok")
+
 # Type a command into the shell via the TUI's stdin path (real keystrokes).
 os.write(fd, b"printf 'smoke-marker-%s\\n' ok\r")
 drain(1.5)
 screen = rpc({"id": 3, "cmd": "read-screen", "surface": surface_id})
 assert "smoke-marker-ok" in screen["data"]["text"], screen["data"]["text"][-500:]
 print("keystroke -> pty -> ghostty screen ok")
+
+# Drag-select the marker text: press, drag, release (SGR mouse, 1-based).
+# The pane content starts at column 23 (sidebar is 22 wide); find the
+# marker's viewport row via read-screen. On release the TUI must copy the
+# selection to the host clipboard as an OSC 52 sequence.
+lines = rpc({"id": 100, "cmd": "read-screen", "surface": surface_id})["data"]["text"].splitlines()
+row = next(i for i, l in enumerate(lines) if "smoke-marker-ok" in l) + 1
+col0 = 23 + lines[row - 1].index("smoke-marker-ok")
+os.write(fd, f"\x1b[<0;{col0};{row}M".encode())
+os.write(fd, f"\x1b[<32;{col0 + 14};{row}M".encode())
+os.write(fd, f"\x1b[<0;{col0 + 14};{row}m".encode())
+drain(1.0)
+import base64, re
+osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
+assert osc52, "no OSC 52 clipboard write after drag-select"
+copied = base64.b64decode(osc52[-1]).decode()
+assert "smoke-marker-ok" in copied, repr(copied)
+print("drag-select -> OSC52 clipboard copy ok")
 
 # Prefix + c: new tab in the active pane (two tabs, one pane).
 os.write(fd, b"\x02c")

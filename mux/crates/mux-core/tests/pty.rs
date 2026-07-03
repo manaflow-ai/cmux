@@ -26,7 +26,7 @@ fn shell_opts(script: &str) -> SurfaceOptions {
 fn surface_runs_command_and_screen_updates() {
     let mux = Mux::new("test-pty", shell_opts("printf 'marker-42\\n'; sleep 30"));
     let events = mux.subscribe();
-    let surface = mux.new_workspace(None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     // Output event arrives...
     let got = wait_for(
@@ -58,7 +58,7 @@ fn surface_exit_reaps_tree_and_emits_event() {
         SurfaceOptions { command: Some(vec!["/usr/bin/true".to_string()]), ..Default::default() };
     let mux = Mux::new("test-exit", opts);
     let events = mux.subscribe();
-    let surface = mux.new_workspace(None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     let got = wait_for(
         || {
@@ -84,7 +84,7 @@ fn control_socket_round_trip() {
         format!("test-sock-{}", std::process::id()),
         shell_opts("printf 'socket-check\\n'; sleep 30"),
     );
-    let surface = mux.new_workspace(None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
     let stream = UnixStream::connect(&sock_path).unwrap();
@@ -172,7 +172,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
             "printf 'before-attach\\n'; read line; printf 'after-%s\\n' \"$line\"; sleep 30",
         ),
     );
-    let surface = mux.new_workspace(None).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
 
     // Wait until the pre-attach output landed in the terminal.
     let ok = wait_for(
@@ -224,7 +224,7 @@ fn new_tab_on_empty_headless_session_creates_workspace() {
     // it must create a workspace around the new tab instead of panicking.
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new("test-headless", opts);
-    let surface = mux.new_tab(None, None).unwrap();
+    let surface = mux.new_tab(None, None, None).unwrap();
     mux.with_state(|s| {
         assert_eq!(s.workspaces.len(), 1);
         assert_eq!(s.panes.len(), 1);
@@ -232,7 +232,7 @@ fn new_tab_on_empty_headless_session_creates_workspace() {
 
     // Unknown pane ids error without leaking a surface.
     let before = mux.surface_count();
-    assert!(mux.new_tab(Some(9999), None).is_err());
+    assert!(mux.new_tab(Some(9999), None, None).is_err());
     assert_eq!(mux.surface_count(), before);
 
     mux.close_surface(surface.id);

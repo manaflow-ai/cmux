@@ -26,6 +26,15 @@ pub enum Session {
     Remote(Arc<RemoteSession>),
 }
 
+/// Attach optional cols/rows fields to a remote command.
+fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
+    if let Some((cols, rows)) = size {
+        cmd["cols"] = json!(cols);
+        cmd["rows"] = json!(rows);
+    }
+    cmd
+}
+
 #[derive(Clone)]
 pub enum SurfaceHandle {
     Local(Arc<Surface>),
@@ -33,16 +42,17 @@ pub enum SurfaceHandle {
 }
 
 impl Session {
-    /// Make sure the session has at least one workspace to show.
-    pub fn ensure_initial(&self) -> anyhow::Result<()> {
+    /// Make sure the session has at least one workspace to show. `size`
+    /// is the expected content size of the first pane, when known.
+    pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.new_workspace(None)?;
+                mux.new_workspace(None, size)?;
                 Ok(())
             }
             Session::Remote(remote) => {
                 if remote.tree()?.workspaces.is_empty() {
-                    remote.request(json!({"cmd": "new-workspace"}))?;
+                    remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
                 }
                 Ok(())
             }
@@ -72,31 +82,40 @@ impl Session {
         }
     }
 
-    pub fn new_tab(&self, pane: Option<PaneId>) -> anyhow::Result<()> {
+    pub fn new_tab(&self, pane: Option<PaneId>, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.new_tab(pane, None).map(|_| ()),
+            Session::Local(mux) => mux.new_tab(pane, None, size).map(|_| ()),
             Session::Remote(remote) => {
-                remote.request(json!({"cmd": "new-tab", "pane": pane})).map(|_| ())
+                remote.request(with_size(json!({"cmd": "new-tab", "pane": pane}), size)).map(|_| ())
             }
         }
     }
 
-    pub fn new_workspace(&self) -> anyhow::Result<()> {
+    pub fn new_workspace(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.new_workspace(None).map(|_| ()),
-            Session::Remote(remote) => remote.request(json!({"cmd": "new-workspace"})).map(|_| ()),
+            Session::Local(mux) => mux.new_workspace(None, size).map(|_| ()),
+            Session::Remote(remote) => {
+                remote.request(with_size(json!({"cmd": "new-workspace"}), size)).map(|_| ())
+            }
         }
     }
 
-    pub fn split(&self, pane: PaneId, dir: SplitDir) -> anyhow::Result<()> {
+    pub fn split(
+        &self,
+        pane: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<()> {
         match self {
-            Session::Local(mux) => mux.split(pane, dir).map(|_| ()),
+            Session::Local(mux) => mux.split(pane, dir, size).map(|_| ()),
             Session::Remote(remote) => {
                 let dir = match dir {
                     SplitDir::Right => "right",
                     SplitDir::Down => "down",
                 };
-                remote.request(json!({"cmd": "split", "pane": pane, "dir": dir})).map(|_| ())
+                remote
+                    .request(with_size(json!({"cmd": "split", "pane": pane, "dir": dir}), size))
+                    .map(|_| ())
             }
         }
     }

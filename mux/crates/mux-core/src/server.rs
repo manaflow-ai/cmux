@@ -74,15 +74,29 @@ enum Command {
         pane: Option<PaneId>,
         #[serde(default)]
         cwd: Option<String>,
+        /// Expected content size in cells (spawn-at-size avoids shell
+        /// redraw artifacts).
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
     },
     NewWorkspace {
         #[serde(default)]
         name: Option<String>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
     },
     Split {
         pane: PaneId,
         /// "right" or "down"
         dir: String,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
     },
     /// Close one tab.
     CloseSurface {
@@ -321,21 +335,21 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                 "data": base64::engine::general_purpose::STANDARD.encode(replay),
             }))
         }
-        Command::NewTab { pane, cwd } => {
-            let surface = mux.new_tab(pane, cwd)?;
+        Command::NewTab { pane, cwd, cols, rows } => {
+            let surface = mux.new_tab(pane, cwd, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::NewWorkspace { name } => {
-            let surface = mux.new_workspace(name)?;
+        Command::NewWorkspace { name, cols, rows } => {
+            let surface = mux.new_workspace(name, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::Split { pane, dir } => {
+        Command::Split { pane, dir, cols, rows } => {
             let dir = match dir.as_str() {
                 "right" => SplitDir::Right,
                 "down" => SplitDir::Down,
                 other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
             };
-            let surface = mux.split(pane, dir)?;
+            let surface = mux.split(pane, dir, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::CloseSurface { surface } => {

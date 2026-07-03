@@ -25,7 +25,9 @@ Detach with prefix-d while attached; the headless session keeps running and `att
 
 Keys (prefix Ctrl-b, tmux-style): `c` new tab in the active pane, `n`/`p`/`1`-`9` switch tab within the pane, `%` split right, `"` split down, `h j k l`/arrows move focus, `x` close tab (a pane collapses with its last tab), `,` rename pane, `$` rename workspace, `w` next workspace, `W` new workspace, `s` toggle the workspace sidebar, PageUp/PageDown scrollback, `d` quit, `Ctrl-b` twice sends a literal Ctrl-b.
 
-Mouse: click focuses panes; panes with several tabs draw a one-row tab bar (click a title to switch, the trailing `+` opens a new tab). Right-click a pane for rename pane / new tab / split right / split down / close pane; right-click a workspace in the sidebar for rename/close. Renames use a status-line prompt (Enter commits, Esc cancels; an empty pane name falls back to the tab title). The sidebar reserves two lines per workspace (name, then the active pane's title) under a `workspaces` header, with a blank line between entries; click an entry to switch, `+ new workspace` to create one. Wheel scrolls (arrow keys on the alternate screen).
+Mouse: click focuses panes; panes with several tabs draw a one-row tab bar (click a title to switch, the trailing `+` opens a new tab). The status bar is clickable too (workspace names and the active pane's tab list). Right-click a pane for rename pane / new tab / split right / split down / close pane; right-click a workspace (sidebar or status bar) for rename/close. Renames use a status-line prompt (Enter commits, Esc cancels; an empty pane name falls back to the tab title). The sidebar reserves two lines per workspace (name, then the active pane's title) under a `workspaces` header, with a blank line between entries; click an entry to switch, `+ new workspace` to create one.
+
+Drag to select text; on release the selection is copied to the host clipboard via OSC 52 (works over SSH). The highlight is viewport-anchored and clears on scroll or typing. Wheel scrolls (arrow keys on the alternate screen); while scrolled back, a thin `▕` scrollbar overlays the pane's right edge, and its track can be clicked or dragged to jump.
 
 ## Control socket
 
@@ -49,6 +51,7 @@ Commands: `identify`, `list-workspaces` (each workspace carries its split-tree `
 - Query responses (DSR, DECRQM, ...) generated during parsing are queued by the write-pty callback and flushed to the pty after each parse batch.
 - Input is encoded with ghostty's key encoder synced from the active surface's terminal modes each keystroke, so cursor-key application mode and the kitty keyboard protocol work end to end.
 - Exited surfaces are reaped by the mux itself (tab removed, pane/workspace collapsed), so headless sessions and every frontend see the same tree without frontend-side cleanup.
+- Surfaces spawn at their final render size (`new-tab`/`new-workspace`/`split` take optional `cols`/`rows`, and the TUI predicts sizes from its layout): spawning at 80x24 and resizing a frame later makes shells repaint their first prompt, which left zsh's reverse-video `%` partial-line marker on screen.
 - Children get `TERM=xterm-256color` by default; set `--term xterm-ghostty` (or `CMUX_MUX_TERM`) when the ghostty terminfo is installed.
 
 ## Current limitations

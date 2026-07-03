@@ -3,12 +3,15 @@
 //! Runs against a [`Session`], which is either the in-process mux or a
 //! remote session attached over the control socket. All state mutations
 //! go through the session; the app only owns presentation state (render
-//! snapshots, prefix arming, the current layout, menu/prompt overlays).
+//! snapshots, prefix arming, the current layout, hit map, selection, and
+//! menu/prompt overlays).
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::time::Duration;
 
+use base64::Engine;
 use crossterm::event::{
     DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
     KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -18,7 +21,9 @@ use crossterm::terminal::{
 };
 use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
-use mux_core::{layout_workspace, MuxEvent, PaneId, Rect, SplitDir, SurfaceId, WorkspaceId};
+use mux_core::{
+    layout_workspace, split_sides, MuxEvent, PaneId, Rect, SplitDir, SurfaceId, WorkspaceId,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
 
@@ -30,19 +35,31 @@ pub enum AppEvent {
     Input(Event),
 }
 
-/// What a click on a sidebar row does. Rebuilt by the sidebar renderer
-/// each frame so hit-testing always matches what is on screen.
+/// A clickable region of the current frame. The renderers rebuild the hit
+/// map every draw, so hit-testing always matches what is on screen.
+/// Left-click performs the action; right-click opens the matching context
+/// menu where one exists (workspace rows, panes).
 #[derive(Debug, Clone, Copy)]
-pub enum SidebarRow {
-    Workspace { index: usize, id: WorkspaceId },
+pub enum Hit {
+    /// Sidebar or status-bar workspace entry.
+    Workspace {
+        index: usize,
+        id: WorkspaceId,
+    },
     NewWorkspace,
-}
-
-/// A clickable span in a pane's tab bar.
-#[derive(Debug, Clone, Copy)]
-pub enum TabBarHit {
-    Select { pane: PaneId, index: usize },
-    NewTab { pane: PaneId },
+    /// Tab-bar or status-bar tab entry.
+    Tab {
+        pane: PaneId,
+        index: usize,
+    },
+    NewTab {
+        pane: PaneId,
+    },
+    /// A pane's scrollbar column (click/drag jumps the viewport).
+    Scrollbar {
+        surface: SurfaceId,
+        track: Rect,
+    },
 }
 
 /// One pane's screen real estate for the current frame: an optional
@@ -113,6 +130,56 @@ pub struct Prompt {
     pub target: PromptTarget,
 }
 
+/// A text selection in one surface, in viewport cell coordinates
+/// relative to the pane content rect. `anchor` is where the drag
+/// started; `head` follows the mouse. Viewport-anchored: scrolling the
+/// surface clears it.
+#[derive(Debug, Clone, Copy)]
+pub struct Selection {
+    pub surface: SurfaceId,
+    pub anchor: (u16, u16),
+    pub head: (u16, u16),
+}
+
+impl Selection {
+    /// Normalized (start, end) in row-major order, inclusive.
+    pub fn range(&self) -> ((u16, u16), (u16, u16)) {
+        let a = (self.anchor.1, self.anchor.0);
+        let h = (self.head.1, self.head.0);
+        if a <= h {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    /// Whether a viewport cell is inside the (linear) selection.
+    pub fn contains(&self, x: u16, y: u16) -> bool {
+        let ((sx, sy), (ex, ey)) = self.range();
+        if y < sy || y > ey {
+            return false;
+        }
+        if sy == ey {
+            return x >= sx && x <= ex;
+        }
+        if y == sy {
+            return x >= sx;
+        }
+        if y == ey {
+            return x <= ex;
+        }
+        true
+    }
+}
+
+/// Mouse drag in progress.
+enum Drag {
+    /// Text selection inside a pane's content rect.
+    Select { content: Rect },
+    /// Scrollbar thumb drag.
+    Scrollbar { surface: SurfaceId, track: Rect },
+}
+
 pub struct App {
     pub session: Session,
     pub tree: TreeView,
@@ -124,21 +191,39 @@ pub struct App {
     pub sidebar_visible: bool,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
-    /// (row, hit) map for the current frame's sidebar.
-    pub sidebar_hits: Vec<(u16, SidebarRow)>,
-    /// Clickable spans in the current frame's pane tab bars.
-    pub tab_hits: Vec<(Rect, TabBarHit)>,
+    /// Pane region of the current frame (screen minus sidebar/status).
+    pub content_area: Rect,
+    /// Clickable regions of the current frame, rebuilt by the renderers.
+    pub hits: Vec<(Rect, Hit)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
+    pub selection: Option<Selection>,
+    drag: Option<Drag>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
 }
 
+/// Sidebar width for a terminal width: fixed, but it hides on narrow
+/// terminals where panes need every column.
+fn sidebar_width_for(visible: bool, width: u16) -> u16 {
+    if !visible || width < 70 {
+        0
+    } else {
+        22
+    }
+}
+
 pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
-    // First workspace/pane before the terminal switches modes, so a
-    // spawn failure prints a normal error.
-    session.ensure_initial()?;
+    // First workspace before the terminal switches modes, so a spawn
+    // failure prints a normal error. Spawn at the size the first pane
+    // will actually render at (a post-spawn resize makes shells like zsh
+    // repaint their prompt, leaving a reverse-video % artifact).
+    let initial_size = crossterm::terminal::size().ok().map(|(w, h)| {
+        let sidebar = sidebar_width_for(true, w);
+        (w.saturating_sub(sidebar).max(1), h.saturating_sub(1).max(1))
+    });
+    session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
 
     let (tx, rx) = channel::<AppEvent>();
@@ -205,10 +290,12 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         session_label,
         sidebar_visible: true,
         sidebar_width: 0,
-        sidebar_hits: Vec::new(),
-        tab_hits: Vec::new(),
+        content_area: Rect::default(),
+        hits: Vec::new(),
         menu: None,
         prompt: None,
+        selection: None,
+        drag: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
@@ -270,27 +357,18 @@ impl App {
         Ok(())
     }
 
-    /// Sidebar width for a given terminal width: fixed, but it hides on
-    /// narrow terminals where panes need every column.
-    fn sidebar_width_for(&self, width: u16) -> u16 {
-        if !self.sidebar_visible || width < 70 {
-            0
-        } else {
-            22
-        }
-    }
-
     /// Refresh the tree snapshot, recompute the active workspace's layout
     /// (reserving tab-bar rows), and push content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
-        self.sidebar_width = self.sidebar_width_for(width);
+        self.sidebar_width = sidebar_width_for(self.sidebar_visible, width);
         let area = Rect {
             x: self.sidebar_width,
             y: 0,
             width: width.saturating_sub(self.sidebar_width),
             height: height.saturating_sub(1), // status bar
         };
+        self.content_area = area;
         self.tree = self.session.tree();
         let layout = self
             .tree
@@ -343,6 +421,9 @@ impl App {
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.render_states.remove(&id);
                 self.session.forget_surface(id);
+                if self.selection.is_some_and(|s| s.surface == id) {
+                    self.selection = None;
+                }
                 Ok(true)
             }
             AppEvent::Mux(_) => Ok(true),
@@ -369,6 +450,27 @@ impl App {
         self.active_surface().and_then(|id| self.session.surface(id))
     }
 
+    /// Content size for a pane that would fill `rect` with a single tab.
+    fn size_of_rect(rect: Rect) -> Option<(u16, u16)> {
+        (rect.width > 0 && rect.height > 0).then_some((rect.width, rect.height))
+    }
+
+    /// Size hint for splitting `pane`: the second side of its rect.
+    fn split_size_hint(&self, pane: PaneId, dir: SplitDir) -> Option<(u16, u16)> {
+        let area = self.pane_areas.iter().find(|a| a.pane == pane)?;
+        let (_, _, b) = split_sides(area.rect, dir, 0.5);
+        Self::size_of_rect(b)
+    }
+
+    fn split_pane(&mut self, pane: PaneId, dir: SplitDir) -> anyhow::Result<()> {
+        let hint = self.split_size_hint(pane, dir);
+        self.session.split(pane, dir, hint)
+    }
+
+    fn new_workspace(&mut self) -> anyhow::Result<()> {
+        self.session.new_workspace(Self::size_of_rect(self.content_area))
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
         if key.kind == KeyEventKind::Release {
             return Ok(false);
@@ -387,6 +489,8 @@ impl App {
             self.prefix_armed = true;
             return Ok(true);
         }
+        // Typing replaces any selection highlight.
+        self.selection = None;
         self.forward_key(&key);
         Ok(false)
     }
@@ -454,18 +558,18 @@ impl App {
                 Ok(true)
             }
             (KeyCode::Char('c'), _) => {
-                self.session.new_tab(pane)?;
+                self.session.new_tab(pane, None)?;
                 Ok(true)
             }
             (KeyCode::Char('%'), _) => {
                 if let Some(pane) = pane {
-                    self.session.split(pane, SplitDir::Right)?;
+                    self.split_pane(pane, SplitDir::Right)?;
                 }
                 Ok(true)
             }
             (KeyCode::Char('"'), _) => {
                 if let Some(pane) = pane {
-                    self.session.split(pane, SplitDir::Down)?;
+                    self.split_pane(pane, SplitDir::Down)?;
                 }
                 Ok(true)
             }
@@ -507,7 +611,7 @@ impl App {
                 Ok(true)
             }
             (KeyCode::Char('W'), _) => {
-                self.session.new_workspace()?;
+                self.new_workspace()?;
                 Ok(true)
             }
             (KeyCode::Char('d'), _) => {
@@ -578,9 +682,9 @@ impl App {
             }
             MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
             MenuAction::RenamePane(id) => self.open_rename_pane_prompt(Some(id)),
-            MenuAction::NewTab(id) => self.session.new_tab(Some(id))?,
-            MenuAction::SplitRight(id) => self.session.split(id, SplitDir::Right)?,
-            MenuAction::SplitDown(id) => self.session.split(id, SplitDir::Down)?,
+            MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
+            MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
+            MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
             MenuAction::ClosePane(id) => self.session.close_pane(id),
         }
         Ok(())
@@ -598,9 +702,14 @@ impl App {
         }
     }
 
-    fn scroll_active(&self, delta: isize) {
+    fn scroll_active(&mut self, delta: isize) {
         if let Some(surface) = self.active_surface_handle() {
             surface.with_terminal(|t| t.scroll_delta(delta));
+        }
+        if let (Some(sel), Some(active)) = (self.selection, self.active_surface()) {
+            if sel.surface == active {
+                self.selection = None;
+            }
         }
     }
 
@@ -637,18 +746,19 @@ impl App {
         self.pane_areas.iter().find(|a| a.rect.contains(x, y))
     }
 
-    fn sidebar_hit_at(&self, x: u16, y: u16) -> Option<SidebarRow> {
-        if self.sidebar_width == 0 || x >= self.sidebar_width {
-            return None;
-        }
-        self.sidebar_hits.iter().find(|(row, _)| *row == y).map(|(_, hit)| *hit)
+    fn hit_at(&self, x: u16, y: u16) -> Option<Hit> {
+        self.hits.iter().find(|(rect, _)| rect.contains(x, y)).map(|(_, hit)| *hit)
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) -> anyhow::Result<bool> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                self.handle_left_click(mouse.column, mouse.row)
+                self.handle_left_down(mouse.column, mouse.row)
             }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                self.handle_left_drag(mouse.column, mouse.row)
+            }
+            MouseEventKind::Up(MouseButton::Left) => self.handle_left_up(),
             MouseEventKind::Down(MouseButton::Right) => {
                 self.open_context_menu(mouse.column, mouse.row);
                 Ok(true)
@@ -661,7 +771,10 @@ impl App {
         }
     }
 
-    fn handle_left_click(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+    fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        self.selection = None;
+        self.drag = None;
+
         // An open menu captures the click: activate or dismiss.
         if let Some(menu) = self.menu.take() {
             if menu.rect.contains(x, y) {
@@ -671,43 +784,118 @@ impl App {
             return Ok(true);
         }
 
-        match self.sidebar_hit_at(x, y) {
-            Some(SidebarRow::Workspace { index, .. }) => {
-                self.session.select_workspace(Some(index), None);
-                return Ok(true);
-            }
-            Some(SidebarRow::NewWorkspace) => {
-                self.session.new_workspace()?;
-                return Ok(true);
-            }
-            None => {}
-        }
-
-        if let Some((_, hit)) = self.tab_hits.iter().find(|(rect, _)| rect.contains(x, y)).copied()
-        {
+        if let Some(hit) = self.hit_at(x, y) {
             match hit {
-                TabBarHit::Select { pane, index } => {
+                Hit::Workspace { index, .. } => {
+                    self.session.select_workspace(Some(index), None);
+                }
+                Hit::NewWorkspace => self.new_workspace()?,
+                Hit::Tab { pane, index } => {
                     self.session.focus_pane(pane);
                     self.session.select_tab(Some(pane), Some(index), None);
                 }
-                TabBarHit::NewTab { pane } => {
+                Hit::NewTab { pane } => {
                     self.session.focus_pane(pane);
-                    self.session.new_tab(Some(pane))?;
+                    self.session.new_tab(Some(pane), None)?;
+                }
+                Hit::Scrollbar { surface, track } => {
+                    self.scroll_to_track_pos(surface, track, y);
+                    self.drag = Some(Drag::Scrollbar { surface, track });
                 }
             }
             return Ok(true);
         }
 
-        if let Some(area) = self.pane_area_at(x, y) {
+        if let Some(area) = self.pane_area_at(x, y).copied() {
             self.session.focus_pane(area.pane);
+            if area.content.contains(x, y) {
+                // Begin a text selection; it becomes visible once the
+                // mouse moves to a second cell.
+                let cell = (x - area.content.x, y - area.content.y);
+                self.selection =
+                    Some(Selection { surface: area.surface, anchor: cell, head: cell });
+                self.drag = Some(Drag::Select { content: area.content });
+            }
             return Ok(true);
         }
         Ok(false)
     }
 
+    fn handle_left_drag(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        match &self.drag {
+            Some(Drag::Select { content }) => {
+                let content = *content;
+                let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
+                let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
+                if let Some(sel) = self.selection.as_mut() {
+                    sel.head = (cx - content.x, cy - content.y);
+                }
+                Ok(true)
+            }
+            Some(Drag::Scrollbar { surface, track }) => {
+                let (surface, track) = (*surface, *track);
+                self.scroll_to_track_pos(surface, track, y);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn handle_left_up(&mut self) -> anyhow::Result<bool> {
+        let was_select = matches!(self.drag, Some(Drag::Select { .. }));
+        self.drag = None;
+        if !was_select {
+            return Ok(false);
+        }
+        match self.selection {
+            Some(sel) if sel.anchor != sel.head => {
+                self.copy_selection(sel);
+                Ok(true)
+            }
+            _ => {
+                // A plain click: no selection to keep.
+                self.selection = None;
+                Ok(true)
+            }
+        }
+    }
+
+    /// Copy the selected text to the host clipboard via OSC 52 (the host
+    /// terminal owns the clipboard; this works over SSH too).
+    fn copy_selection(&mut self, sel: Selection) {
+        let Some(surface) = self.session.surface(sel.surface) else { return };
+        let (start, end) = sel.range();
+        let Some(text) = surface.with_terminal(|t| t.selection_text(start, end)) else { return };
+        if text.is_empty() {
+            return;
+        }
+        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+        let mut stdout = std::io::stdout();
+        let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
+        let _ = stdout.flush();
+    }
+
+    /// Map a click/drag on a scrollbar track to a viewport position.
+    fn scroll_to_track_pos(&mut self, surface: SurfaceId, track: Rect, y: u16) {
+        let Some(handle) = self.session.surface(surface) else { return };
+        handle.with_terminal(|t| {
+            let Some(sb) = t.scrollbar() else { return };
+            let denom = track.height.saturating_sub(1).max(1) as f64;
+            let frac = (y.saturating_sub(track.y) as f64 / denom).clamp(0.0, 1.0);
+            let target = ((sb.total - sb.len) as f64 * frac).round() as i64;
+            let delta = target - sb.offset as i64;
+            if delta != 0 {
+                t.scroll_delta(delta as isize);
+            }
+        });
+        if self.selection.is_some_and(|s| s.surface == surface) {
+            self.selection = None;
+        }
+    }
+
     fn open_context_menu(&mut self, x: u16, y: u16) {
         self.menu = None;
-        if let Some(SidebarRow::Workspace { id, .. }) = self.sidebar_hit_at(x, y) {
+        if let Some(Hit::Workspace { id, .. }) = self.hit_at(x, y) {
             self.menu = Some(ContextMenu::at(
                 x,
                 y,
@@ -732,7 +920,8 @@ impl App {
 
     fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<bool> {
         let Some(area) = self.pane_area_at(x, y) else { return Ok(false) };
-        let Some(surface) = self.session.surface(area.surface) else { return Ok(false) };
+        let (surface_id, _) = (area.surface, area.pane);
+        let Some(surface) = self.session.surface(surface_id) else { return Ok(false) };
         let sent_arrows = surface.with_terminal(|term| {
             if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
                 term.scroll_to_bottom();
@@ -747,6 +936,10 @@ impl App {
             // (the usual alternate-scroll behavior).
             let seq: &[u8] = if down { b"\x1b[B\x1b[B\x1b[B" } else { b"\x1b[A\x1b[A\x1b[A" };
             surface.write_bytes(seq);
+        }
+        // The viewport moved: a viewport-anchored selection is stale.
+        if self.selection.is_some_and(|s| s.surface == surface_id) {
+            self.selection = None;
         }
         Ok(true)
     }

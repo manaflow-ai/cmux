@@ -101,27 +101,39 @@ fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
     }
 }
 
-fn walk_split(dir: SplitDir, ratio: f32, a: &Node, b: &Node, area: Rect, out: &mut LayoutResult) {
+/// The rects a split of `area` produces: the first side, the one-cell
+/// separator, and the second side. Shared by the layout walk and by
+/// frontends predicting the size of a pane about to be created.
+pub fn split_sides(area: Rect, dir: SplitDir, ratio: f32) -> (Rect, Rect, Rect) {
     match dir {
         SplitDir::Right => {
             let usable = area.width.saturating_sub(1);
             let a_w = ((usable as f32) * ratio).round() as u16;
             let a_w = a_w.clamp(1, usable.saturating_sub(1).max(1));
-            let sep = Rect { x: area.x + a_w, y: area.y, width: 1, height: area.height };
-            out.separators.push(Separator { rect: sep, vertical: true });
-            walk(a, Rect { width: a_w, ..area }, out);
-            walk(b, Rect { x: area.x + a_w + 1, width: usable - a_w, ..area }, out);
+            (
+                Rect { width: a_w, ..area },
+                Rect { x: area.x + a_w, y: area.y, width: 1, height: area.height },
+                Rect { x: area.x + a_w + 1, width: usable - a_w, ..area },
+            )
         }
         SplitDir::Down => {
             let usable = area.height.saturating_sub(1);
             let a_h = ((usable as f32) * ratio).round() as u16;
             let a_h = a_h.clamp(1, usable.saturating_sub(1).max(1));
-            let sep = Rect { x: area.x, y: area.y + a_h, width: area.width, height: 1 };
-            out.separators.push(Separator { rect: sep, vertical: false });
-            walk(a, Rect { height: a_h, ..area }, out);
-            walk(b, Rect { y: area.y + a_h + 1, height: usable - a_h, ..area }, out);
+            (
+                Rect { height: a_h, ..area },
+                Rect { x: area.x, y: area.y + a_h, width: area.width, height: 1 },
+                Rect { y: area.y + a_h + 1, height: usable - a_h, ..area },
+            )
         }
     }
+}
+
+fn walk_split(dir: SplitDir, ratio: f32, a: &Node, b: &Node, area: Rect, out: &mut LayoutResult) {
+    let (a_rect, sep, b_rect) = split_sides(area, dir, ratio);
+    out.separators.push(Separator { rect: sep, vertical: matches!(dir, SplitDir::Right) });
+    walk(a, a_rect, out);
+    walk(b, b_rect, out);
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ mod surface;
 pub mod layout;
 pub mod server;
 
-pub use layout::{layout_workspace, LayoutResult, Rect, Separator};
+pub use layout::{layout_workspace, split_sides, LayoutResult, Rect, Separator};
 pub use model::{Node, Pane, State, Workspace};
 pub use mux::{Mux, MuxEvent};
 pub use surface::{AttachStream, Surface, SurfaceOptions};

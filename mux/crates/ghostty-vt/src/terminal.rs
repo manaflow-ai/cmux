@@ -26,6 +26,24 @@ pub enum Screen {
     Alternate,
 }
 
+/// Scrollbar geometry for the viewport, in rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Scrollbar {
+    /// Total scrollable rows (scrollback + screen).
+    pub total: u64,
+    /// Row offset of the viewport within `total`.
+    pub offset: u64,
+    /// Viewport height in rows.
+    pub len: u64,
+}
+
+impl Scrollbar {
+    /// Whether the viewport is scrolled away from the live bottom.
+    pub fn scrolled_back(&self) -> bool {
+        self.offset + self.len < self.total
+    }
+}
+
 /// Callback invoked with bytes the terminal wants written to the pty.
 pub type PtyWriteFn = Box<dyn FnMut(&[u8]) + Send>;
 /// Parameterless notification callback (title changed, bell).
@@ -225,6 +243,56 @@ impl Terminal {
             value: sys::GhosttyTerminalScrollViewportValue { delta: 0 },
         };
         unsafe { sys::ghostty_terminal_scroll_viewport(self.raw, behavior) }
+    }
+
+    /// Scrollbar geometry for the current viewport. The engine notes this
+    /// can be expensive for arbitrary scroll positions; call it once per
+    /// frame at most.
+    pub fn scrollbar(&self) -> Option<Scrollbar> {
+        let raw: sys::GhosttyTerminalScrollbar =
+            self.get(sys::GHOSTTY_TERMINAL_DATA_SCROLLBAR).ok()?;
+        if raw.total == 0 || raw.len == 0 {
+            return None;
+        }
+        Some(Scrollbar { total: raw.total, offset: raw.offset, len: raw.len })
+    }
+
+    /// Plain text of a selection range given in viewport coordinates
+    /// (inclusive). Returns `None` when either endpoint is out of bounds.
+    pub fn selection_text(&mut self, start: (u16, u16), end: (u16, u16)) -> Option<String> {
+        let grid_ref = |x: u16, y: u16| -> Option<sys::GhosttyGridRef> {
+            let point = sys::GhosttyPoint {
+                tag: sys::GHOSTTY_POINT_TAG_VIEWPORT,
+                value: sys::GhosttyPointValue {
+                    coordinate: sys::GhosttyPointCoordinate { x, y: y as u32 },
+                },
+            };
+            let mut out = sys::GhosttyGridRef {
+                size: std::mem::size_of::<sys::GhosttyGridRef>(),
+                ..Default::default()
+            };
+            let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
+            (result == sys::GHOSTTY_SUCCESS).then_some(out)
+        };
+        let selection = sys::GhosttySelection {
+            size: std::mem::size_of::<sys::GhosttySelection>(),
+            start: grid_ref(start.0, start.1)?,
+            end: grid_ref(end.0, end.1)?,
+            rectangle: false,
+        };
+        let opts = sys::GhosttyFormatterTerminalOptions {
+            size: std::mem::size_of::<sys::GhosttyFormatterTerminalOptions>(),
+            emit: sys::GHOSTTY_FORMATTER_FORMAT_PLAIN,
+            unwrap: true,
+            trim: true,
+            extra: sys::GhosttyFormatterTerminalExtra {
+                size: std::mem::size_of::<sys::GhosttyFormatterTerminalExtra>(),
+                ..Default::default()
+            },
+            selection: &selection,
+        };
+        let bytes = self.format(opts).ok()?;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
     }
 
     /// Plain-text dump of the active screen (viewport plus scrollback is

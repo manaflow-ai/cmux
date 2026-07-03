@@ -67,11 +67,22 @@ impl Mux {
         subs.retain(|tx| tx.send(event.clone()).is_ok());
     }
 
-    fn spawn_surface(self: &Arc<Self>, cwd: Option<String>) -> anyhow::Result<Arc<Surface>> {
+    fn spawn_surface(
+        self: &Arc<Self>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let id = self.next_id();
         let mut opts = self.surface_options.clone();
         if cwd.is_some() {
             opts.cwd = cwd;
+        }
+        // Spawn at the final size when the frontend knows it: starting at
+        // the default 80x24 and resizing a frame later makes shells emit
+        // artifacts (e.g. zsh's reverse-video %% partial-line marker).
+        if let Some((cols, rows)) = size {
+            opts.cols = cols.max(1);
+            opts.rows = rows.max(1);
         }
         let surface = Surface::spawn(id, opts, Arc::downgrade(self))?;
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
@@ -95,9 +106,15 @@ impl Mux {
     }
 
     /// Create a workspace with one pane holding one tab. Returns the tab's
-    /// surface.
-    pub fn new_workspace(self: &Arc<Self>, name: Option<String>) -> anyhow::Result<Arc<Surface>> {
-        let surface = self.spawn_surface(None)?;
+    /// surface. `size` is the expected content size in cells, when the
+    /// caller knows it (spawning at the final size avoids shell redraw
+    /// artifacts).
+    pub fn new_workspace(
+        self: &Arc<Self>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let surface = self.spawn_surface(None, size)?;
         let pane_id = self.next_id();
         let ws_id = self.next_id();
         {
@@ -126,6 +143,7 @@ impl Mux {
         self: &Arc<Self>,
         pane: Option<PaneId>,
         cwd: Option<String>,
+        size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         // Resolve and validate the target before spawning a child.
         let target = {
@@ -141,11 +159,13 @@ impl Mux {
             }
         };
         let Some(target) = target else {
-            return self.new_workspace(None);
+            return self.new_workspace(None, size);
         };
 
         let cwd = cwd.or_else(|| self.pane_cwd(target));
-        let surface = self.spawn_surface(cwd)?;
+        // A sibling tab renders at the size the pane already has.
+        let size = size.or_else(|| self.pane_size(target));
+        let surface = self.spawn_surface(cwd, size)?;
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
@@ -179,11 +199,32 @@ impl Mux {
         surface.and_then(|s| s.pwd())
     }
 
+    /// Current cell size of a pane's active surface.
+    fn pane_size(&self, pane: PaneId) -> Option<(u16, u16)> {
+        let state = self.state.lock().unwrap();
+        let active = state.panes.get(&pane)?.active_surface()?;
+        state.surfaces.get(&active).map(|s| s.size())
+    }
+
     /// Split the workspace containing `target`, putting a new single-tab
-    /// pane after it. Returns the new pane's surface.
-    pub fn split(self: &Arc<Self>, target: PaneId, dir: SplitDir) -> anyhow::Result<Arc<Surface>> {
+    /// pane after it. Returns the new pane's surface. `size` is the
+    /// expected content size of the new pane, when the caller knows it.
+    pub fn split(
+        self: &Arc<Self>,
+        target: PaneId,
+        dir: SplitDir,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let cwd = self.pane_cwd(target);
-        let surface = self.spawn_surface(cwd)?;
+        // Halve the split axis as a fallback estimate; the frontend sends
+        // the exact size on its next layout pass.
+        let size = size.or_else(|| {
+            self.pane_size(target).map(|(cols, rows)| match dir {
+                SplitDir::Right => ((cols.saturating_sub(1) / 2).max(1), rows),
+                SplitDir::Down => (cols, (rows.saturating_sub(1) / 2).max(1)),
+            })
+        });
+        let surface = self.spawn_surface(cwd, size)?;
         let pane_id = self.next_id();
         let mut done = false;
         {
@@ -446,11 +487,11 @@ mod tests {
     #[test]
     fn split_and_close_collapses_tree() {
         let mux = test_mux();
-        let s1 = mux.new_workspace(None).unwrap();
+        let s1 = mux.new_workspace(None, None).unwrap();
         let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
-        let s2 = mux.split(p1, SplitDir::Right).unwrap();
+        let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
         let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
-        let s3 = mux.split(p2, SplitDir::Down).unwrap();
+        let s3 = mux.split(p2, SplitDir::Down, None).unwrap();
         let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
 
         mux.with_state(|s| {
@@ -475,9 +516,9 @@ mod tests {
     #[test]
     fn tabs_within_pane() {
         let mux = test_mux();
-        let s1 = mux.new_workspace(None).unwrap();
+        let s1 = mux.new_workspace(None, None).unwrap();
         let pane = mux.with_state(|s| s.pane_of(s1.id).unwrap());
-        let s2 = mux.new_tab(Some(pane), None).unwrap();
+        let s2 = mux.new_tab(Some(pane), None, None).unwrap();
 
         mux.with_state(|s| {
             let p = &s.panes[&pane];
@@ -503,8 +544,8 @@ mod tests {
     fn workspaces_and_renames() {
         let mux = test_mux();
         let events = mux.subscribe();
-        mux.new_workspace(None).unwrap();
-        mux.new_workspace(Some("dev".into())).unwrap();
+        mux.new_workspace(None, None).unwrap();
+        mux.new_workspace(Some("dev".into()), None).unwrap();
 
         let (ws0, ws1, pane1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
