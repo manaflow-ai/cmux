@@ -205,4 +205,34 @@ import CmuxGit
         #expect(service.workspacePullRequestRepoCacheBySlug.isEmpty)
         #expect(!host.events.contains(.clearAllPullRequestMetadata))
     }
+
+    @Test func cachedRepoResultPersistsSupplementalCIStatusCoverage() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let fetchedAt = Date(timeIntervalSince1970: 1_000)
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: fetchedAt,
+            pullRequestsByBranch: [:]
+        )
+        let ciEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: fetchedAt,
+            pullRequestsByBranch: [:],
+            includesCIStatus: true,
+            ciStatusByPullRequestNumber: [42: .success]
+        )
+        service.workspacePullRequestRepoCacheBySlug["o/r"] = baseEntry
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [],
+            repoResults: ["o/r": .success(ciEntry, usedCache: true, transientBranches: [])],
+            requestedKeys: [],
+            now: fetchedAt,
+            reason: "test"
+        )
+
+        let stored = service.workspacePullRequestRepoCacheBySlug["o/r"]
+        #expect(stored?.includesCIStatus == true)
+        #expect(stored?.ciStatusByPullRequestNumber == [42: .success])
+    }
 }

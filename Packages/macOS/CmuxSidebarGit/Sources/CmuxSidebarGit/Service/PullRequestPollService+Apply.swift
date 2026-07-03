@@ -30,8 +30,11 @@ extension PullRequestPollService {
         }
 
         for (repoSlug, repoResult) in repoResults {
-            guard case .success(let cacheEntry, let usedCache, _) = repoResult,
-                  !usedCache else {
+            guard case .success(let cacheEntry, let usedCache, _) = repoResult else {
+                continue
+            }
+            if usedCache,
+               !shouldPersistCachedPullRequestRepoEntry(cacheEntry, for: repoSlug) {
                 continue
             }
             workspacePullRequestRepoCacheBySlug[repoSlug] = cacheEntry
@@ -175,6 +178,17 @@ extension PullRequestPollService {
         }
 
         updateWorkspacePullRequestPollTimer()
+    }
+
+    private func shouldPersistCachedPullRequestRepoEntry(
+        _ cacheEntry: WorkspacePullRequestRepoCacheEntry,
+        for repoSlug: String
+    ) -> Bool {
+        guard let existing = workspacePullRequestRepoCacheBySlug[repoSlug] else {
+            return true
+        }
+        return existing.includesCIStatus != cacheEntry.includesCIStatus
+            || existing.ciStatusByPullRequestNumber != cacheEntry.ciStatusByPullRequestNumber
     }
 
     func scheduleNextWorkspacePullRequestPoll(
