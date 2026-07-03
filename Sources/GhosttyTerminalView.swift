@@ -5624,6 +5624,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         recordDirectAgentHibernationTerminalInput()
+        reassertSurfaceFocusForPhysicalInput(reason: "keyDown")
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -5683,14 +5684,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
 
-        // Fast path for control-modified terminal input (for example Ctrl+D).
-        //
-        // These keys are terminal control input, not text composition, so we bypass
-        // AppKit text interpretation and send a single deterministic Ghostty key event.
-        // This avoids intermittent drops after rapid split close/reparent transitions.
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
-            terminalSurface?.recordExternalFocusState(true)
-            ghostty_surface_set_focus(surface, true)
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
             keyEvent.keycode = UInt32(event.keyCode)
@@ -6090,6 +6084,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.flagsChanged(with: event)
             return
         }
+        reassertSurfaceFocusForPhysicalInput(reason: "flagsChanged")
 
         if !hasMarkedText(),
            let action = ghostty_input_action_e.modifierActionForFlagsChanged(
@@ -11236,6 +11231,7 @@ extension GhosttyNSView: NSTextInputClient {
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard let surface = surface else { return }
+        reassertSurfaceFocusForPhysicalInput(reason: "sendText")
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
 #endif
