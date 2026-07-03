@@ -166,6 +166,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
+    /// User-facing connection error currently shown by the shell. Non-empty
+    /// values are scrubbed and retained in ``lastConnectionError`` for shared
+    /// diagnostics after transient UI state clears.
     public private(set) var connectionError: String? {
         didSet {
             guard oldValue != connectionError else { return }

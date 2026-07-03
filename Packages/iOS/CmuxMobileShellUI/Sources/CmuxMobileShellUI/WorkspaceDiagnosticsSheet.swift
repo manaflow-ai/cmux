@@ -102,21 +102,21 @@ struct WorkspaceDiagnosticsSheet: View {
         // for a report nothing will consume.
         if Task.isCancelled { return "" }
         let osLogEntries = await Task.detached(priority: .utility) {
-            Self.recentOSLogEntries(generatedAt: generatedAt)
+            recentWorkspaceDiagnosticsOSLogEntries(generatedAt: generatedAt)
         }.value
         if Task.isCancelled { return "" }
-        let app = MobileDiagnosticsAppInfo.current()
+        let app = MobileDiagnosticsAppInfoResolver().current()
         let auth = MobileDiagnosticsAuthState(
             isSignedIn: authManager.isAuthenticated,
             lastError: authManager.lastAuthError
         )
         let connection = MobileDiagnosticsConnectionState(
-            state: Self.connectionStateLabel(store.connectionState),
+            state: workspaceDiagnosticsConnectionStateLabel(store.connectionState),
             host: store.connectedHostName,
             lastError: store.lastConnectionError
         )
         return await Task.detached(priority: .utility) {
-            Self.assembleReport(
+            assembleWorkspaceDiagnosticsReport(
                 generatedAt: generatedAt,
                 app: app,
                 auth: auth,
@@ -128,59 +128,59 @@ struct WorkspaceDiagnosticsSheet: View {
         }.value
     }
 
-    nonisolated private static func assembleReport(
-        generatedAt: Date,
-        app: MobileDiagnosticsAppInfo,
-        auth: MobileDiagnosticsAuthState,
-        connection: MobileDiagnosticsConnectionState,
-        events: [MobileDiagnosticsEvent],
-        debugLog: String,
-        osLogEntries: [MobileDiagnosticsOSLogEntry]
-    ) -> String {
-        return MobileDiagnosticsReportBuilder().buildReport(
-            generatedAt: generatedAt,
-            app: app,
-            auth: auth,
-            connection: connection,
-            events: events,
-            structuredEventLog: nil,
-            debugLog: debugLog,
-            osLogEntries: osLogEntries
-        )
-    }
-
-    private static func connectionStateLabel(_ state: MobileConnectionState) -> String {
-        switch state {
-        case .connected:
-            return L10n.string("mobile.connection.connected", defaultValue: "Connected")
-        case .disconnected:
-            return L10n.string("mobile.connection.unavailable", defaultValue: "Disconnected")
-        }
-    }
-
-    nonisolated private static func recentOSLogEntries(generatedAt: Date) -> [MobileDiagnosticsOSLogEntry] {
-        do {
-            return try MobileDiagnosticsOSLogStoreReader().recentEntries(
-                since: generatedAt.addingTimeInterval(-15 * 60),
-                limit: 120
-            )
-        } catch {
-            return [
-                MobileDiagnosticsOSLogEntry.unavailableStatus(
-                    date: generatedAt,
-                    message: L10n.string(
-                        "mobile.diagnostics.report.osLogUnavailable",
-                        defaultValue: "OSLog unavailable"
-                    )
-                ),
-            ]
-        }
-    }
-
     @MainActor
     private func copy(_ report: String) {
         UIPasteboard.general.string = report
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+private func assembleWorkspaceDiagnosticsReport(
+    generatedAt: Date,
+    app: MobileDiagnosticsAppInfo,
+    auth: MobileDiagnosticsAuthState,
+    connection: MobileDiagnosticsConnectionState,
+    events: [MobileDiagnosticsEvent],
+    debugLog: String,
+    osLogEntries: [MobileDiagnosticsOSLogEntry]
+) -> String {
+    return MobileDiagnosticsReportBuilder().buildReport(
+        generatedAt: generatedAt,
+        app: app,
+        auth: auth,
+        connection: connection,
+        events: events,
+        structuredEventLog: nil,
+        debugLog: debugLog,
+        osLogEntries: osLogEntries
+    )
+}
+
+private func workspaceDiagnosticsConnectionStateLabel(_ state: MobileConnectionState) -> String {
+    switch state {
+    case .connected:
+        return L10n.string("mobile.connection.connected", defaultValue: "Connected")
+    case .disconnected:
+        return L10n.string("mobile.connection.unavailable", defaultValue: "Disconnected")
+    }
+}
+
+private func recentWorkspaceDiagnosticsOSLogEntries(generatedAt: Date) -> [MobileDiagnosticsOSLogEntry] {
+    do {
+        return try MobileDiagnosticsOSLogStoreReader().recentEntries(
+            since: generatedAt.addingTimeInterval(-15 * 60),
+            limit: 120
+        )
+    } catch {
+        return [
+            MobileDiagnosticsOSLogEntry(
+                unavailableStatusAt: generatedAt,
+                message: L10n.string(
+                    "mobile.diagnostics.report.osLogUnavailable",
+                    defaultValue: "OSLog unavailable"
+                )
+            ),
+        ]
     }
 }
 #endif

@@ -69,7 +69,7 @@ final class AppCompositionRoot {
             forceSeen: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
-        self.diagnosticLog = DiagnosticLog(buildStamp: MobileDiagnosticsAppInfo.current().buildStamp)
+        self.diagnosticLog = DiagnosticLog(buildStamp: MobileDiagnosticsAppInfoResolver().current().buildStamp)
         self.diagnosticsEventLog = MobileDiagnosticsEventLog()
     }
 

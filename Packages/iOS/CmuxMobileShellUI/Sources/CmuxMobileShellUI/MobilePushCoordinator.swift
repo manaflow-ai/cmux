@@ -140,7 +140,7 @@ public final class MobilePushCoordinator {
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
     public func enable() async -> Bool {
-        let priorStatus = await Self.notificationAuthorizationStatus()
+        let priorStatus = await notificationAuthorizationStatus()
         // Only an undetermined status produces a real OS prompt; gate the
         // "shown" event on it so a re-toggle of an already-decided status does
         // not log a phantom prompt.
@@ -172,7 +172,7 @@ public final class MobilePushCoordinator {
     }
 
     /// Reads only the Sendable authorization enum; `UNNotificationSettings` is not Sendable on Xcode 16.4.
-    nonisolated private static func notificationAuthorizationStatus() async -> UNAuthorizationStatus {
+    nonisolated private func notificationAuthorizationStatus() async -> UNAuthorizationStatus {
         await withCheckedContinuation { continuation in
             UNUserNotificationCenter.current().getNotificationSettings { settings in
                 continuation.resume(returning: settings.authorizationStatus)

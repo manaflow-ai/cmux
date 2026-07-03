@@ -36,7 +36,7 @@ public struct MobileDiagnosticsOSLogStoreReader: MobileDiagnosticsOSLogReading {
                 date: log.date,
                 subsystem: log.subsystem,
                 category: log.category,
-                level: Self.levelName(log.level),
+                level: levelName(log.level),
                 message: ""
             )
             if ring.count < limit {
@@ -52,7 +52,7 @@ public struct MobileDiagnosticsOSLogStoreReader: MobileDiagnosticsOSLogReading {
         return Array(ring[nextIndex..<ring.count]) + Array(ring[0..<nextIndex])
     }
 
-    private static func levelName(_ level: OSLogEntryLog.Level) -> String {
+    private func levelName(_ level: OSLogEntryLog.Level) -> String {
         switch level {
         case .undefined:
             return "undefined"

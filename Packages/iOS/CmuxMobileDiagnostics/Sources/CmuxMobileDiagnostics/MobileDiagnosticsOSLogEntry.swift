@@ -44,12 +44,11 @@ public struct MobileDiagnosticsOSLogEntry: Sendable, Equatable {
     /// - Parameters:
     ///   - date: When the failed read was observed.
     ///   - message: Localized status text safe to render in a shared report.
-    /// - Returns: A status entry recognized by ``MobileDiagnosticsReportBuilder``.
-    public static func unavailableStatus(date: Date, message: String) -> MobileDiagnosticsOSLogEntry {
-        MobileDiagnosticsOSLogEntry(
+    public init(unavailableStatusAt date: Date, message: String) {
+        self.init(
             date: date,
-            subsystem: unavailableSubsystem,
-            category: unavailableCategory,
+            subsystem: Self.unavailableSubsystem,
+            category: Self.unavailableCategory,
             level: "error",
             message: message
         )

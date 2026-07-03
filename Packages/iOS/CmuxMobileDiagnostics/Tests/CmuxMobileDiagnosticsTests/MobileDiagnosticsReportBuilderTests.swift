@@ -76,8 +76,8 @@ import Testing
             structuredEventLog: nil,
             debugLog: nil,
             osLogEntries: [
-                MobileDiagnosticsOSLogEntry.unavailableStatus(
-                    date: Date(timeIntervalSince1970: 1_700_000_020),
+                MobileDiagnosticsOSLogEntry(
+                    unavailableStatusAt: Date(timeIntervalSince1970: 1_700_000_020),
                     message: "OSLog unavailable"
                 ),
             ]

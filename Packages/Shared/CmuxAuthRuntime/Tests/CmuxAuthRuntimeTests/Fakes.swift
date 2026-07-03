@@ -125,23 +125,6 @@ actor FakeAuthClient: AuthClient {
     }
 }
 
-/// Mutable connectivity probe for auth tests that flip online state mid-flow.
-actor ConnectivityProbe {
-    private var online: Bool
-
-    init(isOnline: Bool) {
-        self.online = isOnline
-    }
-
-    func setOnline(_ value: Bool) {
-        online = value
-    }
-
-    func isOnline() -> Bool {
-        online
-    }
-}
-
 /// A no-op presentation anchor for OAuth flows in tests.
 final class FakeAnchor: NSObject, AuthPresentationAnchoring {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
