@@ -72,15 +72,12 @@ struct CmuxCommandTemplate {
         var cursor = 0
         for match in matches {
             result.append(String(chars[cursor..<match.range.lowerBound]))
-            switch match {
-            case .variable(let variable, let range):
-                if let value = values[variable.name] {
-                    result.append(Self.shellQuote(value))
-                } else {
-                    result.append(String(chars[range]))
-                }
-            case .escapedPlaceholder(let range):
-                result.append(String(chars[(range.lowerBound + 1)..<range.upperBound]))
+            if match.stripEscape {
+                result.append(String(chars[(match.range.lowerBound + 1)..<match.range.upperBound]))
+            } else if let variable = match.variable, let value = values[variable.name] {
+                result.append(Self.shellQuote(value))
+            } else {
+                result.append(String(chars[match.range]))
             }
             cursor = match.range.upperBound
         }
@@ -88,31 +85,19 @@ struct CmuxCommandTemplate {
         return result
     }
 
-    private enum TemplateMatch {
-        case variable(CmuxCommandVariable, Range<Int>)
-        case escapedPlaceholder(Range<Int>)
-
-        var range: Range<Int> {
-            switch self {
-            case .variable(_, let range), .escapedPlaceholder(let range):
-                return range
-            }
-        }
-    }
-
     private static func variableMatches(
         in chars: [Character]
     ) -> [(variable: CmuxCommandVariable, range: Range<Int>)] {
         templateMatches(in: chars).compactMap { match in
-            guard case .variable(let variable, let range) = match else { return nil }
-            return (variable, range)
+            guard let variable = match.variable, !match.stripEscape else { return nil }
+            return (variable, match.range)
         }
     }
 
     private static func templateMatches(
         in chars: [Character]
-    ) -> [TemplateMatch] {
-        var matches: [TemplateMatch] = []
+    ) -> [(variable: CmuxCommandVariable?, range: Range<Int>, stripEscape: Bool)] {
+        var matches: [(variable: CmuxCommandVariable?, range: Range<Int>, stripEscape: Bool)] = []
         let count = chars.count
         var index = 0
         var inSingleQuote = false
@@ -143,7 +128,7 @@ struct CmuxCommandTemplate {
                         c == "{" || c == "}" || c == "\n" || c == "\r"
                     }
                     if !innerHasIllegalCharacter, parse(inner: String(inner)) != nil {
-                        matches.append(.escapedPlaceholder(index..<(close + 2)))
+                        matches.append((nil, index..<(close + 2), true))
                         index = close + 2
                         continue
                     }
@@ -201,9 +186,10 @@ struct CmuxCommandTemplate {
                         c == "{" || c == "}" || c == "\n" || c == "\r"
                     }
                     if !innerHasIllegalCharacter, let parsed = parse(inner: String(inner)) {
-                        matches.append(.variable(
+                        matches.append((
                             CmuxCommandVariable(name: parsed.name, defaultValue: parsed.defaultValue),
-                            index..<(close + 2)
+                            index..<(close + 2),
+                            false
                         ))
                         index = close + 2
                         continue
