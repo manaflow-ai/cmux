@@ -2633,15 +2633,15 @@ class GhosttyApp {
         actionTitle: String,
         actionBody: String
     ) {
-        guard let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager,
-              let workspace = owningManager.tabs.first(where: { $0.id == tabId }) else { return }
-        if let surfaceId, workspace.panels[surfaceId] == nil {
+        guard let app = AppDelegate.shared else { return }
+        let owningManager = app.tabManagerFor(tabId: tabId) ?? app.tabManagerForWindowDockOwner(tabId) ?? app.tabManager
+        let workspace = owningManager?.tabs.first { $0.id == tabId }
+        let liveSurface = surfaceId.map { workspace?.panels[$0] != nil || workspace?.containsDockPanel($0) == true || app.windowDockContainingPanel($0)?.workspaceId == tabId || app.remoteTmuxController.isMirrorPaneSurface($0) } ?? (workspace != nil)
+        guard liveSurface else { return }
+        if workspace?.suppressesRawTerminalNotification(panelId: surfaceId) == true {
             return
         }
-        if workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-            return
-        }
-        let tabTitle = owningManager.titleForTab(tabId) ?? fallbackDesktopNotificationTitle()
+        let tabTitle = owningManager?.titleForTab(tabId) ?? fallbackDesktopNotificationTitle()
         let command = actionTitle.isEmpty ? tabTitle : actionTitle
         TerminalNotificationStore.shared.addNotification(
             tabId: tabId,
