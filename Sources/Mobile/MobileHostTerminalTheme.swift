@@ -19,11 +19,18 @@ extension TerminalTheme {
         let palette: [String] = (0...15).map { index in
             config.palette[index]?.hexString() ?? monokai.palette[index]
         }
+        // Only carry cursor-text when the Mac config actually parsed a
+        // `cursor-text` directive. When it did not, `config.cursorTextColor` is
+        // just a placeholder default that ghostty never applies (it derives
+        // cursor-text contrast automatically), so forwarding it would make the
+        // phone emit an explicit `cursor-text` line the Mac never had and mis-
+        // color the cursor label. `nil` here lets the phone derive contrast too.
+        let cursorText = config.hasParsedCursorTextColor ? config.cursorTextColor.hexString() : nil
         self.init(
             background: config.backgroundColor.hexString(),
             foreground: config.foregroundColor.hexString(),
             cursor: config.cursorColor.hexString(),
-            cursorText: config.cursorTextColor.hexString(),
+            cursorText: cursorText,
             selectionBackground: config.selectionBackground.hexString(),
             selectionForeground: config.selectionForeground.hexString(),
             palette: palette

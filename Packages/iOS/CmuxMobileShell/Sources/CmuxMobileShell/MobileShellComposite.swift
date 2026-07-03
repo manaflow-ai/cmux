@@ -313,13 +313,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Bumped whenever the applied terminal theme actually changes (a connect
     /// that reports a different theme than the one currently in
-    /// ``TerminalThemeStore``). The terminal surface keys its identity on this
-    /// so a theme change remounts the surface, rebuilding ghostty's config with
-    /// the new palette. libghostty has no API to recolor a live surface, and the
-    /// runtime reads the theme once while building its config, so remounting is
-    /// the supported way to apply a theme to an already-built surface. The
-    /// counter only advances on a real value change, so an unchanged theme on
-    /// reconnect does not needlessly remount and lose scrollback.
+    /// ``TerminalThemeStore``). The mounted terminal representable observes this
+    /// and drives a live recolor in place: it rebuilds the shared ghostty config
+    /// from the store and pushes the new colors to the running app and surfaces
+    /// (`ghostty_app_update_config` / `ghostty_surface_update_config`) plus the
+    /// SwiftUI/UIKit chrome, without remounting the surface, so scrollback is
+    /// preserved across a theme change. The counter only advances on a real
+    /// value change, so an unchanged theme on reconnect does no work.
     public private(set) var terminalThemeGeneration: UInt64 = 0
 
     /// Applies the Mac's reported terminal theme to the process-wide
@@ -2988,6 +2988,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             guard !Task.isCancelled,
                   let payload = try? MobileHostStatusResponse.decode(data) else { return }
+            // This runs with the full RPC timeout when the 750ms transport probe
+            // timed out, so it is also the recovery path for theme adoption: the
+            // probe applies the theme when it succeeds, but on a slow link it
+            // fails fast and never does. applyTerminalTheme is idempotent (it
+            // only bumps the generation on a real change), so re-applying here is
+            // free in the common case and keeps the phone's colors in sync with
+            // the Mac even when the probe could not.
+            self.applyTerminalTheme(payload.theme)
             await self.applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,

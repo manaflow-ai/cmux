@@ -51,7 +51,13 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
         macDeviceID = try container.decodeIfPresent(String.self, forKey: .macDeviceID)
         macAppVersion = try container.decodeIfPresent(String.self, forKey: .macAppVersion)
         macAppBuild = try container.decodeIfPresent(String.self, forKey: .macAppBuild)
-        theme = try container.decodeIfPresent(TerminalTheme.self, forKey: .theme)
+        // A present-but-malformed `theme` must not fail the whole status decode.
+        // The status payload also drives transport negotiation and Mac-identity
+        // adoption; a decode throw here would force raw-bytes transport and skip
+        // capability/identity follow-ups over a purely cosmetic field. Decode it
+        // leniently: a bad theme object yields `nil` and the phone keeps its
+        // built-in Monokai default, exactly like an older Mac that omits it.
+        theme = (try? container.decodeIfPresent(TerminalTheme.self, forKey: .theme)) ?? nil
     }
 
     /// Decode a host-status response from raw JSON data.

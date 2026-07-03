@@ -70,6 +70,14 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
         return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
     }
 
+    /// Normalizes a hex color to canonical `#rrggbb` form, or `nil` when it does
+    /// not parse. `rgbComponents` accepts a bare `rrggbb`, so this re-emits the
+    /// `#`-prefixed form the theme contract (and ghostty directives) expect.
+    static func canonicalHex(_ value: String?) -> String? {
+        guard let rgb = rgbComponents(value) else { return nil }
+        return String(format: "#%02x%02x%02x", rgb.red, rgb.green, rgb.blue)
+    }
+
     /// The ghostty config directives that express this theme's colors, one per
     /// line. Suitable for appending to an iOS ghostty config file.
     ///
@@ -77,20 +85,22 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// produces a usable (if incomplete) config rather than corrupt directives.
     public var ghosttyColorDirectives: String {
         var lines: [String] = []
-        if Self.rgbComponents(background) != nil { lines.append("background = \(background)") }
-        if Self.rgbComponents(foreground) != nil { lines.append("foreground = \(foreground)") }
-        if Self.rgbComponents(cursor) != nil { lines.append("cursor-color = \(cursor)") }
-        if let cursorText, Self.rgbComponents(cursorText) != nil {
-            lines.append("cursor-text = \(cursorText)")
+        if let bg = Self.canonicalHex(background) { lines.append("background = \(bg)") }
+        if let fg = Self.canonicalHex(foreground) { lines.append("foreground = \(fg)") }
+        if let cur = Self.canonicalHex(cursor) { lines.append("cursor-color = \(cur)") }
+        if let cursorText, let curText = Self.canonicalHex(cursorText) {
+            lines.append("cursor-text = \(curText)")
         }
-        if Self.rgbComponents(selectionBackground) != nil {
-            lines.append("selection-background = \(selectionBackground)")
+        if let selBg = Self.canonicalHex(selectionBackground) {
+            lines.append("selection-background = \(selBg)")
         }
-        if Self.rgbComponents(selectionForeground) != nil {
-            lines.append("selection-foreground = \(selectionForeground)")
+        if let selFg = Self.canonicalHex(selectionForeground) {
+            lines.append("selection-foreground = \(selFg)")
         }
-        for (index, color) in palette.enumerated() where Self.rgbComponents(color) != nil {
-            lines.append("palette = \(index)=\(color)")
+        for (index, color) in palette.enumerated() {
+            if let hex = Self.canonicalHex(color) {
+                lines.append("palette = \(index)=\(hex)")
+            }
         }
         return lines.joined(separator: "\n")
     }

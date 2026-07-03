@@ -94,6 +94,26 @@ import Testing
         #expect(theme.ghosttyColorDirectives.contains("cursor-text = #8d8e82"))
     }
 
+    @Test func ghosttyDirectivesNormalizeBareHexToCanonical() {
+        // A bare `rrggbb` (no `#`) still parses via rgbComponents, but the
+        // emitted directive must be canonical `#rrggbb` for the theme contract.
+        let theme = TerminalTheme(
+            background: "ff8000",
+            foreground: "#FDFFF1",
+            cursor: "#c0c1b5",
+            selectionBackground: "#57584f",
+            selectionForeground: "#fdfff1",
+            palette: Array(repeating: "aabbcc", count: TerminalTheme.paletteCount)
+        )
+        let directives = theme.ghosttyColorDirectives
+        #expect(directives.contains("background = #ff8000"))
+        // Uppercase input is normalized to lowercase canonical form.
+        #expect(directives.contains("foreground = #fdfff1"))
+        #expect(directives.contains("palette = 0=#aabbcc"))
+        #expect(!directives.contains("background = ff8000"))
+    }
+
+    @MainActor
     @Test func themeStoreSetAndFallback() {
         defer { TerminalThemeStore.set(.monokai) }
 

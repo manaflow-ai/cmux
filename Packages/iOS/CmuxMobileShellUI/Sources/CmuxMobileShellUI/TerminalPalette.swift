@@ -7,6 +7,10 @@ import SwiftUI
 /// These follow ``TerminalThemeStore/current`` so the chrome blends with the
 /// live terminal under any theme instead of flashing a hardcoded color. They
 /// fall back to Monokai when no theme has been supplied.
+///
+/// Main-actor isolated because it reads the `@MainActor` ``TerminalThemeStore``;
+/// every call site is a SwiftUI view body, which is already on the main actor.
+@MainActor
 enum TerminalPalette {
     /// Terminal background, from the active theme.
     static var background: Color { color(TerminalThemeStore.current.background) }

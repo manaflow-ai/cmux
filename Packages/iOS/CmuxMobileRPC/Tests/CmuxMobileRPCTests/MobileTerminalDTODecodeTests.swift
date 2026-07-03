@@ -77,6 +77,27 @@ import Testing
         #expect(responseNoCursorText.theme?.background == expected.background)
     }
 
+    /// A present-but-malformed `theme` (wrong types / truncated palette) must
+    /// not fail the whole host-status decode. The status payload also drives
+    /// transport negotiation and Mac-identity adoption, so a throw here would
+    /// force raw-bytes transport and skip identity follow-ups over a cosmetic
+    /// field. The bad theme decodes to nil; every other field still parses.
+    @Test func hostStatusToleratesMalformedTheme() throws {
+        let payload: [String: Any] = [
+            "capabilities": ["terminal.render_grid.v1"],
+            "terminal_fidelity": "render_grid",
+            "mac_display_name": "Studio",
+            // `palette` should be an array of strings; a number is invalid.
+            "theme": ["background": 1234, "palette": "not-an-array"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let response = try MobileHostStatusResponse.decode(data)
+        #expect(response.theme == nil)
+        #expect(response.capabilities == ["terminal.render_grid.v1"])
+        #expect(response.terminalFidelity == "render_grid")
+        #expect(response.macDisplayName == "Studio")
+    }
+
     @Test func inputResponseDecodesTerminalSeq() throws {
         let data = Data(#"{"terminal_seq":4242}"#.utf8)
         let response = try MobileTerminalInputResponse.decode(data)

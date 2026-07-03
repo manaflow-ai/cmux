@@ -45,6 +45,13 @@ public final class GhosttyRuntime {
 
     private static var backendInitialized = false
     private static var sharedResult: Result<GhosttyRuntime, Error>?
+    /// The theme value already baked into the live runtime's config. Guards
+    /// against redundant work when ``applyLiveThemeIfRunning()`` fires once per
+    /// mounted surface for a single theme change: only the first call for a new
+    /// theme value rebuilds the config and refreshes surfaces; the rest no-op.
+    /// Seeded in ``init()`` to the theme the config was first built from, so the
+    /// first mount after a change does not rebuild a config that already matches.
+    private static var lastAppliedTheme: TerminalTheme = .monokai
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
 
@@ -100,6 +107,14 @@ public final class GhosttyRuntime {
     /// can drive the live recolor once it observes a theme change.
     public static func applyLiveThemeIfRunning() {
         guard case .success(let runtime)? = sharedResult else { return }
+        // One theme-generation bump drives an `updateUIView` on every mounted
+        // representable, so this can be called N times for a single change.
+        // rebuildConfigFromStore + refreshAllSurfacesForThemeChange already
+        // touch the whole app and every registered surface, so doing it once is
+        // enough; skip the redundant rebuilds by keying on the theme value.
+        let current = TerminalThemeStore.current
+        guard current != lastAppliedTheme else { return }
+        lastAppliedTheme = current
         runtime.rebuildConfigFromStore()
         GhosttySurfaceView.refreshAllSurfacesForThemeChange()
     }
@@ -212,6 +227,10 @@ public final class GhosttyRuntime {
 
         self.config = config
         self.app = app
+        // The config above was built from the current theme (loadConfig reads
+        // TerminalThemeStore), so record it as applied; a follow-up
+        // applyLiveThemeIfRunning for the same theme is then a no-op.
+        Self.lastAppliedTheme = TerminalThemeStore.current
     }
 
     deinit {
