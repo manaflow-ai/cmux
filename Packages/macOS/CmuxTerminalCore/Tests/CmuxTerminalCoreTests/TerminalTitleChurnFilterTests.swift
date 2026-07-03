@@ -101,4 +101,12 @@ import Testing
         #expect(filter.titleToDispatch(for: "⠙ Working…", surfaceID: surfaceA) == nil)
         #expect(filter.titleToDispatch(for: "⠹ Working…", surfaceID: surfaceB) == "Working…")
     }
+
+    @Test func interleavedSurfacesDedupIndependently() {
+        var filter = TerminalTitleChurnFilter()
+        #expect(filter.titleToDispatch(for: "⠋ Working…", surfaceID: surfaceA) == "Working…")
+        #expect(filter.titleToDispatch(for: "⠋ Working…", surfaceID: surfaceB) == "Working…")
+        #expect(filter.titleToDispatch(for: "⠙ Working…", surfaceID: surfaceA) == nil)
+        #expect(filter.titleToDispatch(for: "⠙ Working…", surfaceID: surfaceB) == nil)
+    }
 }

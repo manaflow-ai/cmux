@@ -30,8 +30,8 @@ public import Foundation
 /// terminal title. Behavior is covered by `TerminalTitleChurnFilterTests`.
 @MainActor
 public struct TerminalTitleChurnFilter {
-    private var lastSurfaceID: UUID?
-    private var lastDispatchedTitle: String?
+    private var lastDispatchedTitleBySurfaceID: [UUID: String] = [:]
+    private var retainedSurfaceIDs: [UUID] = []
 
     /// Creates an empty title churn filter with no previously dispatched title.
     public init() {}
@@ -57,15 +57,26 @@ public struct TerminalTitleChurnFilter {
            !rawTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return nil
         }
-        if surfaceID == lastSurfaceID, stable == lastDispatchedTitle {
+        if lastDispatchedTitleBySurfaceID[surfaceID] == stable {
             return nil
         }
-        lastSurfaceID = surfaceID
-        lastDispatchedTitle = stable
+        rememberSurfaceIDIfNeeded(surfaceID)
+        lastDispatchedTitleBySurfaceID[surfaceID] = stable
         return stable
     }
 
+    private mutating func rememberSurfaceIDIfNeeded(_ surfaceID: UUID) {
+        guard lastDispatchedTitleBySurfaceID[surfaceID] == nil else { return }
+        retainedSurfaceIDs.append(surfaceID)
+        if retainedSurfaceIDs.count > terminalTitleChurnRetainedSurfaceLimit {
+            let removedSurfaceID = retainedSurfaceIDs.removeFirst()
+            lastDispatchedTitleBySurfaceID.removeValue(forKey: removedSurfaceID)
+        }
+    }
+
 }
+
+private let terminalTitleChurnRetainedSurfaceLimit = 32
 
 /// Strips a leading run of Braille spinner glyphs and the whitespace that
 /// separates them from their label, returning the label untouched. A title with
