@@ -10044,16 +10044,15 @@ struct CMUXCLI {
             // by the tee above. ssh exits 255 for network, auth, and agent failures
             // alike, so its exit code carries no structured signal — the OpenSSH
             // client's stderr wording is the only in-band discriminator. Match only
-            // the canonical refusal text "agent refused operation" (OpenSSH's
-            // SSH_ERR_AGENT_FAILURE string, present in the issue's repro line), NOT
-            // the broader "sign_and_send_pubkey: signing failed" prefix — that prefix
-            // also covers unrelated signing failures (e.g. "error in libcrypto") that
-            // must keep the normal retry/failure path. The check fails safe: anything
-            // unmatched (a reworded/non-OpenSSH error) keeps the existing network-retry
-            // behavior, and the agent-wait path itself auto-recovers on unlock or
-            // degrades to the manual-reconnect banner.
+            // the canonical local OpenSSH signing diagnostic line, not the bare
+            // "agent refused operation" phrase that a remote startup command or shell
+            // init can print on the same stderr stream, and not the broader
+            // "sign_and_send_pubkey: signing failed" prefix used for unrelated signing
+            // failures (e.g. "error in libcrypto"). The check fails safe: anything
+            // unmatched keeps the existing network-retry behavior, and the agent-wait
+            // path itself auto-recovers on unlock or degrades to the manual banner.
             "  cmux_ssh_agent_locked=0",
-            "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ \"$cmux_ssh_status\" -ne 0 ] && grep -qi 'agent refused operation' \"$cmux_ssh_stderr_capture\" 2>/dev/null; then cmux_ssh_agent_locked=1; fi",
+            "  if [ \"$cmux_ssh_capture_active\" = 1 ] && [ \"$cmux_ssh_status\" -ne 0 ] && grep -Eiq '^sign_and_send_pubkey: .* from agent: agent refused operation[[:space:]]*$' \"$cmux_ssh_stderr_capture\" 2>/dev/null; then cmux_ssh_agent_locked=1; fi",
             "  if [ \"$cmux_ssh_status\" -eq 0 ]; then break; fi",
             "  case \"$cmux_ssh_status\" in \(retryableStatusPattern)) ;; *) break ;; esac",
             // Locked SSH agent: wait on the dedicated agent budget instead of the

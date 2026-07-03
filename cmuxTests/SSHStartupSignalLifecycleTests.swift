@@ -771,14 +771,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testSSHStartupTreatsNonAgentSigningFailureAsNetworkFailure() throws {
-        // Guards the issue #6549 classifier against false positives. OpenSSH prints
-        // the "sign_and_send_pubkey: signing failed" prefix for non-agent signing
-        // errors too (e.g. "error in libcrypto"), which are NOT a locked agent and
-        // must keep the normal network reconnect/failure path rather than entering
-        // the agent-wait loop with the misleading "unlock your SSH agent" guidance.
-        // The fake ssh always fails with such a message; with a network limit of 2
-        // it must stop after 3 attempts and show the generic banner — never the
-        // 50-attempt agent-wait budget or the agent-unavailable banner.
+        // Guards the issue #6549 classifier against false positives. A remote
+        // startup command can print the bare "agent refused operation" phrase on
+        // SSH's combined stderr stream, and OpenSSH also prints the
+        // "sign_and_send_pubkey: signing failed" prefix for non-agent signing
+        // failures such as "error in libcrypto". Both must keep the normal network
+        // reconnect/failure path instead of entering the agent-wait loop with the
+        // misleading "unlock your SSH agent" guidance.
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-nonagent-sign-\(UUID().uuidString)", isDirectory: true)
@@ -800,7 +799,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
             "count=$((count + 1))",
             "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
-            "printf 'sign_and_send_pubkey: signing failed for ED25519 \\\"Key X\\\": error in libcrypto\\n' >&2",
+            "printf 'remote bootstrap: agent refused operation\\nsign_and_send_pubkey: signing failed for ED25519 \\\"Key X\\\": error in libcrypto\\n' >&2",
             "exit 255",
         ])
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
