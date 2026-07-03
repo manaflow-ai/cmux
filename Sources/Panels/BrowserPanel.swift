@@ -5292,9 +5292,9 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
 
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
-            detachTerminatedWebViewCallbacks(terminatedWebView)
             pendingWebContentRecoveryURL = recoveryURL
             hasRecoverableWebContentTermination = true
+            detachTerminatedWebViewCallbacks(terminatedWebView)
             hideBrowserPortalView(source: "webContentRecovery", recordHiddenVisibility: false)
         } else {
             clearWebContentTerminationRecovery()
@@ -5319,7 +5319,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func detachTerminatedWebViewCallbacks(_ terminatedWebView: WKWebView) {
         detachWebViewObservers()
-        tearDownReactGrabMessageHandler(for: terminatedWebView)
+        tearDownReactGrabMessageHandler(for: terminatedWebView, reason: "webContentProcessTerminated")
         tearDownMediaPlaybackMessageHandler(for: terminatedWebView)
         webAuthnCoordinator.tearDown(from: terminatedWebView)
         terminatedWebView.configuration.userContentController.removeScriptMessageHandler(
