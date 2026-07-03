@@ -79,13 +79,6 @@ private final class ViewportColumnFitHarness {
         return delegate.reports.last
     }
 
-    func settle(_ interval: TimeInterval = 0.6) async {
-        let deadline = Date(timeIntervalSinceNow: interval)
-        while Date() < deadline {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
-    }
-
     func echo(_ report: TerminalGridSize, macColumns: Int = .max, macRows: Int = .max) {
         view.markViewportReportConfirmed()
         view.applyConfirmedViewSize(
@@ -115,13 +108,18 @@ struct TerminalViewportColumnFitTests {
         let minimumPhoneWidthColumns = max(1, Int((Double(initial.columns) * 0.75).rounded(.down)))
         let rowConstrainedGrid = max(6, initial.rows / 3)
         harness.delegate.autoEchoMacGrid = (cols: initial.columns, rows: rowConstrainedGrid)
+        let beforeConstraintReports = harness.delegate.reports.count
         await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: rowConstrainedGrid)
-        await harness.settle()
+        let postFitReport = try #require(
+            await harness.waitForReport(after: beforeConstraintReports, timeout: 8),
+            "row-constrained grid never re-reported after auto-fit"
+        )
 
         let settled = await harness.pump(timeout: 8) {
             let snapshot = harness.snapshot
             return snapshot.effectiveGrid?.rows == rowConstrainedGrid
-                && snapshot.renderedSize?.columns != nil
+                && snapshot.renderedSize?.columns == postFitReport.columns
+                && snapshot.liveFontSize > snapshot.baseFontSize + 0.25
         }
         #expect(settled, "row-constrained grid did not settle")
 
