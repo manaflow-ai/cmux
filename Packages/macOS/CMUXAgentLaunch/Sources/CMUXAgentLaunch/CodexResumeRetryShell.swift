@@ -26,7 +26,7 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
     ///   - command: The already shell-rendered Codex command to execute.
     ///   - quote: A shell quoting function for the generated zsh script.
     /// - Returns: `command` unchanged when retries are disabled; otherwise a shell command that
-    ///   retries transient Codex state database lock failures with bounded jittered backoff.
+    ///   retries transient Codex state database lock failures during startup.
     public func wrappedCommand(_ command: String, quote: (String) -> String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard maxAttempts > 1, !trimmed.isEmpty else { return command }
@@ -60,11 +60,14 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
         // still mirrors every byte to the terminal; only the first 64 KiB is retained for detection so a
         // verbose session cannot grow the temp file (or the exit-time read) without bound, and
         // `cat >/dev/null` drains the tail so the mirror never receives SIGPIPE after `head` stops.
+        // These attempts keep the same startup-only retry boundary as the first attempt: if Codex lives
+        // long enough to plausibly be interactive, the wrapper returns the status instead of relaunching.
         let retryAttempt = [
             "_cmux_codex_retry_stderr=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-resume.XXXXXX\")\" || exit 1",
             "_cmux_codex_retry_pipe=\"${_cmux_codex_retry_stderr}.pipe\"",
             "mkfifo \"$_cmux_codex_retry_pipe\" || exit 1",
             "tee /dev/stderr <\"$_cmux_codex_retry_pipe\" | { head -c 65536 >\"$_cmux_codex_retry_stderr\" 2>/dev/null; cat >/dev/null; } & _cmux_codex_retry_tee_pid=$!",
+            "_cmux_codex_retry_started=$SECONDS",
             "{ \(command); } 2>\"$_cmux_codex_retry_pipe\"",
             "_cmux_codex_retry_status=$?",
             "wait \"$_cmux_codex_retry_tee_pid\" 2>/dev/null || true",
@@ -73,12 +76,11 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
             "_cmux_codex_retry_stderr=\"\"",
             "_cmux_codex_retry_pipe=\"\"",
             "[ \"$_cmux_codex_retry_status\" -eq 0 ] && exit 0",
+            "[ \"$((SECONDS - _cmux_codex_retry_started))\" -ge 3 ] && exit \"$_cmux_codex_retry_status\"",
             "case \"$_cmux_codex_retry_output\" in *\"database is locked\"*|*\"another Codex process is using its local data\"*) ;; *) exit \"$_cmux_codex_retry_status\" ;; esac",
         ].joined(separator: "; ")
         let afterAttempt = [
             "[ \"$_cmux_codex_retry_attempt\" -ge \"$_cmux_codex_retry_limit\" ] && exit \"$_cmux_codex_retry_status\"",
-            "case \"$_cmux_codex_retry_attempt\" in 1) _cmux_codex_retry_delay=\"0.$((150 + (RANDOM % 100)))\" ;; 2) _cmux_codex_retry_delay=\"0.$((300 + (RANDOM % 150)))\" ;; *) _cmux_codex_retry_delay=\"0.$((600 + (RANDOM % 250)))\" ;; esac",
-            "sleep \"$_cmux_codex_retry_delay\"",
             "_cmux_codex_retry_attempt=$((_cmux_codex_retry_attempt + 1))",
         ].joined(separator: "; ")
         let loopBody = "if [ \"$_cmux_codex_retry_attempt\" -eq 1 ]; then \(firstAttempt); else \(retryAttempt); fi; \(afterAttempt)"

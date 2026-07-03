@@ -69,6 +69,61 @@ struct CodexResumeRetryShellTests {
         #expect(record.contains("args=resume session id\n"))
     }
 
+    @Test("Does not retry lock text after startup window")
+    func doesNotRetryLockTextAfterStartupWindow() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-retry-shell-\(UUID().uuidString)", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let attemptsURL = root.appendingPathComponent("attempts.txt", isDirectory: false)
+        let successURL = root.appendingPathComponent("success.txt", isDirectory: false)
+        let fakeCodexURL = binDirectory.appendingPathComponent("codex fake", isDirectory: false)
+        try """
+        #!/bin/zsh
+        attempt=0
+        if [[ -r \(Self.shellSingleQuoted(attemptsURL.path)) ]]; then
+          attempt="$(cat \(Self.shellSingleQuoted(attemptsURL.path)))"
+        fi
+        attempt=$((attempt + 1))
+        print -r -- "$attempt" > \(Self.shellSingleQuoted(attemptsURL.path))
+        if [[ "$attempt" -eq 1 ]]; then
+          print -u2 "ERROR: database is locked"
+          exit 1
+        fi
+        if [[ "$attempt" -eq 2 ]]; then
+          sleep 3
+          print -u2 "ERROR: database is locked"
+          exit 1
+        fi
+        print -r -- "unexpected retry" > \(Self.shellSingleQuoted(successURL.path))
+        """.write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodexURL.path)
+
+        let wrapped = CodexResumeRetryShell(maxAttempts: 4).wrappedCommand(
+            Self.shellSingleQuoted(fakeCodexURL.path),
+            quote: Self.shellSingleQuoted
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", wrapped]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+
+        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        #expect(process.terminationStatus == 1, "stderr: \(stderrText)")
+        #expect(
+            try String(contentsOf: attemptsURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines) == "2"
+        )
+        #expect(!FileManager.default.fileExists(atPath: successURL.path))
+    }
+
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
