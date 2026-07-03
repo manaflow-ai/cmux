@@ -1,5 +1,5 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { hasFeatureWorkflowContent } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
@@ -25,6 +25,7 @@ export async function generateMetadata({
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-05-22T00:00:00Z",
+      modifiedTime: "2026-07-03T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
@@ -35,9 +36,15 @@ export async function generateMetadata({
   };
 }
 
-export default function TaskManagerPage() {
-  const t = useTranslations("blog.posts.taskManager");
-  const tc = useTranslations("common");
+export default async function TaskManagerPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const showFeatureWorkflow = hasFeatureWorkflowContent(locale);
+  const t = await getTranslations({ locale, namespace: "blog.posts.taskManager" });
+  const tc = await getTranslations({ locale, namespace: "common" });
 
   return (
     <>
@@ -61,6 +68,33 @@ export default function TaskManagerPage() {
       <CodeBlock lang="bash">{`cmux top`}</CodeBlock>
       <p>{t("p3")}</p>
       <p>{t("p4")}</p>
+
+      {showFeatureWorkflow ? (
+        <>
+          <h2>{t("workflowTitle")}</h2>
+          <ol>
+            <li>{t("workflowOpen")}</li>
+            <li>{t("workflowScan")}</li>
+            <li>{t("workflowJump")}</li>
+            <li>{t("workflowAct")}</li>
+          </ol>
+
+          <h2>{t("useTitle")}</h2>
+          <p>{t("useP")}</p>
+
+          <h2>{t("faqTitle")}</h2>
+          <h3>{t("faqAgentsTitle")}</h3>
+          <p>{t("faqAgentsBody")}</p>
+          <h3>{t("faqCliTitle")}</h3>
+          <p>{t("faqCliBody")}</p>
+
+          <p className="mt-6">
+            {t.rich("docsCta", {
+              link: (chunks) => <Link href="/docs/task-manager">{chunks}</Link>,
+            })}
+          </p>
+        </>
+      ) : null}
     </>
   );
 }
