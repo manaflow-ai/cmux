@@ -196,6 +196,40 @@ struct AgentChatSessionRegistryObservationReviewRegressionTests {
         #expect(livePID == 96441)
     }
 
+    @Test func mobileChatObserverCreatesPendingClaudeExeWhenSessionIdentityIsUnavailable() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 54045,
+                    parentPID: 51297,
+                    name: "claude.exe",
+                    path: "/Users/example/.local/share/claude/versions/2.1.199/claude.exe",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 540),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { _ in nil },
+            codexRolloutPath: { _ in nil }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID.uuidString))
+        #expect(session.agentKind == .claude)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 54045)
+        #expect(session.workingDirectory == nil)
+    }
+
     private func topProcess(
         pid: Int,
         parentPID: Int,

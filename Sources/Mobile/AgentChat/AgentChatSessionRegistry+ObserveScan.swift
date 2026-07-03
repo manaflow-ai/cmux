@@ -279,11 +279,12 @@ extension AgentChatSessionRegistry {
                let id = firstUUIDLike(in: envSessionID) {
                 sessionID = id
             }
-            if sessionID == nil,
-               let argv = loadDetails()?.arguments {
+            let argv = sessionID == nil ? loadDetails()?.arguments : nil
+            if sessionID == nil, let argv {
                 sessionID = sessionIDFromArguments(argv)
             }
-            guard let resolved = sessionID else { continue }
+            let explicitSessionOption = argv?.contains { ["--session-id", "--resume", "-r"].contains($0) || $0.hasPrefix("--session-id=") || $0.hasPrefix("--resume=") || $0.hasPrefix("-r=") } == true
+            guard let resolved = sessionID ?? (def.id == "claude" && !explicitSessionOption ? pendingClaudeSessionID(surfaceID: surfaceID.uuidString) : nil) else { continue }
             let candidate = Candidate(
                 session: ObservedAgentSession(
                     sessionID: resolved,
@@ -449,7 +450,6 @@ extension AgentChatSessionRegistry {
         guard !trimmed.hasPrefix("-") else { return nil }
         return firstUUIDLike(in: trimmed)
     }
-
     /// libproc: the path of a `~/.codex/sessions/**/rollout-*.jsonl` the process
     /// holds open (codex keeps its rollout open for writing), or nil.
     nonisolated static func openCodexRolloutPath(pid: Int) -> String? {
