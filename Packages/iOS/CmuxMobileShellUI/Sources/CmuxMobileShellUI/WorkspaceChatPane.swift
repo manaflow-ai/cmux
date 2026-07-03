@@ -14,13 +14,8 @@ import UIKit
 /// button: the same toolbar toggle flips back to the terminal.
 struct WorkspaceChatPane: View {
     let session: ChatSessionDescriptor
+    let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
-    /// The owning workspace's name, shown as the header title (so the header
-    /// reads as the workspace, not the session's first prompt).
-    let workspaceName: String
-    /// The name of the tab/terminal this session lives on, shown as the
-    /// header subtitle.
-    let tabName: String?
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
@@ -29,67 +24,20 @@ struct WorkspaceChatPane: View {
 
     @Environment(BrowserSurfaceStore.self) private var browserStore
 
-    @State private var conversation: ChatConversationStore?
     @State private var accessoryConfiguration = TerminalAccessoryConfiguration.shared
     @State private var isShowingShortcutSettings = false
-    /// Full content width, used to bound the toolbar-principal header so a long
-    /// workspace name truncates in the center instead of overflowing under the
-    /// back button / trailing toolbar buttons.
-    @State private var contentWidth: CGFloat = 0
 
     var body: some View {
         Group {
-            if let conversation {
-                ChatScreen(
-                    store: conversation,
-                    draft: $draft,
-                    accessoryLeadingShortcuts: chatAccessoryLeadingShortcuts(),
-                    accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
-                    providesOwnChrome: false,
-                    onOpenTerminal: openTerminal
-                )
-                // The host (workspace detail) owns the nav bar, so the
-                // live session-state header is supplied here as a principal
-                // item rather than by ChatScreen, which would be dropped
-                // under the workspace's own chrome.
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        ChatSessionHeaderView(
-                            descriptor: conversation.descriptor,
-                            agentState: conversation.agentState,
-                            isConnected: conversation.isConnected,
-                            titleOverride: workspaceName,
-                            subtitle: tabName
-                        )
-                        // Centered principal item: cap it to the clear center gap
-                        // so a long workspace name truncates instead of
-                        // underlapping the toolbar. The chat view always shows the
-                        // chat toggle in its trailing cluster. Reserve only the
-                        // real side clusters so the middle grows as much as it can.
-                        .frame(maxWidth: MobileNavTitleWidth.cap(
-                            contentWidth: contentWidth,
-                            hasChatToggle: true
-                        ))
-                        // The header bar is cleared on iOS 26 so the transcript
-                        // shows through it; back the header on its own Liquid
-                        // Glass pill so it stays readable over the messages.
-                        .mobileGlassNavigationTitle()
-                    }
-                }
-            } else {
-                Color.clear
-            }
-        }
-        // Rebuild the conversation store when the bound session changes
-        // (toggling into a different live session), tearing down the old
-        // event subscription.
-        .task(id: session.id) {
-            if conversation?.descriptor.id != session.id {
-                conversation = store.makeChatEventSource().map {
-                    ChatConversationStore(descriptor: session, source: $0)
-                }
-            }
+            ChatScreen(
+                store: conversation,
+                draft: $draft,
+                accessoryLeadingShortcuts: chatAccessoryLeadingShortcuts(),
+                accessoryShortcuts: chatAccessoryShortcuts(for: conversation),
+                providesOwnChrome: false,
+                runsStoreTask: false,
+                onOpenTerminal: openTerminal
+            )
         }
         .sheet(isPresented: $isShowingShortcutSettings) {
             TerminalShortcutsSettingsView(scope: .agentChat)

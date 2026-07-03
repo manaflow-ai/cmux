@@ -9,6 +9,9 @@ public protocol AgentIntegrationSettingsReading: Sendable {
     /// Whether the Claude Code hooks integration is enabled.
     var claudeCodeHooksEnabled: Bool { get }
 
+    /// Whether the Codex hooks integration (the `codex` wrapper) is enabled.
+    var codexHooksEnabled: Bool { get }
+
     /// The user-configured `claude` executable path, or `nil` to resolve
     /// `claude` from `PATH`. Whitespace-only values read as `nil`.
     var customClaudePath: String? { get }

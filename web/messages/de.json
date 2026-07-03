@@ -737,13 +737,13 @@
       "layoutItem1": "Angeheftete Zeilen der obersten Ebene (Workspaces und Gruppen).",
       "layoutItem2": "Nicht angeheftete Zeilen der obersten Ebene (Workspaces und Gruppen).",
       "creatingTitle": "Eine Gruppe erstellen",
-      "creatingIntro": "Eine Gruppe wird auf eine von zwei Arten erstellt: über ein Tastenkürzel oder das Kontextmenü eines Workspace. Beide fügen einen neuen Anker-Workspace oberhalb der Auswahl ein und verschieben die ausgewählten Workspaces in die Gruppe. Sobald eine Gruppe existiert, verwalten Sie sie und fügen ihr Workspaces über die Gruppenkopfzeile hinzu (siehe Verwalten einer Gruppe weiter unten).",
-      "keyboardTitle": "Über die Tastatur ({shortcut})",
-      "keyboardDesc": "Wählen Sie zwei oder mehr Workspaces in der Seitenleiste aus und drücken Sie dann {shortcut}. Ein neuer Anker-Workspace wird oberhalb der Auswahl eingefügt, und alle ausgewählten Workspaces werden zu Kindern. Die Gruppe wird automatisch Group 1, Group 2 und so weiter benannt – benennen Sie sie jederzeit über das Kontextmenü der Kopfzeile um.",
+      "creatingIntro": "Eine Gruppe wird über eine Tastenkombination oder ein Kontextmenü in der Seitenleiste erstellt. Leere Gruppen fügen einen neuen Anker-Arbeitsbereich als Gruppenüberschrift ein. Auswahlbasierte Gruppen fügen diesen Anker oberhalb der Auswahl ein und verschieben die ausgewählten Arbeitsbereiche in die Gruppe. Sobald eine Gruppe vorhanden ist, verwaltest du sie und fügst Arbeitsbereiche über die Gruppenüberschrift hinzu (siehe Gruppe verwalten unten).",
+      "keyboardTitle": "Über Tastenkombinationen",
+      "keyboardDesc": "Drücke ⌃⌘G, um eine neue leere Arbeitsbereichsgruppe zu erstellen. Wähle zwei oder mehr Arbeitsbereiche in der Seitenleiste aus und drücke dann {shortcut}, um die Auswahl zu gruppieren. Beide Wege erstellen einen neuen Anker-Arbeitsbereich und benennen die Gruppe automatisch als Group 1, Group 2 usw. Du kannst sie jederzeit über das Kontextmenü der Überschrift umbenennen.",
       "keyboardNote": "{shortcut} kollidiert mit der Standardbelegung von React Grab. Der Gruppen-Handler verwendet den Tastenakkord nur, wenn es eine explizite Mehrfachauswahl von mindestens zwei Workspaces in der Seitenleiste gibt, sodass React Grab bei Einzelauswahl sowie in Browser- oder Terminalkontexten weiterhin auslöst. Belegen Sie es in Einstellungen → Tastatur neu, falls Sie nicht möchten, dass sich die beiden eine Taste teilen.",
       "keyboardSingle": "Gruppen mit nur einem Tab werden nicht über das Tastenkürzel erstellt. Verwenden Sie dafür den Eintrag „Neue Gruppe aus Arbeitsbereich“ im Kontextmenü des Arbeitsbereichs.",
       "contextMenuTitle": "Über ein Workspace-Kontextmenü",
-      "contextMenuDesc": "Klicken Sie mit der rechten Maustaste auf einen beliebigen Arbeitsbereich in der Seitenleiste und wählen Sie „Neue Gruppe aus Arbeitsbereich“ oder „Neue Gruppe aus Auswahl“, wenn mehrere Arbeitsbereiche ausgewählt sind. Dabei wird dasselbe automatische Benennungsverhalten wie beim Tastenkürzel verwendet.",
+      "contextMenuDesc": "Klicke mit der rechten Maustaste auf einen Arbeitsbereich in der Seitenleiste und wähle Neue leere Arbeitsbereichsgruppe, Neue Gruppe aus Arbeitsbereich oder, wenn mehrere Arbeitsbereiche ausgewählt sind, Neue Gruppe aus Auswahl. Der leere Bereich unter der Seitenleistenliste bietet ebenfalls Neue leere Arbeitsbereichsgruppe. Diese Wege verwenden dieselbe automatische Benennung wie die Tastenkombinationen.",
       "managingTitle": "Verwalten einer Gruppe",
       "managingIntro": "Sobald eine Gruppe existiert, können Sie über das Kontextmenü ihrer Kopfzeile und die Schaltfläche + in der Kopfzeile die Gruppe verwalten und ihr Workspaces hinzufügen. Keine der beiden Aktionen erstellt eine neue Gruppe.",
       "headerMenuTitle": "Über das Kontextmenü der Gruppenkopfzeile",
@@ -799,6 +799,8 @@
       "exampleConfig": "Beispielkonfiguration",
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
+        "paneBorderColor": "Überschreibt die Farbe des cmux-Fensterteilers in geteilten Workspaces. Dies betrifft cmux-Fenstergrenzen, nicht interne Ghostty-Aufteilungen.",
+        "activePaneBorderColor": "Optionale Rahmenfarbe, die in geteilten Workspaces um das fokussierte cmux-Fenster gezeichnet wird.",
         "automation": {
           "ampIntegration": "Aktiviere cmux-Integrations-Hooks für Amp. Wenn deaktiviert, bleibt das gebündelte Plugin inaktiv, ohne entfernt werden zu müssen.",
           "suppressSubagentNotifications": "Unterdrücke sichtbare Abschlussbenachrichtigungen und Statusänderungen von verschachtelten Codex- oder Claude-Unteragenten, während ihre Ereignisse in der Feed-Telemetrie bleiben.",
@@ -819,6 +821,9 @@
           "scrollSpeed": "Multiplikator für die Scroll-Werte von Mausrad und Trackpad im Terminal. Höhere Werte scrollen schneller, niedrigere Werte langsamer.",
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",
           "focusTextBoxOnNewTerminals": "Fokussiert die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits. Fokussieren zeigt die TextBox ebenfalls an."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Wenn aktiviert, wird ein Benachrichtigungsbanner nur dann automatisch zurückgezogen, wenn seine Oberfläche genau die fokussierte Oberfläche ist. Ein Banner, das für eine nicht fokussierte Oberfläche im aktuell sichtbaren Workspace zugestellt wurde, bleibt sichtbar, bis Sie diese Oberfläche fokussieren (oder das Banner anklicken bzw. schließen), anstatt zurückgezogen zu werden, sobald der Workspace sichtbar wird. Deaktiviert bleibt das bisherige Zurückziehen anhand der Workspace-Sichtbarkeit erhalten."
         },
         "browser": {
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
@@ -848,7 +853,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
+          "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
         }
       },
@@ -1069,7 +1074,8 @@
       "closeWorkspaceDesc": "Einen Workspace schließen.",
       "splitCommands": "Split-Befehle",
       "newSplitDesc": "Einen neuen geteilten Bereich erstellen. Richtungen: left, right, up, down.",
-      "listSurfacesDesc": "Alle Oberflächen im aktuellen Workspace auflisten.",
+      "listPanelsDesc": "Alle Oberflächen im aktuellen Workspace auflisten.",
+      "listPaneSurfacesDesc": "Oberflächen im fokussierten Bereich auflisten.",
       "focusSurfaceDesc": "Eine bestimmte Oberfläche fokussieren.",
       "inputCommands": "Eingabebefehle",
       "sendDesc": "Texteingabe an das fokussierte Terminal senden.",
@@ -1591,7 +1597,8 @@
   "afterSignIn": {
     "title": "Bei cmux angemeldet",
     "body": "Wenn cmux nicht automatisch geöffnet wurde, verwende die Schaltfläche unten.",
-    "button": "Zurück zu cmux"
+    "button": "Zurück zu cmux",
+    "switchAccountButton": "Anderes Konto verwenden"
   },
   "landing": {
     "bestTerminal": {
@@ -1613,9 +1620,9 @@
       "kittyBuiltFor": "Schnell, skriptfähig, funktionsreich",
       "weztermBuiltFor": "GPU-Terminal mit eingebautem Multiplexer",
       "tmuxBuiltFor": "Multiplexing in jedem beliebigen Terminal",
-      "cmuxBody": "Ein natives macOS-Terminal auf Basis von libghostty, gebaut für drei Dinge: Multitasking, Organisation und Programmierbarkeit. Die vertikale Seitenleiste fasst die Arbeit in Workspaces zusammen, von denen jeder seinen Git-Branch, sein Verzeichnis, seine Ports und die letzte Zeile der Agentenausgabe zeigt, sodass du vieles gleichzeitig laufen lassen kannst, ohne den Überblick zu verlieren. Bereiche klingeln, wenn ein Agent Aufmerksamkeit braucht. Jede Aktion ist über eine CLI und einen Unix-Socket skriptbar, und es gibt einen integrierten Browser, den du programmatisch steuern kannst. Es gibt sogar eine iOS-Begleit-App, um deine Terminals vom Handy aus im Blick zu behalten. Am besten, wenn du mehrere Aufgaben oder KI-Coding-Agenten jonglierst und sie ohne Multiplexer-Konfiguration organisiert und automatisierbar haben willst.",
+      "cmuxBody": "cmux ist ein natives macOS-Terminal, das auf Ghosttys Terminal-Engine libghostty aufbaut. Das Terminalraster erbt damit Ghosttys Stärken: schnelles GPU-Rendering, sehr gute Schrift- und Farbdarstellung, moderne Terminal-Kompatibilität und deine vorhandenen Ghostty-Themes, Schriftarten, Farben und Cursor-Einstellungen. cmux ergänzt die Ebene, die Ghostty bewusst nicht sein will: vertikale Workspaces, Split-Panes, Benachrichtigungsringe, git-, Port- und Agent-Kontext in der Seitenleiste, eine scriptbare CLI mit Unix-Socket, einen programmierbaren Browser und eine iOS-Begleitapp. Nimm cmux, wenn du Terminal-Rendering in Ghostty-Qualität plus Organisation und Automatisierung für viele Aufgaben oder AI-Coding-Agents willst.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Das schnelle, GPU-beschleunigte Terminal, dessen Engine libghostty cmux antreibt. Wenn du ein einzelnes, klares Terminalfenster mit hervorragendem Rendering willst und nichts von der Workspace- oder Automatisierungsschicht brauchst, ist Ghostty für sich allein hervorragend.",
+      "ghosttyBody": "Ghostty ist das schnelle native Terminal, dessen Engine libghostty auch cmux antreibt. Gegenüber älteren CPU-gerenderten Terminals und schwereren Electron-artigen Terminals liegen Ghosttys Stärken in latenzarmem GPU-Rendering, klarer Schrift- und Farbdarstellung, starker Terminal-Kompatibilität, einfacher dateibasierter Konfiguration und keinem Cloud-Konto-Zwang. Wenn du ein sauberes einzelnes Terminalfenster mit diesen Rendering-Vorteilen und ohne Workspace- oder Automatisierungsebene willst, ist Ghostty allein ausgezeichnet. Wenn du dieselben Ghostty-Rendering-Vorteile plus Workspaces, Benachrichtigungen, Scripting und Agent-Orchestrierung willst, nutze cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Das ausgereifte, endlos konfigurierbare macOS-Terminal. Tiefe Profile, Trigger und tmux-Integration. Die sichere Wahl, wenn du maximale Funktionen willst und nicht viele Aufgaben gleichzeitig orchestrierst.",
       "warpTitle": "Warp",
