@@ -35,6 +35,8 @@ enum WorkspaceFinderDirectoryResolver {
 
 enum WorkspaceFinderDirectoryOpener {
     typealias FinderOpener = @MainActor (URL?) async -> Void
+    typealias DirectoryOpener = @MainActor (URL) -> Void
+    typealias Beeper = @MainActor () -> Void
 
     @MainActor
     static func openInFinder(_ directoryURL: URL?) async {
@@ -53,11 +55,18 @@ enum WorkspaceFinderDirectoryOpener {
     }
 
     @MainActor
-    static func openInFinder(
+    static func openDirectory(
         path: String,
-        openInFinder: @escaping FinderOpener = WorkspaceFinderDirectoryOpener.openInFinder
+        openDirectory: @escaping DirectoryOpener = { url in _ = NSWorkspace.shared.open(url) },
+        beep: @escaping Beeper = { NSSound.beep() }
     ) async {
-        let directoryURL = URL(fileURLWithPath: path, isDirectory: true)
-        await openInFinder(directoryURL)
+        guard !Task.isCancelled else { return }
+        if let refreshedURL = await WorkspaceFinderDirectoryResolver.existingDirectoryURL(for: path) {
+            guard !Task.isCancelled else { return }
+            openDirectory(refreshedURL)
+        } else {
+            guard !Task.isCancelled else { return }
+            beep()
+        }
     }
 }

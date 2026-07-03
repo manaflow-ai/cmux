@@ -9,17 +9,40 @@ import Testing
 
 @Suite struct WorkspaceFinderDirectoryOpenerTests {
     @MainActor
-    @Test func routesWorkingDirectoryThroughSharedFinderOpener() async {
-        let cwd = FileManager.default.temporaryDirectory
+    @Test func openDirectoryOpensExistingWorkingDirectoryItself() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-index-cwd-\(UUID().uuidString)", isDirectory: true)
-            .path
-        var finderOpenedPaths: [String?] = []
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-        await WorkspaceFinderDirectoryOpener.openInFinder(
-            path: cwd,
-            openInFinder: { finderOpenedPaths.append($0?.path) }
+        var openedURLs: [URL] = []
+        var beepCount = 0
+
+        await WorkspaceFinderDirectoryOpener.openDirectory(
+            path: directoryURL.path,
+            openDirectory: { openedURLs.append($0) },
+            beep: { beepCount += 1 }
         )
 
-        #expect(finderOpenedPaths == [cwd])
+        let expectedURL = URL(fileURLWithPath: directoryURL.path, isDirectory: true).standardizedFileURL
+        #expect(openedURLs == [expectedURL])
+        #expect(beepCount == 0)
+    }
+
+    @MainActor
+    @Test func openDirectoryBeepsWithoutOpeningMissingWorkingDirectory() async {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-missing-cwd-\(UUID().uuidString)", isDirectory: true)
+        var openedURLs: [URL] = []
+        var beepCount = 0
+
+        await WorkspaceFinderDirectoryOpener.openDirectory(
+            path: missingURL.path,
+            openDirectory: { openedURLs.append($0) },
+            beep: { beepCount += 1 }
+        )
+
+        #expect(openedURLs.isEmpty)
+        #expect(beepCount == 1)
     }
 }
