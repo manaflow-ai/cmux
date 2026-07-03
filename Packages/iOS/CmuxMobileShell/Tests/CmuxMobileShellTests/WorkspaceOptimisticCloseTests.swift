@@ -200,4 +200,36 @@ import Testing
         #expect(store.workspaces.contains { $0.rpcWorkspaceID.rawValue == "wsb" })
         #expect(store.selectedWorkspace?.rpcWorkspaceID.rawValue == "wsb")
     }
+
+    @Test func rollbackRestoresSelectionWhenRefreshChangedRowID() throws {
+        let store = makeStore(ids: ["A", "B"], selected: "B")
+
+        let rollback = try #require(store.removeWorkspaceOptimistically(id: "B"))
+        #expect(store.selectedWorkspaceID?.rawValue == "A")
+
+        var refreshedB = MobileWorkspacePreview(
+            id: "B-refreshed",
+            macDeviceID: "mac-a",
+            name: "B",
+            terminals: []
+        )
+        refreshedB.remoteWorkspaceID = "B"
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [
+                    MobileWorkspacePreview(id: "A", macDeviceID: "mac-a", name: "A", terminals: []),
+                    refreshedB,
+                ],
+                status: .connected,
+                actionCapabilities: .init(supportsCloseActions: true)
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        store.restoreWorkspace(rollback)
+
+        #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["A", "B"])
+        #expect(store.selectedWorkspaceID?.rawValue == "B-refreshed")
+        #expect(store.selectedWorkspace?.rpcWorkspaceID.rawValue == "B")
+    }
 }
