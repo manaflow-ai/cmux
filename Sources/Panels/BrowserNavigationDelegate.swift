@@ -293,7 +293,7 @@ import CmuxBrowser
         // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
         // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
-           browserShouldRouteExternalNavigation(url) {
+           BrowserExternalNavigationAction.resolve(for: url) != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
             browserHandleExternalNavigation(
                 url,
@@ -395,7 +395,7 @@ import CmuxBrowser
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
+        webView.browserLoadRequest(request)
     }
 
     func handleSSLTrustBypassAction(_ actionURL: URL, in webView: WKWebView) {
@@ -406,7 +406,7 @@ import CmuxBrowser
         acceptsSSLTrustBypassMessages = false
         activeSSLTrustBypassErrorPageFailedURL = nil
         recordSSLTrustBypassReplayRequest(request)
-        browserLoadRequest(request, in: webView)
+        webView.browserLoadRequest(request)
     }
 
     private func recordSSLTrustBypassReplayRequest(_ request: URLRequest) {
