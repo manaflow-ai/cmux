@@ -302,6 +302,34 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func systemMemoryPressureDiscardsRecoverableTerminationWithOnlyProvisionalURL() {
+        let provisionalURL = URL(string: "https://example.com/provisional-only")!
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let oldWebView = panel.webView
+        let oldInstanceID = panel.webViewInstanceID
+        let now = Date(timeIntervalSince1970: 3_100)
+
+        panel.navigate(to: provisionalURL)
+        panel.webView.navigationDelegate?.webView?(panel.webView, didStartProvisionalNavigation: nil)
+        #expect(panel.currentURL == nil)
+
+        simulateWebContentProcessTermination(for: panel)
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: now)
+
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.hiddenWebViewDiscardSnapshot.hasCurrentURL)
+        #expect(panel.discardHiddenWebViewForSystemMemoryPressure(now: now.addingTimeInterval(1)))
+
+        #expect(!(panel.webView === oldWebView))
+        #expect(panel.webViewInstanceID != oldInstanceID)
+        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(panel.currentURL == provisionalURL)
+    }
+
+    @Test
     func webContentProcessTerminationDisablesHistoryTraversalUntilRecovery() {
         let panel = BrowserPanel(
             workspaceId: UUID(),

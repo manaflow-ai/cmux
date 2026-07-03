@@ -6202,7 +6202,11 @@ extension BrowserPanel: BrowserHiddenWebViewDiscardManagerDelegate {
             isVisibleInUI: isWebViewVisibleInUI,
             shouldRenderWebView: shouldRenderWebView,
             hasPendingRemoteNavigation: pendingRemoteNavigation != nil,
-            hasCurrentURL: (currentURL ?? Self.remoteProxyDisplayURL(for: webView.url)) != nil,
+            hasCurrentURL: (
+                currentURL
+                    ?? pendingWebContentRecoveryURL
+                    ?? Self.remoteProxyDisplayURL(for: webView.url)
+            ) != nil,
             isLoading: isLoading,
             webViewIsLoading: webView.isLoading,
             hasActiveMainFrameProvisionalNavigation: isMainFrameProvisionalNavigationActive,
