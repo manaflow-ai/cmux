@@ -20317,7 +20317,7 @@ struct CMUXCLI {
             "--remote",
             appServerURL,
             threadId
-        ]
+        ] + AgentResumeArgv.codexUpdateCheckSuppressionOverride
         return parts
             .map { codexTeamsShellQuote($0) }
             .joined(separator: " ")

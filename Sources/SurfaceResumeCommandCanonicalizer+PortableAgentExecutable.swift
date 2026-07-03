@@ -91,8 +91,15 @@ extension SurfaceResumeBindingSnapshot {
         guard repairPortableAgentExecutable, isAgentHookBinding else {
             return startupCommand
         }
-        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+        // Suppression insertion runs before executable repair: repair can wrap a
+        // stale-executable command in `/bin/sh -c '…'`, whose single-word body no
+        // longer parses as a codex resume argv.
+        let suppressed = SurfaceResumeCommandCanonicalizer.insertingCodexUpdateCheckSuppression(
             in: startupCommand,
+            kind: kind
+        )
+        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+            in: suppressed,
             kind: kind
         )
     }
@@ -402,7 +409,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return false
     }
 
-    private static func commandExecutableWordIndex(
+    static func commandExecutableWordIndex(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String
     ) -> Int? {
