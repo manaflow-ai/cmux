@@ -140,13 +140,10 @@ struct TerminalClearScreenKeepScrollbackTests {
         if [[ "${1:-}" == "__cmux-should-prepare-terminal-for-tui" ]]; then
             exit 0
         fi
-        printf '\033[H'
-        printf 'OLD \#(oldToken) row 1\r\n'
-        printf 'OLD \#(oldToken) row 2\r\n'
-        printf 'OLD \#(oldToken) row 3\r\n'
-        printf 'OLD \#(oldToken) row 4\r\n'
-        printf 'OLD \#(oldToken) row 5'
-        printf '\033[H\033[2J'
+        # Paint Claude's first TUI frame WITHOUT clearing the screen. The only
+        # thing that can erase the stale prompt-marked rows the runner painted is
+        # the shim's pre-clear; if that regresses, the OLD rows survive and the
+        # oldToken assertion below fails.
         printf 'NEW \#(newToken)\r\n\#(doneMarker)\r\n'
         sleep 1
         """#.write(to: wrapperURL, atomically: true, encoding: .utf8)
@@ -163,11 +160,25 @@ struct TerminalClearScreenKeepScrollbackTests {
         try #"""
         #!/usr/bin/env bash
         set -euo pipefail
-        printf '\033[5;1H'
+        # The shim's clear path is gated on CMUX_SURFACE_ID. Runtime surface
+        # creation exports it in production (TerminalSurface+StartupEnvironment);
+        # set it here too so the regression test drives the shim clear
+        # deterministically instead of depending on spawn-env details.
+        export CMUX_SURFACE_ID='cmux-claude-clear-regression'
+        # Paint stale prompt-marked content across the primary screen: the
+        # pre-Claude state the shim must clear before the TUI paints. Rows 1-4
+        # carry oldToken; the last row adds OSC 133 prompt marks like a real
+        # shell prompt with a typed `claude` invocation.
+        printf '\033[H'
+        printf 'OLD \#(oldToken) row 1\r\n'
+        printf 'OLD \#(oldToken) row 2\r\n'
+        printf 'OLD \#(oldToken) row 3\r\n'
+        printf 'OLD \#(oldToken) row 4\r\n'
         printf '\033]133;A;redraw=last;cl=line\a'
-        printf 'cmux-test-prompt claude'
+        printf 'OLD \#(oldToken) cmux-test-prompt claude'
         printf '\033]133;B\a'
         printf '\033]133;C\a'
+        printf '\r\n'
         exec \#(shellSingleQuoted(shim.executablePath))
         """#.write(to: runnerURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: runnerURL.path)
