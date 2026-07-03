@@ -29,6 +29,18 @@ enum SidebarPathFormatter {
             ?? shortenedPath(path, homeDirectoryPath: homeDirectoryPath)
     }
 
+    // Just the folder name — sidebar rows lead with project identity, so the
+    // bare last segment ("chat") beats a full path ("~/Code/linktree/chat").
+    static func bareLastSegment(
+        _ path: String,
+        homeDirectoryPath: String = Self.homeDirectoryPath
+    ) -> String {
+        let abbreviated = shortenedPath(path, homeDirectoryPath: homeDirectoryPath)
+        guard abbreviated != "~", abbreviated != "/" else { return abbreviated }
+        let parts = abbreviated.split(separator: "/", omittingEmptySubsequences: true)
+        return parts.last.map(String.init) ?? abbreviated
+    }
+
     // Ordered longest → shortest. The first entry is the full abbreviated path
     // (with `~/` if applicable). Each subsequent entry drops one more leading
     // segment and is prefixed with `…/`. Suitable as `ViewThatFits` candidates.

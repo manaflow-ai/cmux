@@ -17,6 +17,19 @@ enum SidebarTabItemFontScale {
     }
 }
 
+extension View {
+    // Web-style affordance: clickable sidebar chrome shows the pointing hand.
+    func cmuxPointingHandCursor() -> some View {
+        onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+
 extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
@@ -470,6 +483,21 @@ struct SidebarStatusStyle {
             return .running
         }
         return nil
+    }
+
+    // Agent-supplied subtitles that just restate the status ("Claude is
+    // waiting for your input") are redundant with the ranked title dot.
+    static func isRedundantStatusPhrase(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        let phrases = [
+            "waiting for your input",
+            "waiting for input",
+            "needs your permission",
+            "needs permission",
+            "awaiting your input",
+            "requires your approval",
+        ]
+        return phrases.contains { lowered.contains($0) }
     }
 
     static func resolve(key: String, value: String, colorScheme: ColorScheme) -> SidebarStatusStyle? {

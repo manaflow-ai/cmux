@@ -13450,8 +13450,18 @@ struct TabItemView: View, Equatable {
     }
 
     private var titleFontWeight: Font.Weight {
-        .semibold
+        .medium
     }
+
+    // Leading glyphs agents prepend as spinner frames or markers (✳-family,
+    // braille spinner frames, middle dots) are decoration, not title — the
+    // semantic status dot already carries state.
+    private static let decorativeTitlePrefixCharacters: CharacterSet = {
+        var set = CharacterSet(charactersIn: "✳✻✽✢✶✣✤∗❊⏺●◉○◌◍◎◐◑◒◓·•∙⋅*")
+        set.insert(charactersIn: Unicode.Scalar(0x2800)!...Unicode.Scalar(0x28FF)!)
+        set.formUnion(.whitespaces)
+        return set
+    }()
 
     private var fontScale: CGFloat {
         settings.sidebarFontScale
@@ -13732,7 +13742,7 @@ struct TabItemView: View, Equatable {
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         // Strip leading decorative agent glyphs (✳ ✻ ❊ · • ∙) so the status
         // dot is the row's single state indicator and titles start with words.
-        let decorativeTitlePrefix = CharacterSet(charactersIn: "✳✻❊·•∙* ").union(.whitespaces)
+        let decorativeTitlePrefix = Self.decorativeTitlePrefixCharacters
         let sanitizedTitle = workspaceSnapshot.title.trimmingCharacters(in: decorativeTitlePrefix).isEmpty
             ? workspaceSnapshot.title
             : String(workspaceSnapshot.title.drop(while: { char in
@@ -13823,6 +13833,7 @@ struct TabItemView: View, Equatable {
                     Circle()
                         .fill(Color(nsColor: statusColor))
                         .frame(width: scaledFontSize(7), height: scaledFontSize(7))
+                        .padding(.top, scaledFontSize(4.5))
                         .padding(.trailing, 1)
                         .accessibilityHidden(true)
                 }
@@ -13854,6 +13865,7 @@ struct TabItemView: View, Equatable {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .cmuxPointingHandCursor()
                     .safeHelp(closeButtonTooltip)
                     .opacity(showCloseButton ? 1 : 0)
                     .allowsHitTesting(showCloseButton)
@@ -13870,7 +13882,7 @@ struct TabItemView: View, Equatable {
                 )
             }
 
-            if let subtitle = effectiveSubtitle {
+            if let subtitle = effectiveSubtitle, !SidebarStatusStyle.isRedundantStatusPhrase(subtitle) {
                 Text(subtitle)
                     .font(magnifiedFont(scaledFontSize(12)))
                     .foregroundColor(activeSecondaryColor(0.8))
@@ -14063,6 +14075,7 @@ struct TabItemView: View, Equatable {
                         if settings.makesPullRequestsClickable {
                             Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
                                 .buttonStyle(.plain)
+                                .cmuxPointingHandCursor()
                                 .tint(pullRequestForegroundColor)
                                 .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
                                 .accessibilityIdentifier("SidebarPullRequestRow")
@@ -14086,6 +14099,7 @@ struct TabItemView: View, Equatable {
                                 .underline()
                         }
                         .buttonStyle(.plain)
+                        .cmuxPointingHandCursor()
                         .safeHelp(portTooltip)
                     }
                     Spacer(minLength: 0)
@@ -15005,7 +15019,6 @@ struct TabItemView: View, Equatable {
     private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] {
         let entries = tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         let home = SidebarPathFormatter.homeDirectoryPath
-        let useViewportAwarePath = sidebarUsesLastSegmentPath
         return entries.compactMap { entry in
             let branchText: String? = {
                 guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
@@ -15015,13 +15028,10 @@ struct TabItemView: View, Equatable {
             let directoryCandidates: [String] = {
                 guard let directory = entry.directory else { return [] }
                 // Display labels are reporter-supplied text, not paths; render
-                // them verbatim instead of path-shortening.
+                // them verbatim. Paths collapse to their bare last segment.
                 if entry.directoryIsDisplayLabel { return [directory] }
-                if useViewportAwarePath {
-                    return SidebarPathFormatter.pathCandidates(directory, homeDirectoryPath: home)
-                }
-                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-                return shortened.isEmpty ? [] : [shortened]
+                let bare = SidebarPathFormatter.bareLastSegment(directory, homeDirectoryPath: home)
+                return bare.isEmpty ? [] : [bare]
             }()
 
             if branchText == nil && directoryCandidates.isEmpty {
@@ -15048,37 +15058,14 @@ struct TabItemView: View, Equatable {
         let directories = tab.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         guard !directories.isEmpty else { return [] }
 
-        // Display labels are reporter-supplied text, not paths; render them
-        // verbatim instead of path-shortening.
-        if !sidebarUsesLastSegmentPath {
-            let joined = directories
-                .map { $0.isDisplayLabel ? $0.text : SidebarPathFormatter.shortenedPath($0.text, homeDirectoryPath: home) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " | ")
-            return joined.isEmpty ? [] : [joined]
-        }
-
-        let perDirectoryCandidates: [[String]] = directories
-            .map { $0.isDisplayLabel ? [$0.text] : SidebarPathFormatter.pathCandidates($0.text, homeDirectoryPath: home) }
+        // Display labels are reporter-supplied text, not paths; keep them
+        // verbatim. Paths collapse to their bare last segment so the row leads
+        // with project identity ("chat") rather than a full path.
+        let joined = directories
+            .map { $0.isDisplayLabel ? $0.text : SidebarPathFormatter.bareLastSegment($0.text, homeDirectoryPath: home) }
             .filter { !$0.isEmpty }
-        guard !perDirectoryCandidates.isEmpty else { return [] }
-
-        var indices = Array(repeating: 0, count: perDirectoryCandidates.count)
-        var result: [String] = []
-        while true {
-            let pieces = zip(indices, perDirectoryCandidates).map { idx, candidates in
-                candidates[idx]
-            }
-            let joined = pieces.joined(separator: " | ")
-            if !joined.isEmpty, result.last != joined {
-                result.append(joined)
-            }
-            guard let bumpIdx = indices.indices.last(where: { indices[$0] < perDirectoryCandidates[$0].count - 1 }) else {
-                break
-            }
-            indices[bumpIdx] += 1
-        }
-        return result
+            .joined(separator: " | ")
+        return joined.isEmpty ? [] : [joined]
     }
 
     private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] {

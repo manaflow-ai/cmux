@@ -151,6 +151,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                     .contentShape(Rectangle())
                     .onTapGesture { onToggleCollapsed() }
+                    .cmuxPointingHandCursor()
                     .accessibilityAddTraits(.isButton)
                     .accessibilityLabel(
                         Text(
@@ -173,6 +174,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .onTapGesture { onFocusAnchor() }
+            .cmuxPointingHandCursor()
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(name))
             .accessibilityHint(Text(String(
@@ -197,6 +199,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .opacity(plusVisible ? 1 : 0)
             }
             .buttonStyle(.plain)
+            .cmuxPointingHandCursor()
             .frame(width: metrics.plusFrame, height: metrics.plusFrame)
             .allowsHitTesting(plusVisible)
             .accessibilityHidden(!plusVisible)
