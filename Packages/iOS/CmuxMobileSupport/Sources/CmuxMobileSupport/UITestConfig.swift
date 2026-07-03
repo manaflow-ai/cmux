@@ -88,7 +88,51 @@ public struct UITestConfig {
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
+            || workspaceDetailDelayedTerminalPreviewEnabled
+            || workspaceDetailCreateDelayedTerminalPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders
+    /// a connected workspace shell already opened to a fresh workspace with no
+    /// terminal, then updates that same workspace with a terminal. DEBUG-only.
+    public static var workspaceDetailDelayedTerminalPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the workspace detail create-workspace delayed-terminal lifecycle
+    /// preview is enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL=1`, the root
+    /// view renders a connected workspace shell opened to an existing workspace.
+    /// The actual new-workspace toolbar button creates a fresh workspace without
+    /// a terminal, then the preview injects that terminal after a delay. DEBUG-only.
+    public static var workspaceDetailCreateDelayedTerminalPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the standalone streaming-chat preview is enabled.
+    ///
+    /// When `CMUX_UITEST_STREAMING_CHAT_PREVIEW=1`, the root view renders a
+    /// self-playing agent chat that drives the real conversation store with live
+    /// `streamingProse` events, so the incremental streaming preview can be
+    /// recorded on the simulator without sign-in or Mac pairing. DEBUG-only.
+    public static var streamingChatPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_STREAMING_CHAT_PREVIEW"] == "1"
         #else
         return false
         #endif

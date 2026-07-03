@@ -17,6 +17,14 @@ public enum ChatSessionEvent: Sendable, Equatable {
     /// reconnect is idempotent.
     case terminalBlocks([TerminalCommandBlock])
 
+    /// A live, not-yet-committed preview of the agent's in-progress prose for
+    /// the current turn, scraped from the terminal's rendered screen while the
+    /// authoritative JSONL line has not been written yet. The payload replaces
+    /// any prior preview wholesale; `nil` clears it. It lives outside the
+    /// message window and is superseded the instant the authoritative agent
+    /// prose lands via ``appended``, so it never duplicates a real message.
+    case streamingProse(ChatMessage?)
+
     /// The producing transcript was truncated or replaced; the session's
     /// seq space restarted and clients must re-anchor from history.
     case reset
@@ -30,6 +38,7 @@ extension ChatSessionEvent: Codable {
     private enum CodingKeys: String, CodingKey {
         case event
         case messages
+        case message
         case state
         case descriptor
         case blocks
@@ -41,6 +50,7 @@ extension ChatSessionEvent: Codable {
         case stateChanged = "state_changed"
         case descriptorChanged = "descriptor_changed"
         case terminalBlocks = "terminal_blocks"
+        case streamingProse = "streaming_prose"
         case reset
     }
 
@@ -58,6 +68,8 @@ extension ChatSessionEvent: Codable {
             self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
         case .terminalBlocks:
             self = .terminalBlocks(try container.decode([TerminalCommandBlock].self, forKey: .blocks))
+        case .streamingProse:
+            self = .streamingProse(try container.decodeIfPresent(ChatMessage.self, forKey: .message))
         case .reset:
             self = .reset
         case .none:
@@ -86,6 +98,9 @@ extension ChatSessionEvent: Codable {
         case .terminalBlocks(let blocks):
             try container.encode(EventName.terminalBlocks.rawValue, forKey: .event)
             try container.encode(blocks, forKey: .blocks)
+        case .streamingProse(let message):
+            try container.encode(EventName.streamingProse.rawValue, forKey: .event)
+            try container.encodeIfPresent(message, forKey: .message)
         case .reset:
             try container.encode(EventName.reset.rawValue, forKey: .event)
         case .unknown(let raw):
