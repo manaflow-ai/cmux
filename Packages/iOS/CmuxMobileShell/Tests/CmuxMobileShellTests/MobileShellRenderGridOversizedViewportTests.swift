@@ -801,6 +801,113 @@ private func unsequencedTerminalBytesEventFrame(
 }
 
 @MainActor
+@Test func fittingFrameDuringInflightRecoveryKeepsRearmSignal() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+    let transport = try #require(box.get())
+
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 0,
+        text: "pre-probe"
+    ))
+    let probeDelivered = try await pollUntil { collector.lines.contains { $0.contains("pre-probe") } }
+    #expect(probeDelivered, "raw bytes must flow before the oversized frame arrives")
+
+    _ = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    let replayBaseline = await router.count(of: "mobile.terminal.replay")
+
+    // The whole retry budget resolves to still-diverged fallbacks; only the
+    // post-exhaustion re-arm reaches the fitting frames.
+    for _ in 0..<3 {
+        await router.enqueueReplayRawTail(text: "FALLBACK-SPLICE", columns: 90, rows: 40)
+    }
+    let convergedFrames = try (0..<2).map { index in
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "live-terminal",
+            stateSeq: 40 + UInt64(index),
+            columns: 20,
+            rows: 6,
+            full: true,
+            rowSpans: [
+                MobileTerminalRenderGridFrame.RowSpan(row: 0, column: 0, styleID: 0, text: "converged"),
+            ]
+        )
+    }
+    await router.enqueueReplayRenderGridFrames(convergedFrames)
+
+    // Park the recovery replay so a fitting frame deterministically arrives
+    // while it is still in flight.
+    await router.holdNextReplayResponses(count: 1)
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 20,
+        columns: 90,
+        rows: 40,
+        text: "oversized",
+        full: false
+    ))
+    let sawRecoveryReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayBaseline + 1
+    }
+    #expect(sawRecoveryReplay, "the oversized frame must arm the recovery replay")
+
+    // A fitting frame lands while the recovery replay is parked. It must not
+    // consume the re-arm signal.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 25,
+        columns: 20,
+        rows: 6,
+        text: "fits-early",
+        full: true
+    ))
+
+    // Release the parked replay; the budget then burns down on the diverged
+    // fallbacks until exhaustion.
+    await router.releaseAllHeld()
+    let sawExhaustion = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayBaseline + 3
+    }
+    #expect(sawExhaustion, "the recovery must spend its bounded retries on the diverged responses")
+
+    // The next fitting frame must still be able to re-arm the exhausted
+    // barrier and repaint.
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 39,
+        columns: 20,
+        rows: 6,
+        text: "fits-later",
+        full: true
+    ))
+    let sawRearmReplay = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= replayBaseline + 4
+    }
+    #expect(
+        sawRearmReplay,
+        "a fitting frame observed mid-recovery must not erase the signal that lets a later fitting frame re-arm the exhausted barrier"
+    )
+    let convergedDelivered = try await pollUntil { collector.lines.contains { $0.contains("converged") } }
+    #expect(convergedDelivered, "the re-armed replay must repaint the mirror")
+    #expect(
+        collector.lines.contains { $0.contains("FALLBACK-SPLICE") } == false,
+        "diverged fallback responses must never paint"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

@@ -231,25 +231,39 @@ extension MobileShellComposite {
         }
     }
 
-    /// A fitting frame arrived: end the oversized-grid recovery pacing so a
-    /// later divergence starts fresh, and un-wedge an exhausted recovery
-    /// barrier.
+    /// A fitting frame arrived: finish or advance the oversized-grid recovery.
+    ///
+    /// The recovery marker stays alive for the whole episode — it is only
+    /// removed once no barrier is holding the stream (converged and released).
+    /// Removing it earlier (e.g. for a fitting frame that arrives while the
+    /// barrier replay is still in flight) would discard the one signal that
+    /// lets a later fitting frame un-wedge an exhausted barrier, freezing the
+    /// stream at the exact moment the Mac converged.
     ///
     /// When every bounded replay retry was spent on still-diverged responses,
-    /// the barrier survives (dropped output preserves it) with no replay in
-    /// flight, and the drop path refuses to arm one after exhaustion. Fitting
-    /// frames would then be dropped forever — the stream would freeze at the
-    /// exact moment the Mac converged. Restart the barrier (resetting the
+    /// the barrier survives (withheld output preserves it) with no replay in
+    /// flight, and the drop path refuses to arm one after exhaustion. The
+    /// first fitting frame in that state restarts the barrier (resetting the
     /// budget) so the fitting replay repaints and releases it.
     func noteFittingRenderGridFrame(surfaceID: String) {
-        guard oversizedTerminalGridRecoveryLastAttemptsBySurfaceID
-            .removeValue(forKey: surfaceID) != nil else {
+        guard oversizedTerminalGridRecoveryLastAttemptsBySurfaceID[surfaceID] != nil else {
             return
         }
-        guard terminalByteContinuationsBySurfaceID[surfaceID] != nil,
-              terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil,
-              !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
+        guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else {
+            oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+            return
+        }
+        guard terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil else {
+            // No barrier holds the stream: the recovery episode is over. Drop
+            // the pacing marker so a later divergence starts fresh.
+            oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+            return
+        }
+        guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
               terminalReplayFailureRetryExhausted(surfaceID: surfaceID) else {
+            // A barrier replay is still in flight or has budget left; it will
+            // repaint or exhaust on its own. Keep the marker so a later
+            // fitting frame can still re-arm after exhaustion.
             return
         }
         MobileDebugLog.anchormux("terminal.output.oversized_grid_converged_rearm surface=\(surfaceID)")
