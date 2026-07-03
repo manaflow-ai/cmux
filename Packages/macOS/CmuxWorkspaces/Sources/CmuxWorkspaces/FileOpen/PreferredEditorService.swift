@@ -29,6 +29,8 @@ private let preferredEditorLogger = Logger(subsystem: "com.cmuxterm.app", catego
 /// `DispatchQueue.main.async` fallback.
 @MainActor
 public struct PreferredEditorService: FileOpening {
+    private static let systemSearchDirectories = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+
     private let editor: any PreferredEditorReading
     private let capture: any TestCaptureWriting
     private let systemOpener: any SystemFileOpening
@@ -130,6 +132,9 @@ public struct PreferredEditorService: FileOpening {
         var pathEntries = environment["PATH"]?
             .split(separator: ":", omittingEmptySubsequences: true)
             .map(String.init) ?? []
+        if pathEntries.isEmpty {
+            pathEntries = Self.systemSearchDirectories
+        }
         var seenPathEntries = Set(pathEntries)
 
         for directory in fallbackSearchDirectories {

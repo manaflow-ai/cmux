@@ -137,6 +137,40 @@ struct PreferredEditorServiceTests {
         #expect(opener.openedURLs.isEmpty)
     }
 
+    @Test func systemCommandStillResolvesWhenBasePathIsMissing() async throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let fallbackBin = scratch.appendingPathComponent("fallback-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fallbackBin, withIntermediateDirectories: true)
+        let marker = scratch.appendingPathComponent("system-command-received.txt")
+
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(
+                resolvedCommand: "env sh -c 'printf %s \"$2\" > \"$1\"' _ \(marker.path.posixShellSingleQuoted)"
+            ),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener,
+            environment: [:],
+            fallbackSearchDirectories: [fallbackBin.path]
+        )
+        let targetPath = "/tmp/cmux system command.md"
+
+        service.open(URL(fileURLWithPath: targetPath))
+
+        // Bounded wait for either the system command to receive the path or
+        // the current bug to fall back through the system opener.
+        for _ in 0..<200
+            where !FileManager.default.fileExists(atPath: marker.path)
+                && opener.openedURLs.isEmpty {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+
+        let received = try? String(contentsOf: marker, encoding: .utf8)
+        #expect(received == targetPath)
+        #expect(opener.openedURLs.isEmpty)
+    }
+
     @Test func failingCommandFallsBackToSystemOpen() async {
         let opener = RecordingSystemOpener()
         let service = PreferredEditorService(
