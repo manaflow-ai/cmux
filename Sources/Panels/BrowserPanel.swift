@@ -5255,6 +5255,12 @@ final class BrowserPanel: Panel, ObservableObject {
         isMainFrameProvisionalNavigationActive = false
         isLoading = false
         estimatedProgress = 0
+        clearBrowserFocusMode(reason: "webContentProcessTerminated")
+        invalidateSearchFocusRequests(reason: "webContentProcessTerminated")
+        if let window = terminatedWebView.window,
+           Self.responderChainContains(window.firstResponder, target: terminatedWebView) {
+            window.makeFirstResponder(nil)
+        }
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
 
         if wasRenderable, hasRecoveryTarget, let recoveryURL {
