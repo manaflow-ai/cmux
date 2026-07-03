@@ -726,12 +726,19 @@ final class SessionIndexStore: ObservableObject {
         from prefix: String,
         to replacement: String
     ) -> String? {
+        if prefix == "/" {
+            guard path == "/" || path.hasPrefix("/") else { return nil }
+            let suffix = path == "/" ? "" : path
+            if suffix.isEmpty { return replacement }
+            return replacement == "/" ? suffix : replacement + suffix
+        }
+
         guard path == prefix || path.hasPrefix(prefix + "/") else { return nil }
         let suffix = String(path.dropFirst(prefix.count))
         if suffix.isEmpty {
             return replacement
         }
-        return replacement + suffix
+        return replacement == "/" ? suffix : replacement + suffix
     }
 
     nonisolated private static func vaultPath(
@@ -1304,6 +1311,11 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
                 registry = await Self.vaultAgentRegistry(
                     workingDirectory: cwdFilter
+                )
+            } else if a == .claude {
+                cwdFilter = nil
+                registry = await Self.vaultAgentRegistry(
+                    workingDirectory: normalizedDirectory(currentDirectory)
                 )
             } else {
                 cwdFilter = nil
