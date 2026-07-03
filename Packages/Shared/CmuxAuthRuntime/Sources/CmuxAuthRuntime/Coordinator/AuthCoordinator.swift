@@ -187,7 +187,7 @@ public final class AuthCoordinator {
     /// calls are no-ops.
     public func start() {
         guard bootstrapTask == nil else { return }
-        bootstrapTask = Task { await checkExistingSession() }
+        bootstrapTask = Task { await bootstrapSession() }
     }
 
     /// Await the launch session restore started by ``start()``. Returns
