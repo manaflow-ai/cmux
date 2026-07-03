@@ -12,14 +12,27 @@ public import Foundation
 ///
 /// This replaces the previous `(Data) -> Void` sink registry so output
 /// propagation is a structured, cancellable `AsyncSequence` instead of a stored
-/// callback.
+/// callback. Chunks may also carry a viewport policy so primary-screen output can
+/// use the phone's natural height while alternate-screen replay remains pinned
+/// to the remote grid.
+public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
+    case natural
+    case remoteGrid(columns: Int, rows: Int)
+}
+
 public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
+    public let viewportPolicy: MobileTerminalOutputViewportPolicy?
 
-    public init(data: Data, streamToken: UUID) {
+    public init(
+        data: Data,
+        streamToken: UUID,
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+    ) {
         self.data = data
         self.streamToken = streamToken
+        self.viewportPolicy = viewportPolicy
     }
 }
 
@@ -36,4 +49,16 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Parameter streamToken: The token carried by the yielded chunk.
     @MainActor func terminalOutputDidProcess(surfaceID: String, streamToken: UUID)
+
+    /// Abandon the current yielded chunk after the local renderer was reset.
+    ///
+    /// The sink must drop stale pending output, invalidate the old stream token,
+    /// and request an authoritative replay for the same surface.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Parameter streamToken: The token carried by the abandoned chunk.
+    @MainActor func terminalOutputDidReset(surfaceID: String, streamToken: UUID)
+
+    /// Request an authoritative replay without an abandoned in-flight chunk.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    @MainActor func terminalOutputNeedsReplay(surfaceID: String)
 }
