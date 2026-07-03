@@ -1,5 +1,9 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { notFound } from "next/navigation";
+import {
+  featureWorkflowContentLocales,
+  hasFeatureWorkflowContent,
+} from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
@@ -12,16 +16,23 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
+  if (!hasFeatureWorkflowContent(locale)) notFound();
   const t = await getTranslations({ locale, namespace: "docs.taskManager" });
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/task-manager"),
+    alternates: buildAlternates(locale, "/docs/task-manager", featureWorkflowContentLocales),
   };
 }
 
-export default function TaskManagerDocsPage() {
-  const t = useTranslations("docs.taskManager");
+export default async function TaskManagerDocsPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  if (!hasFeatureWorkflowContent(locale)) notFound();
+  const t = await getTranslations({ locale, namespace: "docs.taskManager" });
 
   return (
     <>
@@ -61,4 +72,3 @@ export default function TaskManagerDocsPage() {
     </>
   );
 }
-

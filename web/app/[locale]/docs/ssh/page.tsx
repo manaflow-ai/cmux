@@ -1,5 +1,5 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { hasFeatureWorkflowContent } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "../../components/code-block";
@@ -16,8 +16,14 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default function SshPage() {
-  const t = useTranslations("docs.ssh");
+export default async function SshPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const showBlogCta = hasFeatureWorkflowContent(locale);
+  const t = await getTranslations({ locale, namespace: "docs.ssh" });
 
   return (
     <>
@@ -135,11 +141,13 @@ cmux omo`}</CodeBlock>
         </tbody>
       </table>
       <p>{t("daemonPath")}</p>
-      <p className="mt-6">
-        {t.rich("blogCta", {
-          link: (chunks) => <Link href="/blog/cmux-ssh">{chunks}</Link>,
-        })}
-      </p>
+      {showBlogCta ? (
+        <p className="mt-6">
+          {t.rich("blogCta", {
+            link: (chunks) => <Link href="/blog/cmux-ssh">{chunks}</Link>,
+          })}
+        </p>
+      ) : null}
     </>
   );
 }

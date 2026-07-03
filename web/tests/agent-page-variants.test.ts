@@ -351,6 +351,23 @@ describe("agent page variants", () => {
     expect(variantPathForPage("/", "md")).toBe("/index.md");
   });
 
+  test("limits en-ja docs variants to translated locales", () => {
+    expect(resolveAgentPageVariant("/docs/vault.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/ja/docs/vault.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/de/docs/vault.md")).toBeNull();
+    expect(resolveAgentPageVariant("/docs/task-manager.txt")).not.toBeNull();
+    expect(resolveAgentPageVariant("/ja/docs/task-manager.txt")).not.toBeNull();
+    expect(resolveAgentPageVariant("/de/docs/task-manager.txt")).toBeNull();
+
+    const sitemapPaths = sitemap().map((entry) => new URL(String(entry.url)).pathname);
+    expect(sitemapPaths).toContain("/docs/vault");
+    expect(sitemapPaths).toContain("/ja/docs/vault");
+    expect(sitemapPaths).not.toContain("/de/docs/vault");
+    expect(sitemapPaths).toContain("/docs/task-manager");
+    expect(sitemapPaths).toContain("/ja/docs/task-manager");
+    expect(sitemapPaths).not.toContain("/de/docs/task-manager");
+  });
+
   test("supports Markdown and text variants for sitemap pages", () => {
     for (const entry of sitemap()) {
       const pathname = new URL(String(entry.url)).pathname || "/";

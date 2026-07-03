@@ -1,5 +1,5 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { hasFeatureWorkflowContent } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
@@ -36,9 +36,18 @@ export async function generateMetadata({
   };
 }
 
-export default function SessionRestoreBlogPage() {
-  const t = useTranslations("blog.posts.sessionRestore");
-  const tc = useTranslations("common");
+export default async function SessionRestoreBlogPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const showFeatureWorkflow = hasFeatureWorkflowContent(locale);
+  const t = await getTranslations({
+    locale,
+    namespace: "blog.posts.sessionRestore",
+  });
+  const tc = await getTranslations({ locale, namespace: "common" });
 
   return (
     <>
@@ -86,25 +95,29 @@ export default function SessionRestoreBlogPage() {
       <h2>{t("limitsTitle")}</h2>
       <p>{t("limitsP")}</p>
 
-      <h2>{t("workflowTitle")}</h2>
-      <ol>
-        <li>{t("workflowInstall")}</li>
-        <li>{t("workflowWork")}</li>
-        <li>{t("workflowRelaunch")}</li>
-        <li>{t("workflowVerify")}</li>
-      </ol>
+      {showFeatureWorkflow ? (
+        <>
+          <h2>{t("workflowTitle")}</h2>
+          <ol>
+            <li>{t("workflowInstall")}</li>
+            <li>{t("workflowWork")}</li>
+            <li>{t("workflowRelaunch")}</li>
+            <li>{t("workflowVerify")}</li>
+          </ol>
 
-      <h2>{t("faqTitle")}</h2>
-      <h3>{t("faqCrashTitle")}</h3>
-      <p>{t("faqCrashBody")}</p>
-      <h3>{t("faqTmuxTitle")}</h3>
-      <p>{t("faqTmuxBody")}</p>
+          <h2>{t("faqTitle")}</h2>
+          <h3>{t("faqCrashTitle")}</h3>
+          <p>{t("faqCrashBody")}</p>
+          <h3>{t("faqTmuxTitle")}</h3>
+          <p>{t("faqTmuxBody")}</p>
 
-      <p className="mt-6">
-        {t.rich("docsCta", {
-          link: (chunks) => <Link href="/docs/session-restore">{chunks}</Link>,
-        })}
-      </p>
+          <p className="mt-6">
+            {t.rich("docsCta", {
+              link: (chunks) => <Link href="/docs/session-restore">{chunks}</Link>,
+            })}
+          </p>
+        </>
+      ) : null}
     </>
   );
 }

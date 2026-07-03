@@ -1,4 +1,5 @@
 import { locales } from "../../i18n/routing";
+import { featureWorkflowContentLocales } from "../../i18n/locale-availability";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -13,6 +14,12 @@ export type AgentPageVariant =
       kind: "llms";
       requestedPath: string;
     };
+
+type AgentReadablePage = {
+  path: string;
+  title: string;
+  locales?: readonly string[];
+};
 
 const extensionPattern = /\.(md|txt)$/i;
 const reservedTextRoutes = new Set(["/robots.txt"]);
@@ -63,8 +70,8 @@ export const agentReadablePages = [
   { path: "/docs/configuration", title: "Configuration" },
   { path: "/docs/textbox", title: "TextBox" },
   { path: "/docs/session-restore", title: "Session Restore" },
-  { path: "/docs/vault", title: "Vault" },
-  { path: "/docs/task-manager", title: "Task Manager" },
+  { path: "/docs/vault", title: "Vault", locales: featureWorkflowContentLocales },
+  { path: "/docs/task-manager", title: "Task Manager", locales: featureWorkflowContentLocales },
   { path: "/docs/custom-commands", title: "Custom Commands" },
   { path: "/docs/dock", title: "Dock" },
   { path: "/docs/keyboard-shortcuts", title: "Keyboard Shortcuts" },
@@ -109,7 +116,7 @@ export const agentReadablePages = [
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },
-] as const;
+] as const satisfies readonly AgentReadablePage[];
 
 export function resolveAgentPageVariant(
   rawPath: string | null,
@@ -285,22 +292,25 @@ function normalizeEnglishOnlyPage(path: string): string {
   return path;
 }
 
-const agentReadablePagePathSet: Set<string> = new Set(
-  agentReadablePages.map(({ path }) => path),
+const agentReadablePageByPath: Map<string, AgentReadablePage> = new Map(
+  agentReadablePages.map((page) => [page.path, page]),
 );
 
 function isKnownAgentReadablePage(canonicalPath: string): boolean {
-  return agentReadablePagePathSet.has(basePagePath(canonicalPath));
+  const { path, locale } = basePagePath(canonicalPath);
+  const page = agentReadablePageByPath.get(path);
+  if (!page) return false;
+  return !locale || !page.locales || page.locales.includes(locale);
 }
 
-function basePagePath(canonicalPath: string): string {
+function basePagePath(canonicalPath: string): { path: string; locale: string | null } {
   for (const locale of locales) {
     if (canonicalPath === `/${locale}`) {
-      return "/";
+      return { path: "/", locale };
     }
     if (canonicalPath.startsWith(`/${locale}/`)) {
-      return canonicalPath.slice(locale.length + 1) || "/";
+      return { path: canonicalPath.slice(locale.length + 1) || "/", locale };
     }
   }
-  return canonicalPath;
+  return { path: canonicalPath, locale: null };
 }

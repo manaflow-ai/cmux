@@ -1,5 +1,5 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { hasFeatureWorkflowContent } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
@@ -35,9 +35,15 @@ export async function generateMetadata({
   };
 }
 
-export default function CmuxVaultPage() {
-  const t = useTranslations("blog.posts.cmuxVault");
-  const tc = useTranslations("common");
+export default async function CmuxVaultPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const showFeatureWorkflow = hasFeatureWorkflowContent(locale);
+  const t = await getTranslations({ locale, namespace: "blog.posts.cmuxVault" });
+  const tc = await getTranslations({ locale, namespace: "common" });
 
   return (
     <>
@@ -72,28 +78,32 @@ export default function CmuxVaultPage() {
       <p>{t("p3")}</p>
       <p>{t("p4")}</p>
 
-      <h2>{t("workflowTitle")}</h2>
-      <ol>
-        <li>{t("workflowOpen")}</li>
-        <li>{t("workflowSearch")}</li>
-        <li>{t("workflowDrag")}</li>
-        <li>{t("workflowContinue")}</li>
-      </ol>
+      {showFeatureWorkflow ? (
+        <>
+          <h2>{t("workflowTitle")}</h2>
+          <ol>
+            <li>{t("workflowOpen")}</li>
+            <li>{t("workflowSearch")}</li>
+            <li>{t("workflowDrag")}</li>
+            <li>{t("workflowContinue")}</li>
+          </ol>
 
-      <h2>{t("useTitle")}</h2>
-      <p>{t("useP")}</p>
+          <h2>{t("useTitle")}</h2>
+          <p>{t("useP")}</p>
 
-      <h2>{t("faqTitle")}</h2>
-      <h3>{t("faqAgentsTitle")}</h3>
-      <p>{t("faqAgentsBody")}</p>
-      <h3>{t("faqRestoreTitle")}</h3>
-      <p>{t("faqRestoreBody")}</p>
+          <h2>{t("faqTitle")}</h2>
+          <h3>{t("faqAgentsTitle")}</h3>
+          <p>{t("faqAgentsBody")}</p>
+          <h3>{t("faqRestoreTitle")}</h3>
+          <p>{t("faqRestoreBody")}</p>
 
-      <p className="mt-6">
-        {t.rich("docsCta", {
-          link: (chunks) => <Link href="/docs/vault">{chunks}</Link>,
-        })}
-      </p>
+          <p className="mt-6">
+            {t.rich("docsCta", {
+              link: (chunks) => <Link href="/docs/vault">{chunks}</Link>,
+            })}
+          </p>
+        </>
+      ) : null}
     </>
   );
 }

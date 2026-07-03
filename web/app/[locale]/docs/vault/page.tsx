@@ -1,5 +1,9 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { notFound } from "next/navigation";
+import {
+  featureWorkflowContentLocales,
+  hasFeatureWorkflowContent,
+} from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
@@ -11,16 +15,23 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
+  if (!hasFeatureWorkflowContent(locale)) notFound();
   const t = await getTranslations({ locale, namespace: "docs.vault" });
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/vault"),
+    alternates: buildAlternates(locale, "/docs/vault", featureWorkflowContentLocales),
   };
 }
 
-export default function VaultPage() {
-  const t = useTranslations("docs.vault");
+export default async function VaultPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  if (!hasFeatureWorkflowContent(locale)) notFound();
+  const t = await getTranslations({ locale, namespace: "docs.vault" });
 
   return (
     <>
@@ -59,4 +70,3 @@ export default function VaultPage() {
     </>
   );
 }
-

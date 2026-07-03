@@ -1,5 +1,5 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { hasFeatureWorkflowContent } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
@@ -31,9 +31,15 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default function CmuxSshPage() {
-  const t = useTranslations("blog.posts.cmuxSsh");
-  const tc = useTranslations("common");
+export default async function CmuxSshPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const showFeatureWorkflow = hasFeatureWorkflowContent(locale);
+  const t = await getTranslations({ locale, namespace: "blog.posts.cmuxSsh" });
+  const tc = await getTranslations({ locale, namespace: "common" });
 
   return (
     <>
@@ -69,22 +75,26 @@ export default function CmuxSshPage() {
         className="my-6 rounded-lg w-full h-auto"
       />
 
-      <h2>{t("workflowTitle")}</h2>
-      <ol>
-        <li>{t("workflowConnect")}</li>
-        <li>{t("workflowPreview")}</li>
-        <li>{t("workflowNotify")}</li>
-        <li>{t("workflowUpload")}</li>
-      </ol>
+      {showFeatureWorkflow ? (
+        <>
+          <h2>{t("workflowTitle")}</h2>
+          <ol>
+            <li>{t("workflowConnect")}</li>
+            <li>{t("workflowPreview")}</li>
+            <li>{t("workflowNotify")}</li>
+            <li>{t("workflowUpload")}</li>
+          </ol>
 
-      <h2>{t("featureTitle")}</h2>
-      <ul className="mt-4 space-y-1">
-        <li>{t.rich("featureBrowser", { code: (chunks) => <code>{chunks}</code> })}</li>
-        <li>{t("featureUpload")}</li>
-        <li>{t("featureNotify")}</li>
-        <li>{t.rich("featureAgents", { code: (chunks) => <code>{chunks}</code> })}</li>
-        <li>{t("featureSidebar")}</li>
-      </ul>
+          <h2>{t("featureTitle")}</h2>
+          <ul className="mt-4 space-y-1">
+            <li>{t.rich("featureBrowser", { code: (chunks) => <code>{chunks}</code> })}</li>
+            <li>{t("featureUpload")}</li>
+            <li>{t("featureNotify")}</li>
+            <li>{t.rich("featureAgents", { code: (chunks) => <code>{chunks}</code> })}</li>
+            <li>{t("featureSidebar")}</li>
+          </ul>
+        </>
+      ) : null}
 
       <iframe
         className="my-6 rounded-lg w-full aspect-video"
@@ -94,17 +104,21 @@ export default function CmuxSshPage() {
         allowFullScreen
       />
 
-      <h2>{t("faqTitle")}</h2>
-      <h3>{t("faqPortTitle")}</h3>
-      <p>{t("faqPortBody")}</p>
-      <h3>{t("faqConfigTitle")}</h3>
-      <p>{t("faqConfigBody")}</p>
+      {showFeatureWorkflow ? (
+        <>
+          <h2>{t("faqTitle")}</h2>
+          <h3>{t("faqPortTitle")}</h3>
+          <p>{t("faqPortBody")}</p>
+          <h3>{t("faqConfigTitle")}</h3>
+          <p>{t("faqConfigBody")}</p>
 
-      <p className="mt-6">
-        {t.rich("docsCta", {
-          link: (chunks) => <Link href="/docs/ssh">{chunks}</Link>,
-        })}
-      </p>
+          <p className="mt-6">
+            {t.rich("docsCta", {
+              link: (chunks) => <Link href="/docs/ssh">{chunks}</Link>,
+            })}
+          </p>
+        </>
+      ) : null}
     </>
   );
 }
