@@ -745,9 +745,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         cd \(escapedPath) 2>/dev/null || exit 1
         [ -r . ] || exit 1
         if stat -c %Y / >/dev/null 2>&1; then
-          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%F\t%Y\t%W\t%n' {} + 2>/dev/null || exit 1
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%A\t%Y\t%W\t%n' {} + 2>/dev/null || exit 1
         elif stat -f %m / >/dev/null 2>&1; then
-          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%HT\t%m\t%B\t%N' {} + 2>/dev/null || exit 1
+          find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%Sp\t%m\t%B\t%N' {} + 2>/dev/null || exit 1
         else
           exit 1
         fi
@@ -774,11 +774,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 
     /// Parses the tab-separated output of ``remoteListingScript(path:showHidden:)``.
     ///
-    /// Each line is `type<TAB>mtime<TAB>btime<TAB>name`. The trailing `name`
-    /// field is split last so names containing spaces survive; the leading
-    /// type description ("directory"/"Directory", "regular file", …) may also
-    /// contain spaces but never a tab. `find .` reports each entry as `./name`,
-    /// so only the final path component is kept.
+    /// Each line is `mode<TAB>mtime<TAB>btime<TAB>name`. The trailing `name`
+    /// field is split last so names containing spaces survive. The leading mode
+    /// string uses `stat`'s permission format (`d…`, `-…`, `l…`) so directory
+    /// detection does not depend on localized file-type prose. `find .` reports
+    /// each entry as `./name`, so only the final path component is kept.
     static func parseRemoteListing(
         _ output: String,
         path: String,
@@ -792,7 +792,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let name = String(rawName.split(separator: "/").last ?? rawName)
             guard !name.isEmpty, name != ".", name != ".." else { return nil }
             guard showHidden || !name.hasPrefix(".") else { return nil }
-            let isDirectory = String(parts[0]).caseInsensitiveCompare("directory") == .orderedSame
+            let isDirectory = parts[0].first == "d"
             return FileExplorerEntry(
                 name: name,
                 path: normalizedPath + name,

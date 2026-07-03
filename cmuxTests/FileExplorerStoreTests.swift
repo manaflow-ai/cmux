@@ -1512,15 +1512,14 @@ struct ProcessSSHFileExplorerListingTests {
     // MARK: Parsing of the tab-separated stat output
 
     @Test
-    func testParseRemoteListingParsesTypeTimesAndName() {
-        // Lines are `type<TAB>mtime<TAB>btime<TAB>name`. `find .` reports each
-        // entry as `./name`, so only the final component is kept. Cover GNU
-        // ("directory") and BSD ("Directory"/"Regular File") type spellings plus
-        // a name with a space.
+    func testParseRemoteListingParsesModeTimesAndName() {
+        // Lines are `mode<TAB>mtime<TAB>btime<TAB>name`. `find .` reports each
+        // entry as `./name`, so only the final component is kept. Cover directory
+        // and regular-file mode strings plus a name with a space.
         let output = [
-            "Directory\t1700000000\t1690000000\t./sub",
-            "regular file\t1700000100\t1690000100\t./main.swift",
-            "Regular File\t1700000200\t1690000200\t./file one.txt",
+            "drwxr-xr-x\t1700000000\t1690000000\t./sub",
+            "-rw-r--r--\t1700000100\t1690000100\t./main.swift",
+            "-rw-r--r--\t1700000200\t1690000200\t./file one.txt",
         ].joined(separator: "\n")
 
         let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
@@ -1541,12 +1540,12 @@ struct ProcessSSHFileExplorerListingTests {
 
     @Test
     func testParseRemoteListingKeepsSymlinksVisibleAsNonDirectories() {
-        // Dangling and directory symlinks both report as "Symbolic Link" under
+        // Dangling and directory symlinks both report with `l` mode under
         // non-dereferencing stat; they must stay listed (so users can manage
         // them) and never be treated as expandable directories.
         let output = [
-            "Symbolic Link\t1700000000\t1690000000\t./broken-link",
-            "Symbolic Link\t1700000000\t1690000000\t./dir-link",
+            "lrwxr-xr-x\t1700000000\t1690000000\t./broken-link",
+            "lrwxr-xr-x\t1700000000\t1690000000\t./dir-link",
         ].joined(separator: "\n")
 
         let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
@@ -1564,10 +1563,10 @@ struct ProcessSSHFileExplorerListingTests {
         // `find` never emits `.`/`..`, but the parser excludes them defensively;
         // the real entries arrive as `find`'s `./name` form.
         let output = [
-            "Directory\t1700000000\t1690000000\t.",
-            "Directory\t1700000000\t1690000000\t..",
-            "Regular File\t1700000000\t1690000000\t./.hidden",
-            "Regular File\t1700000000\t1690000000\t./visible.txt",
+            "drwxr-xr-x\t1700000000\t1690000000\t.",
+            "drwxr-xr-x\t1700000000\t1690000000\t..",
+            "-rw-r--r--\t1700000000\t1690000000\t./.hidden",
+            "-rw-r--r--\t1700000000\t1690000000\t./visible.txt",
         ].joined(separator: "\n")
 
         let visibleOnly = ProcessSSHFileExplorerTransport.parseRemoteListing(
@@ -1589,9 +1588,9 @@ struct ProcessSSHFileExplorerListingTests {
     @Test
     func testParseRemoteListingTreatsMissingOrLowBirthTimeAsUnknown() {
         let output = [
-            "Regular File\t1700000000\t0\t./zero-birth.txt",
-            "Regular File\t1700000000\t42\t./tiny-birth.txt",
-            "Regular File\t1700000000\t1690000000\t./real-birth.txt",
+            "-rw-r--r--\t1700000000\t0\t./zero-birth.txt",
+            "-rw-r--r--\t1700000000\t42\t./tiny-birth.txt",
+            "-rw-r--r--\t1700000000\t1690000000\t./real-birth.txt",
         ].joined(separator: "\n")
 
         let entries = ProcessSSHFileExplorerTransport.parseRemoteListing(
