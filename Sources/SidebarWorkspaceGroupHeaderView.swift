@@ -316,11 +316,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .internalOnlyTabDrag()
         .overlay {
             if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
-                    rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow)
+                SidebarWorkspaceRowMenuTrackingReconciler { _ in
+                    rowInteractionState.contextMenuTrackingDidEnd()
                 }
                 .onAppear {
-                    rowInteractionState.contextMenuTrackingObserverDidInstall()
+                    rowInteractionState.contextMenuTrackingDidBegin()
                 }
             }
         }

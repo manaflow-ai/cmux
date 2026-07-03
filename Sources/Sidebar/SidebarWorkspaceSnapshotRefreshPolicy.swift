@@ -85,47 +85,41 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
 struct SidebarWorkspaceRowInteractionState: Equatable {
     private(set) var isPointerHovering = false
     private(set) var contextMenuVisible = false
-    private var contextMenuTrackingObserverInstalled = false
-    private var deferredPointerHoveringWhileContextMenu: Bool?
+    private var contextMenuTrackingSuppressesCloseButton = false
+    private var deferredPointerHoveringWhileContextMenuTracking: Bool?
 
     mutating func setPointerHovering(_ hovering: Bool) {
-        if contextMenuVisible {
-            if hovering || contextMenuTrackingObserverInstalled {
-                deferredPointerHoveringWhileContextMenu = hovering
-            }
+        if contextMenuTrackingSuppressesCloseButton {
+            deferredPointerHoveringWhileContextMenuTracking = hovering
             isPointerHovering = false
             return
         }
-        deferredPointerHoveringWhileContextMenu = nil
+        deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = hovering
     }
 
     mutating func contextMenuDidAppear() {
-        deferredPointerHoveringWhileContextMenu = isPointerHovering
-        contextMenuTrackingObserverInstalled = false
         contextMenuVisible = true
+        contextMenuTrackingSuppressesCloseButton = true
+        deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = false
-    }
-
-    mutating func contextMenuTrackingObserverDidInstall() {
-        guard contextMenuVisible else { return }
-        contextMenuTrackingObserverInstalled = true
     }
 
     mutating func contextMenuDidDisappear() {
         contextMenuVisible = false
-        contextMenuTrackingObserverInstalled = false
+        contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }
 
-    @discardableResult
-    mutating func contextMenuTrackingDidEnd(pointerInsideRow: Bool) -> Bool {
-        guard contextMenuVisible else { return false }
-        deferredPointerHoveringWhileContextMenu = pointerInsideRow
-        contextMenuVisible = false
-        contextMenuTrackingObserverInstalled = false
+    mutating func contextMenuTrackingDidBegin() {
+        contextMenuTrackingSuppressesCloseButton = true
+        deferredPointerHoveringWhileContextMenuTracking = nil
+        isPointerHovering = false
+    }
+
+    mutating func contextMenuTrackingDidEnd() {
+        contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
-        return true
     }
 
     func shouldShowCloseButton(
@@ -133,14 +127,14 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
         shortcutHintModeActive: Bool
     ) -> Bool {
         isPointerHovering
-            && !contextMenuVisible
+            && !contextMenuTrackingSuppressesCloseButton
             && canCloseWorkspace
             && !shortcutHintModeActive
     }
 
     private mutating func applyDeferredPointerHovering() {
-        guard let deferredHover = deferredPointerHoveringWhileContextMenu else { return }
-        self.deferredPointerHoveringWhileContextMenu = nil
+        guard let deferredHover = deferredPointerHoveringWhileContextMenuTracking else { return }
+        self.deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = deferredHover
     }
 }
