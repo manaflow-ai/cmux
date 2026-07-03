@@ -456,6 +456,37 @@ final class cmuxUITests: XCTestCase {
         }
 
         sampleThroughTransition(context: "show1")
+        // Pixel scan of the settled state: log row colors from above the red
+        // marker down into the keyboard, so the run log shows WHAT fills the
+        // band between the dock edge (avoidance rect) and the keyboard's a11y
+        // frame — keyboard glass (no visual gap) vs exposed background (real
+        // gap). Screen coords are mapped to image pixels via the app frame.
+        do {
+            let markerBottom = marker.frame.maxY
+            let kbTop = app.keyboards.firstMatch.frame.minY
+            let shot = XCUIScreen.main.screenshot().image
+            if let cg = shot.cgImage, let data = cg.dataProvider?.data, let base = CFDataGetBytePtr(data) {
+                let appHeight = app.windows.firstMatch.frame.height
+                let pxPerPt = CGFloat(cg.height) / max(appHeight, 1)
+                let bytesPerRow = cg.bytesPerRow
+                let bpp = cg.bitsPerPixel / 8
+                print("KBPIX meta markerBottom=\(markerBottom) kbTop=\(kbTop) imgH=\(cg.height) pxPerPt=\(pxPerPt) bpp=\(bpp)")
+                let startPt = Int(markerBottom) - 8
+                let endPt = Int(kbTop) + 16
+                for yPt in stride(from: startPt, through: endPt, by: 2) {
+                    let yPx = min(max(Int(CGFloat(yPt) * pxPerPt), 0), cg.height - 1)
+                    var rgbs: [String] = []
+                    for xFrac in [0.3, 0.5, 0.7] {
+                        let xPx = min(Int(CGFloat(cg.width) * xFrac), cg.width - 1)
+                        let p = base + yPx * bytesPerRow + xPx * bpp
+                        rgbs.append("(\(p[0]),\(p[1]),\(p[2]))")
+                    }
+                    print("KBPIX y=\(yPt) \(rgbs.joined(separator: " "))")
+                }
+            } else {
+                print("KBPIX unavailable")
+            }
+        }
         for cycle in 1...2 {
             XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 4))
             hideKeyboard.tap()
