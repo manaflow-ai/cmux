@@ -85,9 +85,9 @@ public struct CmuxSidebarHost {
     ///
     /// CMUX resolves `name` against user-authored workspace command names and
     /// action identifiers. The extension never supplies shell text. Passing a
-    /// working directory asks CMUX to resolve the nearest local `cmux.json` for
-    /// that path and requires the `.createWorkspaceWithPath` action scope in
-    /// addition to `.runWorkspaceCommand`.
+    /// non-empty working directory asks CMUX to resolve the nearest local
+    /// `cmux.json` for that path and requires the `.createWorkspaceWithPath`
+    /// action scope in addition to `.runWorkspaceCommand`.
     public func runWorkspaceCommand(
         named name: String,
         workingDirectory: String? = nil
@@ -98,9 +98,9 @@ public struct CmuxSidebarHost {
     /// Runs the `ui.newWorkspace.action` configured by the user in `cmux.json`.
     ///
     /// CMUX resolves the action from the current config, or from the nearest
-    /// local config for `workingDirectory` when provided. The extension never
-    /// supplies shell text. Passing a working directory requires the
-    /// `.createWorkspaceWithPath` action scope in addition to
+    /// local config for a non-empty `workingDirectory` when provided. The
+    /// extension never supplies shell text. Passing a non-empty working directory
+    /// requires the `.createWorkspaceWithPath` action scope in addition to
     /// `.runWorkspaceCommand`.
     public func invokeNewWorkspaceAction(
         workingDirectory: String? = nil

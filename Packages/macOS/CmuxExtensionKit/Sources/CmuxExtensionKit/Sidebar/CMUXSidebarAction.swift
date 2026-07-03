@@ -28,15 +28,15 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
     ///
     /// This is the wire form of
     /// `CmuxSidebarHost.runWorkspaceCommand(named:workingDirectory:)`. The
-    /// extension never supplies shell text; a non-nil `workingDirectory` asks
-    /// CMUX to resolve the nearest local `cmux.json` for that path.
+    /// extension never supplies shell text; a non-empty `workingDirectory`
+    /// asks CMUX to resolve the nearest local `cmux.json` for that path.
     case runWorkspaceCommand(name: String, workingDirectory: String?)
     /// Runs the user's configured `ui.newWorkspace.action` from `cmux.json`.
     ///
     /// This is the wire form of
     /// `CmuxSidebarHost.invokeNewWorkspaceAction(workingDirectory:)`. The
-    /// extension never supplies shell text; a non-nil `workingDirectory` asks
-    /// CMUX to resolve the nearest local `cmux.json` for that path.
+    /// extension never supplies shell text; a non-empty `workingDirectory`
+    /// asks CMUX to resolve the nearest local `cmux.json` for that path.
     case invokeNewWorkspaceAction(workingDirectory: String?)
 
     public var requiredScopes: Set<CmuxExtensionActionScope> {
@@ -69,7 +69,9 @@ public enum CmuxSidebarAction: Codable, Equatable, Sendable {
             return [.openURL]
         case .runWorkspaceCommand(_, let workingDirectory),
              .invokeNewWorkspaceAction(let workingDirectory):
-            return workingDirectory == nil ? [.runWorkspaceCommand] : [.runWorkspaceCommand, .createWorkspaceWithPath]
+            let normalizedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasWorkingDirectory = normalizedWorkingDirectory?.isEmpty == false
+            return hasWorkingDirectory ? [.runWorkspaceCommand, .createWorkspaceWithPath] : [.runWorkspaceCommand]
         }
     }
 }

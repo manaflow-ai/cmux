@@ -350,9 +350,9 @@ struct CMUXExtensionKitTests {
 
     @Test
     func testWorkspaceCommandActionsRequireCommandScopeAndPathScope() {
-        #expect(CmuxSidebarAction.runWorkspaceCommand(name: "Dev Environment", workingDirectory: nil).requiredScopes == [.runWorkspaceCommand])
+        #expect(([nil, "", "   "] as [String?]).allSatisfy { CmuxSidebarAction.runWorkspaceCommand(name: "Dev Environment", workingDirectory: $0).requiredScopes == [.runWorkspaceCommand] })
         #expect(CmuxSidebarAction.runWorkspaceCommand(name: "Dev Environment", workingDirectory: "/tmp/project").requiredScopes == [.runWorkspaceCommand, .createWorkspaceWithPath])
-        #expect(CmuxSidebarAction.invokeNewWorkspaceAction(workingDirectory: nil).requiredScopes == [.runWorkspaceCommand])
+        #expect(([nil, "", "\n\t"] as [String?]).allSatisfy { CmuxSidebarAction.invokeNewWorkspaceAction(workingDirectory: $0).requiredScopes == [.runWorkspaceCommand] })
         #expect(CmuxSidebarAction.invokeNewWorkspaceAction(workingDirectory: "/tmp/project").requiredScopes == [.runWorkspaceCommand, .createWorkspaceWithPath])
     }
 
