@@ -29,4 +29,13 @@ import Testing
 
         #expect(first != inserted)
     }
+
+    @Test func stableMenuRowsCanDisplayLiveNames() {
+        let cached = TerminalPickerMenuRow(MobileTerminalPreview(id: "terminal-a", name: "Build"))
+        let liveRows = [
+            TerminalPickerMenuRow(MobileTerminalPreview(id: "terminal-a", name: "Build - zsh")),
+        ]
+
+        #expect(cached.displayName(liveNamesByID: liveRows.namesByID) == "Build - zsh")
+    }
 }
