@@ -166,10 +166,10 @@
 655	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+RuntimeLifecycle.swift
 650	Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Import/Detection/BrowserInstalledBrowserDetector.swift
 650	Sources/Panels/MarkdownRemoteImageLoader.swift
+647	cmuxTests/TabManagerTitleUpdateTests.swift
 646	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceListView.swift
 644	Packages/macOS/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 642	cmuxTests/RemoteTmuxControlParserTests.swift
-642	cmuxTests/TabManagerTitleUpdateTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 637	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
 635	cmuxUITests/RightSidebarChromeHeightUITests.swift

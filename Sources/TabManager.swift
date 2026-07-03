@@ -3270,7 +3270,7 @@ class TabManager: ObservableObject {
         // using the same normalization as the source-level dedup in
         // `TerminalSurface`, so any post that bypasses that dedup still cannot
         // thrash the sidebar.
-        let trimmed = TerminalSurface.stableTerminalNotificationTitle(change.title)
+        let trimmed = sourceSurface.stableTerminalNotificationTitle(change.title)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard workspacesById[change.tabId]?.terminalPanel(for: change.surfaceId)?.surface === sourceSurface else { return }

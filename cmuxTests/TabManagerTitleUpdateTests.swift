@@ -569,34 +569,39 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
-    func stableTerminalNotificationTitleStripsSpinnerGlyphs() {
+    func stableTerminalNotificationTitleStripsSpinnerGlyphs() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let surface = try #require(workspace.terminalPanel(for: focusedPanelId)?.surface)
+
         // Leading braille spinner frames of the same logical title collapse to one
         // string — the standalone spinner token is dropped.
         let frames = ["⠋ pnpm install", "⠙ pnpm install", "⠹ pnpm install", "⠸ pnpm install"]
-        let normalized = Set(frames.map { TerminalSurface.stableTerminalNotificationTitle($0) })
+        let normalized = Set(frames.map { surface.stableTerminalNotificationTitle($0) })
         #expect(normalized == ["pnpm install"])
 
         // A standalone spinner token is dropped wherever it appears (leading,
         // embedded, trailing).
-        #expect(TerminalSurface.stableTerminalNotificationTitle("Building ⠧ project") == "Building project")
-        #expect(TerminalSurface.stableTerminalNotificationTitle("Building  ⠧  project") == "Building  project")
-        #expect(TerminalSurface.stableTerminalNotificationTitle("deploying ⣾") == "deploying")
+        #expect(surface.stableTerminalNotificationTitle("Building ⠧ project") == "Building project")
+        #expect(surface.stableTerminalNotificationTitle("Building  ⠧  project") == "Building  project")
+        #expect(surface.stableTerminalNotificationTitle("deploying ⣾") == "deploying")
         #expect(
-            TerminalSurface.stableTerminalNotificationTitle("⠋ python -c 'print(\"a  b\")'")
+            surface.stableTerminalNotificationTitle("⠋ python -c 'print(\"a  b\")'")
                 == "python -c 'print(\"a  b\")'"
         )
 
         // Only *standalone* spinner tokens are removed: a Braille scalar inside a
         // larger word (e.g. a path component) is preserved verbatim, so a real
         // title is never corrupted — even when a leading spinner is also stripped.
-        #expect(TerminalSurface.stableTerminalNotificationTitle("~/work/⠋-project") == "~/work/⠋-project")
-        #expect(TerminalSurface.stableTerminalNotificationTitle("⠋ ~/work/⠧-proj") == "~/work/⠧-proj")
+        #expect(surface.stableTerminalNotificationTitle("~/work/⠋-project") == "~/work/⠋-project")
+        #expect(surface.stableTerminalNotificationTitle("⠋ ~/work/⠧-proj") == "~/work/⠧-proj")
 
         // Titles with no spinner glyph take the fast path and are returned
         // byte-for-byte unchanged, double spaces and em dashes included.
-        #expect(TerminalSurface.stableTerminalNotificationTitle("~/code/cmux — zsh") == "~/code/cmux — zsh")
-        #expect(TerminalSurface.stableTerminalNotificationTitle("a/b-c  d") == "a/b-c  d")
-        #expect(TerminalSurface.stableTerminalNotificationTitle("").isEmpty)
+        #expect(surface.stableTerminalNotificationTitle("~/code/cmux — zsh") == "~/code/cmux — zsh")
+        #expect(surface.stableTerminalNotificationTitle("a/b-c  d") == "a/b-c  d")
+        #expect(surface.stableTerminalNotificationTitle("").isEmpty)
     }
 
     private func drainMainQueue() async {

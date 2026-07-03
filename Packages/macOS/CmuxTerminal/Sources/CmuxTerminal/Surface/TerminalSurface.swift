@@ -484,7 +484,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the terminal title (`pnpm`, `npm`, `cargo`, generic braille spinners, …).
     /// They carry no information — only the current animation frame — so two
     /// titles that differ solely by these scalars denote the same logical state.
-    public static let terminalTitleSpinnerScalars: Set<Unicode.Scalar> = {
+    private static let terminalTitleSpinnerScalars: Set<Unicode.Scalar> = {
         var scalars = Set<Unicode.Scalar>()
         // The entire Braille Patterns block (U+2800…U+28FF). Every popular CLI
         // spinner style (`dots`, `dots2`, …, and the `⣾⣽⣻⢿⡿⣟⣯⣷` family) is built
@@ -515,8 +515,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// larger word (e.g. a path component like `~/work/⠋-proj`), so legitimate
     /// titles are never corrupted. Titles with no spinner glyph take a fast path
     /// and are returned byte-for-byte unchanged.
-    public static func stableTerminalNotificationTitle(_ raw: String) -> String {
-        guard raw.unicodeScalars.contains(where: { terminalTitleSpinnerScalars.contains($0) }) else {
+    public func stableTerminalNotificationTitle(_ raw: String) -> String {
+        guard raw.unicodeScalars.contains(where: { Self.terminalTitleSpinnerScalars.contains($0) }) else {
             return raw
         }
         let whitespace = CharacterSet.whitespacesAndNewlines
@@ -527,7 +527,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         func appendCurrentSegment() {
             guard !current.isEmpty, let isWhitespace = currentIsWhitespace else { return }
             let isPureSpinner = !isWhitespace
-                && current.unicodeScalars.allSatisfy { terminalTitleSpinnerScalars.contains($0) }
+                && current.unicodeScalars.allSatisfy { Self.terminalTitleSpinnerScalars.contains($0) }
             segments.append((text: current, isWhitespace: isWhitespace, isPureSpinner: isPureSpinner))
             current = ""
             currentIsWhitespace = nil
@@ -566,7 +566,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// updated without locking.
     @MainActor
     public func publishableTerminalTitle(forRawTitle rawTitle: String) -> String? {
-        let stable = Self.stableTerminalNotificationTitle(rawTitle)
+        let stable = stableTerminalNotificationTitle(rawTitle)
         guard stable != lastPublishedTerminalTitle else { return nil }
         lastPublishedTerminalTitle = stable
         return stable
