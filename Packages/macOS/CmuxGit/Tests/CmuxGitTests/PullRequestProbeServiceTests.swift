@@ -185,13 +185,10 @@ import Testing
         {
           "data": {
             "repository": {
-              "pullRequests": {
-                "nodes": [
-                  {"number": 1, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
-                  {"number": 2, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "ERROR"}}}]}},
-                  {"number": 3, "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}}
-                ]
-              }
+              "pr0": {"number": 1, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]}},
+              "pr1": {"number": 2, "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "ERROR"}}}]}},
+              "pr2": {"number": 3, "commits": {"nodes": [{"commit": {"statusCheckRollup": null}}]}},
+              "pr3": null
             }
           }
         }
@@ -205,27 +202,109 @@ import Testing
         #expect(response.ciStatusesByPullRequestNumber == [1: .success, 2: .failure, 3: .neutral])
     }
 
+    @Test func openPullRequestNumbersOnlyIncludesRequestedOpenBranches() {
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [
+                "feat/open": item(number: 7, state: "OPEN", updatedAt: nil),
+                "feat/merged": item(number: 8, state: "MERGED", updatedAt: nil),
+                "feat/other": item(number: 9, state: "OPEN", updatedAt: nil),
+            ]
+        )
+        #expect(PullRequestProbeService.openPullRequestNumbers(
+            in: entry,
+            candidateBranches: ["feat/open", "feat/merged", "feat/missing"]
+        ) == Set([7]))
+    }
+
     @Test func cacheEntrySatisfiesCIRequestsOnlyWhenRollupsWereIncluded() {
         let now = Date(timeIntervalSince1970: 1_000)
         let plain = WorkspacePullRequestRepoCacheEntry(fetchedAt: now, pullRequestsByBranch: [:])
         let withCI = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: now,
             pullRequestsByBranch: [:],
-            includesCIStatus: true
+            includesCIStatus: true,
+            ciStatusByPullRequestNumber: [7: .success]
         )
         #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(plain, now: now, includeCIStatus: false))
         #expect(!PullRequestProbeService.cachedEntrySatisfiesRequest(plain, now: now, includeCIStatus: true))
         #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(withCI, now: now, includeCIStatus: true))
+        #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(
+            withCI,
+            now: now,
+            includeCIStatus: true,
+            pullRequestNumbers: [7]
+        ))
+        #expect(!PullRequestProbeService.cachedEntrySatisfiesRequest(
+            withCI,
+            now: now,
+            includeCIStatus: true,
+            pullRequestNumbers: [7, 8]
+        ))
     }
 
     @Test func tokenlessCIStatusFetchReturnsNeutralEmptyRollupWithoutNetwork() async {
         let service = PullRequestProbeService()
         let statuses = await service.pullRequestCIStatusesByNumber(
             repoSlug: "manaflow-ai/cmux",
+            pullRequestNumbers: [7],
             session: .shared,
             authHeader: nil
         )
         #expect(statuses == [:])
+    }
+
+    @Test func ciUnavailableCacheEntryStillSatisfiesCIRequestWithNeutralStatuses() async {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: now,
+            pullRequestsByBranch: [
+                "feat/x": item(number: 7, state: "OPEN", updatedAt: nil, ciStatus: .success),
+            ]
+        )
+        let service = PullRequestProbeService()
+        let cacheEntry = await service.repoCacheEntry(
+            entry,
+            repoSlug: "manaflow-ai/cmux",
+            fetchTimestamp: now,
+            session: .shared,
+            authHeader: nil,
+            includeCIStatus: true,
+            pullRequestNumbers: [7]
+        )
+
+        #expect(cacheEntry.includesCIStatus)
+        #expect(cacheEntry.ciStatusByPullRequestNumber[7] == .neutral)
+        #expect(cacheEntry.pullRequestsByBranch["feat/x"]?.ciStatus == .neutral)
+        #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(cacheEntry, now: now, includeCIStatus: true))
+    }
+
+    @Test func ciCacheEntryKeepsExistingStatusesAndFillsNewMissingNumbersNeutral() async {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: now,
+            pullRequestsByBranch: [
+                "feat/a": item(number: 7, state: "OPEN", updatedAt: nil),
+                "feat/b": item(number: 8, state: "OPEN", updatedAt: nil),
+            ],
+            includesCIStatus: true,
+            ciStatusByPullRequestNumber: [7: .success]
+        )
+        let service = PullRequestProbeService()
+        let cacheEntry = await service.repoCacheEntry(
+            entry,
+            repoSlug: "manaflow-ai/cmux",
+            fetchTimestamp: now,
+            session: .shared,
+            authHeader: nil,
+            includeCIStatus: true,
+            pullRequestNumbers: [7, 8]
+        )
+
+        #expect(cacheEntry.ciStatusByPullRequestNumber[7] == .success)
+        #expect(cacheEntry.ciStatusByPullRequestNumber[8] == .neutral)
+        #expect(cacheEntry.pullRequestsByBranch["feat/a"]?.ciStatus == .success)
+        #expect(cacheEntry.pullRequestsByBranch["feat/b"]?.ciStatus == .neutral)
     }
 
     // MARK: result resolution

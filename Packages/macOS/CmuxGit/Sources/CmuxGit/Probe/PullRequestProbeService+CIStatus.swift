@@ -1,36 +1,44 @@
 import Foundation
 
 extension PullRequestProbeService {
-    /// Fetches open-PR CI rollups for one repository with one token-gated GraphQL request.
+    /// Fetches CI rollups for exact open PR numbers with one token-gated GraphQL request.
     nonisolated func pullRequestCIStatusesByNumber(
         repoSlug: String,
+        pullRequestNumbers: Set<Int>,
         session: URLSession,
         authHeader: String?
     ) async -> [Int: PullRequestCIStatus]? {
         guard let authHeader, !authHeader.isEmpty else {
             return [:]
         }
+        let numbers = pullRequestNumbers.filter { $0 > 0 }.sorted()
+        guard !numbers.isEmpty else {
+            return [:]
+        }
         guard let repository = Self.repositoryParts(repoSlug: repoSlug) else {
             return nil
         }
 
-        let query = """
-        query($owner: String!, $name: String!) {
-          repository(owner: $owner, name: $name) {
-            pullRequests(states: OPEN, first: 100) {
-              nodes {
-                number
-                commits(last: 1) {
-                  nodes {
-                    commit {
-                      statusCheckRollup {
-                        state
+        let fields = numbers.enumerated().map { index, number in
+            """
+                pr\(index): pullRequest(number: \(number)) {
+                  number
+                  commits(last: 1) {
+                    nodes {
+                      commit {
+                        statusCheckRollup {
+                          state
+                        }
                       }
                     }
                   }
                 }
-              }
-            }
+            """
+        }.joined(separator: "\n")
+        let query = """
+        query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+        \(fields)
           }
         }
         """
@@ -50,6 +58,58 @@ extension PullRequestProbeService {
             return nil
         }
         return response.ciStatusesByPullRequestNumber
+    }
+
+    /// Open pull-request numbers that are actually needed for the current candidate branches.
+    nonisolated static func openPullRequestNumbers(
+        in entry: WorkspacePullRequestRepoCacheEntry,
+        candidateBranches: Set<String>
+    ) -> Set<Int> {
+        Set(candidateBranches.compactMap { branch in
+            guard let pullRequest = entry.pullRequestsByBranch[branch],
+                  PullRequestStatus(githubState: pullRequest.state) == .open else {
+                return nil
+            }
+            return pullRequest.number
+        })
+    }
+
+    /// Completes a repo cache entry's CI coverage for requested PR numbers.
+    nonisolated func repoCacheEntry(
+        _ cacheEntry: WorkspacePullRequestRepoCacheEntry,
+        repoSlug: String,
+        fetchTimestamp: Date,
+        session: URLSession,
+        authHeader: String?,
+        includeCIStatus: Bool,
+        pullRequestNumbers: Set<Int>
+    ) async -> WorkspacePullRequestRepoCacheEntry {
+        guard includeCIStatus else {
+            return cacheEntry
+        }
+
+        let requestedNumbers = Set(pullRequestNumbers.filter { $0 > 0 })
+        var ciStatusesByNumber = cacheEntry.includesCIStatus
+            ? cacheEntry.ciStatusByPullRequestNumber
+            : [:]
+        let missingNumbers = requestedNumbers.subtracting(ciStatusesByNumber.keys)
+        if !missingNumbers.isEmpty {
+            let fetchedStatuses = await pullRequestCIStatusesByNumber(
+                repoSlug: repoSlug,
+                pullRequestNumbers: missingNumbers,
+                session: session,
+                authHeader: authHeader
+            ) ?? [:]
+            for number in missingNumbers {
+                ciStatusesByNumber[number] = fetchedStatuses[number] ?? .neutral
+            }
+        }
+
+        return Self.repoCacheEntry(
+            cacheEntry,
+            applyingCIStatuses: ciStatusesByNumber,
+            fetchedAt: fetchTimestamp
+        )
     }
 
     /// Marks a repo cache entry as carrying CI rollups and applies those rollups to cached PR items.
@@ -73,10 +133,20 @@ extension PullRequestProbeService {
     nonisolated static func cachedEntrySatisfiesRequest(
         _ entry: WorkspacePullRequestRepoCacheEntry,
         now: Date,
-        includeCIStatus: Bool
+        includeCIStatus: Bool,
+        pullRequestNumbers: Set<Int> = []
     ) -> Bool {
-        now.timeIntervalSince(entry.fetchedAt) < Self.repoCacheLifetime
-            && (!includeCIStatus || entry.includesCIStatus)
+        guard now.timeIntervalSince(entry.fetchedAt) < Self.repoCacheLifetime else {
+            return false
+        }
+        guard includeCIStatus else {
+            return true
+        }
+        guard entry.includesCIStatus else {
+            return false
+        }
+        let requestedNumbers = Set(pullRequestNumbers.filter { $0 > 0 })
+        return requestedNumbers.isSubset(of: Set(entry.ciStatusByPullRequestNumber.keys))
     }
 
     private nonisolated static func repositoryParts(repoSlug: String) -> (owner: String, name: String)? {
@@ -129,11 +199,19 @@ struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
     }
 
     struct Repository: Decodable, Sendable {
-        let pullRequests: PullRequestConnection
-    }
+        let pullRequestsByAlias: [String: PullRequestNode?]
 
-    struct PullRequestConnection: Decodable, Sendable {
-        let nodes: [PullRequestNode?]?
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+            var pullRequestsByAlias: [String: PullRequestNode?] = [:]
+            for key in container.allKeys {
+                pullRequestsByAlias[key.stringValue] = try container.decodeIfPresent(
+                    PullRequestNode.self,
+                    forKey: key
+                )
+            }
+            self.pullRequestsByAlias = pullRequestsByAlias
+        }
     }
 
     struct PullRequestNode: Decodable, Sendable {
@@ -161,12 +239,32 @@ struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
 
     var ciStatusesByPullRequestNumber: [Int: PullRequestCIStatus] {
         var statuses: [Int: PullRequestCIStatus] = [:]
-        for pullRequest in data?.repository?.pullRequests.nodes ?? [] {
-            guard let pullRequest else { continue }
+        guard let pullRequests = data?.repository?.pullRequestsByAlias.values else {
+            return statuses
+        }
+        for pullRequest in pullRequests {
+            guard let pullRequest else {
+                continue
+            }
             let latestCommitNode = pullRequest.commits?.nodes?.compactMap { $0 }.last
             let state = latestCommitNode?.commit.statusCheckRollup?.state
             statuses[pullRequest.number] = PullRequestCIStatus(statusCheckRollupState: state)
         }
         return statuses
+    }
+}
+
+private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
     }
 }
