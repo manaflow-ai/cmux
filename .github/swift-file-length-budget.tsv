@@ -16,7 +16,7 @@
 7405	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
-6217	cmuxTests/GhosttyConfigTests.swift
+6216	cmuxTests/GhosttyConfigTests.swift
 6166	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5809	Sources/TextBoxInput.swift
@@ -70,8 +70,8 @@
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
 1360	Sources/Feed/FeedButtonStyleDebugWindowController.swift
 1317	Sources/FileExplorerStore.swift
-1295	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1295	cmuxTests/MobileHostAuthorizationTests.swift
+1291	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1287	cmuxTests/RestorableAgentSessionIndexTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
