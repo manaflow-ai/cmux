@@ -995,6 +995,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowLifecycle.registeredWindows
     }
 
+    /// Every open workspace across all registered main windows (Sleepy-mode pet
+    /// census). Main's original read `mainWindowContexts`; that aggregate was
+    /// dissolved in the refactor, so this enumerates the per-window tab managers.
+    func openWorkspacesForPetCensus() -> [Workspace] {
+        registeredMainWindows.flatMap { $0.tabManager.tabs }
+    }
+
     /// The resolved registered window owning `tabManager`, via the coordinator's
     /// reverse index. Replaces the recurring `registeredMainWindow(forManager:)`.
     func registeredMainWindow(forManager tabManager: TabManager) -> RegisteredMainWindow? {

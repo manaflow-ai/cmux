@@ -1039,7 +1039,6 @@
 		E3CAB00000000000000000A0 /* TabContextAction+KeyboardShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */; };
-		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
 		E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */; };
 		5BDE8E1F68A3D497FCA40578 /* TabManager+ClosedBrowserPanelReopenHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78D731E3A981DCEF0C3F4D8 /* TabManager+ClosedBrowserPanelReopenHosting.swift */; };
 		E3B7A400000000000000CE01 /* TabManager+ClosedItemReopenRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000CE02 /* TabManager+ClosedItemReopenRouting.swift */; };
@@ -2372,7 +2371,6 @@
 		E3CAB00000000000000000A1 /* TabContextAction+KeyboardShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabContextAction+KeyboardShortcuts.swift"; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AgentPIDLivenessSweepHosting.swift"; sourceTree = "<group>"; };
-		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
 		E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserOpenHosting.swift"; sourceTree = "<group>"; };
 		D78D731E3A981DCEF0C3F4D8 /* TabManager+ClosedBrowserPanelReopenHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ClosedBrowserPanelReopenHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000CE02 /* TabManager+ClosedItemReopenRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ClosedItemReopenRouting.swift"; sourceTree = "<group>"; };
@@ -3092,7 +3090,6 @@
 				C7B0FACE0000000000000017 /* SleepyStatusSample.swift */,
 				5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */,
 				C7B0FACE000000000000000D /* SystemCommandRunner.swift */,
-				DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */,
 				C0DE00000000000000000D83 /* TerminalController+ControlPaneDock.swift */,
 				C0DE00000000000000000C85 /* TerminalController+ControlSurfaceDock.swift */,
 				C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */,
@@ -5246,7 +5243,6 @@
 				E3CAB00000000000000000A0 /* TabContextAction+KeyboardShortcuts.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */,
-				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
 				E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */,
 				5BDE8E1F68A3D497FCA40578 /* TabManager+ClosedBrowserPanelReopenHosting.swift in Sources */,
 				E3B7A400000000000000CE01 /* TabManager+ClosedItemReopenRouting.swift in Sources */,
