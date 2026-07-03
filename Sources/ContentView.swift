@@ -6228,6 +6228,10 @@ struct ContentView: View {
                 (panelContext.panel as? MarkdownPanel)?.displayMode == .preview
             )
             snapshot.setBool(
+                CommandPaletteContextKeys.panelIsFilePreviewTextEditor,
+                (panelContext.panel as? FilePreviewPanel)?.previewMode == .text
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.panelBrowserOmnibarVisible,
                 (panelContext.panel as? BrowserPanel)?.isOmnibarVisible ?? true
             )
@@ -7075,33 +7079,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomIn",
-                title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "in"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomOut",
-                title: constant(String(localized: "command.browserZoomOut.title", defaultValue: "Zoom Out")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "out"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.browserZoomReset",
-                title: constant(String(localized: "command.browserZoomReset.title", defaultValue: "Actual Size")),
-                subtitle: browserPanelSubtitle,
-                keywords: ["browser", "zoom", "reset", "actual size"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
-            )
-        )
+        Self.appendViewZoomCommandContributions(to: &contributions, panelSubtitle: panelSubtitle)
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.markdownZoomIn",
@@ -7988,17 +7966,17 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.browserZoomIn") {
-            if !tabManager.zoomInFocusedBrowser() {
+            if !tabManager.zoomInFocusedBrowserOrTextFilePreview() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserZoomOut") {
-            if !tabManager.zoomOutFocusedBrowser() {
+            if !tabManager.zoomOutFocusedBrowserOrTextFilePreview() {
                 NSSound.beep()
             }
         }
         registry.register(commandId: "palette.browserZoomReset") {
-            if !tabManager.resetZoomFocusedBrowser() {
+            if !tabManager.resetZoomFocusedBrowserOrTextFilePreview() {
                 NSSound.beep()
             }
         }
