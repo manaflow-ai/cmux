@@ -439,20 +439,25 @@ final class MobileHostService {
     /// notification closures. This path only touches the connection registry,
     /// not actor-isolated listener state.
     nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
-        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
-            return
+        emitEventsInOrder([(topic: topic, payload: payload)])
+    }
+
+    /// Fan out a sequence of server-pushed events to every subscribed
+    /// connection, preserving the sequence on each connection.
+    nonisolated static func emitEventsInOrder(_ events: [(topic: String, payload: [String: Any])]) {
+        let subscribedEvents = events.filter {
+            MobileHostEventSubscriptionTracker.hasSubscribers(topic: $0.topic)
         }
+        guard !subscribedEvents.isEmpty else { return }
         let connections = MobileHostConnectionRegistry.shared.snapshot()
         guard !connections.isEmpty else { return }
         #if DEBUG
-        cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
+        let topics = subscribedEvents.map(\.topic).joined(separator: ",")
+        cmuxDebugLog("mobile.emit topics=\(topics) connections=\(connections.count)")
         #endif
         for connection in connections {
             Task {
-                let delivered = await connection.sendEvent(topic: topic, payload: payload)
-                #if DEBUG
-                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(topic)")
-                #endif
+                await connection.enqueueEvents(subscribedEvents)
             }
         }
     }
@@ -1958,6 +1963,8 @@ actor MobileHostConnection {
     /// stream_id → set of topics this connection is subscribed to.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: Set<String>] = [:]
+    private var pendingEventSends: [(topic: String, payload: [String: Any])] = []
+    private var isDrainingEventSends = false
 
     init(
         id: UUID,
@@ -2006,6 +2013,8 @@ actor MobileHostConnection {
         }
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
+        pendingEventSends.removeAll()
+        isDrainingEventSends = false
         for topics in previousSubscriptions where !topics.isEmpty {
             MobileHostEventSubscriptionTracker.replace(
                 previousTopics: topics,
@@ -2296,6 +2305,30 @@ actor MobileHostConnection {
             return true
         }
         return false
+    }
+
+    /// Append server-pushed events to this connection's ordered event drain.
+    func enqueueEvents(_ events: [(topic: String, payload: [String: Any])]) async {
+        guard !events.isEmpty, !isClosed else { return }
+        pendingEventSends.append(contentsOf: events)
+        guard !isDrainingEventSends else { return }
+        isDrainingEventSends = true
+        while !pendingEventSends.isEmpty {
+            let batch = pendingEventSends
+            pendingEventSends.removeAll(keepingCapacity: true)
+            for event in batch {
+                let delivered = await sendEvent(topic: event.topic, payload: event.payload)
+                #if DEBUG
+                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(event.topic)")
+                #endif
+                guard !isClosed else {
+                    pendingEventSends.removeAll()
+                    isDrainingEventSends = false
+                    return
+                }
+            }
+        }
+        isDrainingEventSends = false
     }
 
     /// Send a server-pushed event envelope to this connection. Returns true

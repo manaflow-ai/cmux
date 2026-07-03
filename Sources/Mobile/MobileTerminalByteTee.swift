@@ -128,15 +128,15 @@ final class MobileTerminalByteTee {
             return
         }
 
-        // JSON+base64 stopgap for the wire format. A future commit can
-        // switch to a binary opcode on the same connection if PTY
-        // throughput becomes a bottleneck.
-        let payload: [String: Any] = [
-            "surface_id": surfaceID.uuidString,
-            "seq": chunkSeq,
-            "data_b64": data.base64EncodedString(),
-        ]
         guard hasRenderGridSubscriber else {
+            // JSON+base64 stopgap for the wire format. A future commit can
+            // switch to a binary opcode on the same connection if PTY
+            // throughput becomes a bottleneck.
+            let payload: [String: Any] = [
+                "surface_id": surfaceID.uuidString,
+                "seq": chunkSeq,
+                "data_b64": data.base64EncodedString(),
+            ]
             MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
             return
         }
@@ -145,7 +145,8 @@ final class MobileTerminalByteTee {
         // recovery before oversized-grid bytes have a chance to paint.
         MobileTerminalRenderObserver.shared.enqueueTerminalBytesEventAfterRender(
             surfaceID: surfaceID,
-            payload: payload
+            seq: chunkSeq,
+            data: data
         )
     }
 }
