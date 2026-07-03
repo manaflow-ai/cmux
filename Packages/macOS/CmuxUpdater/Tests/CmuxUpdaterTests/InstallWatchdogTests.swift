@@ -136,7 +136,7 @@ import Testing
     }
 
     /// The manual-download recovery routes to the failing build's own channel: a nightly feed
-    /// gets the nightly release page, everything else the latest stable DMG. A NIGHTLY user must
+    /// gets the nightly DMG, everything else the latest stable DMG. A NIGHTLY user must
     /// never be pointed at a stable download as the fix for a nightly install failure.
     @Test func manualDownloadRoutesToTheActiveChannel() throws {
         let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
@@ -144,7 +144,7 @@ import Testing
         let recovery = UpdateManualDownloadRecovery()
 
         let nightlyURL = try #require(recovery.url(for: didNotStart, feedURLString: nightlyFeed))
-        #expect(nightlyURL.absoluteString.contains("/nightly"))
+        #expect(nightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos.dmg"))
         #expect(!nightlyURL.absoluteString.contains("latest/download"))
 
         let stableURL = try #require(recovery.url(for: didNotStart, feedURLString: "https://cmux.com/appcast.xml"))
@@ -153,7 +153,7 @@ import Testing
         // Sparkle's own install failures route by channel the same way.
         let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
         let sparkleNightlyURL = try #require(recovery.url(for: sparkleInstallFailure, feedURLString: nightlyFeed))
-        #expect(sparkleNightlyURL.absoluteString.contains("/nightly"))
+        #expect(sparkleNightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos.dmg"))
     }
 
     /// An unrecognized cmux.update code renders the generic failure title instead of silently

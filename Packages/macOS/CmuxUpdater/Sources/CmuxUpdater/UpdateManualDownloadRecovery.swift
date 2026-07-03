@@ -24,10 +24,10 @@ public struct UpdateManualDownloadRecovery: Sendable {
     ///
     /// - Parameters:
     ///   - stableDownloadURLString: Direct DMG URL for the stable channel.
-    ///   - nightlyDownloadURLString: Recovery URL for the nightly channel.
+    ///   - nightlyDownloadURLString: Direct DMG URL for the nightly channel.
     public init(
         stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
-        nightlyDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/tag/nightly"
+        nightlyDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg"
     ) {
         self.stableDownloadURLString = stableDownloadURLString
         self.nightlyDownloadURLString = nightlyDownloadURLString

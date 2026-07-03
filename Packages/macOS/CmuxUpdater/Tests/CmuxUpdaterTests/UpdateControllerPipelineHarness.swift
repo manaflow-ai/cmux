@@ -9,7 +9,7 @@ struct Harness {
     var model: UpdateStateModel { controller.model }
 
     init() {
-        let suiteName = "cmux.updater.pipeline-tests"
+        let suiteName = "cmux.updater.pipeline-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         let updater = FakeUpdater()

@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 @preconcurrency import Sparkle
 
 /// Builds the copyable technical detail block shown in the update error popover.
@@ -20,40 +20,76 @@ public struct UpdateErrorDetailsFormatter: Sendable {
                         logPath: String) -> String {
         let nsError = error as NSError
         var lines: [String] = []
-        lines.append("Message: \(nsError.localizedDescription)")
-        lines.append("Domain: \(nsError.domain)")
+        lines.append("\(messageLabel): \(nsError.localizedDescription)")
+        lines.append("\(domainLabel): \(nsError.domain)")
         if nsError.domain == SUSparkleErrorDomain,
            let sparkleName = sparkleErrorCodeName(for: nsError.code) {
-            lines.append("Code: \(sparkleName) (\(nsError.code))")
+            lines.append("\(codeLabel): \(sparkleName) (\(nsError.code))")
         } else {
-            lines.append("Code: \(nsError.code)")
+            lines.append("\(codeLabel): \(nsError.code)")
         }
 
         if let url = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
-            lines.append("URL: \(url.absoluteString)")
+            lines.append("\(urlLabel): \(url.absoluteString)")
         } else if let urlString = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
-            lines.append("URL: \(urlString)")
+            lines.append("\(urlLabel): \(urlString)")
         }
 
         if let failure = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String,
            !failure.isEmpty {
-            lines.append("Failure: \(failure)")
+            lines.append("\(failureLabel): \(failure)")
         }
         if let recovery = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String,
            !recovery.isEmpty {
-            lines.append("Recovery: \(recovery)")
+            lines.append("\(recoveryLabel): \(recovery)")
         }
 
         if let feedURLString, !feedURLString.isEmpty {
-            lines.append("Feed: \(feedURLString)")
+            lines.append("\(feedLabel): \(feedURLString)")
         }
 
         if let technicalDetails, !technicalDetails.isEmpty {
-            lines.append("Debug: \(technicalDetails)")
+            lines.append("\(debugLabel): \(technicalDetails)")
         }
 
-        lines.append("Log: \(logPath)")
+        lines.append("\(logLabel): \(logPath)")
         return lines.joined(separator: "\n")
+    }
+
+    private var messageLabel: String {
+        String(localized: "update.error.details.message", defaultValue: "Message")
+    }
+
+    private var domainLabel: String {
+        String(localized: "update.error.details.domain", defaultValue: "Domain")
+    }
+
+    private var codeLabel: String {
+        String(localized: "update.error.details.code", defaultValue: "Code")
+    }
+
+    private var urlLabel: String {
+        String(localized: "update.error.details.url", defaultValue: "URL")
+    }
+
+    private var failureLabel: String {
+        String(localized: "update.error.details.failure", defaultValue: "Failure")
+    }
+
+    private var recoveryLabel: String {
+        String(localized: "update.error.details.recovery", defaultValue: "Recovery")
+    }
+
+    private var feedLabel: String {
+        String(localized: "update.error.details.feed", defaultValue: "Feed")
+    }
+
+    private var debugLabel: String {
+        String(localized: "update.error.details.debug", defaultValue: "Debug")
+    }
+
+    private var logLabel: String {
+        String(localized: "update.error.details.log", defaultValue: "Log")
     }
 
     private func sparkleErrorCodeName(for code: Int) -> String? {
