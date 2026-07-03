@@ -71,4 +71,23 @@ extension AppDelegate {
     func tabManagerFor(tabId: UUID) -> TabManager? {
         windowRegistry.tabManagerFor(tabId: tabId)
     }
+
+    /// A single `tabId -> title` index across every registered window and the
+    /// active manager, built once per render instead of an O(tabs) scan per row
+    /// (#5794). Adapts main's `mainWindowContexts` read to the refactor's
+    /// `registeredMainWindows`.
+    func tabTitlesByTabId() -> [UUID: String] {
+        var titles: [UUID: String] = [:]
+        for context in registeredMainWindows {
+            for tab in context.tabManager.tabs where titles[tab.id] == nil {
+                titles[tab.id] = tab.title
+            }
+        }
+        if let activeTabs = tabManager?.tabs {
+            for tab in activeTabs where titles[tab.id] == nil {
+                titles[tab.id] = tab.title
+            }
+        }
+        return titles
+    }
 }

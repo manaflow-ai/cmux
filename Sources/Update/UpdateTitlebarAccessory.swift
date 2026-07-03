@@ -108,6 +108,12 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     }
 }
 
+/// The notification badge's base font size for a titlebar controls style,
+/// derived from the style's `badgeSize` (clamped to a legible minimum).
+func titlebarNotificationBadgeFontSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
+    max(7, config.badgeSize - 6)
+}
+
 @Observable
 final class TitlebarControlsViewModel {
     // Plain (non-`@Published`) weak holder in the legacy `ObservableObject`; it never drove
