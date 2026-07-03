@@ -13787,7 +13787,7 @@ struct TabItemView: View, Equatable {
         let leadingSlotActive = badgeOnLeading || spinnerOnLeading
         let trailingStatusActive = badgeOnTrailing || spinnerOnTrailing
 
-        let titleRowSpacing: CGFloat = 8
+        let titleRowSpacing: CGFloat = spinnerOnLeading ? 6 : 8
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: titleRowSpacing) {
