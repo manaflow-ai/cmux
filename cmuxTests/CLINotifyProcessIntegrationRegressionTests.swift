@@ -1,4 +1,4 @@
-import XCTest
+@_implementationOnly import XCTest
 import Darwin
 import CMUXAgentLaunch
 #if canImport(cmux_DEV)

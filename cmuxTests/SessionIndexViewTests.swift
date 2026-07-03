@@ -3,7 +3,7 @@ import CMUXAgentLaunch
 import Combine
 import SQLite3
 import SwiftUI
-import XCTest
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

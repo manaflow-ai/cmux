@@ -3,7 +3,7 @@ import CmuxCore
 import CmuxFoundation
 import CmuxWorkspaces
 import Darwin
-import XCTest
+@_implementationOnly import XCTest
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
