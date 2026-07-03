@@ -2649,7 +2649,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line,
         predicate: () -> Bool
-    ) {
+    ) throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if predicate() {
@@ -2658,14 +2658,12 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
 
-        // Record the timeout as an ordinary XCTest failure and return, mirroring
-        // waitForBrowserPanel below. A thrown error surfaces as an XCTest
-        // "unexpected" failure that is indistinguishable from a genuine crash,
-        // whereas app-host/WebKit timing flakiness under CI load should register
-        // as an expected assertion failure (0 unexpected). See #5641: the CI
-        // result policy must be able to tell a real crash apart from a flaky
-        // wait, and that only works if flaky waits do not throw.
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
+        throw BrowserTestTimeout(description: description)
+    }
+
+    private struct BrowserTestTimeout: Error, CustomStringConvertible {
+        let description: String
     }
 
     private func waitForBrowserPanel(
@@ -2810,32 +2808,29 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertEqual(panel.pageTitle, "Race A")
 
         panel.navigate(to: pageB)
-        waitUntil("server to receive provisional page B request") {
+        try waitUntil("server to receive provisional page B request") {
             server.didReceiveBRequest
         }
-        waitUntil("browser back availability during provisional page B navigation") {
+        try waitUntil("browser back availability during provisional page B navigation") {
             panel.canGoBack && panel.webView.isLoading
         }
         XCTAssertFalse(panel.canGoForward)
 
         panel.goBack()
-        waitUntil("back action to expose page B as forward history before it can commit") {
+        try waitUntil("back action to expose page B as forward history before it can commit") {
             panel.currentURL?.path == pageA.path && !panel.webView.isLoading
                 && panel.canGoForward
         }
 
         let releasedBResponseCount = server.releaseHeldBResponses()
         XCTAssertGreaterThan(releasedBResponseCount, 0)
-        waitUntil("browser to remain on page A after held page B response is released") {
+        try waitUntil("browser to remain on page A after held page B response is released") {
             !panel.webView.isLoading &&
                 panel.pageTitle == "Race A" &&
                 panel.currentURL?.path == pageA.path
         }
 
-        guard let publishedURL = panel.currentURL else {
-            XCTFail("expected panel.currentURL to be non-nil after the held page B response is released")
-            return
-        }
+        let publishedURL = try XCTUnwrap(panel.currentURL)
         XCTAssertEqual(publishedURL.path, pageA.path)
         XCTAssertEqual(panel.pageTitle, "Race A")
     }
