@@ -55,8 +55,13 @@ extension MobileShellComposite {
     /// cannot apply would freeze the mirror on legacy hosts instead of
     /// (at worst) rendering it the pre-guard way.
     private var hostSupportsTerminalViewportCap: Bool {
-        supportedHostCapabilities.contains(Self.terminalViewportCapability)
-            || terminalViewportRPCConfirmedByHost
+        if supportedHostCapabilities.contains(Self.terminalViewportCapability) {
+            return true
+        }
+        guard let remoteClient, let confirmedID = terminalViewportRPCConfirmedClientID else {
+            return false
+        }
+        return ObjectIdentifier(remoteClient) == confirmedID
     }
 
     /// Whether a producer grid fits the viewport this phone last reported for

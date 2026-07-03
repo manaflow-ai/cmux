@@ -84,6 +84,7 @@ actor LivenessHostRouter {
     private var replayRawTails: [(text: String, columns: Int, rows: Int)] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0
+    private var viewportResponseGrid: (columns: Int, rows: Int)?
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -195,6 +196,13 @@ actor LivenessHostRouter {
     /// to `data_b64` while the surface grid is still uncapped.
     func enqueueReplayRawTail(text: String, columns: Int, rows: Int) {
         replayRawTails.append((text: text, columns: columns, rows: rows))
+    }
+
+    /// Answer `mobile.terminal.viewport` with an effective grid, modeling a
+    /// host that applies viewport caps (the default `[:]` models a host that
+    /// accepts the RPC but reports nothing).
+    func setViewportResponseGrid(columns: Int, rows: Int) {
+        viewportResponseGrid = (columns: columns, rows: rows)
     }
 
     func failNextReplay(count: Int = 1) {
@@ -350,7 +358,15 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "data_b64": Data(text.utf8).base64EncodedString(),
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
+        case "mobile.terminal.viewport":
+            guard let grid = viewportResponseGrid else {
+                return try? Self.resultFrame(id: id, result: [:])
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "columns": grid.columns,
+                "rows": grid.rows,
+            ])
+        case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
         case "terminal.input":
             return try? Self.resultFrame(id: id, result: [

@@ -1059,6 +1059,44 @@ private func unsequencedTerminalBytesEventFrame(
 }
 
 @MainActor
+@Test func viewportConfirmationDoesNotLeakAcrossClientSwap() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    // A legacy host: no terminal.viewport.v1 capability, but the viewport RPC
+    // itself answers with an effective grid, so the first client confirms
+    // support empirically.
+    await router.setCapabilities([
+        "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1",
+    ])
+    await router.setViewportResponseGrid(columns: 20, rows: 6)
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawMountReplay, "mounting a sink must arm the cold-attach replay")
+
+    // The first client confirms viewport support via a successful round-trip.
+    let echoed = await store.updateTerminalViewport(surfaceID: "live-terminal", columns: 20, rows: 6)
+    #expect(echoed != nil, "the fixture host must echo an effective grid to confirm support")
+
+    // A connection swap (e.g. promoting another Mac's client to foreground)
+    // replaces the remote client. The old client's empirical confirmation
+    // must not arm the oversized-grid guard against the new connection.
+    try installFreshLivenessRemoteClient(on: store, router: router, box: box, clock: clock)
+
+    await router.enqueueReplayRawTail(text: "LEGACY-TAIL", columns: 90, rows: 40)
+    store.terminalOutputNeedsReplay(surfaceID: "live-terminal")
+    let tailDelivered = try await pollUntil { collector.lines.contains { $0.contains("LEGACY-TAIL") } }
+    #expect(
+        tailDelivered,
+        "after a client swap the prior connection's viewport confirmation must not withhold output on a host without the capability"
+    )
+    collector.unmount()
+}
+
+@MainActor
 @Test func fittingRenderGridFramesKeepOutputFlowing() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

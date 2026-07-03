@@ -749,13 +749,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Last oversized-grid recovery attempt per surface, pacing viewport
     /// re-assertion and barrier re-arming while a producer stays diverged.
     var oversizedTerminalGridRecoveryLastAttemptsBySurfaceID: [String: Date] = [:]
-    /// Whether this connection's Mac has proven it honors
+    /// The remote client through which the Mac proved it honors
     /// `mobile.terminal.viewport` by returning an effective grid. Together
     /// with the advertised `terminal.viewport.v1` capability this gates the
     /// oversized-grid guard: a host that cannot re-cap its grid must keep the
     /// legacy trust-the-producer behavior, or withheld output would freeze the
-    /// mirror instead of converging.
-    var terminalViewportRPCConfirmedByHost = false
+    /// mirror instead of converging. Keyed by client identity so the proof
+    /// can never leak across a connection swap (e.g. promoting a secondary
+    /// Mac to foreground) onto a legacy host.
+    var terminalViewportRPCConfirmedClientID: ObjectIdentifier?
     /// Surfaces whose oversized-grid recovery observed a fitting frame while a
     /// barrier replay was in flight. If that replay chain exhausts on
     /// still-diverged responses, this signal re-arms the barrier once so the
@@ -5272,7 +5274,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenBySurfaceID = [:]
         oversizedTerminalGridRecoveryLastAttemptsBySurfaceID = [:]
         oversizedRecoveryObservedFittingFrameSurfaceIDs = []
-        terminalViewportRPCConfirmedByHost = false
+        terminalViewportRPCConfirmedClientID = nil
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
@@ -7086,7 +7088,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   let grid = payload.effectiveGrid else {
                 return nil
             }
-            terminalViewportRPCConfirmedByHost = true
+            terminalViewportRPCConfirmedClientID = ObjectIdentifier(client)
             return (grid.columns, grid.rows)
         } catch {
             mobileShellLog.error("viewport report failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
