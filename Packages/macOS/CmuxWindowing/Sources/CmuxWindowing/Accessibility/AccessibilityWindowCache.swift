@@ -18,7 +18,9 @@ public import AppKit
 /// (the swizzle guards `Thread.isMainThread` before calling
 /// ``resolve(attribute:application:)``, and the window-close observer is
 /// delivered on `.main`). Only the boundary methods that read main-actor
-/// `NSWindow`/`NSApplication` properties are annotated `@MainActor`.
+/// `NSWindow`/`NSApplication` properties are annotated `@MainActor`; public
+/// synchronous helpers that must preserve their original calling surface assert
+/// main-actor isolation internally.
 ///
 /// `@unchecked Sendable` solely so the `.main`-delivered `@Sendable`
 /// window-close observer block may capture the instance to invalidate it
@@ -45,7 +47,7 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         /// reads main-actor-isolated `NSWindow` properties.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.filter(isPublishableAXWindow).map {
+            self.windows = windows.filter(AccessibilityWindowCache.isPublishableAXWindow).map {
                 WindowToken(
                     identity: ObjectIdentifier($0),
                     windowNumber: $0.windowNumber,
@@ -60,11 +62,13 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     public struct Snapshot {
         let windows: [NSWindow]
 
-        /// Builds a snapshot from a window list. `@MainActor` because it reads
-        /// main-actor-isolated accessibility roles from `NSWindow`.
-        @MainActor
+        /// Builds a snapshot from a window list, preserving the original
+        /// synchronous public API while enforcing the main-thread contract for
+        /// the accessibility-role read.
         public init(windows: [NSWindow]) {
-            self.windows = windows.filter(isPublishableAXWindow)
+            self.windows = MainActor.assumeIsolated {
+                windows.filter(AccessibilityWindowCache.isPublishableAXWindow)
+            }
         }
     }
 
@@ -113,7 +117,6 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     /// Returns the cached value for `attribute`, building a fresh snapshot via
     /// `builder` only when `stateToken` differs from the cached one. Returns
     /// nil for attributes this cache does not handle.
-    @MainActor
     public func value(
         for attribute: NSAccessibility.Attribute,
         stateToken: StateToken,
@@ -141,12 +144,11 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
         attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
     }
-}
 
-/// Help-tag tooltip windows are excluded from `AXWindows` because AX clients
-/// expect every element in `AXWindows` to behave like a window. `@MainActor`
-/// because it reads the main-actor-isolated accessibility role from `NSWindow`.
-@MainActor
-private func isPublishableAXWindow(_ window: NSWindow) -> Bool {
-    window.accessibilityRole() != .helpTag
+    /// Help-tag tooltip windows are excluded from `AXWindows` because AX
+    /// clients expect every element in `AXWindows` to behave like a window.
+    @MainActor
+    private static func isPublishableAXWindow(_ window: NSWindow) -> Bool {
+        window.accessibilityRole() != .helpTag
+    }
 }
