@@ -4737,6 +4737,47 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testClearingProcessDetectedBindingPreservesAgentHookHistory() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume real-thread",
+                    cwd: "/tmp/real",
+                    checkpointId: "real-thread",
+                    source: "agent-hook",
+                    autoResume: true,
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        workspace.reconcileSurfaceResumeBindings(using: SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t real-thread",
+                cwd: "/tmp/real",
+                checkpointId: "real-thread",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 20
+            ),
+        ]))
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.source, "process-detected")
+
+        XCTAssertTrue(workspace.clearSurfaceResumeBinding(panelId: panelId))
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: panelId))
+        let history = workspace.surfaceResumeBindingHistory(panelId: panelId)
+        XCTAssertEqual(history.map(\.source), ["agent-hook"])
+        XCTAssertEqual(history.compactMap(\.checkpointId), ["real-thread"])
+    }
+
+    @MainActor
     func testSnapshotPrefersProcessDetectedTmuxOverAgentHookBinding() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

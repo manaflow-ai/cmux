@@ -5033,6 +5033,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         binding removedBinding: SurfaceResumeBindingSnapshot
     ) {
+        guard Self.shouldRecordSurfaceResumeBindingInHistory(removedBinding) else { return }
         guard let existing = surfaceResumeBindingHistoriesByPanelId[panelId], !existing.isEmpty else {
             return
         }
