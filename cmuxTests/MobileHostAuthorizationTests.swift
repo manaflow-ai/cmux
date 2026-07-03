@@ -976,6 +976,18 @@ struct MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
         )
+        let splitHybridSession = MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
 
         await bytesOnlySession.subscribe(streamID: "bytes", topics: ["terminal.bytes"])
         #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes"))
@@ -988,6 +1000,11 @@ struct MobileHostAuthorizationTests {
         #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", excludingTopics: ["terminal.render_grid"]))
         #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
 
+        await splitHybridSession.subscribe(streamID: "split-bytes", topics: ["terminal.bytes"])
+        await splitHybridSession.subscribe(streamID: "split-render", topics: ["terminal.render_grid"])
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", excludingTopics: ["terminal.render_grid"]))
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+
         _ = await bytesOnlySession.unsubscribe(streamID: "bytes")
         #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes", excludingTopics: ["terminal.render_grid"]))
         #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
@@ -996,6 +1013,15 @@ struct MobileHostAuthorizationTests {
         #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
 
         _ = await hybridSession.unsubscribe(streamID: "hybrid-b")
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes"))
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+
+        _ = await splitHybridSession.unsubscribe(streamID: "split-render")
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes"))
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", excludingTopics: ["terminal.render_grid"]))
+        #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+
+        _ = await splitHybridSession.unsubscribe(streamID: "split-bytes")
         #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes"))
         #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
     }

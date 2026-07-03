@@ -37,8 +37,8 @@ private enum MobileHostEventSubscriptionTracker {
     private static let lock = NSLock()
     // Protected by `lock`; static emitters query subscription state from nonisolated contexts.
     private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
-    // Protected by `lock`; used to distinguish exact multi-topic subscription sets.
-    private nonisolated(unsafe) static var topicSetCounts: [Set<String>: Int] = [:]
+    // Protected by `lock`; constrained delivery matches a connection's union of subscribed streams.
+    private nonisolated(unsafe) static var connectionTopicSetCounts: [Set<String>: Int] = [:]
 
     static func hasSubscribers(topic: String) -> Bool {
         lock.lock()
@@ -49,7 +49,7 @@ private enum MobileHostEventSubscriptionTracker {
     static func hasSubscribers(topic: String, requiringTopics requiredTopics: Set<String>) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return topicSetCounts.contains { topics, count in
+        return connectionTopicSetCounts.contains { topics, count in
             count > 0 && topics.contains(topic) && requiredTopics.isSubset(of: topics)
         }
     }
@@ -57,13 +57,23 @@ private enum MobileHostEventSubscriptionTracker {
     static func hasSubscribers(topic: String, excludingTopics excludedTopics: Set<String>) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return topicSetCounts.contains { topics, count in
+        return connectionTopicSetCounts.contains { topics, count in
             count > 0 && topics.contains(topic) && topics.isDisjoint(with: excludedTopics)
         }
     }
 
     static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
         let changedTopics = updateCounts(previousTopics: previousTopics, nextTopics: nextTopics)
+        guard !changedTopics.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": Array(changedTopics).sorted()]
+        )
+    }
+
+    static func replaceConnection(previousTopics: Set<String>?, nextTopics: Set<String>?) {
+        let changedTopics = updateConnectionCounts(previousTopics: previousTopics, nextTopics: nextTopics)
         guard !changedTopics.isEmpty else { return }
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -82,18 +92,6 @@ private enum MobileHostEventSubscriptionTracker {
 
         let previousTopics = previousTopics ?? []
         let nextTopics = nextTopics ?? []
-
-        if !previousTopics.isEmpty {
-            let nextCount = max(0, (topicSetCounts[previousTopics] ?? 0) - 1)
-            if nextCount == 0 {
-                topicSetCounts.removeValue(forKey: previousTopics)
-            } else {
-                topicSetCounts[previousTopics] = nextCount
-            }
-        }
-        if !nextTopics.isEmpty {
-            topicSetCounts[nextTopics] = (topicSetCounts[nextTopics] ?? 0) + 1
-        }
 
         for topic in previousTopics {
             let nextCount = max(0, (topicCounts[topic] ?? 0) - 1)
@@ -117,10 +115,46 @@ private enum MobileHostEventSubscriptionTracker {
         return changedTopics
     }
 
+    private static func updateConnectionCounts(
+        previousTopics: Set<String>?,
+        nextTopics: Set<String>?
+    ) -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let previousTopics = previousTopics ?? []
+        let nextTopics = nextTopics ?? []
+        guard previousTopics != nextTopics else { return [] }
+        updateSetCounts(
+            &connectionTopicSetCounts,
+            previousTopics: previousTopics,
+            nextTopics: nextTopics
+        )
+        return previousTopics.union(nextTopics)
+    }
+
+    private static func updateSetCounts(
+        _ counts: inout [Set<String>: Int],
+        previousTopics: Set<String>,
+        nextTopics: Set<String>
+    ) {
+        if !previousTopics.isEmpty {
+            let nextCount = max(0, (counts[previousTopics] ?? 0) - 1)
+            if nextCount == 0 {
+                counts.removeValue(forKey: previousTopics)
+            } else {
+                counts[previousTopics] = nextCount
+            }
+        }
+        if !nextTopics.isEmpty {
+            counts[nextTopics] = (counts[nextTopics] ?? 0) + 1
+        }
+    }
+
     static func reset() {
         lock.lock()
         topicCounts.removeAll()
-        topicSetCounts.removeAll()
+        connectionTopicSetCounts.removeAll()
         lock.unlock()
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -2124,6 +2158,7 @@ actor MobileHostConnection {
         for task in tasks {
             task.cancel()
         }
+        let previousConnectionTopics = subscribedTopics()
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
         pendingEventSends.removeAll()
@@ -2135,6 +2170,10 @@ actor MobileHostConnection {
                 nextTopics: nil
             )
         }
+        MobileHostEventSubscriptionTracker.replaceConnection(
+            previousTopics: previousConnectionTopics,
+            nextTopics: nil
+        )
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
@@ -2389,11 +2428,16 @@ actor MobileHostConnection {
 
     /// Add a subscription for this connection. Idempotent per stream_id.
     func subscribe(streamID: String, topics: Set<String>) {
+        let previousConnectionTopics = subscribedTopics()
         let previousTopics = subscriptions[streamID]
         subscriptions[streamID] = topics
         MobileHostEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
             nextTopics: topics
+        )
+        MobileHostEventSubscriptionTracker.replaceConnection(
+            previousTopics: previousConnectionTopics,
+            nextTopics: subscribedTopics()
         )
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
@@ -2402,15 +2446,28 @@ actor MobileHostConnection {
     /// Remove a subscription by id. Returns true if it existed.
     @discardableResult
     func unsubscribe(streamID: String) -> Bool {
+        let previousConnectionTopics = subscribedTopics()
         let previousTopics = subscriptions.removeValue(forKey: streamID)
         let removed = previousTopics != nil
         if let previousTopics {
             MobileHostEventSubscriptionTracker.replace(previousTopics: previousTopics, nextTopics: nil)
         }
+        MobileHostEventSubscriptionTracker.replaceConnection(
+            previousTopics: previousConnectionTopics,
+            nextTopics: subscribedTopics()
+        )
         if subscriptions.isEmpty {
             startIdleTimeout()
         }
         return removed
+    }
+
+    private func subscribedTopics() -> Set<String> {
+        var topics = Set<String>()
+        for streamTopics in subscriptions.values {
+            topics.formUnion(streamTopics)
+        }
+        return topics
     }
 
     /// Check whether this connection has any subscriber registered for `topic`.
