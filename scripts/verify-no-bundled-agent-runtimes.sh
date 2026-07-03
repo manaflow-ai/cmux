@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXPECTED_GROK_WRAPPER="$SCRIPT_DIR/../Resources/bin/grok"
+
 usage() {
   cat <<'EOF'
 Usage: scripts/verify-no-bundled-agent-runtimes.sh <cmux.app>
@@ -35,7 +38,7 @@ fi
 
 is_allowed_binary_name() {
   case "$1" in
-    # `grok` is cmux's checked-in wrapper script, not the xAI provider binary;
+    # `grok` is allowed only when it matches cmux's checked-in wrapper script;
     # it still goes through the Bun-standalone signature scan below.
     cmux|ghostty|cmux-claude-wrapper|cmux-codex-wrapper|grok|open|start-cmux-profiling|submit-cmux-profile)
       return 0
@@ -49,6 +52,11 @@ is_allowed_binary_name() {
 looks_like_bun_standalone() {
   local path="$1"
   strings -a "$path" 2>/dev/null | grep -Eq '(/\$bunfs/|StandaloneExecutable|Bun v[0-9]+\.[0-9]+\.[0-9]+)'
+}
+
+is_checked_in_grok_wrapper() {
+  local path="$1"
+  [ -f "$EXPECTED_GROK_WRAPPER" ] && cmp -s "$EXPECTED_GROK_WRAPPER" "$path"
 }
 
 relative_to_app() {
@@ -66,6 +74,9 @@ while IFS= read -r -d '' file; do
   fi
   if [ ! -x "$file" ] && [ ! -L "$file" ]; then
     violations+=("allowed bin entry is not executable: $(relative_to_app "$file")")
+  fi
+  if [ "$name" = "grok" ] && ! is_checked_in_grok_wrapper "$file"; then
+    violations+=("grok wrapper does not match checked-in cmux wrapper: $(relative_to_app "$file")")
   fi
   if looks_like_bun_standalone "$file"; then
     violations+=("Bun standalone runtime signature: $(relative_to_app "$file")")

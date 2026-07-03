@@ -25,17 +25,37 @@ write_executable() {
   chmod 0755 "$path"
 }
 
+copy_grok_wrapper() {
+  local path="$1"
+  mkdir -p "$(dirname "$path")"
+  install -m 0755 "$ROOT_DIR/Resources/bin/grok" "$path"
+}
+
 GOOD_APP="$TMP_DIR/good/cmux.app"
 make_app "$GOOD_APP"
 write_executable "$GOOD_APP/Contents/Resources/bin/cmux" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/ghostty" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/cmux-claude-wrapper" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/cmux-codex-wrapper" "#!/bin/sh"
-write_executable "$GOOD_APP/Contents/Resources/bin/grok" "#!/bin/sh"
+copy_grok_wrapper "$GOOD_APP/Contents/Resources/bin/grok"
 write_executable "$GOOD_APP/Contents/Resources/bin/open" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/start-cmux-profiling" "#!/bin/sh"
 write_executable "$GOOD_APP/Contents/Resources/bin/submit-cmux-profile" "#!/bin/sh"
 "$VERIFY_SCRIPT" "$GOOD_APP"
+
+BAD_GROK_APP="$TMP_DIR/bad-grok-wrapper/cmux.app"
+make_app "$BAD_GROK_APP"
+write_executable "$BAD_GROK_APP/Contents/Resources/bin/cmux" "#!/bin/sh"
+write_executable "$BAD_GROK_APP/Contents/Resources/bin/grok" "#!/bin/sh"
+if "$VERIFY_SCRIPT" "$BAD_GROK_APP" >"$TMP_DIR/grok-wrapper.out" 2>&1; then
+  echo "FAIL: verifier allowed a non-cmux grok wrapper" >&2
+  exit 1
+fi
+if ! grep -Fq "grok wrapper does not match checked-in cmux wrapper: Contents/Resources/bin/grok" "$TMP_DIR/grok-wrapper.out"; then
+  echo "FAIL: grok wrapper rejection did not name the offending path" >&2
+  cat "$TMP_DIR/grok-wrapper.out" >&2
+  exit 1
+fi
 
 for forbidden in claude opencode codex pi bun bunx; do
   BAD_APP="$TMP_DIR/bad-$forbidden/cmux.app"
