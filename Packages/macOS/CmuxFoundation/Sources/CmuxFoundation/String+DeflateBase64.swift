@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 
 /// Compact codec for strings that would otherwise be inlined into process `argv`
@@ -14,8 +15,8 @@ import Foundation
 /// `deflatedBase64` zlib-compresses the UTF-8 bytes (RFC 1950 zlib format,
 /// via `NSData`'s `.zlib` algorithm) and base64-encodes the result; a real shell script
 /// compresses 5–13×, so the inlined literal shrinks proportionally.
-/// `init?(deflatedBase64:)` reverses it. Both ends run the same Foundation API,
-/// so the format never has to interoperate with command-line `gzip`.
+/// `init?(deflatedBase64:)` reverses it with a bounded zlib inflater. The format
+/// never has to interoperate with command-line `gzip`.
 public extension String {
     /// This string zlib-compressed and base64-encoded, or `nil` for an empty string
     /// or if compression fails — so callers can fall back to a plain base64 literal.
@@ -31,11 +32,40 @@ public extension String {
 
     /// Decode a payload produced by ``deflatedBase64`` — base64-decode then inflate.
     /// Fails (returns `nil`) if `encoded` is not valid base64 zlib-compressed UTF-8.
-    init?(deflatedBase64 encoded: String) {
+    ///
+    /// - Parameter maxDecodedByteCount: Maximum accepted inflated byte count. The
+    ///   default is 1 MiB, comfortably above cmux's SSH bootstrap payload while
+    ///   keeping corrupted or crafted compressed argv values bounded.
+    init?(deflatedBase64 encoded: String, maxDecodedByteCount: Int = 1_048_576) {
         guard let compressed = Data(base64Encoded: encoded),
               !compressed.isEmpty,
-              let data = try? (compressed as NSData).decompressed(using: .zlib) as Data,
-              let string = String(data: data, encoding: .utf8) else {
+              maxDecodedByteCount > 0,
+              maxDecodedByteCount < Int.max else {
+            return nil
+        }
+
+        let outputCapacity = maxDecodedByteCount + 1
+        var output = [UInt8](repeating: 0, count: outputCapacity)
+        let decodedByteCount = compressed.withUnsafeBytes { sourceBuffer in
+            output.withUnsafeMutableBytes { destinationBuffer in
+                guard let sourceBaseAddress = sourceBuffer.bindMemory(to: UInt8.self).baseAddress,
+                      let destinationBaseAddress = destinationBuffer.bindMemory(to: UInt8.self).baseAddress else {
+                    return 0
+                }
+                return compression_decode_buffer(
+                    destinationBaseAddress,
+                    outputCapacity,
+                    sourceBaseAddress,
+                    compressed.count,
+                    nil,
+                    COMPRESSION_ZLIB
+                )
+            }
+        }
+
+        guard decodedByteCount > 0,
+              decodedByteCount <= maxDecodedByteCount,
+              let string = String(data: Data(output.prefix(decodedByteCount)), encoding: .utf8) else {
             return nil
         }
         self = string
