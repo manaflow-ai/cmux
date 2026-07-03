@@ -24,7 +24,32 @@ struct ShortcutListEagerView: View {
         let actions = ShortcutAction.settingsVisibleActions
         VStack(spacing: 0) {
             ForEach(Array(actions.enumerated()), id: \.element) { index, action in
-                ShortcutListRowView(model: model, action: action, isLast: index == actions.count - 1)
+                let effective = model.effective(for: action)
+                let snapshot = ShortcutListRowSnapshot(
+                    action: action,
+                    isLast: index == actions.count - 1,
+                    title: action.displayName,
+                    subtitle: model.scopeCaption(for: action),
+                    placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
+                    chordsEnabled: model.chordModeActions.contains(action.rawValue),
+                    hasPendingRejection: model.bareKeyRejections.contains(action.rawValue)
+                        || model.numberedDigitRejections.contains(action.rawValue),
+                    firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
+                    isUnbound: effective?.isUnbound ?? true,
+                    canRestore: model.canRestore(for: action),
+                    validationMessage: model.validationMessage(for: action)
+                )
+                ShortcutListRowView(
+                    snapshot: snapshot,
+                    actions: ShortcutListRowActions(
+                        onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
+                        onChord: { chord in Task { await model.assignChord(chord, to: action) } },
+                        onBareKeyRejected: { model.markBareKeyRejected(action) },
+                        onClearOrRestore: { Task { await model.clearOrRestore(for: action) } },
+                        onClearRejections: { model.clearRejections(for: action) }
+                    )
+                )
+                .equatable()
             }
         }
     }

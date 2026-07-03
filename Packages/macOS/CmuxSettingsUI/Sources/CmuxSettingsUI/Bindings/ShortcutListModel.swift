@@ -1,12 +1,9 @@
-// Sources/CmuxSettingsUI/Bindings/ShortcutListModel.swift
 import CmuxFoundation
 import CmuxSettings
 import Observation
 import SwiftUI
 
 /// View-model that owns keyboard shortcut Settings state and persistence.
-/// Call ``startObserving()`` once from the owning view's `.task`; store streams
-/// cancel on `deinit`. All reads and writes must happen on `@MainActor`.
 @MainActor
 @Observable
 public final class ShortcutListModel {
@@ -14,9 +11,7 @@ public final class ShortcutListModel {
     // MARK: - Observed state
 
     public private(set) var bindings: [String: StoredShortcut] = [:]
-    /// Parsed `shortcuts.when` overrides keyed by action id.
     public private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
-    /// Raw `shortcuts.when` expressions for row captions.
     public private(set) var whenOverrideRawStrings: [String: String] = [:]
     public private(set) var chordModeActions: Set<String> = []
     public private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
@@ -69,18 +64,14 @@ public final class ShortcutListModel {
         )
     }
 
-    private var latestBindings: [String: StoredShortcut] {
-        pendingBindings ?? bindings
-    }
-
-    // MARK: - Bindings sink
+    private var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
 
     private func ingestBindings(_ dictionary: [String: StoredShortcut]) {
         let changedActionIds = Set(bindings.keys).union(dictionary.keys)
             .filter { bindings[$0] != dictionary[$0] }
         bindings = dictionary
         pruneRestoreShortcuts()
-        pruneConflictRejections()
+        pruneConflictRejections(changedActionIds: Set(changedActionIds))
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
     }
 
@@ -243,16 +234,17 @@ public final class ShortcutListModel {
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
     }
 
-    /// Records a bare-key rejection for the given action. Called by
-    /// ``ShortcutListRowView``'s `onBareKeyRejected` callback.
     public func markBareKeyRejected(_ action: ShortcutAction) {
         bareKeyRejections.insert(action.rawValue)
+        numberedDigitRejections.remove(action.rawValue)
+        conflictRejections.removeValue(forKey: action.rawValue)
+        rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
     }
 
     /// The X/restore button handler: clears rejections then either restores a
     /// previously cached stroke (if the binding is currently unbound) or clears
     /// the binding and caches the current effective stroke for a future restore.
-    public func clearOrRestore(for action: ShortcutAction) {
+    public func clearOrRestore(for action: ShortcutAction) async {
         let eff = effective(for: action)
         let canRestoreAction = canRestore(for: action)
         bareKeyRejections.remove(action.rawValue)
@@ -260,10 +252,10 @@ public final class ShortcutListModel {
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
         if canRestoreAction, let restore = restoreShortcuts[action.rawValue] {
-            Task { await self.restoreBinding(restore, for: action) }
+            await restoreBinding(restore, for: action)
         } else if let eff, !eff.isUnbound {
             restoreShortcuts[action.rawValue] = eff
-            Task { await self.clearBinding(for: action) }
+            await clearBinding(for: action)
         }
     }
 
@@ -273,6 +265,10 @@ public final class ShortcutListModel {
     /// action's rejection/restore state.
     public func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
         var stroke = stroke
+        guard action.allowsBareFirstStroke || stroke.hasAnyModifier else {
+            markBareKeyRejected(action)
+            return
+        }
         if action.usesNumberedDigitMatching {
             guard isNumberedDigitKey(stroke.key) else {
                 numberedDigitRejections.insert(action.rawValue)
@@ -317,6 +313,11 @@ public final class ShortcutListModel {
     /// conflicts with another binding.
     public func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
         guard action.allowsChordShortcut else {
+            chordModeActions.remove(action.rawValue)
+            return
+        }
+        guard action.allowsBareFirstStroke || chord.first.hasAnyModifier else {
+            markBareKeyRejected(action)
             chordModeActions.remove(action.rawValue)
             return
         }
@@ -430,7 +431,14 @@ public final class ShortcutListModel {
             }
         } catch {
             if pendingWriteGeneration == generation {
+                let committed = await jsonStore.value(for: catalog.shortcuts.bindings)
+                let changedActionIds = Set(bindings.keys).union(committed.keys)
+                    .filter { bindings[$0] != committed[$0] }
+                bindings = committed
                 pendingBindings = nil
+                pruneRestoreShortcuts()
+                pruneConflictRejections()
+                pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
             }
             errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
         }
@@ -449,12 +457,8 @@ public final class ShortcutListModel {
 
     /// Drops conflict banners for actions whose binding now resolves cleanly
     /// (e.g. after an external cmux.json edit removes the colliding binding).
-    private func pruneConflictRejections() {
+    private func pruneConflictRejections(changedActionIds: Set<String> = []) {
         guard !conflictRejections.isEmpty else { return }
-        // Drop banners for actions whose binding now resolves cleanly.
-        // Legacy `ShortcutRecorderSettingsControl` clears `rejectedAttempt`
-        // on `.onChange(of: shortcut)`, so an externally-edited binding
-        // (cmux.json reload) dismisses the validation banner too.
         for key in Array(conflictRejections.keys) {
             guard let action = ShortcutAction(rawValue: key) else {
                 conflictRejections.removeValue(forKey: key)
@@ -463,6 +467,11 @@ public final class ShortcutListModel {
             }
             guard let rejected = rejectedConflictShortcuts[key] else {
                 conflictRejections.removeValue(forKey: key)
+                continue
+            }
+            if changedActionIds.contains(key) {
+                conflictRejections.removeValue(forKey: key)
+                rejectedConflictShortcuts.removeValue(forKey: key)
                 continue
             }
             if detectConflict(for: action, stroke: rejected) == nil {

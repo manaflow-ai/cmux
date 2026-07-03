@@ -6,40 +6,32 @@ import SwiftUI
 
 /// A single shortcut-recorder row for the Keyboard Shortcuts settings section.
 ///
-/// Extracted from ``KeyboardShortcutsSection/actionRow(_:)`` verbatim so it can
-/// be hosted inside recycled `NSTableView` cells (Task 5). The ``ShortcutListModel``
-/// owns all state; this view is purely display + callback wiring.
+/// Receives an immutable snapshot plus action closures so row rendering does not
+/// observe the whole ``ShortcutListModel``.
 ///
 /// Pass `isLast: true` for the final row so the trailing hairline is suppressed.
 /// The hairline replaces `SettingsCardDivider` from the LazyVStack layout, matching
 /// it visually while working with zero intercell spacing in the NSTableView host.
-@MainActor
-struct ShortcutListRowView: View {
-    let model: ShortcutListModel
-    let action: ShortcutAction
-    let isLast: Bool
+struct ShortcutListRowView: View, Equatable {
+    let snapshot: ShortcutListRowSnapshot
+    let actions: ShortcutListRowActions
 
-    init(model: ShortcutListModel, action: ShortcutAction, isLast: Bool) {
-        self.model = model
-        self.action = action
-        self.isLast = isLast
+    init(snapshot: ShortcutListRowSnapshot, actions: ShortcutListRowActions) {
+        self.snapshot = snapshot
+        self.actions = actions
+    }
+
+    nonisolated static func == (lhs: ShortcutListRowView, rhs: ShortcutListRowView) -> Bool {
+        lhs.snapshot == rhs.snapshot
     }
 
     var body: some View {
-        let effective = model.effective(for: action)
-        let isUnbound = effective?.isUnbound ?? true
-        let canRestore = model.canRestore(for: action)
-        let bareKeyRejected = model.bareKeyRejections.contains(action.rawValue)
-        let numberedDigitRejected = model.numberedDigitRejections.contains(action.rawValue)
-        let validationMessage = model.validationMessage(for: action)
-        let subtitle = model.scopeCaption(for: action)
-
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: subtitle == nil ? .center : .top, spacing: 12) {
+                HStack(alignment: snapshot.subtitle == nil ? .center : .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(action.displayName)
-                        if let subtitle {
+                        Text(snapshot.title)
+                        if let subtitle = snapshot.subtitle {
                             Text(subtitle)
                                 .cmuxFont(.caption)
                                 .foregroundStyle(.secondary)
@@ -49,41 +41,38 @@ struct ShortcutListRowView: View {
                     Spacer()
 
                     ShortcutRecorderView(
-                        placeholder: model.formatPlaceholder(
-                            effective: effective,
-                            numbered: action.usesNumberedDigitMatching
-                        ),
-                        chordsEnabled: model.chordModeActions.contains(action.rawValue),
-                        hasPendingRejection: bareKeyRejected || numberedDigitRejected,
-                        firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
-                        onStroke: { stroke in Task { await model.assign(stroke: stroke, to: action) } },
-                        onChord: { chord in Task { await model.assignChord(chord, to: action) } },
-                        onBareKeyRejected: { model.markBareKeyRejected(action) }
+                        placeholder: snapshot.placeholder,
+                        chordsEnabled: snapshot.chordsEnabled,
+                        hasPendingRejection: snapshot.hasPendingRejection,
+                        firstStrokeRequiresModifier: snapshot.firstStrokeRequiresModifier,
+                        onStroke: actions.onStroke,
+                        onChord: actions.onChord,
+                        onBareKeyRejected: actions.onBareKeyRejected
                     )
                     .frame(width: 160)
 
                     Button {
-                        model.clearOrRestore(for: action)
+                        actions.onClearOrRestore()
                     } label: {
-                        Image(systemName: canRestore ? "arrow.counterclockwise.circle.fill" : "xmark.circle.fill")
+                        Image(systemName: snapshot.canRestore ? "arrow.counterclockwise.circle.fill" : "xmark.circle.fill")
                             .imageScale(.medium)
                     }
                     .buttonStyle(.borderless)
-                    .disabled(isUnbound && !canRestore)
+                    .disabled(snapshot.isUnbound && !snapshot.canRestore)
                     .help(
-                        canRestore
+                        snapshot.canRestore
                             ? String(localized: "shortcut.recorder.restore.help", defaultValue: "Restore previous shortcut")
                             : String(localized: "shortcut.recorder.clear.help", defaultValue: "Unbind shortcut")
                     )
                     .accessibilityLabel(
-                        canRestore
+                        snapshot.canRestore
                             ? String(localized: "shortcut.recorder.restore", defaultValue: "Restore")
                             : String(localized: "shortcut.recorder.clear", defaultValue: "Unbind")
                     )
                     .accessibilityIdentifier("ShortcutRecorderClearRestoreButton")
                 }
 
-                if let validationMessage {
+                if let validationMessage = snapshot.validationMessage {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .cmuxFont(.caption)
@@ -101,7 +90,7 @@ struct ShortcutListRowView: View {
                         // that so users can dismiss the conflict banner without
                         // having to record a different shortcut.
                         Button(String(localized: "shortcut.recorder.undo", defaultValue: "Undo")) {
-                            model.clearRejections(for: action)
+                            actions.onClearRejections()
                         }
                         .buttonStyle(.link)
                         .cmuxFont(.caption)
@@ -123,7 +112,7 @@ struct ShortcutListRowView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
 
-            if !isLast {
+            if !snapshot.isLast {
                 Rectangle()
                     .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
                     .frame(height: 1)

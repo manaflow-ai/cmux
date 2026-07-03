@@ -68,6 +68,20 @@ import CmuxSettings
         #expect(model.numberedDigitRejections.contains(action.rawValue))
     }
 
+    @Test func assignRejectsBareKeyAtModelBoundary() async throws {
+        // WHY: the model is the persistence boundary; callers must not bypass
+        // recorder UI validation and write bare app-level shortcuts.
+        let (store, catalog, errorLog) = makeStore()
+        let action = ShortcutAction.openSettings
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+
+        await model.assign(stroke: ShortcutStroke(key: "x"), to: action)
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[action.rawValue] == nil)
+        #expect(model.bareKeyRejections.contains(action.rawValue))
+    }
+
     @Test func clearThenRestoreRoundTrips() async throws {
         // WHY: clearOrRestore must snapshot the effective binding before clearing;
         // a second call on the same now-unbound action must restore exactly that snapshot.
@@ -84,13 +98,13 @@ import CmuxSettings
         await spin(until: { model.bindings[action.rawValue] != nil })
 
         // First clearOrRestore: effective is non-unbound → should cache + clear
-        model.clearOrRestore(for: action)
+        await model.clearOrRestore(for: action)
         await spin(until: { model.bindings[action.rawValue] == StoredShortcut.unbound })
 
         #expect(model.restoreShortcuts[action.rawValue] == originalShortcut)
 
         // Second clearOrRestore: effective is unbound and restore cached → should restore
-        model.clearOrRestore(for: action)
+        await model.clearOrRestore(for: action)
         await spin(until: { model.bindings[action.rawValue] == originalShortcut })
 
         let finalBindings = await store.value(for: catalog.shortcuts.bindings)
@@ -143,6 +157,32 @@ import CmuxSettings
         let storeBindings = await store.value(for: catalog.shortcuts.bindings)
         #expect(storeBindings[firstAction.rawValue] == firstShortcut)
         #expect(storeBindings[secondAction.rawValue] == secondShortcut)
+    }
+
+    @Test func failedWriteRollsBackOptimisticBinding() async throws {
+        // WHY: optimistic row state must not keep showing a shortcut that the
+        // JSON store rejected; corrupt or unwritable cmux.json should surface
+        // the error without inventing a committed binding.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shortcut-list-model-write-failure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let blockedParent = tempDir.appendingPathComponent("not-a-directory")
+        try Data().write(to: blockedParent)
+        let store = JSONConfigStore(fileURL: blockedParent.appendingPathComponent("cmux.json"))
+        let catalog = SettingCatalog()
+        let errorLog = SettingsErrorLog()
+        let action = ShortcutAction.openSettings
+        let shortcut = StoredShortcut(first: ShortcutStroke(
+            key: "j", command: true, shift: true, option: true, control: true
+        ))
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+
+        await model.assign(stroke: shortcut.first, to: action)
+
+        let storeBindings = await store.value(for: catalog.shortcuts.bindings)
+        #expect(storeBindings[action.rawValue] == nil)
+        #expect(model.bindings[action.rawValue] == nil)
+        #expect(model.effective(for: action) == action.defaultShortcut)
     }
 
     @Test func externalChangePrunesStaleConflictRejection() async throws {
@@ -208,6 +248,41 @@ import CmuxSettings
         await spin(until: { model.bindings[unrelatedAction.rawValue] != nil })
 
         #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+    }
+
+    @Test func targetBindingChangePrunesConflictRejection() async throws {
+        // WHY: editing the rejected action's own binding replaces the stale
+        // rejected attempt, matching the legacy clear-on-change path.
+        let (store, catalog, errorLog) = makeStore()
+        let conflictAction = ShortcutAction.closeWindow
+        let targetAction = ShortcutAction.openSettings
+        let stroke = ShortcutStroke(key: "u", command: true, shift: true, option: true, control: true)
+        let replacement = StoredShortcut(first: ShortcutStroke(
+            key: "i", command: true, shift: true, option: true, control: true
+        ))
+
+        try await store.set(
+            [conflictAction.rawValue: StoredShortcut(first: stroke)],
+            for: catalog.shortcuts.bindings
+        )
+
+        let model = ShortcutListModel(jsonStore: store, catalog: catalog, errorLog: errorLog)
+        model.startObserving()
+        await spin(until: { model.bindings[conflictAction.rawValue] != nil })
+
+        await model.assign(stroke: stroke, to: targetAction)
+        #expect(model.conflictRejections[targetAction.rawValue] == conflictAction)
+
+        try await store.set(
+            [
+                conflictAction.rawValue: StoredShortcut(first: stroke),
+                targetAction.rawValue: replacement,
+            ],
+            for: catalog.shortcuts.bindings
+        )
+        await spin(until: { model.conflictRejections[targetAction.rawValue] == nil })
+
+        #expect(model.conflictRejections[targetAction.rawValue] == nil)
     }
 
     @Test func whenOverrideChangePrunesResolvedConflictRejection() async throws {
