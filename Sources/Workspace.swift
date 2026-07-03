@@ -4563,11 +4563,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setCustomColor(_ hex: String?) {
-        if let hex {
-            customColor = WorkspaceTabColorSettings.normalizedHex(hex)
-        } else {
-            customColor = nil
-        }
+        let nextCustomColor = hex.flatMap { WorkspaceTabColorSettings.normalizedHex($0) }
+        guard customColor != nextCustomColor else { return }
+        customColor = nextCustomColor
         // The top tab bar reflects the workspace color through the bonsplit
         // chrome, but a color change does not alter the Ghostty config, so the
         // appearance host's signature-diff would otherwise skip the refresh.

@@ -1786,6 +1786,40 @@ final class WorkspaceChromeColorTests: XCTestCase {
             chromeBackgroundColor: darkChromeBackground
         ) == nil)
     }
+
+    @Test func customColorChangeNotificationOnlyPostsWhenNormalizedColorChanges() {
+        let workspace = Workspace()
+        var observedObjects: [Workspace] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: Workspace.customColorDidChangeNotification,
+            object: workspace,
+            queue: nil
+        ) { notification in
+            MainActor.assumeIsolated {
+                if let workspace = notification.object as? Workspace {
+                    observedObjects.append(workspace)
+                }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        workspace.setCustomColor("#1565C0")
+        #expect(observedObjects.count == 1)
+
+        workspace.setCustomColor("#1565C0")
+        workspace.setCustomColor("1565c0")
+        #expect(observedObjects.count == 1)
+
+        workspace.setCustomColor("#196F3D")
+        #expect(observedObjects.count == 2)
+
+        workspace.setCustomColor(nil)
+        #expect(observedObjects.count == 3)
+
+        workspace.setCustomColor(nil)
+        #expect(observedObjects.count == 3)
+        #expect(observedObjects.allSatisfy { $0 === workspace })
+    }
 }
 
 // WindowTransparencyDecisionTests was deleted: its subjects (the free functions
