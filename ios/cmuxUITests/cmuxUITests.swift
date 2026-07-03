@@ -388,6 +388,14 @@ final class cmuxUITests: XCTestCase {
             maxDivergence, 2,
             "dock bottom diverged from the live keyboard edge mid-animation. dock=\(final)"
         )
+        // A render-layer resize while the dock is mid-flight bottom-anchors the
+        // final-size layer to a mid-animation viewport (content shoots
+        // off-screen then slides back). The geometry sync must hold until the
+        // dock settles, so this counter must never move.
+        XCTAssertEqual(
+            Int(final["kbMidTrackResizes"] ?? "") ?? -1, 0,
+            "render layer was resized mid keyboard animation. dock=\(final)"
+        )
     }
 
     /// Pixel-level alignment of the dock against the REAL keyboard (not the

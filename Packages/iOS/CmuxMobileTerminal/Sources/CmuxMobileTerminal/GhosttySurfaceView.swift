@@ -805,6 +805,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "toolbarMaxY=\(dockedToolbar.map { Int($0.frame.maxY.rounded()) } ?? -1)",
             "kbApplyTicks=\(keyboardDockTracker.debugApplyTickCount)",
             "kbMaxDivergencePt=\(Int(debugKbMaxDivergence.rounded(.up)))",
+            "kbMidTrackResizes=\(debugKbMidTrackResizeCount)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -1390,6 +1391,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // band height; the toolbar rides its top).
             let dockBottom = composerContainer.frame.maxY
             debugKbMaxDivergence = max(debugKbMaxDivergence, abs(dockBottom - guideTop))
+            // A render-layer size change while the dock is mid-flight is the
+            // "content shoots off-screen and slides back" bug: the geometry
+            // sync must stay deferred until the dock settles.
+            if let tracked = debugKbTrackedRenderHeight,
+               abs(tracked - lastRenderRect.height) > 0.5 {
+                debugKbMidTrackResizeCount += 1
+            }
+            debugKbTrackedRenderHeight = lastRenderRect.height
+        } else {
+            debugKbTrackedRenderHeight = nil
         }
         #endif
     }
@@ -1398,6 +1409,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Max |dock bottom - sampled keyboard edge| observed across all tracking
     /// applies since launch, in points. See ``applyDockLayoutForCurrentViewport()``.
     private var debugKbMaxDivergence: CGFloat = 0
+    /// Render height on the previous tracking tick, and how many times it
+    /// changed mid-tracking (must stay 0; see the geometry-sync hold).
+    private var debugKbTrackedRenderHeight: CGFloat?
+    private var debugKbMidTrackResizeCount = 0
     #endif
 
     private func applyKeyboardHeight(_ height: CGFloat) {
@@ -3212,7 +3227,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
         // set_size calls (the source of the jumbled grid + renderer overload).
-        if needsGeometrySync {
+        //
+        // HOLD the sync entirely while keyboard tracking is live: resizing the
+        // local grid mid-animation swaps the render layer to the FINAL size
+        // while the live viewport is still mid-flight, so on keyboard-hide the
+        // now-full-height layer bottom-anchors with its top far off-screen
+        // (old contents stretched into it) and visibly slides back down — the
+        // "content shoots up out of the screen then animates back" jank. The
+        // flag stays set, so the resize lands on the first frame after the
+        // dock settles; the current-size render stays glued to the dock
+        // throughout the animation.
+        if needsGeometrySync, !keyboardDockTracker.isTracking {
             needsGeometrySync = false
             let reassert = pendingGeometryReassert
             pendingGeometryReassert = false
@@ -3343,9 +3368,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsDraw = true
         // A geometry sync (for any reason) satisfies a pending post-zoom resync.
         zoomSettleFrames = nil
-        if displayLink == nil, window != nil {
+        if displayLink == nil, window != nil, !keyboardDockTracker.isTracking {
             // No frame pump while detached/backgrounded; apply directly so the
             // surface still gets sized before the next render path resumes.
+            // (Tracking always runs with a live display link, so the tracking
+            // guard here is belt-and-braces against a mid-animation resize.)
             needsGeometrySync = false
             let reassert = pendingGeometryReassert
             pendingGeometryReassert = false
