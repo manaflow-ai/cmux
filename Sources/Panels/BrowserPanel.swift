@@ -2110,7 +2110,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
             Self.serializableSessionHistoryURLString(displayURL) != nil {
             return displayURL
         }
-        Self.sessionHistoryURLResolver.resolvedLiveURL(
+        return Self.sessionHistoryURLResolver.resolvedLiveURL(
             webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
             currentURL: currentURL
         )
@@ -2232,7 +2232,7 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
             let value = Self.serializableSessionHistoryURLString(displayURL) {
             return value
         }
-        Self.sessionHistoryURLResolver.preferredURLString(
+        return Self.sessionHistoryURLResolver.preferredURLString(
             webViewDisplayURL: BrowserRemoteProxyURLRewriter.displayURL(for: webView.url),
             currentURL: currentURL
         )
