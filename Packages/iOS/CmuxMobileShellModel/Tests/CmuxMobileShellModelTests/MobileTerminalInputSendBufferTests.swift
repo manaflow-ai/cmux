@@ -81,4 +81,31 @@ import Testing
         #expect(buffer.nextBatch()?.text == "b")
         #expect(buffer.nextBatch() == nil)
     }
+
+    @Test func rejectsOversizedPayloadWhilePreviousBatchIsInFlight() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+        let oversizedPaste = String(
+            repeating: "a",
+            count: MobileTerminalInputSendBuffer.maximumPendingByteCount * 2 + 1
+        )
+
+        #expect(
+            buffer.enqueue(oversizedPaste, workspaceID: workspaceID, terminalID: terminalID)
+                == .startDraining
+        )
+        #expect(buffer.nextBatch()?.text == oversizedPaste)
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.isDraining)
+
+        #expect(
+            buffer.enqueue(oversizedPaste, workspaceID: workspaceID, terminalID: terminalID)
+                == .rejected
+        )
+        #expect(buffer.pendingByteCount == 0)
+        #expect(buffer.enqueue("b", workspaceID: workspaceID, terminalID: terminalID) == .queued)
+        #expect(buffer.nextBatch()?.text == "b")
+        #expect(buffer.nextBatch() == nil)
+    }
 }
