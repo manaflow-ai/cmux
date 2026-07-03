@@ -59,16 +59,29 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func mountSidebar(workspaceCount: Int) -> Harness {
+    private static func mountSidebar(workspaceCount: Int) async -> Harness {
         _ = NSApplication.shared
 
         let tabManager = TabManager()
         while tabManager.tabs.count < workspaceCount {
-            _ = tabManager.addWorkspace(
-                select: false,
-                autoWelcomeIfNeeded: false,
-                autoRefreshMetadata: false
-            )
+            // Per-iteration pool + periodic run-loop turns: the app creates
+            // workspaces one per event-loop turn, with AppKit popping the
+            // autorelease pool between turns. Creating hundreds inside one
+            // main-actor job accumulates every autoreleased object from the
+            // O(N) per-add snapshot work into a single pool, and the final
+            // objc_autoreleasePoolPop then hangs or crashes the test host
+            // (observed as Signal 11 in AutoreleasePoolPage::releaseUntil).
+            autoreleasepool {
+                _ = tabManager.addWorkspace(
+                    select: false,
+                    autoWelcomeIfNeeded: false,
+                    autoRefreshMetadata: false
+                )
+            }
+            if tabManager.tabs.count % 20 == 0 {
+                Self.turnMainRunLoopOnce(layingOut: nil)
+                await Task.yield()
+            }
         }
 
         let unread = SidebarUnreadModel()
@@ -113,11 +126,22 @@ final class SidebarLazyLayoutScaleTests {
         return Harness(tabManager: tabManager, unread: unread, counter: counter, window: window)
     }
 
+    /// One synchronous run-loop turn. Kept out of the async context so the
+    /// `RunLoop.run(_:before:)` call is legal under Swift 6, and wrapped in its
+    /// own autorelease pool so drained main-queue work cannot pile objects
+    /// into the enclosing job's pool.
+    @MainActor
+    private static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
+        autoreleasepool {
+            window?.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+        }
+    }
+
     @MainActor
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 25) async {
         for _ in 0..<iterations {
-            window.contentView?.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            Self.turnMainRunLoopOnce(layingOut: window)
             await Task.yield()
         }
     }
@@ -129,7 +153,7 @@ final class SidebarLazyLayoutScaleTests {
     @Test
     @MainActor
     func testMountRealizesOnlyViewportRowsAt300Workspaces() async throws {
-        let harness = Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        let harness = await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
@@ -156,7 +180,7 @@ final class SidebarLazyLayoutScaleTests {
     @Test
     @MainActor
     func testUnreadStormStaysRowScopedAndConverges() async throws {
-        let harness = Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        let harness = await Self.mountSidebar(workspaceCount: Self.workspaceCount)
         defer { harness.tearDown() }
 
         await Self.drainMainRunLoop(for: harness.window)
