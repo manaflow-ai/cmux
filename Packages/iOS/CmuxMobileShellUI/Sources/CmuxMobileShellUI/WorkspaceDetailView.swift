@@ -655,7 +655,9 @@ struct WorkspaceDetailView: View {
         case toggleWorkspaceReadState
         case closeWorkspace
         case openTextSheet
+        #if DEBUG
         case copyDebugLogs
+        #endif
         case openFeedbackComposer
     }
 
@@ -683,8 +685,10 @@ struct WorkspaceDetailView: View {
             requestCloseWorkspaceFromMenu()
         case .openTextSheet:
             openTextSheetFromMenu()
+        #if DEBUG
         case .copyDebugLogs:
             copyDebugLogsFromMenu()
+        #endif
         case .openFeedbackComposer:
             openFeedbackComposerFromMenu()
         }
