@@ -6,20 +6,20 @@ import SwiftUI
 /// View-model that owns keyboard shortcut Settings state and persistence.
 @MainActor
 @Observable
-public final class ShortcutListModel {
+final class ShortcutListModel {
 
     // MARK: - Observed state
 
-    public private(set) var bindings: [String: StoredShortcut] = [:]
-    public private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
-    public private(set) var whenOverrideRawStrings: [String: String] = [:]
-    public private(set) var chordModeActions: Set<String> = []
-    public private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
-    public private(set) var bareKeyRejections: Set<String> = []
+    private(set) var bindings: [String: StoredShortcut] = [:]
+    private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
+    private(set) var whenOverrideRawStrings: [String: String] = [:]
+    private(set) var chordModeActions: Set<String> = []
+    private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
+    private(set) var bareKeyRejections: Set<String> = []
     /// Per-action set marking a numbered action rejected for a non-`1…9` key.
-    public private(set) var numberedDigitRejections: Set<String> = []
+    private(set) var numberedDigitRejections: Set<String> = []
     /// Per-action conflict target for the red validation banner.
-    public private(set) var conflictRejections: [String: ShortcutAction] = [:]
+    private(set) var conflictRejections: [String: ShortcutAction] = [:]
     @ObservationIgnored private var rejectedConflictShortcuts: [String: StoredShortcut] = [:]
     @ObservationIgnored private var pendingBindings: [String: StoredShortcut]?
     @ObservationIgnored private var pendingWriteGeneration = 0
@@ -36,7 +36,7 @@ public final class ShortcutListModel {
 
     /// Creates the model bound to the given stores. Call ``startObserving()``
     /// before reading state so the bindings and `when` overrides are populated.
-    public init(jsonStore: JSONConfigStore, catalog: SettingCatalog, errorLog: SettingsErrorLog) {
+    init(jsonStore: JSONConfigStore, catalog: SettingCatalog, errorLog: SettingsErrorLog) {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.errorLog = errorLog
@@ -46,7 +46,7 @@ public final class ShortcutListModel {
 
     /// Starts observing the store's shortcut streams. Idempotent: ``SettingReadDriver``
     /// ignores subsequent calls after the first activation.
-    public func startObserving() {
+    func startObserving() {
         let bindingsKey = catalog.shortcuts.bindings
         let whenKey = catalog.shortcuts.when
         bindingsDriver.activate(
@@ -79,13 +79,13 @@ public final class ShortcutListModel {
 
     /// The effective shortcut for `action`: its override binding if set,
     /// otherwise the action's built-in default.
-    public func effective(for action: ShortcutAction) -> StoredShortcut? {
+    func effective(for action: ShortcutAction) -> StoredShortcut? {
         latestBindings[action.rawValue] ?? action.defaultShortcut
     }
 
     /// Whether `action` is currently unbound but has a cached stroke available to
     /// restore (drives the X → restore button swap).
-    public func canRestore(for action: ShortcutAction) -> Bool {
+    func canRestore(for action: ShortcutAction) -> Bool {
         let eff = effective(for: action)
         let isUnbound = eff?.isUnbound ?? true
         return isUnbound && restoreShortcuts[action.rawValue] != nil
@@ -93,7 +93,7 @@ public final class ShortcutListModel {
 
     /// The red validation-banner text for `action` (bare-key, numbered-digit, or
     /// conflict rejection), or `nil` when the row has no pending rejection.
-    public func validationMessage(for action: ShortcutAction) -> String? {
+    func validationMessage(for action: ShortcutAction) -> String? {
         let numberedDigitRejected = numberedDigitRejections.contains(action.rawValue)
         let bareKeyRejected = bareKeyRejections.contains(action.rawValue)
         let conflict = conflictRejections[action.rawValue]
@@ -135,7 +135,7 @@ public final class ShortcutListModel {
     /// The "When: …" scope caption for `action` — the user's raw override text if
     /// present, otherwise the built-in focus-context description; `nil` when the
     /// shortcut is unrestricted.
-    public func scopeCaption(for action: ShortcutAction) -> String? {
+    func scopeCaption(for action: ShortcutAction) -> String? {
         if let overrideClause = whenOverrideClauses[action.rawValue] {
             // An explicit empty/`true` override means "no restriction" — show
             // nothing rather than the built-in scope it replaced.
@@ -185,7 +185,7 @@ public final class ShortcutListModel {
 
     /// The recorder placeholder text for `effective`: its display glyphs, or the
     /// localized "None" when unbound.
-    public func formatPlaceholder(effective: StoredShortcut?, numbered: Bool) -> String {
+    func formatPlaceholder(effective: StoredShortcut?, numbered: Bool) -> String {
         let unboundLabel = String(localized: "shortcut.unbound.displayValue", defaultValue: "None")
         guard let effective else { return unboundLabel }
         if effective.isUnbound { return unboundLabel }
@@ -227,14 +227,14 @@ public final class ShortcutListModel {
     // MARK: - Mutators (moved verbatim from section)
 
     /// Dismisses all rejection banners for the action (the Undo button handler).
-    public func clearRejections(for action: ShortcutAction) {
+    func clearRejections(for action: ShortcutAction) {
         bareKeyRejections.remove(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
     }
 
-    public func markBareKeyRejected(_ action: ShortcutAction) {
+    func markBareKeyRejected(_ action: ShortcutAction) {
         bareKeyRejections.insert(action.rawValue)
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
@@ -244,7 +244,7 @@ public final class ShortcutListModel {
     /// The X/restore button handler: clears rejections then either restores a
     /// previously cached stroke (if the binding is currently unbound) or clears
     /// the binding and caches the current effective stroke for a future restore.
-    public func clearOrRestore(for action: ShortcutAction) async {
+    func clearOrRestore(for action: ShortcutAction) async {
         let eff = effective(for: action)
         let canRestoreAction = canRestore(for: action)
         bareKeyRejections.remove(action.rawValue)
@@ -263,7 +263,7 @@ public final class ShortcutListModel {
     /// a non-digit stroke on a numbered action or a stroke that conflicts with
     /// another binding; a valid stroke is normalized, persisted, and clears the
     /// action's rejection/restore state.
-    public func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
+    func assign(stroke: ShortcutStroke, to action: ShortcutAction) async {
         var stroke = stroke
         guard action.allowsBareFirstStroke || stroke.hasAnyModifier else {
             markBareKeyRejected(action)
@@ -311,7 +311,7 @@ public final class ShortcutListModel {
     /// Records a two-stroke chord for `action`, rejecting (without writing) an
     /// action that disallows chords, a non-digit numbered chord, or a chord that
     /// conflicts with another binding.
-    public func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
+    func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
         guard action.allowsChordShortcut else {
             chordModeActions.remove(action.rawValue)
             return
@@ -408,7 +408,7 @@ public final class ShortcutListModel {
 
     /// Clears every override and all in-memory rejection/restore state — the
     /// "Reset Defaults" action.
-    public func resetAll() async {
+    func resetAll() async {
         restoreShortcuts.removeAll()
         bareKeyRejections.removeAll()
         numberedDigitRejections.removeAll()
