@@ -73,7 +73,18 @@ public struct MobileSection: View {
     }
 
     private var isManualHostValid: Bool {
-        trimmedManualHost.isEmpty || CmxManualHost(trimmedManualHost) != nil
+        Self.isManualHostAdvertisable(trimmedManualHost)
+    }
+
+    nonisolated static func isManualHostAdvertisable(_ rawHost: String) -> Bool {
+        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return true
+        }
+        guard let host = CmxManualHost(trimmed) else {
+            return false
+        }
+        return !CmxLoopbackHost().matches(host.rawValue)
     }
 
     /// The Mobile settings section content.

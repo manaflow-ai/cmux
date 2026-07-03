@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let manualHostTrustStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "ManualHostTrust")
 
 /// UserDefaults-backed manual-host trust store for production.
 public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStoring {
@@ -40,7 +43,15 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
         trustDuration: TimeInterval = Self.defaultTrustDuration,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.defaults = UserDefaults(suiteName: suiteName) ?? .standard
+        if let suiteDefaults = UserDefaults(suiteName: suiteName) {
+            self.defaults = suiteDefaults
+        } else {
+            assertionFailure("Failed to resolve UserDefaults suite \(suiteName); falling back to .standard")
+            manualHostTrustStoreLog.error(
+                "failed to resolve UserDefaults suite \(suiteName, privacy: .public); falling back to standard defaults"
+            )
+            self.defaults = .standard
+        }
         self.key = key
         self.trustDuration = trustDuration
         self.now = now

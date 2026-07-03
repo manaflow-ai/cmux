@@ -18,6 +18,17 @@ import Testing
 /// single key). Together they must cover every curated setting entry.
 @Suite("SettingsRowAnchorResolution")
 struct SettingsRowAnchorResolutionTests {
+    @Test func mobileManualHostAdvertisableValidatorRejectsLoopback() {
+        #expect(MobileSection.isManualHostAdvertisable(""))
+        #expect(MobileSection.isManualHostAdvertisable(" 192.168.1.23 "))
+        #expect(MobileSection.isManualHostAdvertisable("studio-mac.local"))
+        #expect(MobileSection.isManualHostAdvertisable("[fd00::12]"))
+        #expect(!MobileSection.isManualHostAdvertisable("127.0.0.1"))
+        #expect(!MobileSection.isManualHostAdvertisable("localhost"))
+        #expect(!MobileSection.isManualHostAdvertisable("[::1]"))
+        #expect(!MobileSection.isManualHostAdvertisable("my:host"))
+    }
+
     /// Every singular cmux.json path declared by an *unconditionally
     /// rendered* settings row. Excludes rows that aren't standalone search
     /// results: `workspaceColors.colors` (repeated per-palette rows) and
