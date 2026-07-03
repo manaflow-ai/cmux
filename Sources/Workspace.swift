@@ -2892,16 +2892,21 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeColorResolver()
+        let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
+        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
+            configuredHex: paneBorderColorHex,
+            fallback: defaultBorderHex
+        )
 
         if sharesWindowBackdrop {
             return .init(
@@ -2931,14 +2936,19 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         // Keep this signature aligned with bonsplitChromeHex for settings tests
         // and future background-image handling.
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeColorResolver()
+        let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
+        let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
+            configuredHex: paneBorderColorHex,
+            fallback: defaultBorderHex
+        )
 
         if sharesWindowBackdrop {
             return .init(
@@ -2999,7 +3009,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
         )
         return BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
@@ -3021,7 +3032,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
         let currentAppearance = bonsplitController.configuration.appearance
@@ -3079,7 +3091,8 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
-            renderingMode: renderingMode
+            renderingMode: renderingMode,
+            paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let currentUsesSharedBackdrop = bonsplitController.configuration.appearance.usesSharedBackdrop
@@ -10024,7 +10037,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
         agentHibernationAutoResumePresentationVisible = isVisible
         guard isVisible else { return }
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
     }
 
     // MARK: - Utility
@@ -13049,6 +13062,11 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        NotificationCenter.default.post(
+            name: .workspacePaneGeometryDidChange,
+            object: self,
+            userInfo: [GhosttyNotificationKey.tabId: id]
+        )
         // Every order/membership mutation (same-pane reorder, cross-pane move,
         // split, close) routes through here. A pure reorder mutates only
         // bonsplit's internal state, which is not `@Published`, so observers
