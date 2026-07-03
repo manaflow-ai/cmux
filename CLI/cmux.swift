@@ -8528,6 +8528,7 @@ struct CMUXCLI {
         var port: Int?
         var identityFile: String?
         var noFocus = false
+        var newWindow = false
 
         // Intentional subset of parseSSHCommandOptions: the mirror verb has a
         // different pipeline (no relay/cmuxd bootstrap, no `--` passthrough, no
@@ -8554,6 +8555,9 @@ struct CMUXCLI {
                 index += 2
             case "--no-focus":
                 noFocus = true
+                index += 1
+            case "--new-window":
+                newWindow = true
                 index += 1
             default:
                 if arg.hasPrefix("-") {
@@ -8588,10 +8592,11 @@ struct CMUXCLI {
         // The app reports `auth_required` at most once per attempt; run the
         // returned interactive ssh, then retry exactly once. `didAuthenticate`
         // bounds the loop so a host that keeps reporting auth-required can't spin.
+        let method = newWindow ? "remote.tmux.window" : "remote.tmux.attach_here"
         var didAuthenticate = false
         while true {
             let result = try client.sendV2(
-                method: "remote.tmux.window",
+                method: method,
                 params: params,
                 responseTimeout: 75  // > the app-side 60s timeout, so the app's result/error always arrives first
             )
@@ -14952,12 +14957,13 @@ struct CMUXCLI {
             """)
         case "ssh-tmux":
             return String(localized: "cli.help.ssh-tmux", defaultValue: """
-            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
 
-            Open a dedicated cmux window that mirrors a remote host's tmux sessions over
-            tmux control mode (tmux -CC) via SSH: each tmux session becomes a workspace,
-            each window a tab, and a multi-pane window a native split. Requires the
-            "Remote tmux" beta to be enabled in Settings.
+            Mirror a remote host's tmux sessions over tmux control mode (tmux -CC) via
+            SSH: each tmux session becomes a workspace, each window a tab, and a
+            multi-pane window a native split. By default the sessions are mirrored into
+            the current window; pass --new-window to open them in a dedicated new window
+            instead. Requires the "Remote tmux" beta to be enabled in Settings.
 
             If the host needs interactive authentication (password, host-key confirmation,
             MFA, or a security-key touch), cmux runs ssh inline in this terminal so you can
@@ -14969,12 +14975,15 @@ struct CMUXCLI {
             Flags:
               --port <n>          SSH port
               --identity <path>   SSH identity file path
-              --no-focus          Open the mirror window without activating it
+              --no-focus          Mirror without switching focus to it
+              --new-window        Open the mirror in a dedicated new window instead of
+                                   the current window
 
             Example:
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux my-ssh-alias
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
+              cmux ssh-tmux dev@my-host --new-window
             """)
         case "ssh-session-list":
             return """
