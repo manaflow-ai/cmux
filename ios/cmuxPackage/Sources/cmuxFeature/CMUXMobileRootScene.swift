@@ -166,8 +166,8 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
         // Presence follows the resolved auth channel (not the build config):
-        // a --prod-auth dev build must subscribe to the production worker its
-        // production Macs heartbeat to (issue 7145).
+        // a production-auth dev build must subscribe to the production worker
+        // its production Macs heartbeat to.
         guard let baseURL = PresenceClient.resolvedServiceBaseURL(
             isDevelopmentAuthChannel: auth.authEnvironment == .development
         ) else { return nil }
@@ -262,8 +262,7 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let identityProvider = AuthCoordinatorIdentityProvider(
-            coordinator: auth.coordinator,
-            isDevelopmentAuthEnvironment: auth.authEnvironment == .development
+            coordinator: auth.coordinator
         )
         let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()

@@ -27,10 +27,10 @@ public struct MobileAuthComposition {
     /// Which Stack project this build signs in to. DEBUG defaults to
     /// development and Release to production, but an ``authEnvironmentOverrideKey``
     /// entry (from `LocalConfig.plist`, or the Info.plist value
-    /// `ios/scripts/reload.sh --prod-auth` bakes) flips it, so a sideloaded
-    /// dev build can run production auth and pair with a release Mac
-    /// (https://github.com/manaflow-ai/cmux/issues/7145). Exposed so the
-    /// identity provider can label the channel its user ids belong to.
+    /// `ios/scripts/reload.sh` bakes) flips it, so a sideloaded dev build can
+    /// run production auth and pair with a release Mac
+    /// (https://github.com/manaflow-ai/cmux/issues/7145). Presence, backup,
+    /// and dev sign-in policy follow this resolved channel.
     public let authEnvironment: CMUXAuthEnvironment
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
@@ -87,7 +87,7 @@ public struct MobileAuthComposition {
             key: "auth_selected_team"
         )
         // Switching the resolved Stack project on one install (a dev build
-        // rebuilt with --prod-auth, or back — or a STACK_PROJECT_ID_* override
+        // rebuilt with production auth, or back — or a STACK_PROJECT_ID_* override
         // changing within the same environment) must not restore the previous
         // project's session: tokens, user ids, and teams are per-project, so
         // the stale state could only fail validation and flash the wrong
@@ -161,8 +161,8 @@ public struct MobileAuthComposition {
     nonisolated static let authEnvironmentOverrideKey = "AuthEnvironment"
 
     /// The Info.plist key carrying the baked auth environment. A tapped device
-    /// build sees no shell env, so `ios/scripts/reload.sh --prod-auth` bakes
-    /// the channel into the build via the `CMUX_IOS_AUTH_ENV` build setting —
+    /// build sees no shell env, so `ios/scripts/reload.sh` bakes the channel
+    /// into the build via the `CMUX_IOS_AUTH_ENV` build setting —
     /// the same mechanism as `CMUXPresenceBaseURL`. Keep in sync with
     /// `ios/Config/Info.plist` and `ios/Config/Shared.xcconfig`.
     nonisolated static let authEnvironmentInfoPlistKey = "CMUXAuthEnvironment"
@@ -209,9 +209,9 @@ public struct MobileAuthComposition {
     /// Whether launch enables the `42` debug sign-in shortcut. It signs in
     /// with fixed development-project credentials, so it exists only where
     /// those credentials belong: builds whose RESOLVED auth environment is
-    /// development. A `--prod-auth` build still compiles the shortcut (DEBUG
-    /// policy) but must not expose a known-credential sign-in path against
-    /// the production Stack project.
+    /// development. A production-auth dev build still compiles the shortcut
+    /// (DEBUG policy) but must not expose a known-credential sign-in path
+    /// against the production Stack project.
     nonisolated static func includesDevAuth(
         policy: MobileAuthBuildPolicy,
         resolvedEnvironment: CMUXAuthEnvironment
@@ -241,7 +241,7 @@ public struct MobileAuthComposition {
     /// project the build-default environment resolves to under the same
     /// override table) — so a missing value is inferred as that default.
     /// Ordinary upgrades and plain first launches (resolved == build
-    /// default) therefore never clear, while the FIRST `--prod-auth` launch
+    /// default) therefore never clear, while the FIRST production-auth launch
     /// over a signed-in dev install correctly does (its cached dev-project
     /// identity must not prime under production auth). A recorded or
     /// inferred project change ALWAYS clears — deliberately not gated on the

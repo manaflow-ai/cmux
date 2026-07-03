@@ -32,9 +32,10 @@ fi
 SECRETS_DIR="$HOME_DIR/.secrets"
 DEV_ENV_FILE="$SECRETS_DIR/cmuxterm-dev.env"
 
-# The DEBUG (development) Stack project the macOS/iOS dev builds sign in against.
+# The DEBUG development-auth Stack project the macOS/iOS local dogfood builds
+# sign in against.
 # Mirrors AuthConfig.swift development defaults so this verify path matches what
-# the app actually does. (DEBUG => CMUXAuthEnvironment.development.)
+# `scripts/dev-setup.sh` builds with --dev-auth.
 STACK_BASE_URL="https://api.stack-auth.com"
 STACK_PROJECT_ID="454ecd03-1db2-4050-845e-4ce5b0cd9895"
 STACK_PUBLISHABLE_CLIENT_KEY="pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"

@@ -17,16 +17,6 @@ public protocol MobileIdentityProviding: Sendable {
     /// reply-to address when emailing the feedback inbox.
     @MainActor var currentUserEmail: String? { get }
 
-    /// Whether ``currentUserID`` is minted by cmux's development auth
-    /// environment (the development Stack project DEBUG builds sign in to by
-    /// default) rather than production.
-    ///
-    /// Stack user ids are per-project, so a development-environment id can
-    /// never equal the production id a release Mac stamps into its pairing QR
-    /// (`ub`) — even for the same email. The pairing preflight reads this to
-    /// explain that mismatch truthfully instead of telling the user to
-    /// re-check emails (https://github.com/manaflow-ai/cmux/issues/7145).
-    @MainActor var isDevelopmentAuthEnvironment: Bool { get }
 }
 
 public extension MobileIdentityProviding {
@@ -35,8 +25,4 @@ public extension MobileIdentityProviding {
     /// email path, which is the safe fallback.
     @MainActor var currentUserEmail: String? { nil }
 
-    /// Default `false` (production): conformers and test doubles model
-    /// release-channel identities unless they opt in. The app's live provider
-    /// overrides this from the resolved auth environment.
-    @MainActor var isDevelopmentAuthEnvironment: Bool { false }
 }

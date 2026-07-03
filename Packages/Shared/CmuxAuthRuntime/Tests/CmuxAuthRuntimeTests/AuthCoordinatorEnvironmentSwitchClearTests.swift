@@ -5,7 +5,7 @@ import Testing
 
 /// The auth-environment-switch clear (``AuthLaunchOptions/clearStaleAuthOnLaunch``):
 /// an install whose resolved Stack project changed since its last launch (an
-/// iOS dev install rebuilt with `--prod-auth`, or back) must drop the other
+/// iOS dev install rebuilt for production auth, or back) must drop the other
 /// project's local state WITHOUT inheriting the UI-test clear's
 /// stop-everything semantics — the same launch's DEBUG auto-login credentials
 /// must still sign in, and the persisted-token clear must land before the
@@ -69,7 +69,7 @@ import Testing
     @Test func switchClearStillRunsDevAutoLoginOnTheSameLaunch() async throws {
         // Regression: folding the switch into clearAuthRequested suppressed
         // auto-login (its priming clears and RETURNS), so the first normal
-        // reload after --prod-auth launched signed out instead of dogfooding
+        // reload after switching auth projects launched signed out instead of dogfooding
         // signed in. The stale tokens must also be cleared BEFORE the restore
         // probe — were they still present, shouldStartAutoLogin would skip
         // the credentials (this test fails exactly that way if the clear

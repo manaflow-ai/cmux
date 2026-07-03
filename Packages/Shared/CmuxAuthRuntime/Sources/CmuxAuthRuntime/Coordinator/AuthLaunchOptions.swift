@@ -18,8 +18,8 @@ public struct AuthLaunchOptions: Equatable, Sendable {
 
     /// Whether launch must first drop the previous auth environment's local
     /// state: the install's resolved Stack project changed since its last
-    /// launch (an iOS dev install rebuilt with `--prod-auth`, or back), so the
-    /// persisted tokens/user/teams belong to a different project and could
+    /// launch (an iOS dev install rebuilt for production auth, or back), so
+    /// the persisted tokens/user/teams belong to a different project and could
     /// only fail validation or flash the wrong identity.
     ///
     /// Unlike ``clearAuthRequested`` — the UI-test end state, which clears and

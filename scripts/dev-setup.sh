@@ -168,7 +168,7 @@ build_and_launch_ios() {
   # --no-launch: build + install only. mobile-dev-launch.sh below does the launch
   # with the sign-in + auto-pair env, so a plain reload launch would be redundant
   # (and would launch signed-out).
-  local ios_args=(--tag "$TAG" --no-launch)
+  local ios_args=(--tag "$TAG" --no-launch --dev-auth)
   if [[ "$IOS_TARGET" == "device" ]]; then
     # --device-only skips the simulator build/boot entirely (--device would also
     # reload the default simulator first and can fail before reaching the iPhone).

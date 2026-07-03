@@ -3167,10 +3167,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let accountPreflight = MobilePairingAccountPreflight(
-            scannedScheme: URLComponents(string: rawURL)?.scheme,
             actualUserID: identityProvider?.currentUserID,
-            actualEmail: identityProvider?.currentUserEmail,
-            isDevelopmentAuthEnvironment: identityProvider?.isDevelopmentAuthEnvironment ?? false
+            actualEmail: identityProvider?.currentUserEmail
         )
         if let emailFailure = accountPreflight.failure(for: ticket) {
             applyPairingValidationFailure(emailFailure)
