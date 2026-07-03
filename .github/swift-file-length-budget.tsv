@@ -252,5 +252,6 @@
 503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/RemoteTmuxSessionMirror.swift
+501	cmuxTests/CanvasShortcutContextTests.swift
 500	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 500	Sources/KeyboardShortcutRecorder.swift
