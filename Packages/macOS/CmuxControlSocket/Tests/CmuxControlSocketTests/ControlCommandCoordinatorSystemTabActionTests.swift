@@ -74,7 +74,10 @@ struct ControlCommandCoordinatorSystemTabActionTests {
 
     @Test func tabActionRejectsUnsupportedTitleSource() {
         let context = FakeSystemTabActionContext()
-        context.resolution = .invalidTitleSource(rawValue: "atuo")
+        context.resolution = .invalidTitleSource(
+            rawValue: "atuo",
+            message: "Localized unsupported title_source"
+        )
         let coordinator = ControlCommandCoordinator(context: context)
 
         let result = coordinator.handle(request([
@@ -85,7 +88,7 @@ struct ControlCommandCoordinatorSystemTabActionTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "Unsupported title_source",
+            message: "Localized unsupported title_source",
             data: .object(["title_source": .string("atuo")])
         ))
     }

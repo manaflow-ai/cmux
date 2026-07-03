@@ -4090,9 +4090,9 @@ class TerminalController {
                     return
                 }
                 let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                let normalizedTitleSource = v2String(params, "title_source")?.lowercased()
-                if let rawValue = normalizedTitleSource, rawValue != "auto" { result = .err(code: "invalid_params", message: "Unsupported title_source", data: ["title_source": rawValue]); return }
-                let source: Workspace.CustomTitleSource = normalizedTitleSource == "auto" ? .auto : .user
+                let normalizedTitleSource = v2String(params, "title_source")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let source: Workspace.CustomTitleSource
+                if normalizedTitleSource == "auto" { source = .auto } else if normalizedTitleSource == nil || normalizedTitleSource == "" { source = .user } else { result = .err(code: "invalid_params", message: String(localized: "socket.action.error.invalidTitleSource", defaultValue: "Unsupported title_source"), data: ["title_source": normalizedTitleSource!]); return }
                 guard tabManager.setCustomTitle(tabId: workspace.id, title: title, source: source) else {
                     result = .err(code: "title_user_owned", message: String(
                         localized: "socket.workspaceAction.error.titleUserOwned",

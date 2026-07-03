@@ -76,7 +76,7 @@ public enum ControlTabActionResolution: Sendable, Equatable {
     /// `rename` without a usable `title`.
     case invalidTitle
     /// `rename` with an unsupported explicit `title_source`.
-    case invalidTitleSource(rawValue: String)
+    case invalidTitleSource(rawValue: String, message: String)
     /// `.auto` title provenance could not replace a user-owned tab title.
     case titleUserOwned(message: String)
     /// `new_browser_right` with an unparsable `url`.

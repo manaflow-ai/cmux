@@ -119,7 +119,13 @@ extension TerminalController {
             case "auto":
                 source = .auto
             case .some(let rawValue):
-                return .invalidTitleSource(rawValue: rawValue)
+                return .invalidTitleSource(
+                    rawValue: rawValue,
+                    message: String(
+                        localized: "socket.action.error.invalidTitleSource",
+                        defaultValue: "Unsupported title_source"
+                    )
+                )
             }
             guard workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle, source: source) else {
                 return .titleUserOwned(message: String(

@@ -299,12 +299,14 @@ import Testing
                 "workspace_id": workspace.id.uuidString,
                 "action": "rename",
                 "title": "Typo Title",
-                "title_source": "atuo"
+                "title_source": " atuo "
             ])
             #expect(envelope["ok"] as? Bool == false)
             let error = try #require(envelope["error"] as? [String: Any])
             #expect(error["code"] as? String == "invalid_params")
             #expect(error["message"] as? String == "Unsupported title_source")
+            let data = try #require(error["data"] as? [String: Any])
+            #expect(data["title_source"] as? String == "atuo")
             #expect(workspace.effectiveCustomTitleSource == nil)
             #expect(workspace.title != "Typo Title")
 
@@ -318,6 +320,32 @@ import Testing
             let result = try #require(envelope["result"] as? [String: Any])
             #expect(result["title"] as? String == "Auto Title")
             #expect(workspace.effectiveCustomTitleSource == .auto)
+        }
+    }
+
+    @Test func workspaceActionHandlesBlankAndTrimmedTitleSource() throws {
+        try withManager { _, workspace in
+            var envelope = try call(method: "workspace.action", params: [
+                "workspace_id": workspace.id.uuidString,
+                "action": "rename",
+                "title": "Auto Title",
+                "title_source": " auto "
+            ])
+            #expect(envelope["ok"] as? Bool == true)
+            var result = try #require(envelope["result"] as? [String: Any])
+            #expect(result["title"] as? String == "Auto Title")
+            #expect(workspace.effectiveCustomTitleSource == .auto)
+
+            envelope = try call(method: "workspace.action", params: [
+                "workspace_id": workspace.id.uuidString,
+                "action": "rename",
+                "title": "Manual Title",
+                "title_source": ""
+            ])
+            #expect(envelope["ok"] as? Bool == true)
+            result = try #require(envelope["result"] as? [String: Any])
+            #expect(result["title"] as? String == "Manual Title")
+            #expect(workspace.effectiveCustomTitleSource == .user)
         }
     }
 
