@@ -799,6 +799,8 @@
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
+        "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
+        "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "automation": {
           "ampIntegration": "Aktiver cmux-integrasjonskroker for Amp. Når deaktivert, forblir den medfølgende programtillegget inaktivt uten å måtte fjernes.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
