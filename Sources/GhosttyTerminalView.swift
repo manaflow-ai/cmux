@@ -7956,6 +7956,17 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.keyDown(with: event)
     }
 
+    var notificationScrollPosition: TerminalNotificationScrollPosition? {
+        guard let scrollbar = surfaceView.scrollbar else { return nil }
+        return TerminalNotificationScrollPosition(row: Int(clamping: scrollbar.offset))
+    }
+
+    @discardableResult
+    func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
+        guard let position else { return false }
+        return surfaceView.performBindingAction("scroll_to_row:\(max(0, position.row))")
+    }
+
     private var lastFlashStyle: FlashStyle = .navigation
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView

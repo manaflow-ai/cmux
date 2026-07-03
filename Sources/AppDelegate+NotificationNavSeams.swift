@@ -95,24 +95,26 @@ final class NotificationNavSeamAdapter:
 
     // MARK: NotificationOpenRouting
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        owner?.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId) ?? false
+    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        owner?.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId, scrollRow: scrollRow) ?? false
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
         owner?.openInWindow(
             windowId: windowId,
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            notificationId: notificationId,
+            scrollRow: scrollRow
         ) ?? false
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
         owner?.openInActiveWindowFallback(
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            notificationId: notificationId,
+            scrollRow: scrollRow
         ) ?? false
     }
 
@@ -221,7 +223,8 @@ extension AppDelegate {
                 tabId: notification.tabId,
                 surfaceId: notification.surfaceId,
                 isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction)
+                clickAction: notification.clickAction.map(Self.navClickAction),
+                scrollRow: notification.scrollPosition?.row
             )
         }
     }
@@ -267,7 +270,8 @@ extension AppDelegate {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
             isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction)
+            clickAction: notification.clickAction.map(navClickAction),
+            scrollRow: notification.scrollPosition?.row
         )
         .isOpenableForJump(
             excludingNotificationId: excludedNotificationId,
@@ -339,11 +343,16 @@ extension AppDelegate {
 
     // MARK: NotificationOpenRouting helpers
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        openNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            scrollPosition: scrollRow.map(TerminalNotificationScrollPosition.init(row:))
+        )
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
             return false
         }
@@ -352,12 +361,18 @@ extension AppDelegate {
             context,
             tabId: tabId,
             surfaceId: surfaceId,
-            notificationId: notificationId
+            notificationId: notificationId,
+            scrollPosition: scrollRow.map(TerminalNotificationScrollPosition.init(row:))
         )
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        openNotificationFallback(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            scrollPosition: scrollRow.map(TerminalNotificationScrollPosition.init(row:))
+        )
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? {

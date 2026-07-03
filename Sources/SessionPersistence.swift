@@ -1648,6 +1648,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var createdAt: TimeInterval
     var isRead: Bool
     var paneFlash: Bool?
+    var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
 
     init(
@@ -1658,6 +1659,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         createdAt: TimeInterval,
         isRead: Bool,
         paneFlash: Bool? = nil,
+        scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
         self.id = id
@@ -1667,6 +1669,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.scrollPosition = scrollPosition
         self.clickAction = clickAction
     }
 
@@ -1679,6 +1682,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: notification.createdAt.timeIntervalSince1970,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
+            scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction
         )
     }
@@ -1695,6 +1699,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,
+            scrollPosition: scrollPosition,
             clickAction: clickAction
         )
     }

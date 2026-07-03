@@ -173,6 +173,10 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
+struct TerminalNotificationScrollPosition: Codable, Hashable, Sendable {
+    let row: Int
+}
+
 struct TerminalNotification: Identifiable, Hashable, Sendable {
     let id: UUID
     let tabId: UUID
@@ -184,6 +188,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     let createdAt: Date
     var isRead: Bool
     var paneFlash: Bool = true
+    var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
 
     init(
@@ -197,6 +202,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         createdAt: Date,
         isRead: Bool,
         paneFlash: Bool = true,
+        scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
         self.id = id
@@ -209,6 +215,7 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
+        self.scrollPosition = scrollPosition
         self.clickAction = clickAction
     }
 
@@ -1116,6 +1123,11 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: now,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
+            scrollPosition: AppDelegate.shared?.terminalNotificationScrollPosition(
+                tabId: request.tabId,
+                surfaceId: request.surfaceId,
+                panelId: request.panelId
+            ),
             clickAction: clickAction
         )
 
@@ -1599,6 +1611,7 @@ final class TerminalNotificationStore: ObservableObject {
             createdAt: notification.createdAt,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
+            scrollPosition: notification.scrollPosition,
             clickAction: notification.clickAction
         )
     }
@@ -1690,6 +1703,7 @@ final class TerminalNotificationStore: ObservableObject {
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
+                scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction
             )
         }

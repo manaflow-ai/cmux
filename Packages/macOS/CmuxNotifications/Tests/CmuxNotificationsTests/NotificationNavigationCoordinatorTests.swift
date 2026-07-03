@@ -67,24 +67,25 @@ private final class FakeOpenRouting: NotificationOpenRouting {
     var titles: [UUID: String] = [:]
     private(set) var log: [String] = []
 
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)))")
+    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
         return routedSucceeds
     }
 
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)))")
+    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
         return windowSucceeds
     }
 
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)))")
+    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)),row=\(row(scrollRow)))")
         return fallbackSucceeds
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? { titles[tabId] }
 
     private func short(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(4)) } ?? "nil" }
+    private func row(_ row: Int?) -> String { row.map(String.init) ?? "nil" }
 }
 
 /// Recording click router: scriptable success plus a log of performed actions.
@@ -123,9 +124,17 @@ private func snapshot(
     surfaceId: UUID? = nil,
     isRead: Bool = false,
     clickAction: NotificationNavClickAction? = nil,
+    scrollRow: Int? = nil,
     id: UUID = UUID()
 ) -> NotificationNavSnapshot {
-    NotificationNavSnapshot(id: id, tabId: tabId, surfaceId: surfaceId, isRead: isRead, clickAction: clickAction)
+    NotificationNavSnapshot(
+        id: id,
+        tabId: tabId,
+        surfaceId: surfaceId,
+        isRead: isRead,
+        clickAction: clickAction,
+        scrollRow: scrollRow
+    )
 }
 
 // MARK: - Jump selection
@@ -150,7 +159,7 @@ struct NotificationNavigationCoordinatorTests {
         // Only the openable one was routed (the read one is skipped); it routes
         // through the full app-side `openNotification` (openRouted) with the
         // notification id, which marks read on success app-side.
-        #expect(openRouting.log == ["routed(tab=\(short(tabB)),surf=nil,notif=\(short(openable.id)))"])
+        #expect(openRouting.log == ["routed(tab=\(short(tabB)),surf=nil,notif=\(short(openable.id)),row=nil)"])
     }
 
     @Test("jumpToLatestUnread skips notifications with a click action in the scan")
@@ -204,7 +213,7 @@ struct NotificationNavigationCoordinatorTests {
         let openedId = coordinator.jumpToLatestUnread()
 
         #expect(openedId == nil) // workspace-unread fallback returns nil notification id
-        #expect(openRouting.log == ["window(\(short(windowId)),tab=\(short(tab)),surf=\(short(panel)),notif=nil)"])
+        #expect(openRouting.log == ["window(\(short(windowId)),tab=\(short(tab)),surf=\(short(panel)),notif=nil,row=nil)"])
         #expect(unread.flashedPanels == [.init(workspaceId: tab, panelId: panel)])
         #expect(unread.clearedJumps.count == 1)
         #expect(unread.clearedJumps.first?.0 == tab)
@@ -320,7 +329,7 @@ struct NotificationNavigationCoordinatorTests {
         let opened = coordinator.open(tabId: tab, surfaceId: surface, notificationId: notifId)
 
         #expect(opened)
-        #expect(openRouting.log == ["routed(tab=\(short(tab)),surf=\(short(surface)),notif=\(short(notifId)))"])
+        #expect(openRouting.log == ["routed(tab=\(short(tab)),surf=\(short(surface)),notif=\(short(notifId)),row=nil)"])
     }
 
     @Test("openNotification without a click action routes through the app-side routed open")
@@ -334,7 +343,19 @@ struct NotificationNavigationCoordinatorTests {
 
         #expect(opened)
         #expect(click.performed.isEmpty)
-        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),notif=\(short(notif.id)))"])
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),notif=\(short(notif.id)),row=nil)"])
+    }
+
+    @Test("openNotification routes captured scroll row for terminal notifications")
+    func openNotificationRoutesCapturedScrollRow() {
+        let openRouting = FakeOpenRouting()
+        let notif = snapshot(tabId: UUID(), surfaceId: UUID(), scrollRow: 42)
+        let coordinator = makeCoordinator(openRouting: openRouting)
+
+        let opened = coordinator.openNotification(notif)
+
+        #expect(opened)
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),notif=\(short(notif.id)),row=42)"])
     }
 
     // MARK: - Focus signal (the #if DEBUG recorder hook)

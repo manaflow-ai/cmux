@@ -760,6 +760,16 @@ final class TerminalPanel: Panel, ObservableObject {
         return surface.performBindingAction(action)
     }
 
+    var notificationScrollPosition: TerminalNotificationScrollPosition? {
+        hostedView.notificationScrollPosition
+    }
+
+    @discardableResult
+    func restoreNotificationScrollPosition(_ position: TerminalNotificationScrollPosition?) -> Bool {
+        guard !isAgentHibernated else { return false }
+        return hostedView.restoreNotificationScrollPosition(position)
+    }
+
     @discardableResult
     func clearScreenKeepingScrollback() -> Bool {
         resumeForExplicitInputIfNeeded()

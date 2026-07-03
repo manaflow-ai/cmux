@@ -153,7 +153,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         let didOpen = openRouting.openInActiveWindowFallback(
             tabId: workspaceId,
             surfaceId: panelId,
-            notificationId: nil
+            notificationId: nil,
+            scrollRow: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -168,7 +169,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             windowId: target.windowId,
             tabId: workspaceId,
             surfaceId: panelId,
-            notificationId: nil
+            notificationId: nil,
+            scrollRow: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -201,7 +203,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         return open(
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
-            notificationId: notification.id
+            notificationId: notification.id,
+            scrollRow: notification.scrollRow
         )
     }
 
@@ -220,7 +223,12 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     /// (the routing decision and its `#if DEBUG` recorders live behind the seam).
     @discardableResult
     public func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        openRouting.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+        open(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId, scrollRow: nil)
+    }
+
+    @discardableResult
+    public func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?, scrollRow: Int?) -> Bool {
+        openRouting.openRouted(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId, scrollRow: scrollRow)
     }
 
     /// Performs a terminal notification click action through the injected click

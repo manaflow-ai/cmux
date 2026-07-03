@@ -21,6 +21,8 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     /// opens via ``NotificationClickRouting`` (a side effect such as revealing a
     /// path in Finder) rather than focusing a terminal surface.
     public let clickAction: NotificationNavClickAction?
+    /// Terminal scrollback row captured when the notification was recorded.
+    public let scrollRow: Int?
 
     /// Creates a navigation snapshot of a notification.
     public init(
@@ -28,13 +30,15 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         tabId: UUID,
         surfaceId: UUID?,
         isRead: Bool,
-        clickAction: NotificationNavClickAction?
+        clickAction: NotificationNavClickAction?,
+        scrollRow: Int? = nil
     ) {
         self.id = id
         self.tabId = tabId
         self.surfaceId = surfaceId
         self.isRead = isRead
         self.clickAction = clickAction
+        self.scrollRow = scrollRow
     }
 
     /// Whether the notification carries a click action.

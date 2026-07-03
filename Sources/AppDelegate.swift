@@ -16182,7 +16182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabId: notification.tabId,
                 surfaceId: notification.surfaceId,
                 isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction)
+                clickAction: notification.clickAction.map(Self.navClickAction),
+                scrollRow: notification.scrollPosition?.row
             )
         )
     }
@@ -16199,8 +16200,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationClickPerformer.perform(Self.navClickAction(action))
     }
 
+    @MainActor
+    func terminalNotificationScrollPosition(
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID?
+    ) -> TerminalNotificationScrollPosition? {
+        guard let workspace = workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
+            return nil
+        }
+        return terminalPanelForNotificationScroll(workspace: workspace, surfaceId: surfaceId, panelId: panelId)?
+            .notificationScrollPosition
+    }
+
+    @MainActor
+    private func restoreNotificationScrollPosition(
+        _ position: TerminalNotificationScrollPosition?,
+        tabId: UUID,
+        surfaceId: UUID?,
+        workspace: Workspace?
+    ) {
+        guard let position else { return }
+        guard let workspace = workspace ?? workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
+            return
+        }
+        _ = terminalPanelForNotificationScroll(workspace: workspace, surfaceId: surfaceId, panelId: nil)?
+            .restoreNotificationScrollPosition(position)
+    }
+
+    @MainActor
+    private func terminalPanelForNotificationScroll(
+        workspace: Workspace,
+        surfaceId: UUID?,
+        panelId: UUID?
+    ) -> TerminalPanel? {
+        if let panelId, let panel = workspace.panels[panelId] as? TerminalPanel {
+            return panel
+        }
+        if let surfaceId {
+            if let panel = workspace.panels[surfaceId] as? TerminalPanel {
+                return panel
+            }
+            return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+                .flatMap { workspace.panels[$0] as? TerminalPanel }
+        }
+        return workspace.focusedPanelId.flatMap { workspace.panels[$0] as? TerminalPanel }
+    }
+
     @discardableResult
-    func openNotification(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition? = nil
+    ) -> Bool {
 #if DEBUG
         let isJumpUnreadUITest = ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1"
         if isJumpUnreadUITest {
@@ -16225,7 +16278,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "0", "jumpUnreadOpenUsedFallback": "1"])
             }
 #endif
-            let ok = openNotificationFallback(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+            let ok = openNotificationFallback(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                notificationId: notificationId,
+                scrollPosition: scrollPosition
+            )
 #if DEBUG
             if isJumpUnreadUITest {
                 writeJumpUnreadTestData(["jumpUnreadOpenResult": ok ? "1" : "0"])
@@ -16238,10 +16296,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             writeJumpUnreadTestData(["jumpUnreadOpenContextFound": "1", "jumpUnreadOpenUsedFallback": "0"])
         }
 #endif
-        return openNotificationInContext(context, tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+        return openNotificationInContext(
+            context,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            notificationId: notificationId,
+            scrollPosition: scrollPosition
+        )
     }
 
-    func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openNotificationInContext(
+        _ context: MainWindowContext,
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition? = nil
+    ) -> Bool {
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         guard let window else {
@@ -16286,6 +16356,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let notificationId, let store = notificationStore {
             store.markRead(id: notificationId)
         }
+        restoreNotificationScrollPosition(
+            scrollPosition,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            workspace: context.tabManager.tabs.first(where: { $0.id == tabId })
+        )
 
 #if DEBUG
         recordMultiWindowNotificationFocusIfNeeded(
@@ -16301,7 +16377,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    func openNotificationFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+    func openNotificationFallback(
+        tabId: UUID,
+        surfaceId: UUID?,
+        notificationId: UUID?,
+        scrollPosition: TerminalNotificationScrollPosition? = nil
+    ) -> Bool {
         // If the owning window context hasn't been registered yet, fall back to the "active" window.
         guard let tabManager else {
 #if DEBUG
@@ -16353,6 +16434,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let notificationId, let store = notificationStore {
             store.markRead(id: notificationId)
         }
+        restoreNotificationScrollPosition(
+            scrollPosition,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            workspace: tabManager.tabs.first(where: { $0.id == tabId })
+        )
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
             writeJumpUnreadTestData(["jumpUnreadOpenInFallback": "1", "jumpUnreadOpenResult": "1"])
