@@ -12,11 +12,13 @@ public struct MacPowerController: Sendable {
         self.runner = runner
     }
 
-    /// Read the current keep-awake status from `pmset -g assertions`. Returns
-    /// ``MacKeepAwakeStatus/idle`` if pmset cannot be run.
-    public func keepAwakeStatus() async -> MacKeepAwakeStatus {
+    /// Read the current keep-awake status from `pmset -g assertions`.
+    ///
+    /// Returns `nil` if pmset cannot be run or times out, so callers can surface
+    /// an unknown/error state instead of reporting a false idle status.
+    public func keepAwakeStatus() async -> MacKeepAwakeStatus? {
         guard let output = await runner.capture("/usr/bin/pmset", ["-g", "assertions"]) else {
-            return .idle
+            return nil
         }
         return MacKeepAwakeStatus.parse(pmsetAssertions: output)
     }
@@ -40,12 +42,12 @@ public struct MacPowerController: Sendable {
     /// Disable active keep-awake by terminating every `caffeinate` process, then
     /// re-read the status so the caller can report whatever is still holding the
     /// Mac awake (e.g. a GUI app like Amphetamine that cannot be killed safely).
-    public func disableKeepAwake() async -> MacKeepAwakeDisableOutcome {
+    public func disableKeepAwake() async -> MacKeepAwakeDisableOutcome? {
         // `pkill -x caffeinate` exits 0 when it signaled at least one process,
         // 1 when none matched — the success bool is exactly "did we stop a
         // caffeinate".
         let terminated = await runner.run("/usr/bin/pkill", ["-x", "caffeinate"])
-        let status = await keepAwakeStatus()
+        guard let status = await keepAwakeStatus() else { return nil }
         return MacKeepAwakeDisableOutcome(terminatedCaffeinate: terminated, status: status)
     }
 }

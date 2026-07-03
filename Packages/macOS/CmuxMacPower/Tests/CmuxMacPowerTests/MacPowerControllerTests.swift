@@ -50,16 +50,16 @@ struct MacPowerControllerTests {
     @Test func keepAwakeStatusParsesPmsetCapture() async {
         let runner = FakeRunner(captures: ["/usr/bin/pmset": caffeinateAssertions])
         let status = await MacPowerController(runner: runner).keepAwakeStatus()
-        #expect(status.caffeinateRunning)
-        #expect(status.keptAwake)
+        #expect(status?.caffeinateRunning == true)
+        #expect(status?.keptAwake == true)
         #expect(await runner.calls == [.init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"])])
     }
 
-    @Test func keepAwakeStatusIsIdleWhenPmsetUnavailable() async {
-        // No capture registered => capture returns nil => idle, not a crash.
+    @Test func keepAwakeStatusIsUnknownWhenPmsetUnavailable() async {
+        // No capture registered => capture returns nil, not a fake all-clear.
         let runner = FakeRunner()
         let status = await MacPowerController(runner: runner).keepAwakeStatus()
-        #expect(status == .idle)
+        #expect(status == nil)
     }
 
     @Test func sleepSystemRunsSystemEventsAppleScript() async {
@@ -84,12 +84,13 @@ struct MacPowerControllerTests {
         #expect(ok == false)
     }
 
-    @Test func disableKeepAwakeKillsCaffeinateThenRereadsStatus() async {
+    @Test func disableKeepAwakeKillsCaffeinateThenRereadsStatus() async throws {
         let runner = FakeRunner(
             captures: ["/usr/bin/pmset": idleAssertions],
             runResults: ["/usr/bin/pkill": true]
         )
-        let outcome = await MacPowerController(runner: runner).disableKeepAwake()
+        let maybeOutcome = await MacPowerController(runner: runner).disableKeepAwake()
+        let outcome = try #require(maybeOutcome)
         #expect(outcome.terminatedCaffeinate)
         #expect(outcome.status == .idle)
         // pkill must run before the status re-read.
@@ -99,14 +100,15 @@ struct MacPowerControllerTests {
         ])
     }
 
-    @Test func disableKeepAwakeReportsNothingTerminatedWhenNoCaffeinate() async {
+    @Test func disableKeepAwakeReportsNothingTerminatedWhenNoCaffeinate() async throws {
         // pkill exit 1 (no match) => terminatedCaffeinate false; the re-read still
         // returns whatever else is keeping the Mac awake.
         let runner = FakeRunner(
             captures: ["/usr/bin/pmset": caffeinateAssertions],
             runResults: ["/usr/bin/pkill": false]
         )
-        let outcome = await MacPowerController(runner: runner).disableKeepAwake()
+        let maybeOutcome = await MacPowerController(runner: runner).disableKeepAwake()
+        let outcome = try #require(maybeOutcome)
         #expect(outcome.terminatedCaffeinate == false)
         #expect(outcome.status.caffeinateRunning)
     }

@@ -428,7 +428,15 @@ struct MacComputerDetailView: View {
         guard isForeground, store.supportsMacPowerControl else { return }
         isPowerBusy = true
         let status = await store.macPowerStatus(macDeviceID: macDeviceID)
-        if let status { keepAwakeStatus = status }
+        if let status {
+            keepAwakeStatus = status
+            powerMessage = nil
+        } else {
+            keepAwakeStatus = nil
+            powerMessage = L10n.string(
+                "mobile.computers.power.statusUnavailable",
+                defaultValue: "Couldn't read Mac power status.")
+        }
         isPowerBusy = false
     }
 
@@ -437,7 +445,14 @@ struct MacComputerDetailView: View {
         powerMessage = nil
         Task {
             let status = await store.disableMacKeepAwake(macDeviceID: macDeviceID)
-            if let status { keepAwakeStatus = status }
+            if let status {
+                keepAwakeStatus = status
+            } else {
+                keepAwakeStatus = nil
+                powerMessage = L10n.string(
+                    "mobile.computers.power.statusUnavailable",
+                    defaultValue: "Couldn't read Mac power status.")
+            }
             isPowerBusy = false
         }
     }
@@ -455,7 +470,7 @@ struct MacComputerDetailView: View {
             case .refused:
                 powerMessage = L10n.string(
                     "mobile.computers.power.sleepRefused",
-                    defaultValue: "Couldn't sleep the Mac. Allow cmux to control System Events in System Settings › Privacy & Security › Automation.")
+                    defaultValue: "Couldn't sleep the Mac. Allow cmux in System Settings › Privacy & Security › Automation.")
             case .failed:
                 powerMessage = L10n.string(
                     "mobile.computers.power.sleepFailed",

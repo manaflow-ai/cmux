@@ -8439,13 +8439,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't sleep the Mac. Allow cmux to control System Events in System Settings › Privacy & Security › Automation."
+            "value": "Couldn't sleep the Mac. Allow cmux in System Settings › Privacy & Security › Automation."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac をスリープできませんでした。システム設定 > プライバシーとセキュリティ > オートメーション で、cmux による System Events の制御を許可してください。"
+            "value": "Mac をスリープできませんでした。システム設定 > プライバシーとセキュリティ > オートメーション で cmux を許可してください。"
           }
         }
       }
@@ -8463,6 +8463,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac に接続できず、スリープできませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.statusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read Mac power status."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の電源状態を読み取れませんでした。"
           }
         }
       }

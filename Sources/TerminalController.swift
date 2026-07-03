@@ -13303,7 +13303,16 @@ class TerminalController {
     /// `mac.power.status`: report whether the Mac is currently being kept awake
     /// and by which processes (cmux, caffeinate, or another assertion holder).
     func v2MacPowerStatus() async -> V2CallResult {
-        let status = await MacPowerController().keepAwakeStatus()
+        guard let status = await MacPowerController().keepAwakeStatus() else {
+            return .err(
+                code: "status_unavailable",
+                message: String(
+                    localized: "mobile.macPower.statusUnavailable",
+                    defaultValue: "Couldn't read Mac power status."
+                ),
+                data: nil
+            )
+        }
         return .ok(status.jsonObject)
     }
 
@@ -13314,7 +13323,10 @@ class TerminalController {
         guard didSleep else {
             return .err(
                 code: "sleep_failed",
-                message: "macOS rejected the sleep request; grant cmux Automation access to System Events.",
+                message: String(
+                    localized: "mobile.macPower.sleepFailed",
+                    defaultValue: "macOS couldn't complete the sleep request. Allow cmux in System Settings > Privacy & Security > Automation."
+                ),
                 data: nil
             )
         }
@@ -13325,7 +13337,16 @@ class TerminalController {
     /// fresh keep-awake status so the phone reflects anything still holding the
     /// Mac awake (e.g. a GUI keep-awake app that cannot be killed safely).
     func v2MacPowerDisableKeepAwake() async -> V2CallResult {
-        let outcome = await MacPowerController().disableKeepAwake()
+        guard let outcome = await MacPowerController().disableKeepAwake() else {
+            return .err(
+                code: "status_unavailable",
+                message: String(
+                    localized: "mobile.macPower.statusUnavailable",
+                    defaultValue: "Couldn't read Mac power status."
+                ),
+                data: nil
+            )
+        }
         return .ok([
             "terminated_caffeinate": outcome.terminatedCaffeinate,
             "status": outcome.status.jsonObject,
