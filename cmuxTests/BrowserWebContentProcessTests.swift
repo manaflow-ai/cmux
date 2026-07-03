@@ -259,9 +259,11 @@ struct BrowserWebContentProcessTests {
 
     @Test
     func systemMemoryPressureDiscardsRecoverableTerminatedHiddenWebView() {
+        let committedURL = URL(string: "https://example.com/committed")!
+        let provisionalURL = URL(string: "https://example.com/provisional")!
         let panel = BrowserPanel(
             workspaceId: UUID(),
-            initialURL: recoveryURL
+            initialURL: committedURL
         )
         defer { panel.close() }
         let oldWebView = panel.webView
@@ -270,6 +272,8 @@ struct BrowserWebContentProcessTests {
         panel.applyMediaPlaybackReport(frameID: "main", isPlaying: true, isAudible: true)
         #expect(panel.isPlayingMedia)
         #expect(panel.isPlayingAudio)
+        panel.navigate(to: provisionalURL)
+        panel.webView.navigationDelegate?.webView?(panel.webView, didStartProvisionalNavigation: nil)
 
         simulateWebContentProcessTermination(for: panel)
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: now)
@@ -288,10 +292,11 @@ struct BrowserWebContentProcessTests {
         #expect(!panel.hasRecoverableWebContentTermination)
         #expect(!panel.shouldRenderWebView)
         #expect(!panel.shouldAttachWebViewInUI)
-        #expect(panel.currentURL == recoveryURL)
+        #expect(panel.currentURL == provisionalURL)
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.visible"))
         #expect(panel.shouldAttachWebViewInUI)
+        #expect(panel.currentURL == provisionalURL)
     }
 
     @Test

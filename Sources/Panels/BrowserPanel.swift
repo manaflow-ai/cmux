@@ -3437,10 +3437,13 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelHiddenWebViewDiscard()
 
         let oldWebView = webView
-        let restoreURL = pendingWebContentRecoveryURL
+        let pendingRecoveryURL = pendingWebContentRecoveryURL
+        let restoreURL = pendingRecoveryURL
             ?? restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
         let history = sessionNavigationHistorySnapshot()
-        let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
+        let historyCurrentURL = pendingRecoveryURL?.absoluteString
+            ?? preferredURLStringForOmnibar()
+            ?? restoreURL?.absoluteString
         let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
 
         clearBrowserFocusMode(reason: "webViewDiscard")
