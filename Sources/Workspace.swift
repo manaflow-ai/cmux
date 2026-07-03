@@ -5890,7 +5890,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func reconnectRemoteConnection(surfaceId: UUID? = nil) {
-        guard let configuration = remoteConfiguration else { return }
+        guard let configuration = remoteConfiguration, remoteConnectionState != .connecting, remoteConnectionState != .reconnecting else { return }
         let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
             guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
                   panels[candidate] is TerminalPanel else {

@@ -2,7 +2,10 @@ import AppKit
 
 extension GhosttyNSView {
     func appendReconnectRemotePaneMenuItem(to menu: NSMenu) {
-        guard remoteWorkspaceForCurrentSurface() != nil else { return }
+        guard let workspace = remoteWorkspaceForCurrentSurface(),
+              workspace.remoteConnectionState != .connecting,
+              workspace.remoteConnectionState != .reconnecting,
+              terminalSurface?.id != nil else { return }
         menu.addItem(.separator())
         let item = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.reconnectPane", defaultValue: "Reconnect Pane"),
