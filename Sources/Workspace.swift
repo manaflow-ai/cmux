@@ -242,9 +242,9 @@ extension Workspace {
         if let focusedOldPanelId = snapshot.focusedPanelId,
            let focusedNewPanelId = oldToNewPanelIds[focusedOldPanelId],
            panels[focusedNewPanelId] != nil {
-            focusPanel(focusedNewPanelId)
+            focusPanel(focusedNewPanelId, resumeRestoredAgent: false)
         } else if let fallbackFocusedPanelId = focusedPanelId, panels[fallbackFocusedPanelId] != nil {
-            focusPanel(fallbackFocusedPanelId)
+            focusPanel(fallbackFocusedPanelId, resumeRestoredAgent: false)
         } else {
             scheduleFocusReconcile()
         }
@@ -3526,6 +3526,7 @@ final class Workspace: Identifiable, ObservableObject {
         let reassertAppKitFocus: Bool
         let focusIntent: PanelFocusIntent?
         let resumeHibernatedAgent: Bool?
+        let resumeRestoredAgent: Bool?
         let previousTerminalHostedView: GhosttySurfaceScrollView?
     }
     /// The coalesced pending tab-selection request; stored in the
@@ -9913,7 +9914,8 @@ final class Workspace: Identifiable, ObservableObject {
         _ panelId: UUID,
         previousHostedView: GhosttySurfaceScrollView? = nil,
         trigger: FocusPanelTrigger = .standard,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        resumeRestoredAgent: Bool = true
     ) {
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
@@ -9982,6 +9984,7 @@ final class Workspace: Identifiable, ObservableObject {
                     inPane: targetPaneId,
                     reassertAppKitFocus: false,
                     focusIntent: activationIntent,
+                    resumeRestoredAgent: resumeRestoredAgent,
                     previousTerminalHostedView: previousTerminalHostedView
                 )
             }
@@ -10020,6 +10023,7 @@ final class Workspace: Identifiable, ObservableObject {
                 reassertAppKitFocus: !shouldSuppressReentrantRefocus,
                 focusIntent: activationIntent,
                 resumeHibernatedAgent: true,
+                resumeRestoredAgent: resumeRestoredAgent,
                 previousTerminalHostedView: previousTerminalHostedView
             )
         }
@@ -11903,6 +11907,7 @@ extension Workspace: BonsplitDelegate {
         reassertAppKitFocus: Bool = true,
         focusIntent: PanelFocusIntent? = nil,
         resumeHibernatedAgent: Bool? = nil,
+        resumeRestoredAgent: Bool? = nil,
         previousTerminalHostedView: GhosttySurfaceScrollView? = nil
     ) {
         pendingTabSelection = PendingTabSelectionRequest(
@@ -11911,6 +11916,7 @@ extension Workspace: BonsplitDelegate {
             reassertAppKitFocus: reassertAppKitFocus,
             focusIntent: focusIntent,
             resumeHibernatedAgent: resumeHibernatedAgent,
+            resumeRestoredAgent: resumeRestoredAgent,
             previousTerminalHostedView: previousTerminalHostedView
         )
         guard !isApplyingTabSelection else { return }
@@ -11931,6 +11937,7 @@ extension Workspace: BonsplitDelegate {
                 reassertAppKitFocus: request.reassertAppKitFocus,
                 focusIntent: request.focusIntent,
                 resumeHibernatedAgent: request.resumeHibernatedAgent,
+                resumeRestoredAgent: request.resumeRestoredAgent,
                 previousTerminalHostedView: request.previousTerminalHostedView
             )
         }
@@ -11952,6 +11959,7 @@ extension Workspace: BonsplitDelegate {
         reassertAppKitFocus: Bool,
         focusIntent: PanelFocusIntent?,
         resumeHibernatedAgent: Bool?,
+        resumeRestoredAgent: Bool?,
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
         let previousFocusedPanelId = focusedPanelId
@@ -12018,19 +12026,18 @@ extension Workspace: BonsplitDelegate {
         // Selecting a hibernated tab means the user is visiting it again. Resume by
         // default so sidebar/tab selection behaves the same as pressing Resume.
         let shouldResumeHibernatedAgent = resumeHibernatedAgent ?? true
+        let shouldResumeRestoredAgent = resumeRestoredAgent ?? true
         let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
         panel.prepareFocusIntentForActivation(activationIntent)
         let panelId = effectiveFocusedPanelId
         if let terminalPanel = panel as? TerminalPanel {
             if terminalPanel.isAgentHibernated, shouldResumeHibernatedAgent {
                 _ = resumeAgentHibernation(panelId: panelId, focus: false)
-            } else if shouldResumeHibernatedAgent {
-                // Shared selection path for genuine user visits and the programmatic
-                // focus that session restore / Dock reattach also perform. Restore
-                // does not eager-launch a restored (non-hibernated) agent's resume
-                // here; the deferred resume waits for a real visit. This contract is
-                // covered by AgentSessionAutoResumeSwiftTests.assertNoAgentResumeLaunchOnRestore
-                // (paired with assertLazyAgentResumeArmedAfterFocus).
+            } else if shouldResumeRestoredAgent {
+                // Shared selection path for genuine user visits and programmatic
+                // focus that explicitly opts into restored-agent resume. Session
+                // restore focuses the selected tab with this path disabled, so
+                // the deferred resume waits for a real visit.
                 _ = requestRestoredAgentAutoResume(panelId: panelId)
             }
             AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
@@ -12066,7 +12073,8 @@ extension Workspace: BonsplitDelegate {
         activatePanel(
             panel,
             focusIntent: activationIntent,
-            reassertAppKitFocus: reassertAppKitFocus
+            reassertAppKitFocus: reassertAppKitFocus,
+            resumeRestoredAgent: shouldResumeRestoredAgent
         )
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
@@ -12107,7 +12115,14 @@ extension Workspace: BonsplitDelegate {
         }
 
         if shouldRestoreFocusIntentAfterActivation(activationIntent) {
-            _ = panel.restoreFocusIntent(activationIntent)
+            if let terminalPanel = panel as? TerminalPanel {
+                _ = terminalPanel.restoreFocusIntent(
+                    activationIntent,
+                    resumeRestoredAgent: shouldResumeRestoredAgent
+                )
+            } else {
+                _ = panel.restoreFocusIntent(activationIntent)
+            }
         }
 
         surfaceTabBarDirectory = configTrackingDirectory(for: panelId)
@@ -12146,14 +12161,15 @@ extension Workspace: BonsplitDelegate {
     private func activatePanel(
         _ panel: any Panel,
         focusIntent: PanelFocusIntent,
-        reassertAppKitFocus: Bool
+        reassertAppKitFocus: Bool,
+        resumeRestoredAgent: Bool
     ) {
         if let terminalPanel = panel as? TerminalPanel {
             let shouldFocusTerminalSurface = shouldMoveTerminalSurfaceFocus(for: focusIntent)
             terminalPanel.surface.setFocus(shouldFocusTerminalSurface)
             terminalPanel.hostedView.setActive(true)
             if reassertAppKitFocus && shouldFocusTerminalSurface {
-                terminalPanel.focus()
+                terminalPanel.focus(resumeRestoredAgent: resumeRestoredAgent)
             }
             return
         }

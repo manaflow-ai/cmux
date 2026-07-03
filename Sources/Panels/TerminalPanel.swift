@@ -590,12 +590,14 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 #endif
 
-    func focus() {
+    func focus(resumeRestoredAgent: Bool = true) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
-        _ = requestRestoredAgentAutoResumeIfNeeded()
+        if resumeRestoredAgent {
+            _ = requestRestoredAgentAutoResumeIfNeeded()
+        }
         focusTerminalSurface(respectForeignFirstResponder: true)
     }
 
@@ -862,14 +864,16 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+    func restoreFocusIntent(_ intent: PanelFocusIntent, resumeRestoredAgent: Bool = true) -> Bool {
         if isAgentHibernated {
             return requestAgentHibernationResume(focus: true)
         }
-        _ = requestRestoredAgentAutoResumeIfNeeded()
+        if resumeRestoredAgent {
+            _ = requestRestoredAgentAutoResumeIfNeeded()
+        }
         switch intent {
         case .panel:
-            focus()
+            focus(resumeRestoredAgent: resumeRestoredAgent)
             return true
         case .terminal(let target):
             switch target {

@@ -5,7 +5,7 @@
 17954	Sources/AppDelegate.swift
 16427	Sources/ContentView.swift
 14270	Sources/TerminalController.swift
-13309	Sources/Workspace.swift
+13325	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
 11669	Sources/Panels/BrowserPanel.swift
@@ -99,10 +99,10 @@
 951	Sources/App/TerminalDirectoryOpenSupport.swift
 948	Sources/App/ShortcutRoutingSupport.swift
 947	Sources/TerminalNotificationPolicy.swift
+945	Sources/Panels/TerminalPanel.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 944	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 942	Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceMacSelectionTests.swift
-941	Sources/Panels/TerminalPanel.swift
 937	Sources/TextBoxMentionIndexStore.swift
 932	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 918	Sources/Panels/BrowserPopupWindowController.swift
