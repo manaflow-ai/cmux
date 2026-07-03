@@ -10,8 +10,12 @@ import SwiftUI
 ///
 /// Main-actor isolated because it reads the `@MainActor` ``TerminalThemeStore``;
 /// every call site is a SwiftUI view body, which is already on the main actor.
+/// A caseless namespace `struct` (not an `enum`) so it is not a namespace-enum;
+/// it stays internal chrome, never instantiated.
 @MainActor
-enum TerminalPalette {
+struct TerminalPalette {
+    private init() {}
+
     /// Terminal background, from the active theme.
     static var background: Color { color(TerminalThemeStore.current.background) }
     /// Terminal foreground, from the active theme.

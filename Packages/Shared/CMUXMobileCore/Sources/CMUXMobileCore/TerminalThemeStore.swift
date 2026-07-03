@@ -10,8 +10,14 @@ import Foundation
 /// chrome), so the store is `@MainActor`-isolated rather than guarding a mutable
 /// static behind a lock: the compiler proves all access stays on the main actor,
 /// and reads stay synchronous for string interpolation and view bodies.
+///
+/// Intentionally a process-wide singleton holder for one global rendering
+/// resource (the active theme), not dependency-bearing logic that belongs on an
+/// instantiated value; main-actor isolated for safe sharing.
+/// lint:allow namespace-type — global rendering-resource singleton, see above.
 @MainActor
-public enum TerminalThemeStore {
+public struct TerminalThemeStore {
+    private init() {}
     private static var storage: TerminalTheme = .monokai
 
     /// The active theme, defaulting to ``TerminalTheme/monokai``.
