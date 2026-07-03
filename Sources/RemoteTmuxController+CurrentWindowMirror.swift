@@ -35,7 +35,12 @@ extension RemoteTmuxController {
             }
 
             let manager: TabManager
-            if let capturedTargetManager,
+            if let existingMirrorManager = currentWindowMirrorManager(
+                host: host,
+                appDelegate: appDelegate
+            ) {
+                manager = existingMirrorManager
+            } else if let capturedTargetManager,
                let capturedWindowId = appDelegate.windowId(for: capturedTargetManager),
                appDelegate.windowForMainWindowId(capturedWindowId) != nil {
                 manager = capturedTargetManager
@@ -55,7 +60,10 @@ extension RemoteTmuxController {
                     try mirrorSession(host: host, sessionName: session.name, into: manager)
                     if firstMirroredWorkspaceId == nil {
                         let key = Self.connectionKey(host: host, sessionName: session.name)
-                        firstMirroredWorkspaceId = sessionMirrors[key]?.mirroredWorkspaceId
+                        let workspaceId = sessionMirrors[key]?.mirroredWorkspaceId
+                        if workspaceId.map({ id in manager.tabs.contains(where: { $0.id == id }) }) == true {
+                            firstMirroredWorkspaceId = workspaceId
+                        }
                     }
                 } catch {
                     #if DEBUG
@@ -101,6 +109,20 @@ extension RemoteTmuxController {
             activateWindow: activateWindow,
             appDelegate: appDelegate
         )
+    }
+
+    private func currentWindowMirrorManager(
+        host: RemoteTmuxHost,
+        appDelegate: AppDelegate
+    ) -> TabManager? {
+        for mirror in sessionMirrors.values where mirror.host.connectionHash == host.connectionHash {
+            guard let workspaceId = mirror.mirroredWorkspaceId,
+                  let manager = appDelegate.tabManagerFor(tabId: workspaceId),
+                  let windowId = appDelegate.windowId(for: manager),
+                  appDelegate.windowForMainWindowId(windowId) != nil else { continue }
+            return manager
+        }
+        return nil
     }
 
     private func currentWindowMirrorOutcome(
