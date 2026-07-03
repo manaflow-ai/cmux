@@ -4147,7 +4147,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let visibleHosting = NSHostingView(rootView: representable)
+        let visibleHosting = NSHostingView<WebViewRepresentable>(rootView: representable)
         visibleHosting.frame = contentView.bounds
         visibleHosting.autoresizingMask = [.width, .height]
         contentView.addSubview(visibleHosting)
@@ -4182,7 +4182,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         visibleSlot.layoutSubtreeIfNeeded()
 
         let detachedRoot = NSView(frame: visibleHosting.frame)
-        let offWindowHosting = NSHostingView(rootView: representable)
+        let offWindowHosting = NSHostingView<WebViewRepresentable>(rootView: representable)
         offWindowHosting.frame = detachedRoot.bounds
         offWindowHosting.autoresizingMask = [.width, .height]
         detachedRoot.addSubview(offWindowHosting)
@@ -4263,7 +4263,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         initialSlot.layoutSubtreeIfNeeded()
 
-        let replacementHosting = NSHostingView(rootView: representable)
+        let replacementHosting = NSHostingView<WebViewRepresentable>(rootView: representable)
         replacementHosting.frame = contentView.bounds
         replacementHosting.autoresizingMask = [.width, .height]
         contentView.addSubview(replacementHosting, positioned: .above, relativeTo: narrowHosting)
