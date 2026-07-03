@@ -48,7 +48,9 @@ private final class MemoryPressureHiddenWebViewDiscardTestDelegate: BrowserHidde
 
 @MainActor
 private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
-    hasRecoverableWebContentTermination: Bool = false
+    hasRecoverableWebContentTermination: Bool = false,
+    isLoading: Bool = false,
+    webViewIsLoading: Bool = false
 ) -> BrowserHiddenWebViewDiscardManager.BlockerSnapshot {
     BrowserHiddenWebViewDiscardManager.BlockerSnapshot(
         isClosing: false,
@@ -56,8 +58,8 @@ private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
         shouldRenderWebView: true,
         hasPendingRemoteNavigation: false,
         hasCurrentURL: true,
-        isLoading: false,
-        webViewIsLoading: false,
+        isLoading: isLoading,
+        webViewIsLoading: webViewIsLoading,
         hasActiveMainFrameProvisionalNavigation: false,
         hasRecoverableWebContentTermination: hasRecoverableWebContentTermination,
         isDownloading: false,
@@ -131,6 +133,34 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
             ))
             #expect(delegate.discardRequestCount == 1)
             #expect(delegate.lastDiscardReason == BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason)
+        }
+    }
+
+    @Test func systemMemoryPressureIgnoresStaleLoadingForRecoverableWebContentTermination() {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
+            let now = Date(timeIntervalSince1970: 780)
+            let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot(
+                hasRecoverableWebContentTermination: true,
+                webViewIsLoading: true
+            )
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
+            let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
+                snapshot: snapshot,
+                hiddenAt: now.addingTimeInterval(-10)
+            )
+            manager.delegate = delegate
+
+            #expect(manager.blockers(for: snapshot, now: now) == ["webcontent_recovery", "loading"])
+            #expect(manager.blockers(
+                for: snapshot,
+                now: now,
+                allowingRecoverableWebContentTermination: true
+            ).isEmpty)
+            #expect(manager.requestImmediateDiscardIfSafe(
+                reason: BrowserHiddenWebViewDiscardManager.systemMemoryPressureReason,
+                now: now
+            ))
+            #expect(delegate.discardRequestCount == 1)
         }
     }
 
