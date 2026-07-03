@@ -88,6 +88,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onOpenDocs: () -> Void
 
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
+    /// Measured row height (via `SidebarRowHeightProbe`), used to size the drop
+    /// target's center/edge zones.
+    @State private var rowHeight: CGFloat = 1
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
