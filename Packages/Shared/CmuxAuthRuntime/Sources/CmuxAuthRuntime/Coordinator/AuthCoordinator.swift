@@ -632,11 +632,11 @@ public final class AuthCoordinator {
     func recordAuthError(_ error: any Error) -> any Error {
         let displaySafe = AuthError(displaySafe: error)
         let reportable = displaySafe ?? error
-        lastAuthError = Self.diagnosticDescription(for: reportable)
+        lastAuthError = diagnosticDescription(for: reportable)
         return reportable
     }
 
-    private static func diagnosticDescription(for error: any Error) -> String {
+    private func diagnosticDescription(for error: any Error) -> String {
         if let authError = error as? AuthError {
             return "AuthError.\(authError.diagnosticName)"
         }
