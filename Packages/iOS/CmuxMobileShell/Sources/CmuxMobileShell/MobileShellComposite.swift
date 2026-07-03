@@ -6289,6 +6289,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func replayAfterRepairedTerminalEventSubscription(surfaceIDs: [String]) {
+        var workspaceIDsBySurfaceID: [String: MobileWorkspacePreview.ID] = [:]
+        for workspace in workspaces {
+            for terminal in workspace.terminals where workspaceIDsBySurfaceID[terminal.id.rawValue] == nil {
+                workspaceIDsBySurfaceID[terminal.id.rawValue] = workspace.id
+            }
+        }
         for surfaceID in surfaceIDs where hasTerminalOutputSink(surfaceID: surfaceID) {
             // A repaired subscription means events were missed during the gap,
             // so this catch-up replay must reflect that gap. `requestTerminalReplay`
@@ -6299,7 +6305,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // replay first so the fresh request always goes out; it re-adopts the
             // active replay barrier token, if any.
             cancelTerminalReplayInFlight(surfaceID: surfaceID)
-            requestTerminalReplay(surfaceID: surfaceID)
+            requestTerminalReplay(
+                surfaceID: surfaceID,
+                resolvedWorkspaceID: workspaceIDsBySurfaceID[surfaceID]
+            )
         }
         // The same registration carries `workspace.updated`, so workspace
         // create/rename/delete events emitted during the gap were missed too;
@@ -6925,7 +6934,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func requestTerminalReplay(
         surfaceID: String,
         replayBarrierToken: UUID? = nil,
-        coveredReplayBarrierDroppedOutputCount: UInt64? = nil
+        coveredReplayBarrierDroppedOutputCount: UInt64? = nil,
+        resolvedWorkspaceID: MobileWorkspacePreview.ID? = nil
     ) {
         if let replayBarrierToken, terminalReplayBarrierTokensBySurfaceID[surfaceID] != replayBarrierToken { return }; let replayBarrierTokenForRequest = replayBarrierToken
             ?? terminalReplayBarrierTokensBySurfaceID[surfaceID]
@@ -6953,7 +6963,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             #endif
             return
         }
-        guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+        guard let workspaceID = resolvedWorkspaceID ?? workspaceID(forTerminalID: surfaceID) else {
             clearTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,
                 token: replayBarrierTokenForRequest,
