@@ -48,7 +48,10 @@ PROMPT = ("Explain what main.swift does, then give 3 concrete improvements with 
 AGENTS = {
     "claude": {"title": "App entry point", "launch": "claude --resume 21f5e73a-4a3a-42ac-bd73-bc8d88256d65", "order": 3},
     "codex": {"title": "Readability pass", "launch": "codex resume 019f1abc-b2cf-7571-bf39-6127d4ebaba2", "order": 4, "press_enter": True},
-    "opencode": {"title": "String catalogs", "launch": "opencode --session ses_0e5411393ffeCDprItbIm19S5J", "order": 5},
+    # OpenCode's TUI negotiates a narrower grid, which the phone scales up to fill
+    # the width -> its glyphs look ~1.3x larger than the others at the same font.
+    # Give it a smaller font so its rendered size roughly matches the rest.
+    "opencode": {"title": "String catalogs", "launch": "opencode --session ses_0e5411393ffeCDprItbIm19S5J", "order": 5, "font": 11},
     "pi": {"title": "Ship improvements", "launch": "pi --session 019f1abe", "order": 6},
 }
 # response is considered "settled" when the screen shows code + a cost/footer and
@@ -272,16 +275,16 @@ def capture_agent(tag, sim, key, out_dir, device_name, font, ws=None):
         return False
     idb_tap(sim, hit[1], hit[2])
     time.sleep(3)
-    # Apply the capture font to THIS focused surface (keeps all agents at the same
-    # size; a one-time up-front set_font left each agent at whatever size it opened
-    # with, so OpenCode came out larger/scaled). The resize shrinks the grid; give
-    # it a long settle so the TUI (esp. OpenCode) fully repaints the new grid and
-    # fills — a short settle left OpenCode's bottom rows unpainted.
-    set_font(tag, font)
+    # Apply the capture font to THIS focused surface. Per-agent override (OpenCode
+    # uses a smaller font so its scaled-up narrow grid matches the others' size).
+    # The resize shrinks the grid; give it a long settle so the TUI (esp. OpenCode)
+    # fully repaints the new grid and fills — a short settle left rows unpainted.
+    agent_font = info.get("font", font)
+    set_font(tag, agent_font)
     time.sleep(6)
     if ws:
         c, r = _grid_dims(tag, ws)
-        print(f"  {key} MAC grid ~ {c} cols x {r} rows (font {font})")
+        print(f"  {key} MAC grid ~ {c} cols x {r} rows (font {agent_font})")
     status_bar_941(sim)
     time.sleep(1)
     os.makedirs(out_dir, exist_ok=True)
