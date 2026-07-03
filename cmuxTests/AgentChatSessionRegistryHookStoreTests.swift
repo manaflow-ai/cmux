@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import Darwin
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,6 +10,53 @@ import Darwin
 #endif
 
 struct AgentChatSessionRegistryHookStoreTests {
+    @Test func mobileChatObserverDetectsCmuxLaunchedOpaqueClaudeWrapper() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 121,
+                    name: "node",
+                    path: "/opt/homebrew/bin/node",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 115),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 121 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [
+                        "node",
+                        "/Users/example/.cmux-agent-wrapper/subrouter.js",
+                    ],
+                    environment: [
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
+                        "CLAUDE_CODE_SESSION_ID": sessionID,
+                        "CMUX_AGENT_LAUNCH_CWD": "/Users/example/opaque-project",
+                    ]
+                )
+            },
+            codexRolloutPath: { _ in nil }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == sessionID)
+        #expect(session.agentKind == .claude)
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+        #expect(session.pid == 121)
+        #expect(session.workingDirectory == "/Users/example/opaque-project")
+    }
+
     @MainActor
     @Test func hookStoreSeedKeepsStaleRealEntrySeparateFromPendingClaudeSession() async throws {
         let home = try temporaryHomeDirectory()
@@ -98,6 +146,31 @@ struct AgentChatSessionRegistryHookStoreTests {
             }
         }
         return nil
+    }
+
+    private func topProcess(
+        pid: Int,
+        name: String,
+        path: String?,
+        workspaceID: UUID,
+        surfaceID: UUID
+    ) -> CmuxTopProcessInfo {
+        CmuxTopProcessInfo(
+            pid: pid,
+            parentPID: 1,
+            name: name,
+            path: path,
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceID,
+            cmuxSurfaceID: surfaceID,
+            cmuxAttributionReason: "test",
+            processGroupID: pid,
+            terminalProcessGroupID: pid,
+            cpuPercent: 0,
+            residentBytes: 1,
+            virtualBytes: 1,
+            threadCount: 1
+        )
     }
 
     private func temporaryHomeDirectory() throws -> URL {

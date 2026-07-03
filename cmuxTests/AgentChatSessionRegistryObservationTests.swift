@@ -309,7 +309,6 @@ struct AgentChatSessionRegistryObservationTests {
                 return CmuxTopProcessArguments(
                     arguments: ["node", "server.js"],
                     environment: [
-                        "CMUX_AGENT_LAUNCH_KIND": "claude",
                         "CLAUDE_CODE_SESSION_ID": sessionID,
                     ]
                 )
@@ -384,7 +383,6 @@ struct AgentChatSessionRegistryObservationTests {
                 return CmuxTopProcessArguments(
                     arguments: ["node", "server.js"],
                     environment: [
-                        "CMUX_AGENT_LAUNCH_KIND": "claude",
                         "CLAUDE_CODE_SESSION_ID": "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
                     ]
                 )
