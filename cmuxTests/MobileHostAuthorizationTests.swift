@@ -944,6 +944,62 @@ struct MobileHostAuthorizationTests {
         #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
         #expect(!observer.debugIsRetainingNotificationDemandForTesting)
     }
+
+    @Test func testMobileHostEventSubscriberConstraintsTrackBytesOnlyAndHybridStreams() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let bytesOnlySession = MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let hybridSession = MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+
+        await bytesOnlySession.subscribe(streamID: "bytes", topics: ["terminal.bytes"])
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes"))
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", excludingTopics: ["terminal.render_grid"]))
+        #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+
+        let hybridTopics: Set<String> = ["terminal.bytes", "terminal.render_grid"]
+        await hybridSession.subscribe(streamID: "hybrid-a", topics: hybridTopics)
+        await hybridSession.subscribe(streamID: "hybrid-b", topics: hybridTopics)
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", excludingTopics: ["terminal.render_grid"]))
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+
+        _ = await bytesOnlySession.unsubscribe(streamID: "bytes")
+        #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes", excludingTopics: ["terminal.render_grid"]))
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+
+        _ = await hybridSession.unsubscribe(streamID: "hybrid-a")
+        #expect(MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+
+        _ = await hybridSession.unsubscribe(streamID: "hybrid-b")
+        #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes"))
+        #expect(!MobileHostService.hasEventSubscribers(topic: "terminal.bytes", requiringTopics: ["terminal.render_grid"]))
+    }
+
     @Test func testMobileWorkspaceListHashIncludesDisplayedDirectories() {
         let workspace = Workspace(
             title: "Mobile",

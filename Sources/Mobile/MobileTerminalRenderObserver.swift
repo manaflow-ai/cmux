@@ -161,14 +161,24 @@ final class MobileTerminalRenderObserver {
                 releaseTickDemand = GhosttyApp.retainTickNotifications()
             }
         } else {
-            var orderedEvents: [(topic: String, payload: [String: Any])] = []
+            var orderedEvents: [(
+                topic: String,
+                payload: [String: Any],
+                requiredTopics: Set<String>,
+                excludedTopics: Set<String>
+            )] = []
             for surfaceID in Array(pendingByteEventsBySurfaceID.keys) {
                 if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
-                    orderedEvents.append((topic: "terminal.bytes", payload: payload))
+                    orderedEvents.append((
+                        topic: "terminal.bytes",
+                        payload: payload,
+                        requiredTopics: ["terminal.render_grid"],
+                        excludedTopics: []
+                    ))
                 }
             }
             if !orderedEvents.isEmpty {
-                MobileHostService.emitEventsInOrder(orderedEvents)
+                MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
             }
             releaseFrameDemand?()
             releaseFrameDemand = nil
@@ -230,32 +240,62 @@ final class MobileTerminalRenderObserver {
             } else {
                 renderSurfaceIDs = surfaceIDs
             }
-            var orderedEvents: [(topic: String, payload: [String: Any])] = []
+            var orderedEvents: [(
+                topic: String,
+                payload: [String: Any],
+                requiredTopics: Set<String>,
+                excludedTopics: Set<String>
+            )] = []
             for surfaceID in renderSurfaceIDs {
                 if let payload = renderGridPayload(surfaceID: surfaceID) {
-                    orderedEvents.append((topic: "terminal.render_grid", payload: payload))
+                    orderedEvents.append((
+                        topic: "terminal.render_grid",
+                        payload: payload,
+                        requiredTopics: [],
+                        excludedTopics: []
+                    ))
                 }
                 if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
-                    orderedEvents.append((topic: "terminal.bytes", payload: payload))
+                    orderedEvents.append((
+                        topic: "terminal.bytes",
+                        payload: payload,
+                        requiredTopics: ["terminal.render_grid"],
+                        excludedTopics: []
+                    ))
                 }
             }
             for surfaceID in surfaceIDs.union(pendingByteSurfaceIDs).subtracting(renderSurfaceIDs) {
                 if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
-                    orderedEvents.append((topic: "terminal.bytes", payload: payload))
+                    orderedEvents.append((
+                        topic: "terminal.bytes",
+                        payload: payload,
+                        requiredTopics: ["terminal.render_grid"],
+                        excludedTopics: []
+                    ))
                 }
             }
             if !orderedEvents.isEmpty {
-                MobileHostService.emitEventsInOrder(orderedEvents)
+                MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
             }
         } else {
-            var orderedEvents: [(topic: String, payload: [String: Any])] = []
+            var orderedEvents: [(
+                topic: String,
+                payload: [String: Any],
+                requiredTopics: Set<String>,
+                excludedTopics: Set<String>
+            )] = []
             for surfaceID in surfaceIDs.union(pendingByteSurfaceIDs) {
                 if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
-                    orderedEvents.append((topic: "terminal.bytes", payload: payload))
+                    orderedEvents.append((
+                        topic: "terminal.bytes",
+                        payload: payload,
+                        requiredTopics: ["terminal.render_grid"],
+                        excludedTopics: []
+                    ))
                 }
             }
             if !orderedEvents.isEmpty {
-                MobileHostService.emitEventsInOrder(orderedEvents)
+                MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
             }
         }
     }

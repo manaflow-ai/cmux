@@ -120,15 +120,22 @@ final class MobileTerminalByteTee {
         // used elsewhere; the `seq`/render-grid work stays unconditional so
         // render-grid subscribers keep correct sequence continuity.
         let hasRenderGridSubscriber = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
-        let hasBytesSubscriber = MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
-        guard hasBytesSubscriber else {
+        let hasBytesOnlySubscriber = MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            excludingTopics: ["terminal.render_grid"]
+        )
+        let hasHybridSubscriber = MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            requiringTopics: ["terminal.render_grid"]
+        )
+        guard hasBytesOnlySubscriber || hasHybridSubscriber else {
             if hasRenderGridSubscriber {
                 MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
             }
             return
         }
 
-        guard hasRenderGridSubscriber else {
+        if hasBytesOnlySubscriber {
             // JSON+base64 stopgap for the wire format. A future commit can
             // switch to a binary opcode on the same connection if PTY
             // throughput becomes a bottleneck.
@@ -137,7 +144,14 @@ final class MobileTerminalByteTee {
                 "seq": chunkSeq,
                 "data_b64": data.base64EncodedString(),
             ]
-            MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
+            MobileHostService.emitEvent(
+                topic: "terminal.bytes",
+                payload: payload,
+                excludedTopics: ["terminal.render_grid"]
+            )
+        }
+
+        guard hasHybridSubscriber else {
             return
         }
         // Hybrid subscribers need the dimension-carrying render-grid advisory
