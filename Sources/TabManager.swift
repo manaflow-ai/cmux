@@ -2607,6 +2607,13 @@ class TabManager {
         surfaceMetadata.flushPendingPanelTitleUpdates()
     }
 
+    /// Whether a raw (uncoalesced) title refresh should be scheduled for
+    /// `workspaceId`: only for the selected workspace and only when panel-title
+    /// update coalescing is disabled (coalescing owns its own refresh cadence).
+    func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool {
+        workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings)
+    }
+
     /// Discards hidden browser WebViews across all workspaces under system
     /// memory pressure. Returns the total number discarded.
     @discardableResult
@@ -4551,6 +4558,7 @@ extension Notification.Name {
     static let commandPaletteRenameInputInteractionRequested = CommandPaletteSignal.renameInputInteraction.notificationName
     static let commandPaletteRenameInputDeleteBackwardRequested = CommandPaletteSignal.renameInputDeleteBackward.notificationName
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
     static let browserDidBecomeFirstResponderWebView = BrowserFirstResponderEvent.notificationName
     static let browserFocusAddressBar = BrowserOmnibarFocusSignal.focusAddressBar.notificationName
     static let browserMoveOmnibarSelection = BrowserOmnibarFocusSignal.moveSelection.notificationName
