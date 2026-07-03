@@ -4762,7 +4762,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelId: UUID,
         reportedDirectory: String
     ) -> String? {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
+        guard isResumeCwdRepairEligible(restoredAgentResumeStatesByPanelId[panelId]) else { return nil }
         guard !isRemoteWorkspace, !isRemoteTerminalSurface(panelId) else { return nil }
         guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
             restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
@@ -4770,6 +4770,15 @@ final class Workspace: Identifiable, ObservableObject {
         if reportedDirectory == sessionDirectory { return nil }
         guard Self.directoryExistsOnDisk(sessionDirectory) else { return nil }
         return sessionDirectory
+    }
+
+    private func isResumeCwdRepairEligible(_ state: RestoredAgentResumeState?) -> Bool {
+        switch state {
+        case .awaitingAutoResumeCommand, .autoResumeCommandRunning:
+            true
+        case .manualResumeAvailable, .observedAgentCommandRunning, nil:
+            false
+        }
     }
 
     nonisolated private static func directoryExistsOnDisk(_ path: String) -> Bool {
@@ -7130,7 +7139,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Local panes only: a remote pane's tracked cwd is a remote path that no
     /// local process inspection or existence check can validate.
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
+        guard isResumeCwdRepairEligible(restoredAgentResumeStatesByPanelId[panelId]) else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
         // No recorded session directory means the resume launcher targets no
         // directory of its own (e.g. a registration with a `.ignore` cwd

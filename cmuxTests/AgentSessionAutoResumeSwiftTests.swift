@@ -227,6 +227,35 @@ struct AgentSessionAutoResumeSwiftTests {
         }
     }
 
+    /// Startup-input auto-resumes sit in `.awaitingAutoResumeCommand` until the
+    /// shell reports command-running, but repeated default-cwd reports can arrive
+    /// before that transition. They need the same repair as the running state.
+    @MainActor
+    @Test func spuriousHomeReportsWhileAwaitingStartupInputKeepTrackedAndWorkspaceCwd() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDir = try makeTemporaryProjectDirectory(prefix: "cmux-resume-awaiting-input")
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId] = .awaitingAutoResumeCommand
+            try #require(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == projectDir)
+
+            let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeDir != projectDir)
+
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeDir)
+
+            #expect(restored.panelDirectories[restoredPanelId] == projectDir)
+            #expect(restored.currentDirectory == projectDir)
+            #expect(restored.resolvedWorkingDirectory() == projectDir)
+        }
+    }
+
     /// A split from a pane that received repeated spurious live cwd reports must
     /// still inherit the resumed session directory, because the tracked cwd was
     /// repaired at report time rather than left clobbered.
