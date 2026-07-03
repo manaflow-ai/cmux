@@ -48,12 +48,18 @@ extension MobileShellComposite {
     func firstManualHostRouteNeedingApproval(
         in routes: [CmxAttachRoute]
     ) async -> (route: CmxAttachRoute, scope: MobileManualHostTrustScope)? {
+        let routeAuthPolicy = MobileShellRouteAuthPolicy()
         for route in routes {
-            guard let scope = manualHostTrustScope(for: route) else {
-                continue
+            if let scope = manualHostTrustScope(for: route) {
+                if !(await manualHostTrustStore.isTrusted(scope)) {
+                    return (route, scope)
+                }
+                return nil
             }
-            if !(await manualHostTrustStore.isTrusted(scope)) {
-                return (route, scope)
+            if routeAuthPolicy.routeAllowsStackAuth(route) {
+                // A safer route will be selected before any later manual-host fallback.
+                // Do not train the user to approve plaintext LAN unless it is needed.
+                return nil
             }
         }
         return nil

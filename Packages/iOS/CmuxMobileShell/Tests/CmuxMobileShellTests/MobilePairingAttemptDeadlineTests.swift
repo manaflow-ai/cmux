@@ -50,7 +50,7 @@ import Testing
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: box),
             now: { clock.now },
-            supportedRouteKinds: [.tailscale]
+            supportedRouteKinds: [.tailscale, .manualHost]
         )
         let store = makeStore(runtime: runtime)
         let trustedRoute = try CmxAttachRoute(
@@ -59,10 +59,10 @@ import Testing
             endpoint: .hostPort(host: "100.64.0.5", port: 58_465),
             priority: 0
         )
-        let untrustedRoute = try CmxAttachRoute(
-            id: "b-public-fallback",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "203.0.113.10", port: 58_465),
+        let manualFallbackRoute = try CmxAttachRoute(
+            id: "b-manual-fallback",
+            kind: .manualHost,
+            endpoint: .hostPort(host: "192.168.1.77", port: 58_465),
             priority: 1
         )
         let ticket = try CmxAttachTicket(
@@ -71,7 +71,7 @@ import Testing
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
-            routes: [trustedRoute, untrustedRoute],
+            routes: [trustedRoute, manualFallbackRoute],
             expiresAt: clock.now.addingTimeInterval(3600)
         )
 
@@ -79,6 +79,7 @@ import Testing
 
         #expect(result == .connected)
         #expect(store.connectionState == .connected)
+        #expect(store.manualHostTrustWarning == nil)
         #expect(store.selectedWorkspace?.id.rawValue == "live-workspace")
     }
 
