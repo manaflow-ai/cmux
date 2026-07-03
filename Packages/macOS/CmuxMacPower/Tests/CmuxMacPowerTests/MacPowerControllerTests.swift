@@ -78,6 +78,12 @@ struct MacPowerControllerTests {
         #expect(ok == false)
     }
 
+    @Test func systemRunnerTimesOutHungCommand() async {
+        let runner = SystemMacPowerCommandRunner(timeout: 0.2)
+        let ok = await runner.run("/bin/sh", ["-c", "sleep 5"])
+        #expect(ok == false)
+    }
+
     @Test func disableKeepAwakeKillsCaffeinateThenRereadsStatus() async {
         let runner = FakeRunner(
             captures: ["/usr/bin/pmset": idleAssertions],

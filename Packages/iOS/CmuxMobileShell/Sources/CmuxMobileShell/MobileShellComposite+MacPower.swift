@@ -140,11 +140,17 @@ extension MobileShellComposite {
     /// Put the connected Mac to sleep.
     public func sleepMac(macDeviceID: String? = nil) async -> MobileMacSleepResult {
         guard let client = macPowerClient(for: macDeviceID) else { return .failed }
+        let request: Data
         do {
-            let request = try MobileCoreRPCClient.requestData(
+            request = try MobileCoreRPCClient.requestData(
                 method: "mac.power.sleep",
                 params: ["client_id": clientID]
             )
+        } catch {
+            macPowerLog.error("mac.power.sleep request build failed error=\(String(describing: error), privacy: .public)")
+            return .failed
+        }
+        do {
             _ = try await client.sendRequest(request)
             return .requested
         } catch {

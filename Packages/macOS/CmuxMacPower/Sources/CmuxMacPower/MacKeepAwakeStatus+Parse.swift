@@ -121,7 +121,8 @@ private func macParsePmsetProcessLine(
 ) -> (pid: Int, name: String, types: [String], detail: String?)? {
     guard line.hasPrefix("pid ") else { return nil }
     guard let openParen = line.firstIndex(of: "("),
-          let closeParen = line[openParen...].firstIndex(of: ")") else { return nil }
+          let headEnd = line.range(of: "): ", options: [], range: openParen..<line.endIndex) else { return nil }
+    let closeParen = headEnd.lowerBound
     let pidStart = line.index(line.startIndex, offsetBy: 4)
     guard pidStart <= openParen else { return nil }
     let pidString = line[pidStart..<openParen].trimmingCharacters(in: .whitespaces)
@@ -129,7 +130,7 @@ private func macParsePmsetProcessLine(
     let name = String(line[line.index(after: openParen)..<closeParen])
 
     // Assertion types: any known token appearing after the `pid N(name):` head.
-    let remainder = line[closeParen...]
+    let remainder = line[headEnd.upperBound...]
     var types: [String] = []
     for token in remainder.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
         let candidate = String(token)
