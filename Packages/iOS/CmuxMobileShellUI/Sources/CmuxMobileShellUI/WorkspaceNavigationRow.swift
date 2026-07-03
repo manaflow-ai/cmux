@@ -105,9 +105,12 @@ struct WorkspaceNavigationRow: View {
     private var rowTarget: some View {
         switch navigationStyle {
         case .push:
-            NavigationLink(value: workspace.id) {
+            Button {
+                selectWorkspace(workspace.id)
+            } label: {
                 rowLabel
             }
+            .buttonStyle(.plain)
         case .sidebar:
             Button {
                 selectWorkspace(workspace.id)

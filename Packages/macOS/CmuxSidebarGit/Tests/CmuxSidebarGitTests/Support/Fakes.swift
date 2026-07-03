@@ -11,6 +11,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
     private var gateWaiters: [CheckedContinuation<Void, Never>] = []
     private var isOpen = false
     private(set) var probedDirectories: [String] = []
+    private(set) var probedTrackedPathEventGenerations: [GitTrackedPathEventGeneration?] = []
 
     init(metadata: GitWorkspaceMetadata, gated: Bool = false) {
         self.metadata = metadata
@@ -25,8 +26,29 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
         }
     }
 
+    func waitForTrackedPathEventGenerationProbe(
+        count minimumCount: Int = 1,
+        maxYields: Int = 5_000
+    ) async -> Bool {
+        for _ in 0..<maxYields {
+            if probedTrackedPathEventGenerations.count >= minimumCount {
+                return true
+            }
+            await Task.yield()
+        }
+        return probedTrackedPathEventGenerations.count >= minimumCount
+    }
+
     func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
+    }
+
+    func workspaceMetadata(
+        for directory: String,
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
+    ) async -> GitWorkspaceMetadata {
         probedDirectories.append(directory)
+        probedTrackedPathEventGenerations.append(trackedPathEventGeneration)
         if !isOpen {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 if isOpen {

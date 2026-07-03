@@ -17,6 +17,7 @@ struct WorkspaceListView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let navigationStyle: WorkspaceNavigationStyle
+    var showsNavigationToolbar = true
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.
@@ -30,6 +31,15 @@ struct WorkspaceListView: View {
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let createWorkspace: () -> Void
     var canCreateWorkspace = true
+    /// Which Mac's workspaces the list is focused on. Owned by the shell so
+    /// every create-workspace entrypoint shares the same selected-Mac gate.
+    @Binding var macSelection: WorkspaceMacSelection
+    /// Switch the foreground Mac before applying a machine-scoped title-picker
+    /// filter. `nil` in previews, where the picker remains a pure local filter.
+    var switchMac: (@MainActor (String) async -> Bool)? = nil
+    /// Cancels a title-picker switch that is still in flight. `nil` in previews,
+    /// where no real foreground connection exists.
+    var cancelMacSwitch: (@MainActor (_ restorePreviousOnCancel: Bool) async -> Void)? = nil
     /// Pull-to-refresh action. Awaits the real workspace-list re-sync from the
     /// paired Mac so the system refresh spinner reflects actual completion (and
     /// ends gracefully, leaving the list intact, when the Mac is offline). Passed
@@ -51,15 +61,6 @@ struct WorkspaceListView: View {
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
 
-    /// Machines present in the (aggregated) workspace list, for the filter's
-    /// machine multi-select. Single-machine yields no machine section. Names
-    /// come from the device tree (registry or paired Macs), falling back to id.
-    private var filterMachines: [WorkspaceFilterMachine] {
-        let ids = MobileWorkspaceListFilter.machineIDs(in: workspaces)
-        guard ids.count > 1 else { return [] }
-        let names = macDisplayNamesByID()
-        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? fallbackMacPickerName) }
-    }
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -77,12 +78,7 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
-    /// Whether the root scene is still trying the first stored-Mac reconnect.
-    /// The list stays visible and owns this loading state so startup never gets
-    /// trapped behind a full-screen spinner.
     var isInitialConnectionLoading = false
-    /// Whether the first stored-Mac reconnect exceeded the root-scene deadline.
-    /// The status row then exposes recovery actions instead of staying silent.
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
     @State private var searchText = ""
@@ -92,10 +88,17 @@ struct WorkspaceListView: View {
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
-    /// Which Mac's workspaces the list is focused on. Starts at "All Macs" so
-    /// aggregation is explicit in the title picker and can be narrowed from
-    /// there.
-    @State var macSelection: WorkspaceMacSelection = .all
+    @State private var macTitlePickerSwitchTask: Task<Void, Never>?
+    @State private var macTitlePickerSwitchIsCancellation = false
+    @State private var macTitlePickerSwitchGeneration: UInt64 = 0
+    @State private var macTitlePickerPendingSelection: WorkspaceMacSelection?
+    @State private var deferredWorkspaceSelectionGeneration: UInt64 = 0
+    /// Stable machine-menu content. Kept as value state so live workspace or
+    /// device-tree updates that do not change the actual machine set/name
+    /// snapshot do not rebuild an open native Menu. `nil` only before the first
+    /// appearance callback, when the body can still display the live snapshot
+    /// without resetting an already-open menu.
+    @State var machineSnapshots: WorkspaceMachineSnapshots?
     /// The workspace whose destructive close action is awaiting confirmation.
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
@@ -103,6 +106,25 @@ struct WorkspaceListView: View {
 
     private var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var deferredWorkspaceSelectionIdentity: [String] {
+        var identity = [
+            "host:\(host)",
+            "mac:\(store?.connectedMacDeviceID ?? "")",
+        ]
+        identity.append(contentsOf: workspaces.map {
+            "workspace:\($0.id.rawValue):mac:\($0.macDeviceID ?? "")"
+        })
+        return identity
+    }
+
+    var currentMacTitlePickerSelection: WorkspaceMacSelection {
+        macTitlePickerPendingSelection ?? visibleMacSelection
+    }
+
+    var macTitlePickerShowsProgress: Bool {
+        macTitlePickerPendingSelection != nil
     }
 
     /// Whether the list renders grouped sections. Groups are honored whenever the
@@ -113,15 +135,16 @@ struct WorkspaceListView: View {
     /// not flatten sections the list already has (it would only lose the chevron
     /// action). A search flattens to a single matched, pinned-first list so
     /// members can be found across groups; floating pinned members out of their
-    /// group is acceptable while filtering. An active row filter (Unread)
+    /// group is acceptable while filtering. An active filter-menu dimension
     /// flattens the same way, for the same reason. A single-Mac picker scope
     /// still renders groups only for the foreground Mac whose group metadata is
-    /// available here; "All Macs" and secondary Mac selections flatten because
+    /// available here; "All Computers" and secondary computer selections flatten because
     /// group ids are Mac-local. Non-iOS builds keep the pre-picker behavior.
     private var rendersGroupedSections: Bool {
         !groups.isEmpty
             && trimmedQuery.isEmpty
             && filter.readState == .all
+            && filter.machines.isEmpty
             && canRenderGroupsForSelection
     }
 
@@ -137,8 +160,9 @@ struct WorkspaceListView: View {
     /// presentation.
     private var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
+        let currentFilter = activeFilter
         let matches = workspaces.filter { workspace in
-            activeFilter.matches(workspace)
+            currentFilter.matches(workspace)
                 && (query.isEmpty || matchesQuery(workspace, query: query))
         }
         return matches.enumerated()
@@ -159,11 +183,20 @@ struct WorkspaceListView: View {
     }
 
     private var groupedWorkspaces: [MobileWorkspacePreview] {
-        workspaces.filter { activeFilter.matches($0) }
+        let currentFilter = activeFilter
+        return workspaces.filter { currentFilter.matches($0) }
     }
 
     var body: some View {
-        List {
+        let currentMachineSnapshots = liveMachineSnapshots
+        let currentVisibleMacSelection = visibleMacSelection
+        let currentFilterMenuPresentMachineIDs = filterMenuPresentMachineIDs
+        let displayedMachineSnapshots = machineSnapshots ?? currentMachineSnapshots
+        let displayedFilterMachines = filterMenuMachines(
+            machineSnapshots: displayedMachineSnapshots,
+            visibleSelection: currentVisibleMacSelection
+        )
+        let list = List {
             if let store, showsConnectionRecoveryRow {
                 Section {
                     MobileConnectionRecoveryBanner(
@@ -191,7 +224,7 @@ struct WorkspaceListView: View {
                         descriptionOverride: initialConnectionTimedOut
                             ? L10n.string(
                                 "mobile.loading.timeout.message",
-                                defaultValue: "cmux could not finish restoring this session. Check that the Mac app is running, then retry or add this Mac again."
+                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
                             )
                             : nil,
                         retry: initialConnectionTimedOut ? retryInitialConnection : nil,
@@ -222,46 +255,41 @@ struct WorkspaceListView: View {
         }
         .listStyle(.plain)
         .workspaceListRefreshable(refresh)
-        .onChange(of: MobileWorkspaceListFilter.machineIDs(in: workspaces)) { _, present in
+        .onChange(of: currentFilterMenuPresentMachineIDs) { _, present in
             // Drop machine filters whose Mac left the aggregated list (a secondary
             // Mac disconnected, or the list fell below two machines so the filter
             // menu's machine section hid). Otherwise a stale machine id rejects
             // every row and strands the user on a blank list with no visible
             // control to clear the filter.
-            filter.pruneMachines(notIn: present)
+            filter.pruneMachinesForFilterMenu(presentMachineIDs: present)
         }
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
         .searchable(text: $searchText)
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                settingsMenu
-            }
-            ToolbarItem(placement: .principal) {
-                macTitlePicker
-            }
-            if showsDevicesButton {
-                ToolbarItem(placement: .topBarLeading) {
-                    devicesButton
-                }
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter, machines: [])
-                if canCreateWorkspace {
-                    newWorkspaceButton
-                }
-            }
-            #else
-            ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
-                if canCreateWorkspace {
-                    newWorkspaceButton
-                }
-            }
-            #endif
-        }
+
+        workspaceListWithToolbar(
+            list,
+            machineSnapshots: displayedMachineSnapshots,
+            filterMachines: displayedFilterMachines
+        )
         .accessibilityIdentifier("MobileWorkspaceList")
+        .onDisappear {
+            invalidateDeferredWorkspaceSelection()
+            cancelMacTitlePickerSwitch()
+        }
+        .onAppear {
+            updateMachineSnapshots(currentMachineSnapshots)
+            filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
+        }
+        .onChange(of: currentMachineSnapshots) { _, snapshots in
+            updateMachineSnapshots(snapshots)
+        }
+        .onChange(of: deferredWorkspaceSelectionIdentity) { _, _ in
+            invalidateDeferredWorkspaceSelection()
+        }
+        .onChange(of: currentVisibleMacSelection) { _, selection in
+            filter.pruneMachinesForFilterMenu(visibleMacSelection: selection)
+        }
         #if os(iOS)
         .sheet(isPresented: $showingShortcutsSettings) {
             TerminalShortcutsSettingsView()
@@ -280,11 +308,131 @@ struct WorkspaceListView: View {
         // leaving a parent sheet covering it.
         .sheet(isPresented: $showingDeviceTree) {
             if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
+                DeviceTreeView(
+                    store: store,
+                    selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
+                    showAddDevice: showAddDevice
+                )
             }
         }
         #endif
     }
+
+    #if os(iOS)
+    @discardableResult
+    func handleMacTitlePickerSelection(_ selection: WorkspaceMacSelection) -> Task<Void, Never>? {
+        let startsMachineSwitch: Bool
+        if case .machine(let id) = selection {
+            startsMachineSwitch = shouldSwitchForMacTitlePickerMachine(id)
+        } else {
+            startsMachineSwitch = false
+        }
+        let cancelTask = cancelMacTitlePickerSwitch(
+            restorePreviousOnCancel: true,
+            cancelStoreSwitch: !startsMachineSwitch
+        )
+        guard startsMachineSwitch else {
+            macTitlePickerPendingSelection = nil
+            macSelection = selection
+            return nil
+        }
+        macTitlePickerSwitchGeneration &+= 1
+        let generation = macTitlePickerSwitchGeneration
+        macTitlePickerPendingSelection = selection
+        let task = Task { @MainActor in
+            defer {
+                if macTitlePickerSwitchGeneration == generation {
+                    macTitlePickerSwitchTask = nil
+                    macTitlePickerSwitchIsCancellation = false
+                }
+            }
+            await cancelTask?.value
+            await applyMacTitlePickerSelection(selection, switchGeneration: generation)
+        }
+        macTitlePickerSwitchTask = task
+        macTitlePickerSwitchIsCancellation = false
+        return task
+    }
+
+    private func shouldSwitchForMacTitlePickerMachine(_ id: String) -> Bool {
+        guard switchMac != nil, let store else { return false }
+        let scope = macSelectionScope
+        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
+        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
+            return false
+        }
+        return store.displayPairedMacs.contains { mac in
+            let pairedMacIDs = scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID)
+            return !pairedMacIDs.isDisjoint(with: targetIDs)
+        }
+    }
+
+    @discardableResult
+    func cancelMacTitlePickerSwitch(
+        restorePreviousOnCancel: Bool = true,
+        cancelStoreSwitch: Bool = true
+    ) -> Task<Void, Never>? {
+        let pendingSwitchTask = macTitlePickerSwitchTask
+        let pendingSwitchIsCancellation = pendingSwitchTask != nil && macTitlePickerSwitchIsCancellation
+        if pendingSwitchIsCancellation {
+            return pendingSwitchTask
+        }
+        if pendingSwitchTask != nil {
+            pendingSwitchTask?.cancel()
+        }
+        macTitlePickerSwitchTask = nil
+        macTitlePickerSwitchIsCancellation = false
+        macTitlePickerPendingSelection = nil
+        macTitlePickerSwitchGeneration &+= 1
+        let generation = macTitlePickerSwitchGeneration
+        guard pendingSwitchTask != nil else { return nil }
+        guard cancelStoreSwitch else { return nil }
+        let cancelMacSwitch = cancelMacSwitch
+        let task = Task { @MainActor in
+            defer {
+                if macTitlePickerSwitchGeneration == generation {
+                    macTitlePickerSwitchTask = nil
+                    macTitlePickerSwitchIsCancellation = false
+                }
+            }
+            await cancelMacSwitch?(restorePreviousOnCancel)
+        }
+        macTitlePickerSwitchTask = task
+        macTitlePickerSwitchIsCancellation = true
+        return task
+    }
+
+    @MainActor
+    func applyMacTitlePickerSelection(
+        _ selection: WorkspaceMacSelection,
+        switchGeneration: UInt64? = nil
+    ) async {
+        func isCurrentSwitchRequest() -> Bool {
+            guard !Task.isCancelled else { return false }
+            guard let switchGeneration else { return true }
+            return macTitlePickerSwitchGeneration == switchGeneration
+        }
+
+        switch selection {
+        case .all, .automatic:
+            guard isCurrentSwitchRequest() else { return }
+            macTitlePickerPendingSelection = nil
+            macSelection = selection
+        case .machine(let id):
+            guard isCurrentSwitchRequest() else { return }
+            guard shouldSwitchForMacTitlePickerMachine(id), let switchMac else {
+                macTitlePickerPendingSelection = nil
+                macSelection = selection
+                return
+            }
+            let switched = await switchMac(id)
+            guard isCurrentSwitchRequest() else { return }
+            macTitlePickerPendingSelection = nil
+            guard switched else { return }
+            macSelection = .machine(id)
+        }
+    }
+    #endif
 
     private var showsConnectionRecoveryRow: Bool {
         guard let store else { return false }
@@ -293,8 +441,14 @@ struct WorkspaceListView: View {
             || store.isRecoveringConnection
     }
 
+    private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
+        if machineSnapshots != snapshots {
+            machineSnapshots = snapshots
+        }
+    }
+
     #if os(iOS)
-    private var devicesButton: some View {
+    var devicesButton: some View {
         Button {
             showingDeviceTree = true
         } label: {
@@ -327,7 +481,7 @@ struct WorkspaceListView: View {
                     navigationStyle: navigationStyle,
                     isAnchorSelected: navigationStyle == .sidebar
                         && selectedWorkspaceID == group.anchorWorkspaceID,
-                    selectWorkspace: selectWorkspace,
+                    selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
@@ -352,7 +506,7 @@ struct WorkspaceListView: View {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
-            selectWorkspace: selectWorkspace,
+            selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
@@ -370,19 +524,49 @@ struct WorkspaceListView: View {
         .listRowSeparator(.hidden)
     }
 
-    private var newWorkspaceButton: some View {
+    var newWorkspaceButton: some View {
         Button {
-            guard canCreateWorkspace else { return }
+            guard canCreateWorkspaceForMacSelection else { return }
             createWorkspace()
         } label: {
             Image(systemName: "plus")
         }
-        .disabled(!canCreateWorkspace)
+        .disabled(!canCreateWorkspaceForMacSelection)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
 
-    private var settingsMenu: some View {
+    @discardableResult
+    func prepareWorkspaceSelectionFromList() -> Task<Void, Never>? {
+        #if os(iOS)
+        return cancelMacTitlePickerSwitch()
+        #else
+        return nil
+        #endif
+    }
+
+    @discardableResult
+    func selectWorkspaceFromList(_ id: MobileWorkspacePreview.ID) -> Task<Void, Never>? {
+        invalidateDeferredWorkspaceSelection()
+        let selectionGeneration = deferredWorkspaceSelectionGeneration
+        guard let cancelTask = prepareWorkspaceSelectionFromList() else {
+            selectWorkspace(id)
+            return nil
+        }
+        let task = Task { @MainActor in
+            await cancelTask.value
+            guard !Task.isCancelled,
+                  deferredWorkspaceSelectionGeneration == selectionGeneration else { return }
+            selectWorkspace(id)
+        }
+        return task
+    }
+
+    private func invalidateDeferredWorkspaceSelection() {
+        deferredWorkspaceSelectionGeneration &+= 1
+    }
+
+    var settingsMenu: some View {
         #if os(iOS)
         // Open the full Settings page (account, terminal shortcuts,
         // notifications, paired Mac) rather than a transient menu.
