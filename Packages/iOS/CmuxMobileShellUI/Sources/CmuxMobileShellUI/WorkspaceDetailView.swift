@@ -250,10 +250,11 @@ struct WorkspaceDetailView: View {
                                 connectionStatus: loadingDiagnosticsConnectionStatus,
                                 tailnetStatus: tailscaleStatusMonitor?.status,
                                 activeRoute: activeLoadingDiagnosticsRoute,
-                                storedRouteDescription: loadingDiagnosticsMacSnapshot?.routeDescription,
+                                storedRouteDescription: loadingDiagnosticsStoredRouteDescription,
                                 connectionError: loadingDiagnosticsConnectionError,
                                 connectionErrorGuidance: loadingDiagnosticsConnectionErrorGuidance,
                                 createTerminal: createTerminal,
+                                refreshConnection: refreshLoadingDiagnosticsConnection,
                                 canCreateTerminal: true
                             )
                         }
@@ -273,7 +274,10 @@ struct WorkspaceDetailView: View {
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
             if loadingDiagnosticsConnectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: loadingDiagnosticsConnectionStatus, host: host) {
+                TerminalDisconnectedOverlay(
+                    status: loadingDiagnosticsConnectionStatus,
+                    host: workspace.macDisplayName ?? host
+                ) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,

@@ -4,219 +4,6 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-struct TerminalLoadingDiagnosticsRow: Equatable, Identifiable {
-    enum Tone: Equatable {
-        case good
-        case pending
-        case warning
-        case neutral
-    }
-
-    let id: String
-    let label: String
-    let value: String
-    let tone: Tone
-}
-
-struct TerminalLoadingDiagnosticsModel: Equatable {
-    let title: String
-    let message: String
-    let rows: [TerminalLoadingDiagnosticsRow]
-
-    static func snapshot(
-        workspaceName: String,
-        terminalCount: Int,
-        macName: String?,
-        connectionStatus: MobileMacConnectionStatus,
-        tailnetStatus: TailnetStatus?,
-        activeRoute: CmxAttachRoute?,
-        storedRouteDescription: String?,
-        connectionError: String?,
-        connectionErrorGuidance: String?
-    ) -> Self {
-        let resolvedMacName = Self.nonEmpty(macName) ?? Self.nonEmpty(workspaceName) ?? L10n.string(
-            "mobile.terminal.loading.macFallback",
-            defaultValue: "Mac"
-        )
-        var rows: [TerminalLoadingDiagnosticsRow] = [
-            TerminalLoadingDiagnosticsRow(
-                id: "mac",
-                label: L10n.string("mobile.terminal.loading.mac", defaultValue: "Mac"),
-                value: String.localizedStringWithFormat(
-                    L10n.string(
-                        "mobile.terminal.loading.macStatusFormat",
-                        defaultValue: "%@ · %@"
-                    ),
-                    resolvedMacName,
-                    connectionStatus.label
-                ),
-                tone: tone(for: connectionStatus)
-            ),
-            TerminalLoadingDiagnosticsRow(
-                id: "terminals",
-                label: L10n.string("mobile.terminal.loading.terminals", defaultValue: "Terminals"),
-                value: terminalStatusText(count: terminalCount),
-                tone: terminalCount > 0 ? .good : .pending
-            ),
-            TerminalLoadingDiagnosticsRow(
-                id: "tailscale",
-                label: L10n.string("mobile.terminal.loading.tailscale", defaultValue: "Tailscale"),
-                value: tailnetStatusText(tailnetStatus),
-                tone: tone(for: tailnetStatus)
-            ),
-            TerminalLoadingDiagnosticsRow(
-                id: "route",
-                label: L10n.string("mobile.terminal.loading.route", defaultValue: "Route"),
-                value: routeText(activeRoute: activeRoute, storedRouteDescription: storedRouteDescription),
-                tone: activeRoute == nil && Self.nonEmpty(storedRouteDescription) == nil ? .warning : .neutral
-            ),
-        ]
-
-        if let detail = Self.nonEmpty(connectionErrorGuidance) ?? Self.nonEmpty(connectionError) {
-            rows.append(TerminalLoadingDiagnosticsRow(
-                id: "network",
-                label: L10n.string("mobile.terminal.loading.network", defaultValue: "Network"),
-                value: detail,
-                tone: .warning
-            ))
-        }
-
-        let text = headerText(
-            terminalCount: terminalCount,
-            connectionStatus: connectionStatus,
-            resolvedMacName: resolvedMacName
-        )
-        return Self(
-            title: text.title,
-            message: text.message,
-            rows: rows
-        )
-    }
-
-    private static func nonEmpty(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private static func terminalStatusText(count: Int) -> String {
-        guard count > 0 else {
-            return L10n.string("mobile.terminal.loading.terminalsWaiting", defaultValue: "No terminal list yet")
-        }
-        return L10n.terminalCount(count)
-    }
-
-    private static func headerText(
-        terminalCount: Int,
-        connectionStatus: MobileMacConnectionStatus,
-        resolvedMacName: String
-    ) -> (title: String, message: String) {
-        if connectionStatus == .connected && terminalCount == 0 {
-            return (
-                L10n.string("mobile.terminal.loading.emptyTitle", defaultValue: "No terminals yet"),
-                String.localizedStringWithFormat(
-                    L10n.string(
-                        "mobile.terminal.loading.emptyMessageFormat",
-                        defaultValue: "%@ is connected. Create a terminal, or wait for terminal metadata to arrive."
-                    ),
-                    resolvedMacName
-                )
-            )
-        }
-        return (
-            L10n.string("mobile.terminal.loading.title", defaultValue: "Loading terminals"),
-            String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.terminal.loading.messageFormat",
-                    defaultValue: "Waiting for %@ to send terminal metadata for this workspace."
-                ),
-                resolvedMacName
-            )
-        )
-    }
-
-    private static func tailnetStatusText(_ status: TailnetStatus?) -> String {
-        switch status {
-        case .active:
-            return L10n.string("mobile.terminal.loading.tailscale.active", defaultValue: "Active")
-        case .inactiveOrNotInstalled:
-            return L10n.string("mobile.terminal.loading.tailscale.inactive", defaultValue: "Off or not installed")
-        case .unknown:
-            return L10n.string("mobile.terminal.loading.tailscale.unknown", defaultValue: "Unknown")
-        case nil:
-            return L10n.string("mobile.terminal.loading.tailscale.notChecked", defaultValue: "Not checked")
-        }
-    }
-
-    private static func routeText(activeRoute: CmxAttachRoute?, storedRouteDescription: String?) -> String {
-        if let activeRoute {
-            return String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.terminal.loading.routeActiveFormat",
-                    defaultValue: "%@ · %@"
-                ),
-                routeKindText(activeRoute.kind),
-                endpointText(activeRoute.endpoint)
-            )
-        }
-        if let storedRouteDescription = nonEmpty(storedRouteDescription) {
-            return String.localizedStringWithFormat(
-                L10n.string(
-                    "mobile.terminal.loading.routeStoredFormat",
-                    defaultValue: "Saved route · %@"
-                ),
-                storedRouteDescription
-            )
-        }
-        return L10n.string("mobile.terminal.loading.routeMissing", defaultValue: "No saved route")
-    }
-
-    private static func routeKindText(_ kind: CmxAttachTransportKind) -> String {
-        switch kind {
-        case .tailscale:
-            return L10n.string("mobile.terminal.loading.route.tailscale", defaultValue: "Tailscale")
-        case .debugLoopback:
-            return L10n.string("mobile.terminal.loading.route.debugLoopback", defaultValue: "Debug loopback")
-        case .iroh:
-            return L10n.string("mobile.terminal.loading.route.iroh", defaultValue: "Iroh")
-        case .websocket:
-            return L10n.string("mobile.terminal.loading.route.websocket", defaultValue: "WebSocket")
-        }
-    }
-
-    private static func endpointText(_ endpoint: CmxAttachEndpoint) -> String {
-        switch endpoint {
-        case let .hostPort(host, port):
-            return "\(host):\(port)"
-        case let .peer(id, _, directAddrs, _):
-            return directAddrs.first ?? id
-        case let .url(url):
-            return url
-        }
-    }
-
-    private static func tone(for status: MobileMacConnectionStatus) -> TerminalLoadingDiagnosticsRow.Tone {
-        switch status {
-        case .connected:
-            return .good
-        case .reconnecting:
-            return .pending
-        case .unavailable:
-            return .warning
-        }
-    }
-
-    private static func tone(for status: TailnetStatus?) -> TerminalLoadingDiagnosticsRow.Tone {
-        switch status {
-        case .active:
-            return .good
-        case .inactiveOrNotInstalled:
-            return .warning
-        case .unknown, nil:
-            return .neutral
-        }
-    }
-}
-
 struct TerminalLoadingDiagnosticsOverlay: View {
     let workspace: MobileWorkspacePreview
     let host: String
@@ -227,10 +14,16 @@ struct TerminalLoadingDiagnosticsOverlay: View {
     let connectionError: String?
     let connectionErrorGuidance: String?
     let createTerminal: () -> Void
+    let refreshConnection: () -> Void
     let canCreateTerminal: Bool
 
+    private static let terminalMetadataTimeout: Duration = .seconds(10)
+
+    @State private var terminalMetadataTimedOut = false
+    @State private var refreshGeneration = 0
+
     private var model: TerminalLoadingDiagnosticsModel {
-        TerminalLoadingDiagnosticsModel.snapshot(
+        TerminalLoadingDiagnosticsModel(
             workspaceName: workspace.name,
             terminalCount: workspace.terminals.count,
             macName: workspace.macDisplayName ?? host,
@@ -239,16 +32,24 @@ struct TerminalLoadingDiagnosticsOverlay: View {
             activeRoute: activeRoute,
             storedRouteDescription: storedRouteDescription,
             connectionError: connectionError,
-            connectionErrorGuidance: connectionErrorGuidance
+            connectionErrorGuidance: connectionErrorGuidance,
+            loadingTimedOut: terminalMetadataTimedOut
         )
     }
 
     var body: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-                .tint(.white)
-                .accessibilityHidden(true)
+            if model.isLoading {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.white)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "terminal")
+                    .font(.system(size: 38, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .accessibilityHidden(true)
+            }
 
             VStack(spacing: 6) {
                 Text(model.title)
@@ -283,28 +84,47 @@ struct TerminalLoadingDiagnosticsOverlay: View {
             .padding(14)
             .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            if canCreateTerminal {
-                Button(action: createTerminal) {
+            HStack(spacing: 10) {
+                Button(action: retryLoading) {
                     Label(
-                        L10n.string("mobile.terminal.loading.createTerminal", defaultValue: "Create Terminal"),
-                        systemImage: "plus"
+                        L10n.string("mobile.terminal.loading.refresh", defaultValue: "Refresh"),
+                        systemImage: "arrow.clockwise"
                     )
                     .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 9)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(.white.opacity(0.12), in: Capsule())
                     .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("MobileLoadingCreateTerminalButton")
+                .accessibilityIdentifier("MobileLoadingRefreshButton")
+
+                if canCreateTerminal {
+                    Button(action: createTerminal) {
+                        Label(
+                            L10n.string("mobile.terminal.loading.createTerminal", defaultValue: "Create Terminal"),
+                            systemImage: "plus"
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(Color.accentColor, in: Capsule())
+                        .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("MobileLoadingCreateTerminalButton")
+                }
             }
         }
         .padding(24)
         .frame(maxWidth: 420)
         .accessibilityIdentifier("MobileTerminalLoadingDiagnostics")
+        .task(id: deadlineTaskID) {
+            await updateTerminalMetadataDeadline()
+        }
     }
 
-    private func color(for tone: TerminalLoadingDiagnosticsRow.Tone) -> Color {
+    private func color(for tone: TerminalLoadingDiagnosticsTone) -> Color {
         switch tone {
         case .good:
             return .green
@@ -316,58 +136,53 @@ struct TerminalLoadingDiagnosticsOverlay: View {
             return .white.opacity(0.45)
         }
     }
-}
 
-extension WorkspaceDetailView {
-    var loadingDiagnosticsConnectionStatus: MobileMacConnectionStatus {
+    private var effectiveConnectionStatus: MobileMacConnectionStatus {
         workspace.macConnectionStatus ?? connectionStatus
     }
 
-    var loadingDiagnosticsMacSnapshot: MacComputerSnapshot? {
-        guard let macDeviceID = workspace.macDeviceID,
-              !macDeviceID.isEmpty else {
-            return nil
-        }
-        return MacComputerSnapshot.snapshots(from: store).first { snapshot in
-            snapshot.deviceId == macDeviceID || snapshot.aliasIDs.contains(macDeviceID)
-        }
+    private var deadlineTaskID: String {
+        [
+            workspace.id.rawValue,
+            String(workspace.terminals.count),
+            connectionStatusKey(effectiveConnectionStatus),
+            String(refreshGeneration),
+        ].joined(separator: ":")
     }
 
-    var activeLoadingDiagnosticsRoute: CmxAttachRoute? {
-        guard let macDeviceID = workspace.macDeviceID,
-              !macDeviceID.isEmpty else {
-            return nil
+    private func updateTerminalMetadataDeadline() async {
+        terminalMetadataTimedOut = false
+        guard effectiveConnectionStatus == .connected,
+              workspace.terminals.isEmpty else {
+            return
         }
-        if loadingDiagnosticsMatchesForegroundMac(macDeviceID) {
-            return store.activeRoute
+        do {
+            try await ContinuousClock().sleep(for: Self.terminalMetadataTimeout)
+        } catch {
+            return
         }
-        return nil
+        guard effectiveConnectionStatus == .connected,
+              workspace.terminals.isEmpty else {
+            return
+        }
+        terminalMetadataTimedOut = true
     }
 
-    var loadingDiagnosticsConnectionError: String? {
-        loadingDiagnosticsMatchesForegroundMac(workspace.macDeviceID) ? store.connectionError : nil
+    private func retryLoading() {
+        terminalMetadataTimedOut = false
+        refreshGeneration &+= 1
+        refreshConnection()
     }
 
-    var loadingDiagnosticsConnectionErrorGuidance: String? {
-        loadingDiagnosticsMatchesForegroundMac(workspace.macDeviceID) ? store.connectionErrorGuidance : nil
-    }
-
-    private func loadingDiagnosticsMatchesForegroundMac(_ macDeviceID: String?) -> Bool {
-        guard let macDeviceID,
-              !macDeviceID.isEmpty else {
-            return false
+    private func connectionStatusKey(_ status: MobileMacConnectionStatus) -> String {
+        switch status {
+        case .connected:
+            return "connected"
+        case .reconnecting:
+            return "reconnecting"
+        case .unavailable:
+            return "unavailable"
         }
-        if macDeviceID == store.connectedMacDeviceID {
-            return true
-        }
-        if macDeviceID == store.activeTicket?.macDeviceID {
-            return true
-        }
-        guard let connectedMacDeviceID = store.connectedMacDeviceID,
-              store.pairedMacAliasIDs(for: macDeviceID).contains(connectedMacDeviceID) else {
-            return false
-        }
-        return true
     }
 }
 #endif

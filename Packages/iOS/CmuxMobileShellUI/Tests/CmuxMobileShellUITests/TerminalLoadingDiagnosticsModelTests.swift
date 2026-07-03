@@ -12,7 +12,7 @@ import Testing
             endpoint: .hostPort(host: "100.64.0.10", port: 58465)
         )
 
-        let model = TerminalLoadingDiagnosticsModel.snapshot(
+        let model = TerminalLoadingDiagnosticsModel(
             workspaceName: "cmux",
             terminalCount: 0,
             macName: "Studio",
@@ -24,16 +24,36 @@ import Testing
             connectionErrorGuidance: nil
         )
 
-        #expect(model.title == "No terminals yet")
-        #expect(model.message == "Studio is connected. Create a terminal, or wait for terminal metadata to arrive.")
+        #expect(model.title == "Loading terminals")
+        #expect(model.message == "Waiting for Studio to send terminal metadata for this workspace.")
+        #expect(model.isLoading)
         #expect(model.rows[id: "mac"]?.value == "Studio · Connected")
         #expect(model.rows[id: "tailscale"]?.value == "Active")
         #expect(model.rows[id: "route"]?.value == "Tailscale · 100.64.0.10:58465")
         #expect(model.rows[id: "terminals"]?.value == "No terminal list yet")
     }
 
+    @Test func connectedEmptyWorkspaceTimesOutToExplicitRecoveryCopy() {
+        let model = TerminalLoadingDiagnosticsModel(
+            workspaceName: "cmux",
+            terminalCount: 0,
+            macName: "Studio",
+            connectionStatus: .connected,
+            tailnetStatus: .active,
+            activeRoute: nil,
+            storedRouteDescription: nil,
+            connectionError: nil,
+            connectionErrorGuidance: nil,
+            loadingTimedOut: true
+        )
+
+        #expect(model.title == "No terminals yet")
+        #expect(model.message == "Studio is connected. Create a terminal, or tap Refresh to check again.")
+        #expect(!model.isLoading)
+    }
+
     @Test func inactiveTailscaleAndSavedRouteSurfaceNetworkGuidance() {
-        let model = TerminalLoadingDiagnosticsModel.snapshot(
+        let model = TerminalLoadingDiagnosticsModel(
             workspaceName: "cmux",
             terminalCount: 0,
             macName: nil,
@@ -60,7 +80,7 @@ import Testing
             endpoint: .hostPort(host: "127.0.0.1", port: 3942)
         )
 
-        let model = TerminalLoadingDiagnosticsModel.snapshot(
+        let model = TerminalLoadingDiagnosticsModel(
             workspaceName: "cmux",
             terminalCount: 1,
             macName: "Mini",

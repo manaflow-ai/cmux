@@ -8218,13 +8218,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ is connected. Create a terminal, or wait for terminal metadata to arrive."
+            "value": "%@ is connected. Create a terminal, or tap Refresh to check again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ に接続済みです。ターミナルを作成するか、ターミナル情報の到着を待ってください。"
+            "value": "%@ に接続済みです。ターミナルを作成するか、「更新」をタップして再確認してください。"
           }
         }
       }
@@ -8327,6 +8327,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ネットワーク"
+          }
+        }
+      }
+    },
+    "mobile.terminal.loading.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
           }
         }
       }
