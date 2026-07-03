@@ -1937,7 +1937,19 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     /// Value snapshot of a resolved browser surface for socket-worker handlers:
     /// resolution happens on the main actor, the JS-evaluating body runs off it.
-    private struct V2BrowserPanelContext {
+    /// Reject V2 calls that supply an unresolvable handle. Restored during the
+    /// main merge (main added it; our branch lacked it) for the Dock browser
+    /// routing extension.
+    func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
+        for key in keys where v2HasNonNullParam(params, key) && v2UUID(params, key) == nil {
+            return .err(code: "invalid_params", message: "Unresolved \(key)", data: nil)
+        }
+        return nil
+    }
+
+    // `internal` (not `private`) so the Dock browser-routing extension
+    // (TerminalController+WindowDockBrowserRouting) can name it in its signature.
+    struct V2BrowserPanelContext {
         let workspaceId: UUID
         let surfaceId: UUID
         let browserPanel: BrowserPanel
