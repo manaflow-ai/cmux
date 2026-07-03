@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -95,5 +96,76 @@ import Testing
 
         #expect(startupInput.contains(command), "\(startupInput)")
         #expect(!startupInput.contains("check_for_update_on_startup"), "\(startupInput)")
+    }
+
+    @Test func legacyCodexBindingWithoutKindGainsUpdateCheckSuppressionOnReplay() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "'/opt/company/bin/codex' 'resume' 'legacy-kindless-session' '--model' 'gpt-5.4'",
+            checkpointId: "legacy-kindless-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(
+            startupInput.contains("'resume' 'legacy-kindless-session' -c check_for_update_on_startup=false '--model'"),
+            "\(startupInput)"
+        )
+    }
+
+    @Test func remoteLauncherScriptCodexBindingGainsUpdateCheckSuppressionOnReplay() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'/opt/company/bin/codex' 'resume' 'remote-startup-session' '--model' 'gpt-5.4'",
+            checkpointId: "remote-startup-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.remoteStartupInputWithLauncherScript())
+
+        #expect(
+            startupInput.contains("'resume' 'remote-startup-session' -c check_for_update_on_startup=false '--model'"),
+            "\(startupInput)"
+        )
+    }
+
+    @Test func codexBindingWithUnrelatedUpdateCheckTextStillGainsSuppression() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'/opt/company/bin/codex' 'resume' 'session-with-text' '--model' 'check_for_update_on_startup-not-config'",
+            checkpointId: "session-with-text",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(
+            startupInput.contains("'resume' 'session-with-text' -c check_for_update_on_startup=false '--model'"),
+            "\(startupInput)"
+        )
+    }
+
+    @Test func wrappedCodexBindingGainsUpdateCheckSuppressionOnReplay() throws {
+        let wrapped = AgentResumeArgv.portableCodexResumeShellCommand(
+            posixCommand: "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume wrapped-session --model gpt-5.4"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && \(wrapped)",
+            cwd: "/tmp/repo",
+            checkpointId: "wrapped-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(
+            startupInput.contains("resume wrapped-session -c check_for_update_on_startup=false --model"),
+            "\(startupInput)"
+        )
     }
 }
