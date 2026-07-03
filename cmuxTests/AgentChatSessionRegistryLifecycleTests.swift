@@ -281,6 +281,42 @@ struct AgentChatSessionRegistryLifecycleTests {
         #expect(service.shouldListEndedSession(record))
     }
 
+    @MainActor
+    @Test func pendingClaudeAliasUsesRealHookSessionIDForFallbackTranscript() throws {
+        let home = try temporaryHomeDirectory()
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
+        )
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        let transcriptURL = home
+            .appendingPathComponent(".claude/projects/-Users-example-project", isDirectory: true)
+            .appendingPathComponent("\(realSessionID).jsonl")
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
+        var record = AgentChatSessionRecord(
+            sessionID: pendingID,
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: nil,
+            state: .ended,
+            lastActivityAt: Date(),
+            title: nil,
+            pid: nil
+        )
+        record.rememberHookStoreSessionID(realSessionID)
+
+        #expect(service.hasBoundedReadableTranscript(record))
+        #expect(service.shouldListEndedSession(record))
+    }
+
     private func temporaryHomeDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-chat-\(UUID().uuidString)", isDirectory: true)

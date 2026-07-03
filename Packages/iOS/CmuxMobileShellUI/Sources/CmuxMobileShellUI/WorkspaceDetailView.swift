@@ -71,6 +71,9 @@ struct WorkspaceDetailView: View {
     /// keeps the toolbar affordance and title spacing stable while SwiftUI
     /// swaps between terminal and chat mode, or while transport is reconnecting.
     @State var cachedChatToggleTerminalID: String?
+    @State var ignoredChatSessionRefreshKey: String?
+    @State var ignoredChatSessionRefreshID: UUID?
+    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
     /// Per-session chat stores kept warm while the workspace detail is visible.
     /// The selected terminal's store runs even when terminal rendering is shown,
     /// so toggling into chat presents the already-loaded transcript instead of

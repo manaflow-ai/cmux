@@ -237,11 +237,14 @@ extension WorkspaceDetailView {
         )
         else { return false }
         let sessions: [ChatSessionDescriptor]
-        do {
-            sessions = try await source.sessions(workspaceID: workspaceID)
-        } catch {
+        guard let refreshed = await coalescedIgnoredChatSessionSnapshot(
+            source: source,
+            workspaceID: workspaceID,
+            sourceIdentity: sourceIdentity
+        ) else {
             return false
         }
+        sessions = refreshed
         guard !Task.isCancelled,
               workspaceID == workspace.id.rawValue,
               sourceIdentity == store.agentChatEventSourceIdentity
@@ -256,6 +259,37 @@ extension WorkspaceDetailView {
         store.rememberChatSessions(next, workspaceID: workspaceID)
         reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
         return true
+    }
+
+    private func coalescedIgnoredChatSessionSnapshot(
+        source: MobileChatEventSource,
+        workspaceID: String,
+        sourceIdentity: String
+    ) async -> [ChatSessionDescriptor]? {
+        let key = "\(workspaceID)#\(sourceIdentity)"
+        if let task = ignoredChatSessionRefreshTask,
+           ignoredChatSessionRefreshKey == key {
+            return await task.value
+        }
+        let taskID = UUID()
+        let task = Task { () -> [ChatSessionDescriptor]? in
+            do {
+                return try await source.sessions(workspaceID: workspaceID)
+            } catch {
+                return nil
+            }
+        }
+        ignoredChatSessionRefreshKey = key
+        ignoredChatSessionRefreshID = taskID
+        ignoredChatSessionRefreshTask = task
+        let result = await task.value
+        if ignoredChatSessionRefreshKey == key,
+           ignoredChatSessionRefreshID == taskID {
+            ignoredChatSessionRefreshKey = nil
+            ignoredChatSessionRefreshID = nil
+            ignoredChatSessionRefreshTask = nil
+        }
+        return result
     }
 
     /// Runs the selected terminal's chat store while terminal mode is visible.

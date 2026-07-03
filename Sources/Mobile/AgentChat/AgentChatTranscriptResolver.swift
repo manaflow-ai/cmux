@@ -100,7 +100,7 @@ struct AgentChatTranscriptResolver: Sendable {
         let path = claudeConfigRoot
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectDir, isDirectory: true)
-            .appendingPathComponent("\(record.sessionID).jsonl", isDirectory: false)
+            .appendingPathComponent("\(record.hookStoreLookupSessionID).jsonl", isDirectory: false)
             .path
         return fileManager.fileExists(atPath: path) ? path : nil
     }
