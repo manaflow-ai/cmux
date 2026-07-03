@@ -144,6 +144,16 @@ struct FilePreviewSyntaxHighlighterTests {
         #expect(result.contains(where: { $0 == ("let", .keyword) }))
     }
 
+    @Test("CSS protocol-relative URLs are not line comments")
+    func cssProtocolRelativeURLsAreNotLineComments() {
+        let source = "body { background: url(//cdn.example.com/bg.png); } /* real comment */"
+        let comments = kinds(source, .css)
+            .filter { $0.1 == .comment }
+            .map(\.0)
+        #expect(!comments.contains(where: { $0.hasPrefix("//") }))
+        #expect(comments.contains("/* real comment */"))
+    }
+
     @Test("JSON keywords and strings are classified, braces are not")
     func jsonBasics() {
         let source = "{ \"enabled\": true, \"count\": 3 }"

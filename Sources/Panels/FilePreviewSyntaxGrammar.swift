@@ -193,7 +193,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
             )
         case .css:
             return FilePreviewSyntaxGrammar(
-                lineComments: ["//"],
+                lineComments: [],
                 blockComment: (open: "/*", close: "*/"),
                 stringDelimiters: ["\"", "'"],
                 usesAtDecorators: true,
