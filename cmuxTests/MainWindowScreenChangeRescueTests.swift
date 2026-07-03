@@ -62,6 +62,7 @@ struct MainWindowScreenChangeRescueTests {
         let rescued = MainWindowScreenRescueCore.rescuedFrames(
             for: [stranded],
             displays: [Self.builtIn],
+            thresholds: .strict,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -81,6 +82,7 @@ struct MainWindowScreenChangeRescueTests {
         let rescued = MainWindowScreenRescueCore.rescuedFrames(
             for: [fine],
             displays: [Self.builtIn],
+            thresholds: .strict,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -93,6 +95,7 @@ struct MainWindowScreenChangeRescueTests {
         let rescued = MainWindowScreenRescueCore.rescuedFrames(
             for: [stranded, fine],
             displays: [Self.builtIn],
+            thresholds: .strict,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -109,6 +112,7 @@ struct MainWindowScreenChangeRescueTests {
         let rescued = MainWindowScreenRescueCore.rescuedFrames(
             for: [tucked],
             displays: [Self.builtIn],
+            thresholds: .strict,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -128,6 +132,7 @@ struct MainWindowScreenChangeRescueTests {
         let rescued = MainWindowScreenRescueCore.rescuedFrames(
             for: [huge],
             displays: [Self.builtIn],
+            thresholds: .strict,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -142,6 +147,7 @@ struct MainWindowScreenChangeRescueTests {
         let rescued = MainWindowScreenRescueCore.rescuedFrames(
             for: [stranded],
             displays: [],
+            thresholds: .strict,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
@@ -155,10 +161,75 @@ struct MainWindowScreenChangeRescueTests {
         let rescued = MainWindowScreenRescueCore.rescuedFrames(
             for: [stranded],
             displays: [Self.builtIn, Self.external],
+            thresholds: .strict,
             minimumWidth: Self.minWidth,
             minimumHeight: Self.minHeight
         )
         let frame = try #require(rescued[0], "stranded window must be rescued")
         #expect(Self.external.visibleFrame.contains(frame))
+    }
+
+    @Test func rescueFallsBackToNearestDisplayWithoutOverlap() throws {
+        // Far beyond both screens — zero overlap anywhere, so the rescue must
+        // use the nearest-by-center-distance fallback (external is closer).
+        let stranded = CGRect(x: 6000, y: 3000, width: 800, height: 600)
+        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+            for: [stranded],
+            displays: [Self.builtIn, Self.external],
+            thresholds: .strict,
+            minimumWidth: Self.minWidth,
+            minimumHeight: Self.minHeight
+        )
+        let frame = try #require(rescued[0], "no-overlap stranded window must be rescued")
+        #expect(Self.external.visibleFrame.contains(frame))
+    }
+
+    // MARK: - Menu-bar arrangement changes (top inset is part of the signature)
+
+    @Test func signatureChangesWhenMenuBarCoversDisplayTop() {
+        // The menu bar appearing on (or moving to) a display changes only its
+        // visibleFrame — but it shrinks the visible area from the top, which
+        // can newly cover a flush-top drag band, so it MUST read as a change.
+        let withoutMenuBar = SessionDisplayGeometry(
+            displayID: 1,
+            frame: Self.builtIn.frame,
+            visibleFrame: Self.builtIn.frame // no top inset
+        )
+        let before = MainWindowScreenRescueCore.topologySignature(of: [withoutMenuBar])
+        let after = MainWindowScreenRescueCore.topologySignature(of: [Self.builtIn]) // 38pt inset
+        #expect(before != after)
+    }
+
+    // MARK: - Settled-back transient (dirty-only) uses veto thresholds
+
+    @Test func vetoThresholdRescueLeavesTuckedWindowAlone() {
+        // A wake flap (displays re-enumerate, then settle back) must not move
+        // a titlebar tucked under the menu bar: at the constrain veto's
+        // thresholds the tucked window is still reachable, so no rescue.
+        let tucked = CGRect(x: 320, y: 372, width: 800, height: 600) // maxY 972
+        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+            for: [tucked],
+            displays: [Self.builtIn],
+            thresholds: .constrainVeto,
+            minimumWidth: Self.minWidth,
+            minimumHeight: Self.minHeight
+        )
+        #expect(rescued == [nil])
+    }
+
+    @Test func vetoThresholdRescueStillFixesFullyStrandedWindow() throws {
+        // The same settled-back pass must still rescue a window whose titlebar
+        // is entirely above the screen — the shape a real transient strand
+        // produces.
+        let stranded = CGRect(x: 200, y: 800, width: 1000, height: 700)
+        let rescued = MainWindowScreenRescueCore.rescuedFrames(
+            for: [stranded],
+            displays: [Self.builtIn],
+            thresholds: .constrainVeto,
+            minimumWidth: Self.minWidth,
+            minimumHeight: Self.minHeight
+        )
+        let frame = try #require(rescued[0], "fully stranded window must be rescued even at veto thresholds")
+        #expect(Self.builtIn.visibleFrame.contains(frame))
     }
 }

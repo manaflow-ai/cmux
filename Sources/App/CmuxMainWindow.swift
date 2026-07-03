@@ -72,14 +72,17 @@ enum WindowTitlebarReachability {
         /// the strip is shorter).
         let minimumVisibleHeight: CGFloat
 
-        /// The generous thresholds session restore uses
-        /// (`AppDelegate.shouldPreserveAccessibleFrame`): a 64pt strip with at
-        /// least 120x24pt visible. Deliberately preserves placements like a
-        /// titlebar tucked under the menu bar, so the anti-creep veto keeps
-        /// refusing AppKit's sleep/wake repositioning for them.
-        static let lenient = Thresholds(
+        /// The constrain-pass veto's thresholds: a 64pt strip (the band
+        /// session restore's `AppDelegate.shouldPreserveAccessibleFrame` also
+        /// inspects) with at least 60x24pt visible. The 60pt width floor
+        /// intentionally retains the historical veto tolerance (the pre-2026-07
+        /// rule accepted any 60x60pt overlap), so a window deliberately parked
+        /// with only 60-119pt of titlebar showing keeps its anti-creep
+        /// protection across sleep/wake — as does a titlebar tucked under the
+        /// menu bar (>=24pt of the strip stays visible below the bar).
+        static let constrainVeto = Thresholds(
             topStripHeight: 64,
-            minimumVisibleWidth: 120,
+            minimumVisibleWidth: 60,
             minimumVisibleHeight: 24
         )
 
@@ -270,11 +273,11 @@ final class CmuxMainWindow: NSWindow {
 
     /// Whether `proposedFrame` is reachable enough across `visibleFrames` that
     /// AppKit's constraining pass should be skipped. The frame qualifies when
-    /// enough of its titlebar strip is visible on some screen per the lenient
-    /// `WindowTitlebarReachability` thresholds — generous enough to keep
-    /// preserving a titlebar tucked under the menu bar (the sleep/wake
-    /// anti-creep behavior), strict enough to let AppKit rescue a titlebar
-    /// stranded above every screen.
+    /// enough of its titlebar strip is visible on some screen per the
+    /// `constrainVeto` thresholds — generous enough to keep preserving a
+    /// titlebar tucked under the menu bar or a window parked mostly off a side
+    /// edge (the sleep/wake anti-creep behavior), strict enough to let AppKit
+    /// rescue a titlebar stranded above every screen.
     nonisolated static func shouldPreserveFrameDuringConstrain(
         _ proposedFrame: NSRect,
         visibleFrames: [NSRect]
@@ -282,7 +285,7 @@ final class CmuxMainWindow: NSWindow {
         WindowTitlebarReachability.isTopStripReachable(
             proposedFrame,
             onAnyOf: visibleFrames,
-            thresholds: .lenient
+            thresholds: .constrainVeto
         )
     }
 }

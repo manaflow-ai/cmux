@@ -650,6 +650,7 @@
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
 		D15C0DE00000000000000002 /* MainWindowScreenChangeRescue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15C0DE00000000000000001 /* MainWindowScreenChangeRescue.swift */; };
 		D15C0DE00000000000000012 /* MainWindowScreenChangeRescueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15C0DE00000000000000011 /* MainWindowScreenChangeRescueTests.swift */; };
+		D15C0DE00000000000000022 /* MainWindowScreenRescueCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15C0DE00000000000000021 /* MainWindowScreenRescueCore.swift */; };
 		A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */; };
 		2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C06000000000000000001 /* MainWindowVisibilityController.swift */; };
 		17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */; };
@@ -1934,6 +1935,7 @@
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
 		D15C0DE00000000000000001 /* MainWindowScreenChangeRescue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowScreenChangeRescue.swift; sourceTree = "<group>"; };
 		D15C0DE00000000000000011 /* MainWindowScreenChangeRescueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowScreenChangeRescueTests.swift; sourceTree = "<group>"; };
+		D15C0DE00000000000000021 /* MainWindowScreenRescueCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowScreenRescueCore.swift; sourceTree = "<group>"; };
 		A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/MainWindowVisibilityController+Lifecycle.swift"; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
@@ -2880,6 +2882,7 @@
 				D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
 				D15C0DE00000000000000001 /* MainWindowScreenChangeRescue.swift */,
+				D15C0DE00000000000000021 /* MainWindowScreenRescueCore.swift */,
 				D36A00040000000000000002 /* RendererRealizationController.swift */,
 				D36A00060000000000000002 /* RendererRealizationPlanner.swift */,
 				D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */,
@@ -4715,6 +4718,7 @@
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
 				D15C0DE00000000000000002 /* MainWindowScreenChangeRescue.swift in Sources */,
+				D15C0DE00000000000000022 /* MainWindowScreenRescueCore.swift in Sources */,
 				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 				F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,

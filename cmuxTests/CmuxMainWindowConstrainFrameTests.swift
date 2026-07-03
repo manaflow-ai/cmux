@@ -104,6 +104,22 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         )
     }
 
+    func testPreservesFrameWithNarrowVisibleTitlebarBand() {
+        // A window deliberately parked mostly off the right edge with only
+        // 80pt of titlebar visible is still grabbable and was protected by the
+        // historical 60pt veto tolerance — sleep/wake must not reposition it.
+        let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let frame = NSRect(x: 1360, y: 100, width: 800, height: 600) // 80pt visible
+        XCTAssertTrue(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(frame, visibleFrames: [visible])
+        )
+        // Below the 60pt floor the veto declines and AppKit may constrain.
+        let barelyVisible = NSRect(x: 1381, y: 100, width: 800, height: 600) // 59pt visible
+        XCTAssertFalse(
+            CmuxMainWindow.shouldPreserveFrameDuringConstrain(barelyVisible, visibleFrames: [visible])
+        )
+    }
+
     func testDoesNotPreserveWhenNoScreensAvailable() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         XCTAssertFalse(
@@ -117,7 +133,7 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 100, y: 100, width: 800, height: 600)
         XCTAssertTrue(
-            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .lenient)
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .constrainVeto)
         )
         XCTAssertTrue(
             WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .strict)
@@ -131,21 +147,21 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
         let frame = NSRect(x: 100, y: 700, width: 800, height: 600)
         XCTAssertFalse(
-            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .lenient)
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .constrainVeto)
         )
         XCTAssertFalse(
             WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .strict)
         )
     }
 
-    func testReachabilityTuckedUnderMenuBarIsLenientOnlyReachable() {
+    func testReachabilityTuckedUnderMenuBarIsVetoOnlyReachable() {
         // Menu-bar band is 863..900. The titlebar band (top 28pt, 865..893) is
-        // fully inside it — grabbable by nothing — while the lenient 64pt strip
+        // fully inside it — grabbable by nothing — while the veto's 64pt strip
         // still has 34pt visible below the menu bar.
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 863)
         let frame = NSRect(x: 320, y: 293, width: 800, height: 600) // maxY 893
         XCTAssertTrue(
-            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .lenient)
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .constrainVeto)
         )
         XCTAssertFalse(
             WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [visible], thresholds: .strict)
@@ -192,7 +208,7 @@ final class CmuxMainWindowConstrainFrameTests: XCTestCase {
     func testReachabilityEmptyScreenListIsUnreachable() {
         let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         XCTAssertFalse(
-            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [], thresholds: .lenient)
+            WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [], thresholds: .constrainVeto)
         )
         XCTAssertFalse(
             WindowTitlebarReachability.isTopStripReachable(frame, onAnyOf: [], thresholds: .strict)
