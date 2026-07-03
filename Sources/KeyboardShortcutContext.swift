@@ -1,10 +1,12 @@
 import AppKit
+import CmuxCommandPalette
 import CmuxSettings
 import WebKit
 
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
     let markdownPanel: MarkdownPanel?
+    let filePreviewTextEditorFocused: Bool
     let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against: the
     /// focus atoms plus the non-focus keys (`commandPaletteVisible`, `sidebarMode`,
@@ -18,7 +20,8 @@ struct ShortcutEventFocusContext {
         ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
-            sidebar: rightSidebarFocused
+            sidebar: rightSidebarFocused,
+            filePreviewTextEditor: filePreviewTextEditorFocused
         )
     }
 }
@@ -33,25 +36,43 @@ extension KeyboardShortcutSettings.Action {
         case application
         case nonBrowserPanel
         case browserPanel
+        case browserOrFilePreviewTextEditor
         case markdownPanel
         case rightSidebarFocus
+        case canvasLayout
+        case canvasLayoutOutsideFocusedContent
 
-        var isAlwaysAvailable: Bool {
-            self == .application
+        var isAlwaysAvailable: Bool { self == .application }
+
+        var forwardsMenuEquivalentToFocusedTerminal: Bool {
+            switch self {
+            case .browserPanel, .browserOrFilePreviewTextEditor:
+                return true
+            default:
+                return false
+            }
         }
 
-        func isAvailable(focusedBrowserPanel: Bool, focusedMarkdownPanel: Bool, rightSidebarFocused: Bool) -> Bool {
+        func isAvailable(
+            focusedBrowserPanel: Bool,
+            focusedMarkdownPanel: Bool,
+            focusedFilePreviewTextEditor: Bool = false,
+            rightSidebarFocused: Bool,
+            workspaceCanvasLayout: Bool = false
+        ) -> Bool {
             switch self {
-            case .application:
-                return true
-            case .nonBrowserPanel:
-                return !focusedBrowserPanel && !rightSidebarFocused
-            case .browserPanel:
-                return focusedBrowserPanel
-            case .markdownPanel:
-                return focusedMarkdownPanel
-            case .rightSidebarFocus:
-                return rightSidebarFocused
+            case .application: return true
+            case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
+            case .browserPanel: return focusedBrowserPanel
+            case .browserOrFilePreviewTextEditor: return focusedBrowserPanel || focusedFilePreviewTextEditor
+            case .markdownPanel: return focusedMarkdownPanel
+            case .rightSidebarFocus: return rightSidebarFocused
+            case .canvasLayout: return workspaceCanvasLayout
+            case .canvasLayoutOutsideFocusedContent:
+                return workspaceCanvasLayout
+                    && !focusedBrowserPanel
+                    && !focusedMarkdownPanel
+                    && !focusedFilePreviewTextEditor
             }
         }
 
@@ -59,41 +80,70 @@ extension KeyboardShortcutSettings.Action {
             isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
-                rightSidebarFocused: context.rightSidebarFocused
+                focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
+                rightSidebarFocused: context.rightSidebarFocused,
+                workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
         }
 
-        /// The built-in context expressed as a ``ShortcutWhenClause``, used as the
-        /// default when an action has no `shortcuts.when` override in cmux.json.
+        func isAvailable(commandPaletteContext context: CommandPaletteContextSnapshot) -> Bool {
+            isAvailable(
+                focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
+                focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
+                focusedFilePreviewTextEditor: context.bool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor),
+                rightSidebarFocused: false,
+                workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
+            )
+        }
+
         var defaultWhenClause: ShortcutWhenClause {
             switch self {
-            case .application:
-                return .always
-            case .nonBrowserPanel:
-                return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-            case .browserPanel:
-                return .atom(.browserFocus)
-            case .markdownPanel:
-                return .atom(.markdownFocus)
-            case .rightSidebarFocus:
-                return .atom(.sidebarFocus)
+            case .application: return .always
+            case .nonBrowserPanel: return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+            case .browserPanel: return .atom(.browserFocus)
+            case .browserOrFilePreviewTextEditor:
+                return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
+            case .markdownPanel: return .atom(.markdownFocus)
+            case .rightSidebarFocus: return .atom(.sidebarFocus)
+            case .canvasLayout: return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
+            case .canvasLayoutOutsideFocusedContent:
+                return .and(
+                    .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
+                    .and(
+                        .not(.atom(.browserFocus)),
+                        .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                    )
+                )
             }
         }
 
         func overlaps(_ other: ShortcutContext) -> Bool {
-            if self == .application || other == .application {
+            if self == .application || other == .application || self == other {
                 return true
             }
-            if self == other {
+            if (self == .markdownPanel && other == .nonBrowserPanel)
+                || (self == .nonBrowserPanel && other == .markdownPanel) {
                 return true
             }
-            // A focused markdown viewer also satisfies `.nonBrowserPanel`, so the
-            // two contexts can be active at the same time. Treat them as
-            // overlapping so shortcut conflict detection rejects a chord bound to
-            // both a markdown-zoom action and a non-browser action.
-            if (self == .markdownPanel && other == .nonBrowserPanel) ||
-                (self == .nonBrowserPanel && other == .markdownPanel) {
+            if self == .browserOrFilePreviewTextEditor || other == .browserOrFilePreviewTextEditor {
+                let paired = self == .browserOrFilePreviewTextEditor ? other : self
+                switch paired {
+                case .browserPanel, .nonBrowserPanel, .canvasLayout:
+                    return true
+                default:
+                    return false
+                }
+            }
+            if self == .canvasLayout || other == .canvasLayout {
                 return true
+            }
+            if self == .canvasLayoutOutsideFocusedContent || other == .canvasLayoutOutsideFocusedContent {
+                return self != .browserPanel
+                    && other != .browserPanel
+                    && self != .browserOrFilePreviewTextEditor
+                    && other != .browserOrFilePreviewTextEditor
+                    && self != .markdownPanel
+                    && other != .markdownPanel
             }
             return false
         }
@@ -119,21 +169,29 @@ extension KeyboardShortcutSettings.Action {
 
     var shortcutContext: ShortcutContext {
         switch self {
-        case .diffViewerScrollDown,
-             .diffViewerScrollUp,
-             .diffViewerScrollToBottom,
-             .diffViewerScrollToTop,
-             .diffViewerOpenFileSearch:
+        case .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
+             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
             return .browserPanel
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
+             .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
+             .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel
-        case .browserBack, .browserForward, .browserReload, .browserHardReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode:
+        case .browserBack, .browserForward, .browserReload, .browserHardReload,
+             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode:
             return .browserPanel
+        case .browserZoomIn, .browserZoomOut, .browserZoomReset:
+            return .browserOrFilePreviewTextEditor
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
+        case .canvasZoomReset:
+            return .canvasLayoutOutsideFocusedContent
+        case .canvasRevealFocusedPane, .canvasOverview, .canvasZoomIn, .canvasZoomOut,
+             .canvasTidy, .canvasAlignLeft, .canvasAlignRight,
+             .canvasAlignTop, .canvasAlignBottom, .canvasEqualizeWidths,
+             .canvasEqualizeHeights, .canvasDistributeHorizontally, .canvasDistributeVertically:
+            return .canvasLayout
         default:
             return .application
         }
@@ -203,15 +261,20 @@ extension AppDelegate {
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
+        let filePreviewTextEditorFocused = browserPanel == nil && markdownPanel == nil
+            ? shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
+            : false
         let rightSidebarFocused = shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false
         let focusState = ShortcutFocusState(
             browser: browserPanel != nil,
             markdown: markdownPanel != nil,
-            sidebar: rightSidebarFocused
+            sidebar: rightSidebarFocused,
+            filePreviewTextEditor: filePreviewTextEditorFocused
         )
         let context = ShortcutEventFocusContext(
             browserPanel: browserPanel,
             markdownPanel: markdownPanel,
+            filePreviewTextEditorFocused: filePreviewTextEditorFocused,
             rightSidebarFocused: rightSidebarFocused,
             shortcutContext: buildShortcutContext(focusState: focusState, window: shortcutWindow)
         )
@@ -267,6 +330,88 @@ extension AppDelegate {
         }
 
         return tabManager?.focusedMarkdownPanel
+    }
+
+    private func shortcutFocusedFilePreviewTextEditor(in window: NSWindow?) -> Bool {
+        guard let focusedFilePreviewPanel = shortcutContextTabManager(in: window)?.focusedTextFilePreviewPanel,
+              let textView = shortcutFocusedSavingTextView(in: window),
+              let owningFilePreviewPanel = textView.panel as? FilePreviewPanel,
+              owningFilePreviewPanel === focusedFilePreviewPanel else {
+            return false
+        }
+
+        return true
+    }
+
+    private func shortcutFocusedSavingTextView(in window: NSWindow?) -> SavingTextView? {
+        guard let responder = window?.firstResponder ?? NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder else {
+            return nil
+        }
+        if let textView = responder as? SavingTextView {
+            return textView
+        }
+
+        var current = responder.nextResponder
+        while let next = current {
+            if let textView = next as? SavingTextView {
+                return textView
+            }
+            current = next.nextResponder
+        }
+        return nil
+    }
+
+    @discardableResult
+    func handleFocusedFileExplorerOpenSelectionShortcut(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
+        let window = preferredWindow ?? shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let window,
+              let responder = window.firstResponder,
+              let focusView = shortcutFileExplorerFocusView(for: responder),
+              focusView.window === window || focusView.window?.windowNumber == window.windowNumber else {
+            return false
+        }
+
+        if let outlineView = focusView as? FileExplorerNSOutlineView {
+            return outlineView.handleOpenSelectionShortcut(event)
+        }
+        if let resultsView = focusView as? FileExplorerSearchResultsTableView {
+            return resultsView.handleOpenSelectionShortcut(event)
+        }
+        if let searchField = focusView as? FileExplorerSearchField {
+            return searchField.handleOpenSelectionShortcut(event)
+        }
+        return false
+    }
+
+    private func shortcutFileExplorerFocusView(for responder: NSResponder) -> NSView? {
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           let ownerView = cmuxFieldEditorOwnerView(textView) {
+            return fileExplorerShortcutFocusRoot(containing: ownerView)
+        }
+
+        if let view = responder as? NSView {
+            return fileExplorerShortcutFocusRoot(containing: view)
+        }
+
+        return nil
+    }
+
+    private func fileExplorerShortcutFocusRoot(containing view: NSView) -> NSView? {
+        var current: NSView? = view
+        while let candidate = current {
+            if isFileExplorerShortcutFocusRoot(candidate) {
+                return candidate
+            }
+            current = candidate.superview
+        }
+        return nil
+    }
+
+    private func isFileExplorerShortcutFocusRoot(_ view: NSView) -> Bool {
+        view is FileExplorerNSOutlineView ||
+            view is FileExplorerSearchResultsTableView ||
+            view is FileExplorerSearchField
     }
 
     func clearShortcutEventFocusContextCache(for event: NSEvent) {

@@ -7,7 +7,6 @@ import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxFoundation
-import CmuxWindowing
 import AppKit
 import Combine
 import CoreText
@@ -16,16 +15,16 @@ import Darwin
 import SwiftUI
 import Testing
 import CmuxTerminal
-import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// BrowserThemeMode is a shared CmuxSettings value type; pin it to the package
-// so the name is unambiguous here.
-private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
+// The app target still declares legacy duplicates of these CmuxSettings
+// value types; with CmuxSettings imported unconditionally the names are
+// ambiguous. These tests exercise the app-side paths, so pin the app types.
+private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 #elseif canImport(cmux)
 @testable import cmux
-private typealias BrowserThemeMode = CmuxSettings.BrowserThemeMode
+private typealias BrowserThemeMode = cmux.BrowserThemeMode
 #endif
 
 final class SidebarPathFormatterTests: XCTestCase {
@@ -65,6 +64,104 @@ final class GhosttyConfigTests: XCTestCase {
         let red: Int
         let green: Int
         let blue: Int
+    }
+
+    func testLaunchGhosttyResourcesPreferCurrentBundleOverInheritedEnvironment() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-resources-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(
+            at: inheritedResources.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: bundledGhostty.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, bundledGhostty.path)
+    }
+
+    func testLaunchGhosttyResourcesKeepInheritedEnvironmentWhenBundleHasNoResources() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-resource-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let emptyBundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        try fileManager.createDirectory(at: inheritedResources, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: emptyBundleResources, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: emptyBundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, inheritedResources.path)
+    }
+
+    func testLaunchGhosttyResourcesKeepInheritedEnvironmentWhenBundleLacksThemes() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-incomplete-resource-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let inheritedResources = root.appendingPathComponent("inherited/ghostty", isDirectory: true)
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(
+            at: inheritedResources.appendingPathComponent("themes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: inheritedResources.path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, inheritedResources.path)
+    }
+
+    func testLaunchGhosttyResourcesUseIncompleteBundleOnlyAsLastFallback() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-launch-incomplete-resource-last-fallback-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let bundleResources = root.appendingPathComponent("BundleResources", isDirectory: true)
+        let bundledGhostty = bundleResources.appendingPathComponent("ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: bundledGhostty, withIntermediateDirectories: true)
+
+        let resolved = cmuxApp.resolvedGhosttyResourcesDirectory(
+            currentValue: root.appendingPathComponent("missing-inherited", isDirectory: true).path,
+            bundleResourceURL: bundleResources,
+            ghosttyAppResources: root.appendingPathComponent("missing-app", isDirectory: true).path,
+            fileManager: fileManager
+        )
+
+        XCTAssertEqual(resolved, bundledGhostty.path)
     }
 
     func testResolveThemeNamePrefersLightEntryForPairedTheme() {
@@ -786,7 +883,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsEmpty() {
         XCTAssertTrue(
-            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 0,
                 legacyConfigFileSize: 42
             )
@@ -795,7 +892,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigFallbackDoesNotReloadLegacyFileWhenConfigGhosttyIsMissing() {
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: nil,
                 legacyConfigFileSize: 42
             )
@@ -804,7 +901,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigScanPathsIncludeLegacyFileWhenConfigGhosttyIsMissing() {
         XCTAssertTrue(
-            GhosttyApp.configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
+            GhosttyApp.shouldIncludeLegacyGhosttyConfigInScanPaths(
                 newConfigFileSize: nil,
                 legacyConfigFileSize: 42
             )
@@ -813,19 +910,19 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testLegacyConfigFallbackSkipsWhenNewFileHasContentsOrLegacyEmpty() {
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 10,
                 legacyConfigFileSize: 42
             )
         )
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 0,
                 legacyConfigFileSize: 0
             )
         )
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldLoadLegacyGhosttyConfig(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
                 newConfigFileSize: 0,
                 legacyConfigFileSize: nil
             )
@@ -846,7 +943,7 @@ final class GhosttyConfigTests: XCTestCase {
             .write(to: ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false), atomically: true, encoding: .utf8)
 
         XCTAssertTrue(
-            GhosttyApp.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
                 appSupportDirectory: appSupport
             )
         )
@@ -877,7 +974,7 @@ final class GhosttyConfigTests: XCTestCase {
             .write(to: ghosttyDir.appendingPathComponent("config", isDirectory: false), atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
                 appSupportDirectory: appSupport
             )
         )
@@ -885,7 +982,7 @@ final class GhosttyConfigTests: XCTestCase {
         try "".write(to: currentConfig, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            GhosttyApp.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
                 appSupportDirectory: appSupport
             )
         )
@@ -901,24 +998,27 @@ final class GhosttyConfigTests: XCTestCase {
         ]
         for (currentScope, incomingScope, expected) in cases {
             XCTAssertEqual(
-                incomingScope.shouldApply(over: currentScope),
+                GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                    currentScope: currentScope,
+                    incomingScope: incomingScope
+                ),
                 expected
             )
         }
     }
 
     func testAppearanceChangeReloadsWhenColorSchemeChanges() {
-        XCTAssertTrue(GhosttyConfig.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .light))
-        XCTAssertTrue(GhosttyConfig.shouldReloadConfigurationForAppearanceChange(previousColorScheme: nil, currentColorScheme: .dark))
+        XCTAssertTrue(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .light))
+        XCTAssertTrue(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: nil, currentColorScheme: .dark))
     }
 
     func testAppearanceChangeSkipsReloadWhenColorSchemeUnchanged() {
-        XCTAssertFalse(GhosttyConfig.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .light, currentColorScheme: .light))
-        XCTAssertFalse(GhosttyConfig.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .dark))
+        XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .light, currentColorScheme: .light))
+        XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .dark))
     }
 
     func testAppearanceSynchronizationPlanSkipsRuntimeUpdateWhenColorSchemeIsUnchanged() {
-        let plan = GhosttyConfig.appearanceSynchronizationPlan(
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
             previousColorScheme: .light,
             currentColorScheme: .light
         )
@@ -945,7 +1045,7 @@ final class GhosttyConfigTests: XCTestCase {
         ]
 
         for testCase in cases {
-            let plan = GhosttyConfig.appearanceSynchronizationPlan(
+            let plan = GhosttyApp.appearanceSynchronizationPlan(
                 previousColorScheme: testCase.previous,
                 currentColorScheme: testCase.current
             )
@@ -978,7 +1078,7 @@ final class GhosttyConfigTests: XCTestCase {
 
     func testRuntimeColorSchemeSynchronizationDecisionOnlySkipsReentrantCalls() {
         XCTAssertEqual(
-            GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
                 applied: nil,
                 requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: false
@@ -986,7 +1086,7 @@ final class GhosttyConfigTests: XCTestCase {
             .apply
         )
         XCTAssertEqual(
-            GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
                 applied: GHOSTTY_COLOR_SCHEME_DARK,
                 requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: false
@@ -994,7 +1094,7 @@ final class GhosttyConfigTests: XCTestCase {
             .apply
         )
         XCTAssertEqual(
-            GhosttyConfig.runtimeColorSchemeSynchronizationDecision(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
                 applied: GHOSTTY_COLOR_SCHEME_LIGHT,
                 requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: true
@@ -1045,9 +1145,52 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    // testScrollLagCaptureRequiresSustainedLag / testScrollLagCaptureRespectsCooldownWindow
-    // moved to CmuxTerminal's ScrollLagProbeTests when the scroll-lag probe was
-    // extracted from GhosttyApp into the engine package.
+    func testScrollLagCaptureRequiresSustainedLag() {
+        let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
+            (4, 18, 85, false),
+            (10, 6, 85, false),
+            (10, 18, 35, false),
+            (10, 18, 85, true),
+        ]
+        for testCase in cases {
+            XCTAssertEqual(
+                GhosttyApp.shouldCaptureScrollLagEvent(
+                    samples: testCase.samples,
+                    averageMs: testCase.averageMs,
+                    maxMs: testCase.maxMs,
+                    thresholdMs: 40,
+                    nowUptime: 1000,
+                    lastReportedUptime: nil
+                ),
+                testCase.expected
+            )
+        }
+    }
+
+    func testScrollLagCaptureRespectsCooldownWindow() {
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 12,
+                averageMs: 22,
+                maxMs: 90,
+                thresholdMs: 40,
+                nowUptime: 1200,
+                lastReportedUptime: 1005,
+                cooldown: 300
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 12,
+                averageMs: 22,
+                maxMs: 90,
+                thresholdMs: 40,
+                nowUptime: 1406,
+                lastReportedUptime: 1005,
+                cooldown: 300
+            )
+        )
+    }
 
     func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
@@ -1257,7 +1400,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
@@ -1271,7 +1414,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(from: backgroundColor)
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
         XCTAssertEqual(colors.backgroundHex, "#272822")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
@@ -1285,7 +1428,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
+        let colors = Workspace.resolvedChromeColors(
             from: backgroundColor,
             sharesWindowBackdrop: true
         )
@@ -1302,7 +1445,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
             return
         }
 
-        let colors = BonsplitChromeColorResolver().resolvedChromeColors(
+        let colors = Workspace.resolvedChromeColors(
             from: backgroundColor,
             renderingMode: .ghosttyRendererOwnedBackgroundImage
         )
@@ -1311,6 +1454,23 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertEqual(colors.borderHex, "#4F504A5B")
+    }
+
+    func testResolvedChromeColorsUseConfiguredPaneBorderColor() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            paneBorderColorHex: "#33AAFF"
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
     }
 }
 
@@ -1366,7 +1526,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = BonsplitChromeColorResolver().bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
         XCTAssertEqual(hex, "#1122337F")
     }
 
@@ -1378,7 +1538,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = BonsplitChromeColorResolver().bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
@@ -1390,7 +1550,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = BonsplitChromeColorResolver().bonsplitChromeHex(
+        let hex = Workspace.bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
@@ -1406,7 +1566,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = BonsplitChromeColorResolver().bonsplitChromeColors(
+        let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
@@ -1426,7 +1586,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let colors = BonsplitChromeColorResolver().bonsplitChromeColors(
+        let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
@@ -1437,6 +1597,28 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+    }
+
+    func testBonsplitChromeColorsUseConfiguredPaneBorderColor() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            renderingMode: .windowHostBackdrop,
+            paneBorderColorHex: "#33AAFF"
+        )
+
+        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
     }
 }
 
@@ -2083,17 +2265,17 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         // Out-of-range / invalid raw values that must be canonicalized.
         defaults.set("not-a-real-mode", forKey: BrowserThemeSettings.modeKey)
         defaults.set("not-a-real-variant", forKey: BrowserImportHintSettings.variantKey)
-        defaults.set(999, forKey: BrowserToolbarAccessorySpacingStore.key)
-        defaults.set(999.0, forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey)
-        defaults.set(-5.0, forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey)
+        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeSettings.defaultMode.rawValue)
         XCTAssertEqual(defaults.string(forKey: BrowserImportHintSettings.variantKey), BrowserImportHintSettings.defaultVariant.rawValue)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingStore.key), BrowserToolbarAccessorySpacingStore.defaultSpacing)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverPaddingStore.horizontalPaddingKey), BrowserProfilePopoverPaddingStore.defaultHorizontalPadding, accuracy: 0.0001)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverPaddingStore.verticalPaddingKey), BrowserProfilePopoverPaddingStore.defaultVerticalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
         XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchSettingsStore.defaultSearchEngine.rawValue)
@@ -2106,18 +2288,18 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let validSpacing = BrowserToolbarAccessorySpacingStore.supportedValues.last ?? BrowserToolbarAccessorySpacingStore.defaultSpacing
+        let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
         // Resolve the app-target theme mode via the app-only settings type; the bare
         // `BrowserThemeMode` is ambiguous here because this file also imports
         // `CmuxSettings`, which declares a same-named enum.
         let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
         defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
-        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingStore.key)
+        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingStore.key), validSpacing)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
     }
 }
 
@@ -2670,7 +2852,7 @@ final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
 final class TitlebarDoubleClickPreferenceTests: XCTestCase {
     func testResolvesZoomForFillPreference() {
         XCTAssertEqual(
-            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
                 "AppleActionOnDoubleClick": "Fill",
             ]),
             .zoom
@@ -2679,7 +2861,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testResolvesMiniaturizeForExplicitMinimizePreference() {
         XCTAssertEqual(
-            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
                 "AppleActionOnDoubleClick": "Minimize",
             ]),
             .miniaturize
@@ -2688,7 +2870,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testResolvesNoneForNoActionPreference() {
         XCTAssertEqual(
-            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
                 "AppleActionOnDoubleClick": "No Action",
             ]),
             .none
@@ -2697,7 +2879,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testFallsBackToLegacyMiniaturizePreference() {
         XCTAssertEqual(
-            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
                 "AppleMiniaturizeOnDoubleClick": true,
             ]),
             .miniaturize
@@ -2706,7 +2888,7 @@ final class TitlebarDoubleClickPreferenceTests: XCTestCase {
 
     func testDefaultsToZoomWhenPreferenceIsMissing() {
         XCTAssertEqual(
-            StandardTitlebarDoubleClickAction.resolved(globalDefaults: [:]),
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [:]),
             .zoom
         )
     }
@@ -3665,7 +3847,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     // MARK: cjkFontMappings
 
     func testCJKFontMappingsReturnsHiraginoWithKanaForJapanese() {
-        let mappings = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "en-US"])!
         let fonts = Set(mappings.map(\.1))
         let ranges = mappings.map(\.0)
 
@@ -3679,29 +3861,29 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testCJKFontMappingsReturnsNilForKoreanOnly() {
         // Korean is not auto-mapped — Ghostty's native CTFontCreateForString
         // fallback selects a better-matching font for Hangul.
-        XCTAssertNil(GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["ko-KR"]))
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"]))
     }
 
     func testCJKFontMappingsReturnsPingFangForChinese() {
-        let mappingsTW = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
+        let mappingsTW = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hant-TW"])!
         XCTAssertTrue(mappingsTW.contains { $0.1 == "PingFang TC" })
 
-        let mappingsCN = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
+        let mappingsCN = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-Hans-CN"])!
         XCTAssertTrue(mappingsCN.contains { $0.1 == "PingFang SC" })
 
-        let mappingsHK = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["zh-HK"])!
+        let mappingsHK = GhosttyApp.cjkFontMappings(preferredLanguages: ["zh-HK"])!
         XCTAssertTrue(mappingsHK.contains { $0.1 == "PingFang TC" })
     }
 
     func testCJKFontMappingsReturnsNilForNonCJKLanguages() {
-        XCTAssertNil(GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
-        XCTAssertNil(GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: []))
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
     }
 
     func testCJKFontMappingsMultiLanguageSkipsKorean() {
         // When both ja and ko are preferred, only Japanese mappings are generated.
         // Korean is left to Ghostty's native CTFontCreateForString fallback.
-        let mappings = GhosttyApp.configDiscovery.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
 
         let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
 
@@ -3712,9 +3894,9 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testResolvedInjectedCJKFontNamePinsRegularWeightForHiraginoSans() throws {
-        guard let plain = GhosttyApp.configDiscovery.discoveredFont(named: "Hiragino Sans"),
-              let pinned = GhosttyApp.configDiscovery.discoveredFont(
-                  named: GhosttyApp.configDiscovery.resolvedInjectedCJKFontName(named: "Hiragino Sans")
+        guard let plain = GhosttyApp.discoveredCTFont(named: "Hiragino Sans"),
+              let pinned = GhosttyApp.discoveredCTFont(
+                  named: GhosttyApp.resolvedInjectedCJKFontName(named: "Hiragino Sans")
               ) else {
             throw XCTSkip("Hiragino Sans is unavailable on this runner")
         }
@@ -3733,12 +3915,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
     }
 
     func testResolvedInjectedCJKFontNameLeavesPingFangSCStable() throws {
-        guard GhosttyApp.configDiscovery.discoveredFont(named: "PingFang SC") != nil else {
+        guard GhosttyApp.discoveredCTFont(named: "PingFang SC") != nil else {
             throw XCTSkip("PingFang SC is unavailable on this runner")
         }
 
         XCTAssertEqual(
-            GhosttyApp.configDiscovery.resolvedInjectedCJKFontName(named: "PingFang SC"),
+            GhosttyApp.resolvedInjectedCJKFontName(named: "PingFang SC"),
             "PingFang SC"
         )
     }
@@ -3756,7 +3938,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         try withTempConfig("font-family = Sarasa Mono K\n") { path in
             XCTAssertNil(
-                GhosttyApp.configDiscovery.autoInjectedCJKFontMappings(
+                GhosttyApp.autoInjectedCJKFontMappings(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path],
                     rangeCoverageProbe: { fontFamily, range in
@@ -3778,7 +3960,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         ]
 
         try withTempConfig("font-family = Example CJK Mono\n") { path in
-            let mappings = GhosttyApp.configDiscovery.autoInjectedCJKFontMappings(
+            let mappings = GhosttyApp.autoInjectedCJKFontMappings(
                 preferredLanguages: ["ja-JP"],
                 configPaths: [path],
                 rangeCoverageProbe: { _, range in
@@ -3795,26 +3977,26 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     func testUserConfigContainsCJKCodepointMapDetectsPresence() throws {
         try withTempConfig("font-family = Menlo\nfont-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
-            XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path]))
+            XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
         }
     }
 
     func testUserConfigContainsCJKCodepointMapReturnsFalseWhenAbsent() throws {
         try withTempConfig("font-family = Menlo\nfont-size = 14\n") { path in
-            XCTAssertFalse(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path]))
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
         }
     }
 
     func testUserConfigContainsCJKCodepointMapIgnoresComments() throws {
         try withTempConfig("# font-codepoint-map = U+3000-U+9FFF=Hiragino Sans\n") { path in
-            XCTAssertFalse(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path]))
+            XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path]))
         }
     }
 
     func testUserConfigContainsCJKCodepointMapReturnsFalseForMissingFiles() {
         let path = NSTemporaryDirectory() + "cmux-nonexistent-\(UUID().uuidString)/config"
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path])
+            GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
         )
     }
 
@@ -3832,7 +4014,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "font-family = Menlo\nconfig-file = \(included.path)\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
-        XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapFollowsRelativeIncludes() throws {
@@ -3849,7 +4031,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "config-file = fonts.conf\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
-        XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapHandlesOptionalInclude() throws {
@@ -3866,7 +4048,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "config-file = ?\(included.path)\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
-        XCTAssertTrue(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
+        XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapHandlesCyclicIncludes() throws {
@@ -3883,7 +4065,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: fileB, atomically: true, encoding: .utf8)
 
         // Should not hang; should return false since neither file has font-codepoint-map
-        XCTAssertFalse(GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
+        XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
     }
 
     func testUserConfigContainsCJKCodepointMapRespectsReset() throws {
@@ -3892,7 +4074,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-codepoint-map =
         """) { path in
             XCTAssertFalse(
-                GhosttyApp.configDiscovery.userConfigContainsCJKCodepointMap(configPaths: [path])
+                GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
             )
         }
     }
@@ -3905,7 +4087,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-family = LXGW WenKai Mono TC
         """) { path in
             XCTAssertTrue(
-                GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
+                GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
             )
         }
     }
@@ -3925,7 +4107,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertTrue(
-            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [main.path])
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [main.path])
         )
     }
 
@@ -3936,7 +4118,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-family = LXGW WenKai Mono TC
         """) { path in
             XCTAssertFalse(
-                GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
+                GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
             )
         }
     }
@@ -3956,7 +4138,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: preferred, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
                 configPaths: [legacy.path, preferred.path]
             )
         )
@@ -3981,7 +4163,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: reset, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
                 configPaths: [main.path, reset.path]
             )
         )
@@ -4006,7 +4188,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: reset, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
                 configPaths: [main.path, reset.path]
             )
         )
@@ -4020,7 +4202,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         font-family = LXGW WenKai Mono TC
         """) { path in
             XCTAssertFalse(
-                GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
+                GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path]
                 )
@@ -4031,7 +4213,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldInjectCJKFontFallbackAllowsSingleFontWithoutExplicitOverrides() throws {
         try withTempConfig("font-family = JetBrains Mono\n") { path in
             XCTAssertTrue(
-                GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
+                GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path]
                 )
@@ -4050,7 +4232,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         try withTempConfig("font-family = Sarasa Mono K\n") { path in
             XCTAssertFalse(
-                GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
+                GhosttyApp.shouldInjectCJKFontFallback(
                     preferredLanguages: ["zh-Hans-CN"],
                     configPaths: [path],
                     rangeCoverageProbe: { fontFamily, range in
@@ -4081,7 +4263,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "font-family = LXGW WenKai Mono TC\n"
             .write(to: releaseConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.configDiscovery.loadedCJKScanPaths(
+        let paths = GhosttyApp.loadedCJKScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
             appSupportDirectory: appSupport
         )
@@ -4090,7 +4272,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertTrue(paths.contains(releaseConfig.path))
         XCTAssertTrue(paths.contains(releaseConfigGhostty.path))
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldInjectCJKFontFallback(
+            GhosttyApp.shouldInjectCJKFontFallback(
                 preferredLanguages: ["zh-Hans-CN"],
                 configPaths: paths
             )
@@ -4111,13 +4293,13 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: nativeConfig, atomically: true, encoding: .utf8)
         try "".write(to: currentConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.configDiscovery.loadedGhosttyConfigScanPaths(
+        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
             appSupportDirectory: appSupport
         )
 
         XCTAssertTrue(paths.contains(nativeConfig.path))
-        XCTAssertFalse(GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: paths))
+        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
     }
 
     func testLoadedGhosttyConfigScanPathsSkipsNativeLegacyConfigWhenCurrentConfigIsNonEmpty() throws {
@@ -4135,14 +4317,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
         try "font-size = 13\n"
             .write(to: currentConfig, atomically: true, encoding: .utf8)
 
-        let paths = GhosttyApp.configDiscovery.loadedGhosttyConfigScanPaths(
+        let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
             currentBundleIdentifier: "com.example.cmux-dev",
             appSupportDirectory: appSupport
         )
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertTrue(GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: paths))
+        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: paths))
     }
 
     // MARK: shouldApplyManagedDefaultAppearance
@@ -4153,7 +4335,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
         background-opacity = 0.92
         """) { path in
             XCTAssertTrue(
-                GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [path])
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
@@ -4161,23 +4343,22 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testShouldApplyManagedDefaultAppearanceSkipsExplicitTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\n") { path in
             XCTAssertFalse(
-                GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [path])
+                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
             )
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
-        try withTempConfig("background = #101010\n") { path in
-            XCTAssertFalse(
-                GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [path])
-            )
+    func testShouldApplyManagedDefaultAppearanceAppliesWithExplicitTerminalColorDirective() throws {
+        // A lone color key must not suppress the managed default theme (#7161).
+        try withTempConfig("background = black\n") { path in
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path]))
         }
     }
 
     func testConditionalThemeOverrideResolvesSplitThemeForPreferredScheme() throws {
         try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
             XCTAssertEqual(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
@@ -4189,7 +4370,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesLightSplitThemeForPreferredScheme() throws {
         try withTempConfig("theme = light:Catppuccin Latte,dark:Apple System Colors\n") { path in
             XCTAssertEqual(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 ),
@@ -4201,7 +4382,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideSkipsPlainSingleTheme() throws {
         try withTempConfig("theme = Catppuccin Mocha\n") { path in
             XCTAssertNil(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 )
@@ -4218,7 +4399,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesSameThemePair() throws {
         try withTempConfig("theme = light:Catppuccin Mocha,dark:Catppuccin Mocha\n") { path in
             XCTAssertEqual(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
@@ -4234,14 +4415,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesIdenticalLightThemePairFromCLIEncoding() throws {
         try withTempConfig("theme = light:GitHub Light Default,dark:GitHub Light Default\n") { path in
             XCTAssertEqual(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 ),
                 "theme = GitHub Light Default"
             )
             XCTAssertEqual(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
@@ -4258,14 +4439,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesExplicitSideOnlyForOneSidedTheme() throws {
         try withTempConfig("theme = light:Catppuccin Latte\n") { path in
             XCTAssertEqual(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 ),
                 "theme = Catppuccin Latte"
             )
             XCTAssertNil(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 )
@@ -4278,14 +4459,14 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testConditionalThemeOverrideResolvesExplicitSideOnlyForDarkOnlyTheme() throws {
         try withTempConfig("theme = dark:Catppuccin Mocha\n") { path in
             XCTAssertEqual(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .dark,
                     configPaths: [path]
                 ),
                 "theme = Catppuccin Mocha"
             )
             XCTAssertNil(
-                GhosttyApp.configDiscovery.conditionalThemeOverrideConfigContents(
+                GhosttyApp.conditionalThemeOverrideConfigContents(
                     preferredColorScheme: .light,
                     configPaths: [path]
                 )
@@ -4308,7 +4489,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
         )
     }
 
@@ -4327,7 +4508,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
         )
     }
 
@@ -4353,7 +4534,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertFalse(
-            GhosttyApp.configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
+            GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [main.path])
         )
     }
 

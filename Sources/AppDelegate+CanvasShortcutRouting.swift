@@ -1,3 +1,4 @@
+import AppKit
 import CmuxCanvas
 import CmuxPanes
 import CmuxSettings
@@ -68,6 +69,34 @@ extension AppDelegate {
             _ = CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
         } else {
             _ = routedManager?.toggleFocusedSplitZoom()
+        }
+    }
+
+    func performBrowserOrTextPreviewZoomShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+        let focusContext = shortcutEventFocusContext(event)
+        if focusContext.filePreviewTextEditorFocused {
+            let targetTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            switch action {
+            case .browserZoomIn:
+                return targetTabs?.zoomInFocusedTextFilePreview() ?? false
+            case .browserZoomOut:
+                return targetTabs?.zoomOutFocusedTextFilePreview() ?? false
+            case .browserZoomReset:
+                return targetTabs?.resetZoomFocusedTextFilePreview() ?? false
+            default:
+                return false
+            }
+        }
+
+        switch action {
+        case .browserZoomIn:
+            return focusContext.browserPanel?.zoomIn() ?? false
+        case .browserZoomOut:
+            return focusContext.browserPanel?.zoomOut() ?? false
+        case .browserZoomReset:
+            return focusContext.browserPanel?.resetZoom() ?? false
+        default:
+            return false
         }
     }
 }

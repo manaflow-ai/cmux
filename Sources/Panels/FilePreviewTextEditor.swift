@@ -1,6 +1,7 @@
 import CmuxSettings
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
@@ -215,30 +216,62 @@ final class SavingTextView: NSTextView {
     private static let defaultPreviewFontSize: CGFloat = 13
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
+    private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
+        .browserZoomIn,
+        .browserZoomOut,
+        .browserZoomReset,
+    ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = 13
-    private var pendingSaveShortcutChordPrefix: ShortcutStroke?
+    private var pendingEditorShortcutChordPrefix: ShortcutStroke?
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+
+    convenience init() {
+        self.init(frame: .zero, textContainer: nil)
+    }
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        installFontMagnificationObserver()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installFontMagnificationObserver()
+    }
+
+    private func installFontMagnificationObserver() {
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyCurrentPreviewFont()
+        }
+    }
 
     deinit {}
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        clearPendingShortcutChordPrefixes()
         applyFilePreviewTextEditorInsets()
         panel?.retryPendingFocus()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign {
+            clearPendingShortcutChordPrefixes()
+        }
+        return didResign
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        guard let shouldSave = saveShortcutMatch(for: event) else {
-            return super.performKeyEquivalent(with: event)
+        if handleEditorShortcut(event) {
+            return true
         }
-        if shouldSave {
-            panel?.saveTextContent()
-        }
-        return true
+        return super.performKeyEquivalent(with: event)
     }
 
     override func magnify(with event: NSEvent) {
@@ -257,45 +290,166 @@ final class SavingTextView: NSTextView {
 
     override func smartMagnify(with event: NSEvent) {
         if previewFontSize == Self.defaultPreviewFontSize {
-            setPreviewFontSize(18)
+            _ = setPreviewFontSize(18)
         } else {
-            setPreviewFontSize(Self.defaultPreviewFontSize)
+            _ = resetPreviewFontSize()
         }
     }
 
-    private func adjustPreviewFontSize(by factor: CGFloat) {
+    @discardableResult
+    func zoomPreviewFontIn() -> Bool {
+        adjustPreviewFontSize(by: FilePreviewInteraction.zoomStep)
+    }
+
+    @discardableResult
+    func zoomPreviewFontOut() -> Bool {
+        adjustPreviewFontSize(by: 1 / FilePreviewInteraction.zoomStep)
+    }
+
+    @discardableResult
+    func resetPreviewFontSize() -> Bool {
+        setPreviewFontSize(Self.defaultPreviewFontSize)
+    }
+
+    @discardableResult
+    private func adjustPreviewFontSize(by factor: CGFloat) -> Bool {
         setPreviewFontSize(previewFontSize * factor)
     }
 
-    private func setPreviewFontSize(_ nextFontSize: CGFloat) {
+    @discardableResult
+    private func setPreviewFontSize(_ nextFontSize: CGFloat) -> Bool {
         let clamped = min(max(nextFontSize, Self.minimumPreviewFontSize), Self.maximumPreviewFontSize)
-        guard clamped.isFinite else { return }
+        guard clamped.isFinite else { return false }
+        guard abs(clamped - previewFontSize) > 0.0001 else { return false }
         previewFontSize = clamped
-        let nextFont = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
+        applyCurrentPreviewFont()
+        return true
+    }
+
+    func applyCurrentPreviewFont() {
+        let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
     }
 
-    private func saveShortcutMatch(for event: NSEvent) -> Bool? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
-        guard shortcut.hasChord else {
-            pendingSaveShortcutChordPrefix = nil
-            return shortcut.matches(event: event) ? true : nil
-        }
+    private func clearPendingShortcutChordPrefixes() {
+        pendingEditorShortcutChordPrefix = nil
+    }
 
-        if let pendingPrefix = pendingSaveShortcutChordPrefix {
-            pendingSaveShortcutChordPrefix = nil
-            guard pendingPrefix == shortcut.firstStroke,
-                  let secondStroke = shortcut.secondStroke else {
-                return nil
+    private func handleEditorShortcut(_ event: NSEvent) -> Bool {
+        let candidates = editorShortcutCandidates()
+        if let pendingPrefix = pendingEditorShortcutChordPrefix {
+            pendingEditorShortcutChordPrefix = nil
+            for candidate in candidates {
+                guard candidate.shortcut.firstStroke == pendingPrefix,
+                      let secondStroke = candidate.shortcut.secondStroke,
+                      secondStroke.matches(event: event) else { continue }
+                guard candidate.isAllowed(event) else { return false }
+                candidate.perform()
+                return true
             }
-            return secondStroke.matches(event: event) ? true : nil
-        }
-
-        if shortcut.firstStroke.matches(event: event) {
-            pendingSaveShortcutChordPrefix = shortcut.firstStroke
             return false
         }
-        return nil
+
+        for candidate in candidates {
+            let shortcut = candidate.shortcut
+            if shortcut.secondStroke != nil {
+                if shortcut.firstStroke.matches(event: event) {
+                    guard candidate.isAllowed(event) else { return false }
+                    pendingEditorShortcutChordPrefix = shortcut.firstStroke
+                    return true
+                }
+                continue
+            }
+            if shortcut.matches(event: event) {
+                guard candidate.isAllowed(event) else { return false }
+                candidate.perform()
+                return true
+            }
+        }
+        return false
+    }
+
+    private func editorShortcutCandidates() -> [
+        (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
+    ] {
+        var candidates: [(shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)] = []
+        let saveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        if !saveShortcut.isUnbound {
+            candidates.append((saveShortcut, { _ in true }, { [weak self] in self?.panel?.saveTextContent() }))
+        }
+        for action in Self.previewFontZoomShortcutActions {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard !shortcut.isUnbound else { continue }
+            candidates.append((
+                shortcut,
+                { [weak self] event in
+                    self?.previewFontZoomShortcutWhenClauseAllows(action: action, event: event) ?? false
+                },
+                { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }
+            ))
+        }
+        return candidates
+    }
+
+    private func previewFontZoomShortcutWhenClauseAllows(
+        action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) -> Bool {
+        if window != nil, let appDelegate = AppDelegate.shared {
+            return appDelegate.shortcutWhenClauseAllows(action: action, event: event)
+        }
+        return KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            .evaluate(Self.filePreviewTextEditorShortcutContext)
+    }
+
+    private static var filePreviewTextEditorShortcutContext: ShortcutContext {
+        ShortcutFocusState(
+            browser: false,
+            markdown: false,
+            sidebar: false,
+            filePreviewTextEditor: true
+        ).context
+    }
+
+    private func performPreviewFontZoomShortcutAction(_ action: KeyboardShortcutSettings.Action) {
+        switch action {
+        case .browserZoomIn:
+            _ = zoomPreviewFontIn()
+        case .browserZoomOut:
+            _ = zoomPreviewFontOut()
+        case .browserZoomReset:
+            _ = resetPreviewFontSize()
+        default:
+            break
+        }
+    }
+}
+
+extension FilePreviewPanel {
+    func attachTextView(_ textView: NSTextView) {
+        self.textView = textView
+        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+    }
+
+    @discardableResult
+    func zoomTextPreviewIn() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontIn()
+    }
+
+    @discardableResult
+    func zoomTextPreviewOut() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontOut()
+    }
+
+    @discardableResult
+    func resetTextPreviewZoom() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.resetPreviewFontSize()
     }
 }

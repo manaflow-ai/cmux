@@ -59,6 +59,57 @@ private enum WorkspaceTitlebarInteractionMetrics {
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
 }
 
+@MainActor
+final class TmuxWorkspacePaneOverlayModel {
+    private(set) var unreadRects: [CGRect] = []
+    private(set) var flashRect: CGRect?
+    private(set) var activePaneBorderRect: CGRect?
+    private(set) var activePaneBorderColorHex: String?
+    private(set) var flashStartedAt: Date?
+    private(set) var flashReason: WorkspaceAttentionFlashReason?
+
+    private var currentWorkspaceId: UUID?
+    private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
+
+    func apply(
+        _ state: TmuxWorkspacePaneOverlayRenderState,
+        now: () -> Date = Date.init
+    ) {
+        unreadRects = state.unreadRects
+        flashRect = state.flashRect
+        activePaneBorderRect = state.activePaneBorderRect
+        activePaneBorderColorHex = state.activePaneBorderColorHex
+        flashReason = state.flashReason
+
+        let didChangeWorkspace = currentWorkspaceId != state.workspaceId
+        let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
+        let didChangeFlashToken = previousFlashToken.map { state.flashToken != $0 } ?? (state.flashToken > 0)
+        if didChangeFlashToken,
+           state.flashRect != nil {
+            flashStartedAt = now()
+        } else if didChangeWorkspace {
+            flashStartedAt = nil
+        }
+        currentWorkspaceId = state.workspaceId
+        if (previousFlashToken == nil && state.flashToken == 0) ||
+            !didChangeFlashToken ||
+            state.flashRect != nil {
+            lastFlashTokenByWorkspaceId[state.workspaceId] = state.flashToken
+        }
+    }
+
+    func clear() {
+        unreadRects = []
+        flashRect = nil
+        activePaneBorderRect = nil
+        activePaneBorderColorHex = nil
+        flashStartedAt = nil
+        flashReason = nil
+        currentWorkspaceId = nil
+        lastFlashTokenByWorkspaceId = [:]
+    }
+}
+
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
     private struct DeferredThemeRefresh {
@@ -289,6 +340,9 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
+            workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.

@@ -326,6 +326,12 @@ struct DockPanelView: View {
                 .frame(width: 1, height: 1)
         )
         .accessibilityIdentifier("DockPanel")
+        // TODO(delta-merge): origin/main drove dock activation/appearance here via
+        // onAppear/onChange(isSidebarVisible,mode,rootDirectory)/onReceive(paneChrome,
+        // ghosttyConfig,ghosttyDefaultBackground). HEAD's DockPanelView no longer owns
+        // isSidebarVisible/mode/visibilityHostId/refreshAppearance (moved to the parent
+        // RightSidebarPanelView + DockControlsStore); confirm that owner drives
+        // setActive/setRootDirectory/setVisibleInUI and appearance refresh.
     }
 
     private var toolbar: some View {

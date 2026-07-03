@@ -2369,15 +2369,15 @@ class TabManager {
         return tab.panels[panelId] as? BrowserPanel
     }
 
-    /// Returns the focused panel if it's a MarkdownPanel showing the rendered
-    /// preview, nil otherwise. Zoom applies to the preview WKWebView, so the raw
-    /// text-edit mode is deliberately excluded.
-    var focusedMarkdownPanel: MarkdownPanel? {
-        guard let tab = selectedWorkspace,
-              let panelId = tab.focusedPanelId,
-              let panel = tab.panels[panelId] as? MarkdownPanel,
-              panel.displayMode == .preview else { return nil }
-        return panel
+    @discardableResult
+    func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {
+        guard let panel = focusedBrowserPanel else { return nil }
+        return action(panel)
+    }
+
+    func performFocusedTextFilePreviewZoom(_ action: (FilePreviewPanel) -> Bool) -> Bool? {
+        guard let panel = focusedTextFilePreviewPanel else { return nil }
+        return action(panel)
     }
 
     // The focused-browser/markdown zoom, focus-mode, developer-tools, and
@@ -4558,6 +4558,9 @@ extension Notification.Name {
     static let commandPaletteRenameInputInteractionRequested = CommandPaletteSignal.renameInputInteraction.notificationName
     static let commandPaletteRenameInputDeleteBackwardRequested = CommandPaletteSignal.renameInputDeleteBackward.notificationName
     static let feedbackComposerRequested = Notification.Name("cmux.feedbackComposerRequested")
+    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
+    static let workspacePaneGeometryDidChange = Notification.Name("cmux.workspacePaneGeometryDidChange")
+    /// Posted after TabManager has applied a terminal title to workspace state.
     static let workspaceTitleDidChange = Notification.Name("cmux.workspaceTitleDidChange")
     static let browserDidBecomeFirstResponderWebView = BrowserFirstResponderEvent.notificationName
     static let browserFocusAddressBar = BrowserOmnibarFocusSignal.focusAddressBar.notificationName

@@ -14,10 +14,15 @@ extension Workspace {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
         var agentPIDsForPanel: [String: pid_t] = [:]
+        var agentPIDIdentitiesForPanel: [String: AgentPIDProcessIdentity] = [:]
         var statusEntriesForPanel: [String: SidebarStatusEntry] = [:]
         for key in pidKeys {
             if let pid = agentPIDs[key] {
                 agentPIDsForPanel[key] = pid
+                // delta-merge: HEAD dropped the Workspace `agentPIDProcessIdentitiesByKey`
+                // store, so capture the live process identity from the pid for the
+                // detached-transfer PID-reuse guard.
+                agentPIDIdentitiesForPanel[key] = Workspace.agentPIDProcessIdentity(pid: pid)
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
             if let statusEntry = statusEntries[statusKey] {
@@ -29,6 +34,7 @@ extension Workspace {
             panelId: panelId,
             statusEntries: statusEntriesForPanel,
             agentPIDs: agentPIDsForPanel,
+            agentPIDProcessIdentities: agentPIDIdentitiesForPanel,
             agentPIDKeys: pidKeys
         )
     }
@@ -111,6 +117,26 @@ extension Workspace {
             refreshTrackedAgentPorts()
         }
         return didClearOtherStructuredAgentRuntime
+    }
+
+    // TODO(delta-merge): origin/main added identity-based clearStaleAgentPIDs()/
+    // clearStaleAgentPIDs(panelId:)/clearAllAgentPIDs()/isRecordedAgentPIDLive that
+    // read `agentPIDProcessIdentitiesByKey` on Workspace. HEAD moved that storage to
+    // WorkspaceSidebarAgentRuntimeObservationModel (workspace can't read it), and
+    // already has kill(pid,0)-based clearStaleAgentPIDs(panelId:) + isAgentProcessAlive
+    // below, so only the reused `agentPIDProcessIdentity(pid:)` probe is kept here
+    // (DockSplitStore+SurfaceTransfer.swift calls Workspace.agentPIDProcessIdentity).
+    static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
+        guard pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        guard size == expectedSize else { return nil }
+        return AgentPIDProcessIdentity(
+            pid: pid,
+            startSeconds: Int64(info.pbi_start_tvsec),
+            startMicroseconds: Int64(info.pbi_start_tvusec)
+        )
     }
 
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
@@ -312,6 +338,9 @@ extension Workspace {
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
             recordAgentPID(key: key, pid: pid, panelId: runtimeState.panelId, refreshPorts: false)
+            // delta-merge: HEAD no longer persists agent PID identities on Workspace
+            // (moved to the sidebar observation model; liveness uses a kill(pid,0)
+            // probe), so the adopted identity is intentionally not restored here.
             didAdoptAgentPID = true
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
@@ -402,6 +431,7 @@ extension Workspace {
         discardAgentRuntimeState(closedAgentRuntimeState)
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)

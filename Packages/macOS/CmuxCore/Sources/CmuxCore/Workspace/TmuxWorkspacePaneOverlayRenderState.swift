@@ -14,6 +14,12 @@ public struct TmuxWorkspacePaneOverlayRenderState: Equatable, Sendable {
     /// The rect to flash, if any.
     public let flashRect: CGRect?
 
+    /// Rect for the active pane border, if any (#7239).
+    public let activePaneBorderRect: CGRect?
+
+    /// Hex color for the active pane border, if any (#7239).
+    public let activePaneBorderColorHex: String?
+
     /// Monotonic token that changes when a new flash should start.
     public let flashToken: UInt64
 
@@ -25,12 +31,16 @@ public struct TmuxWorkspacePaneOverlayRenderState: Equatable, Sendable {
         workspaceId: UUID,
         unreadRects: [CGRect],
         flashRect: CGRect?,
+        activePaneBorderRect: CGRect? = nil,
+        activePaneBorderColorHex: String? = nil,
         flashToken: UInt64,
         flashReason: WorkspaceAttentionFlashReason?
     ) {
         self.workspaceId = workspaceId
         self.unreadRects = unreadRects
         self.flashRect = flashRect
+        self.activePaneBorderRect = activePaneBorderRect
+        self.activePaneBorderColorHex = activePaneBorderColorHex
         self.flashToken = flashToken
         self.flashReason = flashReason
     }
