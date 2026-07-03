@@ -2010,6 +2010,10 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setDropZoneOverlay(zone: zone)
     }
 
+    func paneDropContext(forWebViewId webViewId: ObjectIdentifier) -> BrowserPaneDropContext? {
+        entriesByWebViewId[webViewId]?.paneDropContext
+    }
+
     func updatePaneDropContext(forWebViewId webViewId: ObjectIdentifier, context: BrowserPaneDropContext?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         guard entry.paneDropContext != context else { return }
@@ -3165,6 +3169,16 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return false }
         return portal.yieldSearchOverlayFocusIfOwned(by: panelId)
+    }
+
+    /// The pane-drop context for `webView`'s hosting portal entry, or `nil` when
+    /// the web view is not a tracked portal surface. Backs shortcut routing that
+    /// needs the owning Dock pane of an AppKit-hosted browser surface.
+    static func paneDropContext(for webView: WKWebView) -> BrowserPaneDropContext? {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.paneDropContext(forWebViewId: webViewId)
     }
 
     static func updatePaneTopChromeHeight(for webView: WKWebView, height: CGFloat) {
