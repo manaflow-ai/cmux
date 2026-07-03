@@ -1158,6 +1158,7 @@
 		A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 		D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */; };
 		B7758A010000000000000001 /* TerminationWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7758A010000000000000002 /* TerminationWatchdog.swift */; };
+		B7758A030000000000000001 /* TerminationWatchdogAtomic.c in Sources */ = {isa = PBXBuildFile; fileRef = B7758A030000000000000002 /* TerminationWatchdogAtomic.c */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
 		C0DE7B100000000000000003 /* TextBoxInputInteractionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000004 /* TextBoxInputInteractionPolicy.swift */; };
 		C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */; };
@@ -2487,6 +2488,8 @@
 		A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 		D0B10007A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortalDebug.swift; sourceTree = "<group>"; };
 		B7758A010000000000000002 /* TerminationWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationWatchdog.swift; sourceTree = "<group>"; };
+		B7758A030000000000000002 /* TerminationWatchdogAtomic.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = TerminationWatchdogAtomic.c; sourceTree = "<group>"; };
+		B7758A040000000000000002 /* TerminationWatchdogAtomic.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TerminationWatchdogAtomic.h; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000004 /* TextBoxInputInteractionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInputInteractionPolicy.swift; sourceTree = "<group>"; };
 		C0DE7B3B0000000000000002 /* TextBoxInputTextViewDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/TextBoxInputTextViewDebug.swift; sourceTree = "<group>"; };
@@ -3538,6 +3541,8 @@
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				BABA2500000000000000000A /* BrowserNavigationDelegate.swift */,
+				B7758A030000000000000002 /* TerminationWatchdogAtomic.c */,
+				B7758A040000000000000002 /* TerminationWatchdogAtomic.h */,
 				BE0EE0010000000000000002 /* BrowserExternalNavigationPresenter.swift */,
 				B7E3ME010000000000000002 /* BrowserThemeMode+Presentation.swift */,
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
@@ -5336,6 +5341,7 @@
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
 				D0B10006A1B2C3D4E5F60001 /* TerminalWindowPortalDebug.swift in Sources */,
 				B7758A010000000000000001 /* TerminationWatchdog.swift in Sources */,
+				B7758A030000000000000001 /* TerminationWatchdogAtomic.c in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
 				C0DE7B100000000000000003 /* TextBoxInputInteractionPolicy.swift in Sources */,
 				C0DE7B3B0000000000000001 /* TextBoxInputTextViewDebug.swift in Sources */,
