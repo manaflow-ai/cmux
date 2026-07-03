@@ -28,6 +28,7 @@ extension RightSidebarMode {
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
+        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
 
@@ -38,6 +39,7 @@ extension RightSidebarMode {
         case .sessions: return .switchRightSidebarToSessions
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
+        case .customSidebar: return nil
         }
     }
 }
@@ -358,6 +360,11 @@ struct RightSidebarPanelView: View {
                 FeedPanelView()
             case .dock:
                 DockPanelView(rootDirectory: dockRootDirectory, workspaceId: workspaceId, store: model.dockStore)
+            case .customSidebar:
+                // Custom sidebars are hosted through the panel system
+                // (CustomSidebarPanelView), not the built-in right-sidebar mode
+                // content, so this mode renders nothing here.
+                Color.clear
             }
         } else {
             Color.clear
