@@ -9,6 +9,10 @@ extension Workspace {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        /// Start-time identities recorded for `agentPIDs`, so a consumer can
+        /// distinguish "recorded process still runs" from "pid was reused by
+        /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
+        let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
     }
 
