@@ -163,39 +163,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(fixture.notification(notification.id)?.isRead, true)
     }
 
-    func testNotificationOpenUsesStoredPanelWhenSurfaceIsStale() async throws {
-        let fixture = try makeSocketFixture(name: "notif-open-panel", includeWindow: true)
-        defer { fixture.cleanup() }
-
-        let targetWorkspace = fixture.manager.addWorkspace(title: "Open Panel Target", select: false)
-        let targetPanelId = try XCTUnwrap(targetWorkspace.focusedPanelId)
-        let staleSurfaceId = UUID()
-        let notification = makeNotification(
-            tabId: targetWorkspace.id,
-            surfaceId: staleSurfaceId,
-            panelId: targetPanelId,
-            title: "Open Stale Surface"
-        )
-        fixture.store.replaceNotificationsForTesting([notification])
-        fixture.manager.selectTab(fixture.workspace)
-
-        let response = try await sendV2RequestAsync(
-            method: "notification.open",
-            params: ["id": notification.id.uuidString],
-            to: fixture.socketPath
-        )
-
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["opened"] as? Bool, true)
-        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
-        XCTAssertEqual(result["surface_id"] as? String, staleSurfaceId.uuidString)
-        XCTAssertEqual(result["is_read"] as? Bool, true)
-        XCTAssertEqual(fixture.manager.selectedTabId, targetWorkspace.id)
-        XCTAssertEqual(fixture.manager.focusedSurfaceId(for: targetWorkspace.id), targetPanelId)
-        XCTAssertEqual(fixture.notification(notification.id)?.isRead, true)
-    }
-
     func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
         let fixture = try makeSocketFixture(name: "notif-jump", includeWindow: true)
         defer { fixture.cleanup() }
@@ -373,7 +340,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     private func makeNotification(
         tabId: UUID,
         surfaceId: UUID?,
-        panelId: UUID? = nil,
         title: String,
         isRead: Bool = false
     ) -> TerminalNotification {
@@ -381,7 +347,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             id: UUID(),
             tabId: tabId,
             surfaceId: surfaceId,
-            panelId: panelId,
             title: title,
             subtitle: "socket-test",
             body: "body",
