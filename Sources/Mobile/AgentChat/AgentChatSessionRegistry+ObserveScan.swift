@@ -35,6 +35,19 @@ enum AgentChatObservationScope: Equatable, Sendable {
     }
 }
 
+private final class AgentChatObservationWaitResume: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didResume = false
+
+    func resume(_ continuation: CheckedContinuation<Bool, Never>, returning value: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didResume else { return }
+        didResume = true
+        continuation.resume(returning: value)
+    }
+}
+
 extension AgentChatSessionRegistry {
     func reviveEndedObservedSessionIfNeeded(
         current: AgentChatSessionRecord,
@@ -67,7 +80,7 @@ extension AgentChatSessionRegistry {
         guard current.state == .ended,
               session.agentKind == .claude,
               Self.isPendingClaudeSessionID(current.sessionID),
-              current.transcriptPath == nil else {
+              !endedPendingClaudeSessionHasHistoryIdentity(current) else {
             return false
         }
         update(sessionID: current.sessionID) { record in
@@ -88,7 +101,7 @@ extension AgentChatSessionRegistry {
     ) -> String {
         guard let current = record(sessionID: canonicalSessionID),
               current.state == .ended,
-              current.transcriptPath != nil,
+              endedPendingClaudeSessionHasHistoryIdentity(current),
               session.agentKind == .claude,
               Self.isPendingClaudeSessionID(canonicalSessionID) else {
             return canonicalSessionID
@@ -119,22 +132,24 @@ extension AgentChatSessionRegistry {
     }
 
     private func waitForObservation(_ task: Task<Void, Never>, upTo timeout: Duration) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
+        await Self.waitForObservationTask(task, upTo: timeout)
+    }
+
+    nonisolated static func waitForObservationTask(_ task: Task<Void, Never>, upTo timeout: Duration) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let resume = AgentChatObservationWaitResume()
+            Task {
                 await task.value
-                return true
+                resume.resume(continuation, returning: true)
             }
-            group.addTask {
+            Task {
                 do {
                     try await Task.sleep(for: timeout)
-                    return false
+                    resume.resume(continuation, returning: false)
                 } catch {
-                    return true
+                    resume.resume(continuation, returning: true)
                 }
             }
-            let completedBeforeTimeout = await group.next() ?? false
-            group.cancelAll()
-            return completedBeforeTimeout
         }
     }
 
@@ -290,6 +305,10 @@ extension AgentChatSessionRegistry {
 
     nonisolated static func isPendingClaudeSessionID(_ sessionID: String) -> Bool {
         sessionID.hasPrefix("pending-claude-")
+    }
+
+    private func endedPendingClaudeSessionHasHistoryIdentity(_ record: AgentChatSessionRecord) -> Bool {
+        record.transcriptPath != nil || record.hookStoreSessionID != nil
     }
 
     /// Extracts a session id from an agent's argv (`--session-id <id>`,

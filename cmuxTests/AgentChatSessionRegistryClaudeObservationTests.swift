@@ -174,6 +174,26 @@ struct AgentChatSessionRegistryClaudeObservationTests {
         #expect(!requestA.covers(scanAB))
     }
 
+    @Test func observationWaitReturnsAtTimeoutWithoutDrainingSlowTask() async {
+        let clock = ContinuousClock()
+        let slowTask = Task<Void, Never> {
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {}
+        }
+        defer { slowTask.cancel() }
+
+        let start = clock.now
+        let completed = await AgentChatSessionRegistry.waitForObservationTask(
+            slowTask,
+            upTo: .milliseconds(50)
+        )
+        let elapsed = start.duration(to: clock.now)
+
+        #expect(!completed)
+        #expect(elapsed < .seconds(1))
+    }
+
     private func topProcess(
         pid: Int,
         name: String,
