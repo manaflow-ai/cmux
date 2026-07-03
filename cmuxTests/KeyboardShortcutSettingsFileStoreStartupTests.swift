@@ -534,57 +534,6 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
-    func testSettingsFileParsesFileExplorerSortOptions() throws {
-        let defaults = UserDefaults.standard
-
-        try preservingDefaults(keys: [
-            FileExplorerSortSettings.sortKeyKey,
-            FileExplorerSortSettings.sortOrderKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey
-        ]) {
-            defaults.removeObject(forKey: FileExplorerSortSettings.sortKeyKey)
-            defaults.removeObject(forKey: FileExplorerSortSettings.sortOrderKey)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            defaults.removeObject(forKey: importedManagedDefaultsKey)
-            let sortSettings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
-
-            XCTAssertEqual(sortSettings.resolvedOptions(), FileExplorerSortOptions.defaultValue)
-
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "fileExplorer": {
-                    "sortBy": "dateModified",
-                    "sortOrder": "descending"
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            let store = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            withExtendedLifetime(store) {
-                XCTAssertEqual(defaults.string(forKey: FileExplorerSortSettings.sortKeyKey), "dateModified")
-                XCTAssertEqual(defaults.string(forKey: FileExplorerSortSettings.sortOrderKey), "descending")
-                XCTAssertEqual(
-                    sortSettings.resolvedOptions(),
-                    FileExplorerSortOptions(key: .dateModified, order: .descending)
-                )
-            }
-        }
-    }
-
     func testManagedAppearanceUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey

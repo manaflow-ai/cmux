@@ -859,8 +859,8 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
-    @Published private(set) var sortOptions: FileExplorerSortOptions
-    @Published private(set) var sortRevision = 0
+    private(set) var sortOptions: FileExplorerSortOptions
+    private(set) var sortRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
 
@@ -1297,7 +1297,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     private func applySortOptions(_ options: FileExplorerSortOptions, persist: Bool) {
-        guard sortOptions != options else { return }
+        guard sortOptions != options else { return }; objectWillChange.send()
         sortOptions = options
         resortLoadedNodes()
         sortRevision &+= 1
