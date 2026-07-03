@@ -527,7 +527,8 @@ public struct SettingsWindowRoot: View {
         ResetSection(
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
-            catalog: catalog
+            catalog: catalog,
+            hostActions: hostActions
         )
         .id(anchorID(for: .reset))
     }
