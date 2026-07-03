@@ -221,6 +221,13 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - read_text
 
+    /// The app-bundle-resolved localized error strings for `surface.read_text`.
+    /// The app resolves each `String(localized:)` so the package never binds them
+    /// to the wrong bundle.
+    ///
+    /// - Returns: The read-text strings.
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings
+
     /// Reads terminal text for `surface.read_text`.
     ///
     /// - Parameters:

@@ -53,6 +53,10 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     /// `true` above, so `surfaceReadText` reaches `controlSurfaceReadText`.
     var readTextInvocation: (includeScrollback: Bool, lineLimit: Int?)?
 
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings {
+        ControlSurfaceReadTextStrings(linesMustBeGreaterThanZero: "lines must be greater than 0")
+    }
+
     func controlSurfaceReadText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,

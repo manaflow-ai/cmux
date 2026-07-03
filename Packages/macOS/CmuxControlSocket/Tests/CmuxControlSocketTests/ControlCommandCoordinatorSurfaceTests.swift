@@ -243,7 +243,11 @@ struct ControlCommandCoordinatorSurfaceTests {
             "lines": .int(0),
         ]))
 
-        #expect(result == .err(code: "invalid_params", message: "lines must be greater than 0", data: nil))
+        #expect(result == .err(
+            code: "invalid_params",
+            message: context.controlSurfaceReadTextStrings().linesMustBeGreaterThanZero,
+            data: nil
+        ))
         #expect(context.readTextInvocation == nil)
     }
 }

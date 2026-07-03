@@ -290,10 +290,15 @@ extension ControlCommandCoordinator {
         // CPU/memory under large scrollback (https://github.com/manaflow-ai/cmux/issues/6500).
         // Callers that want a bounded scrollback tail pass both `scrollback` and
         // `lines` (the `cmux read-screen --lines N` CLI does this for you).
+        let strings = context?.controlSurfaceReadTextStrings()
         let includeScrollback = bool(params, "scrollback") ?? false
         let lineLimit = int(params, "lines")
         if let lineLimit, lineLimit <= 0 {
-            return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: strings?.linesMustBeGreaterThanZero ?? "",
+                data: nil
+            )
         }
         let resolution = context?.controlSurfaceReadText(
             routing: routing,
