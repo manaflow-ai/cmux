@@ -40,6 +40,11 @@ struct BrowserPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    /// Explicit browser pane-ownership signal for Dock hosts whose panels live
+    /// outside the main Workspace tree. Restored during the main merge so the
+    /// PanelContentView caller compiles; the Dock override effect is a deferred
+    /// follow-up (nil = existing main-area behavior).
+    let paneOwnershipOverride: Bool?
     let onRequestPanelFocus: () -> Void
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
@@ -130,6 +135,7 @@ struct BrowserPanelView: View {
         isFocused: Bool,
         isVisibleInUI: Bool,
         portalPriority: Int,
+        paneOwnershipOverride: Bool? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
@@ -137,6 +143,7 @@ struct BrowserPanelView: View {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
+        self.paneOwnershipOverride = paneOwnershipOverride
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
             for: .light,
