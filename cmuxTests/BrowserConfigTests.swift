@@ -2835,7 +2835,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertEqual(panel.pageTitle, "Race A")
     }
 
-    func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
+    func testWebContentProcessTerminationDefersReplacementUntilExplicitRecovery() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "https://example.com")
@@ -2846,8 +2846,17 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
         panel.debugSimulateWebContentProcessTermination()
 
+        XCTAssertTrue(panel.webView === oldWebView)
+        XCTAssertEqual(panel.webViewInstanceID, oldInstanceID)
+        XCTAssertTrue(panel.hasRecoverableWebContentTermination)
+        XCTAssertNotNil(panel.webView.navigationDelegate)
+        XCTAssertNotNil(panel.webView.uiDelegate)
+
+        XCTAssertTrue(panel.recoverTerminatedWebContent(reason: "test"))
+
         XCTAssertFalse(panel.webView === oldWebView)
         XCTAssertNotEqual(panel.webViewInstanceID, oldInstanceID)
+        XCTAssertFalse(panel.hasRecoverableWebContentTermination)
         XCTAssertNotNil(panel.webView.navigationDelegate)
         XCTAssertNotNil(panel.webView.uiDelegate)
     }
