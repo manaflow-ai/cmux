@@ -11,6 +11,14 @@ extension RemoteTmuxController {
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
+        if !hostHasConnectedMirror(host),
+           let existing = try currentWindowMirrorOutcome(
+               host: host,
+               activateWindow: activateWindow,
+               appDelegate: appDelegate
+           ) {
+            return existing
+        }
         let capturedTargetManager = targetWindowId.flatMap {
             appDelegate.tabManagerFor(windowId: $0)
         } ?? appDelegate.tabManager
@@ -109,6 +117,13 @@ extension RemoteTmuxController {
             activateWindow: activateWindow,
             appDelegate: appDelegate
         )
+    }
+
+    private func hostHasConnectedMirror(_ host: RemoteTmuxHost) -> Bool {
+        sessionMirrors.values.contains { mirror in
+            mirror.host.connectionHash == host.connectionHash
+                && mirror.connection.connectionState == .connected
+        }
     }
 
     private func currentWindowMirrorManager(

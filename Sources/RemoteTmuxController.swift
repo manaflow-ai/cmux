@@ -354,6 +354,16 @@ final class RemoteTmuxController {
             windowRegistry.bind(host: host, windowId: windowId)
 
             let bootstrapWorkspaceId = manager.tabs.first?.id
+            let existingWorkspaceIds = sessionMirrors.values
+                .filter { $0.host.connectionHash == host.connectionHash }
+                .compactMap(\.mirroredWorkspaceId)
+            for workspaceId in existingWorkspaceIds {
+                _ = appDelegate.moveWorkspaceToWindow(
+                    workspaceId: workspaceId,
+                    windowId: windowId,
+                    focus: false
+                )
+            }
             for session in sessions {
                 do {
                     try mirrorSession(host: host, sessionName: session.name, into: manager)
