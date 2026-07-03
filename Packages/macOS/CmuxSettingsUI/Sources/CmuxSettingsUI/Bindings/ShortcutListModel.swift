@@ -432,13 +432,15 @@ final class ShortcutListModel {
         } catch {
             if pendingWriteGeneration == generation {
                 let committed = await jsonStore.value(for: catalog.shortcuts.bindings)
-                let changedActionIds = Set(bindings.keys).union(committed.keys)
-                    .filter { bindings[$0] != committed[$0] }
-                bindings = committed
-                pendingBindings = nil
-                pruneRestoreShortcuts()
-                pruneConflictRejections()
-                pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
+                if pendingWriteGeneration == generation {
+                    let changedActionIds = Set(bindings.keys).union(committed.keys)
+                        .filter { bindings[$0] != committed[$0] }
+                    bindings = committed
+                    pendingBindings = nil
+                    pruneRestoreShortcuts()
+                    pruneConflictRejections()
+                    pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
+                }
             }
             errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
         }
