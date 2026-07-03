@@ -836,6 +836,35 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
     }
 
+    @MainActor
+    func testInlineWorkspaceLongTitleYieldsToTrailingToolbarControls() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "Toolbar priority layout verification workspace title with many words that must truncate before controls",
+            "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "cmuxterm-hq / packages / ios / workspace detail / long subtitle",
+        ])
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let chatToggle = app.buttons["AgentChatInlinePreviewChatToggle"]
+        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
+
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(chatToggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
+
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [chatToggle, surfacePicker],
+            context: "inline workspace long title with chat toggle and terminal picker"
+        )
+
+        let screenshotAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshotAttachment.name = "inline-workspace-long-title-yields-to-trailing-controls"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
+    }
+
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
     /// composer must translate the actual transcript table frame upward with the
     /// composer while preserving the table's own bottom-visible content. The table
@@ -2539,6 +2568,52 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         return false
+    }
+
+    @MainActor
+    private func assertToolbarTitleYieldsToTrailingControls(
+        titleMenu: XCUIElement,
+        backButton: XCUIElement,
+        trailingControls: [XCUIElement],
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(trailingControls.isEmpty, "\(context): expected at least one trailing control", file: file, line: line)
+        let deadline = Date().addingTimeInterval(4)
+        var lastTitleFrame = titleMenu.frame
+        var lastBackFrame = backButton.frame
+        var lastTrailingFrames = trailingControls.map(\.frame)
+
+        while Date() < deadline {
+            lastTitleFrame = titleMenu.frame
+            lastBackFrame = backButton.frame
+            lastTrailingFrames = trailingControls.map(\.frame)
+
+            let usableTrailingFrames = lastTrailingFrames.filter {
+                !$0.isNull && !$0.isEmpty && $0.midY > 60 && $0.width >= 30 && $0.height >= 30
+            }
+            if !lastTitleFrame.isNull,
+               !lastTitleFrame.isEmpty,
+               !lastBackFrame.isNull,
+               !lastBackFrame.isEmpty,
+               lastTitleFrame.midY > 60,
+               lastBackFrame.midY > 60,
+               usableTrailingFrames.count == trailingControls.count,
+               let firstTrailingFrame = usableTrailingFrames.min(by: { $0.minX < $1.minX }),
+               lastTitleFrame.minX >= lastBackFrame.maxX - 1,
+               lastTitleFrame.maxX <= firstTrailingFrame.minX - 2 {
+                return
+            }
+
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        XCTFail(
+            "\(context): title must truncate/yield before trailing controls. title=\(lastTitleFrame), back=\(lastBackFrame), trailing=\(lastTrailingFrames)",
+            file: file,
+            line: line
+        )
     }
 
     private struct ChatTranscriptMetrics: CustomStringConvertible {
