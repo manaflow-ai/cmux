@@ -59,9 +59,10 @@ public protocol SidebarGitHosting: AnyObject {
     // MARK: Projection writes
 
     /// Records the panel's directory; returns `false` when nothing changed
-    /// or the workspace/panel is gone.
+    /// or the workspace/panel is gone. `displayLabel` optionally carries a
+    /// human-friendly sidebar label reported alongside the real path.
     @discardableResult
-    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool
+    func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool
     /// Shows `branch` (with its dirty flag) on the panel.
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool)
     /// Clears the panel's branch (and any dependent badge state).
