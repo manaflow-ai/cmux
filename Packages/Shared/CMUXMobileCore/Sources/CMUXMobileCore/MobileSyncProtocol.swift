@@ -13,6 +13,7 @@ public struct CmxMobileDefaults {
 
 public enum CmxAttachTransportKind: String, Codable, Sendable {
     case tailscale
+    case manualHost = "manual_host"
     case iroh
     case websocket
     case debugLoopback = "debug_loopback"

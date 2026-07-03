@@ -8,13 +8,13 @@ import Foundation
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
 /// connection.
 ///
-/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
-/// restricted to **encrypted or loopback channels only**: the Tailscale tunnel
-/// (WireGuard-encrypted), iroh peer connections (encrypted), and loopback (never
-/// leaves the machine). Plain private-LAN and `.local`/Bonjour hosts are dialed
-/// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
-/// so they are excluded from the Stack-auth-allowed set even though they may still
-/// be reachable as attach routes.
+/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:manualHostTrusted:)``)
+/// is intentionally restricted to encrypted/loopback channels plus an explicit
+/// per-host manual approval: the Tailscale tunnel (WireGuard-encrypted), iroh
+/// peer connections (encrypted), loopback (never leaves the machine), and a
+/// manual-host route only after the user accepts the plaintext-LAN warning.
+/// Plain private-LAN and `.local`/Bonjour hosts remain excluded by default even
+/// though they may still be reachable as attach routes.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -23,73 +23,77 @@ public struct MobileShellRouteAuthPolicy {
     /// - Parameter rawHost: The raw host string typed by the user.
     /// - Returns: The normalized bare host, or `nil` when it is not a valid host.
     public static func normalizedManualHost(_ rawHost: String) -> String? {
-        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return nil
-        }
-
-        let host: String
-        if trimmed.hasPrefix("[") || trimmed.hasSuffix("]") {
-            guard trimmed.hasPrefix("["),
-                  trimmed.hasSuffix("]"),
-                  trimmed.count > 2 else {
-                return nil
-            }
-            host = String(trimmed.dropFirst().dropLast())
-        } else {
-            host = trimmed
-        }
-
-        guard !host.isEmpty,
-              host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
-              host.rangeOfCharacter(from: .controlCharacters) == nil,
-              host.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@")) == nil,
-              host.range(of: "://") == nil else {
-            return nil
-        }
-        return host
+        CmxManualHost(rawHost)?.rawValue
     }
 
     /// Maps a manually typed host to the transport kind that should be used.
     /// - Parameter host: The host to classify.
-    /// - Returns: `.debugLoopback` for loopback hosts, otherwise `.tailscale`.
+    /// - Returns: `.debugLoopback` for loopback hosts, `.tailscale` for
+    ///   Tailscale IP/MagicDNS hosts, otherwise `.manualHost`.
     public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedHost = (normalizedManualHost(host) ?? host)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         if isLoopbackHost(normalizedHost) {
             return .debugLoopback
         }
-        return .tailscale
+        if isTailscaleHost(normalizedHost) {
+            return .tailscale
+        }
+        return .manualHost
     }
 
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
     /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse an encrypted or loopback channel. This predicate gates
-    /// every Stack-token-send site and returns `true` only for:
+    /// only ever traverse an encrypted/loopback channel or an explicitly trusted
+    /// manual-host route. This predicate gates every Stack-token-send site and
+    /// returns `true` only for:
     ///
     /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
     ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
     /// - `.iroh` to a peer, which is an encrypted QUIC connection.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
+    /// - `.manualHost` to a host/port that has a persisted user approval.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
     /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
     /// unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
     /// so sending the bearer token to such a host would disclose it in plaintext on
     /// the local network before the Mac proves it is the same-account host.
-    /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, and loopback routes.
-    public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
+    /// - Parameters:
+    ///   - route: The candidate attach route.
+    ///   - manualHostTrusted: Whether this exact `.manualHost` route has an
+    ///     explicit persisted trust approval.
+    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, loopback, and
+    ///   explicitly approved manual-host routes.
+    public static func routeAllowsStackAuth(
+        _ route: CmxAttachRoute,
+        manualHostTrusted: Bool = false
+    ) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
             return isTailscaleHost(host)
+        case (.manualHost, .hostPort):
+            return manualHostTrusted
         case (.iroh, .peer):
             return true
         default:
             return false
         }
+    }
+
+    /// Whether a route is an explicit manual-host route that needs approval.
+    /// - Parameter route: The candidate attach route.
+    /// - Returns: `true` only for `.manualHost` host/port routes.
+    public static func routeRequiresManualHostTrust(_ route: CmxAttachRoute) -> Bool {
+        guard route.kind == .manualHost,
+              case .hostPort = route.endpoint else {
+            return false
+        }
+        return true
     }
 
     /// Whether a decoded pairing/attach ticket must be rejected because its
@@ -146,10 +150,10 @@ public struct MobileShellRouteAuthPolicy {
     /// - Parameter host: The manually typed host.
     /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.
     public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
-        guard let normalizedHost = normalizedManualNetworkHost(host) else {
+        guard normalizedManualNetworkHost(host) != nil else {
             return false
         }
-        return !isLoopbackHost(normalizedHost) && !isTailscaleHost(normalizedHost)
+        return manualRouteKind(for: host) == .manualHost
     }
 
     private static func normalizedManualNetworkHost(_ host: String) -> String? {

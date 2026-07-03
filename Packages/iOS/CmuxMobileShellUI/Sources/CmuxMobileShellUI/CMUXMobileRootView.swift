@@ -261,11 +261,19 @@ struct CMUXMobileRootView: View {
             connectionError: store.connectionError,
             connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
+            manualHostTrustWarning: store.manualHostTrustWarning,
             connectPairingCode: {
                 await store.connectPairingInput()
             },
             acceptVersionWarning: {
                 let result = await store.acceptPairingVersionWarning()
+                clearAttachTicketAuthentication(after: result)
+                if result == .connected {
+                    dismissAddDeviceSheet()
+                }
+            },
+            acceptManualHostTrustWarning: {
+                let result = await store.acceptManualHostTrustWarning()
                 clearAttachTicketAuthentication(after: result)
                 if result == .connected {
                     dismissAddDeviceSheet()
@@ -435,7 +443,7 @@ struct CMUXMobileRootView: View {
 
     private func dismissAddDeviceSheet() {
         isShowingAddDeviceSheet = false
-        if store.pairingVersionWarning != nil {
+        if store.pairingVersionWarning != nil || store.manualHostTrustWarning != nil {
             cancelPairing()
         } else {
             clearAttachTicketAuthenticationIfNeeded()

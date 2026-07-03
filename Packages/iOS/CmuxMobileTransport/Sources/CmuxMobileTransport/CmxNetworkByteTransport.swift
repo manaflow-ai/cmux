@@ -66,10 +66,10 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     /// Creates a factory bound to the given supported route kinds.
     /// - Parameters:
     ///   - supportedKinds: Route kinds this factory accepts. Defaults to
-    ///     `tailscale` and `debugLoopback`.
+    ///     `tailscale`, `manualHost`, and `debugLoopback`.
     ///   - maximumReceiveLength: Per-receive byte cap for built transports.
     public init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .manualHost, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength
     ) {
         self.supportedKinds = supportedKinds

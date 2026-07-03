@@ -42,8 +42,8 @@ public struct CmxAttachTicketInput {
            version > CmxPairingQRCode.version {
             throw MobileSyncPairingPayloadError.unrecognizedURLVersion(version)
         }
-        // The minimal v2 pairing-code grammar (bare Tailscale routes, loopback
-        // rejected). v1 URLs carry a base64 JSON `payload` item instead.
+        // The minimal v2 pairing-code grammar (bare Tailscale/manual-host
+        // routes, loopback rejected). v1 URLs carry a base64 JSON `payload` item instead.
         if CmxPairingQRCode().isPairingCodeURL(components) {
             return try CmxPairingQRCode().decode(components)
         }

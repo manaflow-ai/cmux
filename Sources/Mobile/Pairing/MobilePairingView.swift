@@ -67,7 +67,7 @@ struct MobilePairingView: View {
     private var requirements: some View {
         VStack(alignment: .leading, spacing: 12) {
             signInRow
-            tailscaleRow
+            routeRow
         }
     }
 
@@ -81,13 +81,13 @@ struct MobilePairingView: View {
         }
     }
 
-    private var tailscaleRow: some View {
-        let reachable = tailscaleReachable
+    private var routeRow: some View {
+        let state = routeReachability
         return requirementRow(
-            title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
-            subtitle: tailscaleSubtitle(reachable: reachable)
+            title: String(localized: "mobile.pairing.req.route.title", defaultValue: "Reachable route"),
+            subtitle: routeSubtitle(state)
         ) {
-            if reachable != true {
+            if state == .missing || state == .unknown {
                 Link(
                     String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
                     destination: Self.tailscaleDownloadURL
@@ -97,24 +97,45 @@ struct MobilePairingView: View {
         }
     }
 
-    /// `true` reachable, `false` not detected, `nil` not yet known.
-    private var tailscaleReachable: Bool? {
+    private enum RouteReachability: Equatable {
+        case tailscale
+        case manualHost
+        case missing
+        case unknown
+    }
+
+    private var routeReachability: RouteReachability {
         switch model.state {
-        case let .ready(ready): return ready.reachableViaTailscale
-        case let .connected(ready): return ready.reachableViaTailscale
-        case .needsTailscale: return false
-        default: return nil
+        case let .ready(ready), let .connected(ready):
+            if ready.reachableViaTailscale { return .tailscale }
+            if ready.hasManualHostRoute { return .manualHost }
+            return .missing
+        case .needsTailscale:
+            return .missing
+        default:
+            return .unknown
         }
     }
 
-    private func tailscaleSubtitle(reachable: Bool?) -> String {
-        switch reachable {
-        case .some(true):
+    private func routeSubtitle(_ state: RouteReachability) -> String {
+        switch state {
+        case .tailscale:
             return String(localized: "mobile.pairing.req.tailscale.reachable", defaultValue: "Reachable over Tailscale.")
-        case .some(false):
-            return String(localized: "mobile.pairing.req.tailscale.missing", defaultValue: "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account.")
-        case .none:
-            return String(localized: "mobile.pairing.req.tailscale.hint", defaultValue: "Your Mac and iPhone both need Tailscale to connect over the internet.")
+        case .manualHost:
+            return String(
+                localized: "mobile.pairing.req.manualHost.reachable",
+                defaultValue: "Manual host configured. Your iPhone will ask before trusting this route."
+            )
+        case .missing:
+            return String(
+                localized: "mobile.pairing.req.route.missing",
+                defaultValue: "No Tailscale address or manual host configured. Install Tailscale, or set a Manual Host in Settings for subnet-router setups."
+            )
+        case .unknown:
+            return String(
+                localized: "mobile.pairing.req.route.hint",
+                defaultValue: "Use Tailscale, or configure a Manual Host for subnet-router setups."
+            )
         }
     }
 
@@ -167,7 +188,10 @@ struct MobilePairingView: View {
             Image(systemName: "network.slash")
                 .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
-            Text(String(localized: "mobile.pairing.needsTailscale.body", defaultValue: "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."))
+            Text(String(
+                localized: "mobile.pairing.needsRoute.body",
+                defaultValue: "This Mac has no Tailscale address or Manual Host, so your iPhone can't reach it. Install Tailscale on both devices, or configure a Manual Host in Settings if your iPhone can reach this Mac through a subnet router."
+            ))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -277,7 +301,7 @@ struct MobilePairingView: View {
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
         // Manual entry sits above the QR so Copy IP / Copy Port are reachable
         // without scrolling (they used to sit below the steps, below the fold).
-        if ready.reachableViaTailscale {
+        if ready.manualEntry != nil {
             manualFallback(ready)
         }
 
@@ -373,7 +397,7 @@ struct MobilePairingView: View {
             Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
                 .cmuxFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
-            ForEach(ready.tailscaleLines, id: \.self) { line in
+            ForEach(ready.routeLines, id: \.self) { line in
                 Text(line)
                     .cmuxFont(.caption, design: .monospaced)
                     .textSelection(.enabled)

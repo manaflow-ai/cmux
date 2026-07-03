@@ -3758,6 +3758,57 @@
         }
       }
     },
+    "mobile.pairing.manualHostTrustBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux mobile currently relies on Tailscale/WireGuard for transport encryption. With a subnet router, iPhone to router may be encrypted, but router to Mac is normal LAN traffic. Trust only this host and port if you control that network."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux mobile は現在、転送の暗号化を Tailscale/WireGuard に依存しています。サブネットルーターを使う場合、iPhone からルーターまでは暗号化されることがありますが、ルーターから Mac までは通常の LAN 通信です。そのネットワークを管理している場合のみ、このホストとポートを信頼してください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.manualHostTrustContinue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust and Pair"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼してペアリング"
+          }
+        }
+      }
+    },
+    "mobile.pairing.manualHostTrustTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust manual host?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動ホストを信頼しますか？"
+          }
+        }
+      }
+    },
     "mobile.pairing.versionWarningTitle": {
       "extractionState": "manual",
       "localizations": {

@@ -665,17 +665,23 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsPrivateLANIPWithoutSendingStackToken() async throws {
-    // Plain private-LAN routes are dialed over unencrypted TCP, so
-    // routeAllowsStackAuth excludes them: pairing must fail before any RPC
-    // (and the Stack bearer token) leaves the device.
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingBlocksPrivateLANIPUntilApproved() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .manualHost,
+        host: "192.168.1.77",
+        port: 15432
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "trusted-lan-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "trusted-lan-workspace", title: "Trusted LAN Workspace"),
+    ])
     let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
+        supportedRouteKinds: [.manualHost],
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-lan"
     )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let trustStore = InMemoryMobileManualHostTrustStore()
+    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
 
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
@@ -684,37 +690,70 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == nil)
+    #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:15432")
     #expect(try await responses.sentRequests().isEmpty)
+
+    let result = await store.acceptManualHostTrustWarning()
+
+    #expect(result == .connected)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.manualHostTrustWarning == nil)
+    let route = try #require(store.activeRoute)
+    #expect(route.kind == .manualHost)
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-lan" })
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLocalDNSNameWithoutSendingStackToken() async throws {
-    // `.local`/Bonjour hosts are dialed over unencrypted TCP, so
-    // routeAllowsStackAuth excludes them: pairing must fail before any RPC
-    // (and the Stack bearer token) leaves the device.
-    let responses = ScriptedTransportResponses([])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses),
+@Test func manualHostTrustDoesNotCoverDifferentHost() async throws {
+    let approvedRoute = try hostPortRoute(
+        kind: .manualHost,
+        host: "studio-mac.local",
+        port: 61234
+    )
+    let approvedResponses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: approvedRoute, workspaceID: "approved-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "approved-workspace", title: "Approved Workspace"),
+    ])
+    let trustStore = InMemoryMobileManualHostTrustStore()
+    let approvedRuntime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: approvedResponses),
         stackAccessToken: "stack-token-for-local-dns"
     )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let approvedStore = CMUXMobileShellStore.preview(runtime: approvedRuntime, manualHostTrustStore: trustStore)
+
+    approvedStore.signIn()
+    await approvedStore.connectManualHost(name: "", host: "studio-mac.local", port: 61234)
+    #expect(approvedStore.manualHostTrustWarning?.endpoint == "studio-mac.local:61234")
+    _ = await approvedStore.acceptManualHostTrustWarning()
+    #expect(approvedStore.connectionState == .connected)
+
+    let blockedResponses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: blockedResponses),
+        stackAccessToken: "stack-token-for-local-dns"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
 
     store.signIn()
-    await store.connectManualHost(name: "", host: "devbox.local", port: 61234)
+    await store.connectManualHost(name: "", host: "other-mac.local", port: 61234)
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.manualHostTrustWarning?.endpoint == "other-mac.local:61234")
+    #expect(try await blockedResponses.sentRequests().isEmpty)
 }
 
 @MainActor
 @Test func manualHostPairingProbesTailscaleHostForAttachTicketBeforeStackAuthFallback() async throws {
-    // A trusted (Tailscale) manual host is probed for a real attach ticket
+    // A manually-entered Tailscale host is probed for a real attach ticket
     // first; an older Mac that does not implement the probe method falls back
     // to a synthetic ticket and Stack-authenticated workspace.list.
     let responses = ScriptedTransportResponses([
@@ -1826,6 +1865,49 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func pairingQRCodeManualHostBlocksUntilApproved() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "qr-manual-workspace", title: "QR Manual Workspace"),
+        try rpcHostStatusFrame(
+            renderGrid: false,
+            macDeviceID: "qr-manual-mac",
+            macDisplayName: "QR Manual Mac"
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-qr-manual"
+    )
+    let trustStore = InMemoryMobileManualHostTrustStore()
+    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
+    let url = "cmux-ios://attach?v=2&pc=1&m=studio-mac.local:61234"
+
+    store.signIn()
+    let firstResult = await store.connectPairingURLResult(url)
+
+    #expect(firstResult == .needsUserApproval)
+    #expect(store.connectionState == .disconnected)
+    #expect(store.activeTicket == nil)
+    #expect(store.activeRoute == nil)
+    #expect(store.manualHostTrustWarning?.endpoint == "studio-mac.local:61234")
+    #expect(try await responses.sentRequests().isEmpty)
+
+    let approvedResult = await store.acceptManualHostTrustWarning()
+
+    #expect(approvedResult == .connected)
+    #expect(store.connectionState == .connected)
+    #expect(store.manualHostTrustWarning == nil)
+    let route = try #require(store.activeRoute)
+    #expect(route.kind == .manualHost)
+    let requests = try await responses.sentRequests()
+    #expect(requests.contains { request in
+        request.method == "workspace.list" &&
+            request.stackAccessToken == "stack-token-for-qr-manual"
+    })
+}
+
+@MainActor
 @Test func pairLinkWithoutAttachTokenRejectsArbitraryHostBeforeSendingAuth() async throws {
     let route = try hostPortRoute(kind: .tailscale, host: "attacker.example", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
@@ -1893,27 +1975,47 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsDefaultPortLANHostWithoutSendingStackToken() async throws {
-    // Same encrypted-routes-only contract as the explicit-port LAN test, on
-    // the default host port: no RPC (and no Stack bearer token) may leave the
-    // device for a plain-TCP private-LAN route.
-    let responses = ScriptedTransportResponses([])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses),
+@Test func manualHostTrustDoesNotCoverDifferentPort() async throws {
+    let approvedRoute = try hostPortRoute(
+        kind: .manualHost,
+        host: "192.168.1.77",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let approvedResponses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: approvedRoute, workspaceID: "approved-default-port"),
+        try rpcWorkspaceListFrame(workspaceID: "approved-default-port", title: "Approved Default Port"),
+    ])
+    let trustStore = InMemoryMobileManualHostTrustStore()
+    let approvedRuntime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: approvedResponses),
         stackAccessToken: "stack-token-for-default-lan"
     )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let approvedStore = CMUXMobileShellStore.preview(runtime: approvedRuntime, manualHostTrustStore: trustStore)
+
+    approvedStore.signIn()
+    await approvedStore.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+    #expect(approvedStore.manualHostTrustWarning?.endpoint == "192.168.1.77:\(CmxMobileDefaults.defaultHostPort)")
+    _ = await approvedStore.acceptManualHostTrustWarning()
+    #expect(approvedStore.connectionState == .connected)
+
+    let blockedResponses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: blockedResponses),
+        stackAccessToken: "stack-token-for-default-lan"
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+    await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort + 1)
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:\(CmxMobileDefaults.defaultHostPort + 1)")
+    #expect(try await blockedResponses.sentRequests().isEmpty)
 }
 
 @MainActor

@@ -9,7 +9,7 @@ public enum MobileShellConnectionError: LocalizedError {
     case connectionClosed
     /// A request exceeded its timeout deadline.
     case requestTimedOut
-    /// A manual host did not advertise a secure route.
+    /// A manual-host route was not approved for Stack-authenticated mobile sync.
     case insecureManualRoute
     /// The attach ticket expired and no fallback was available.
     case attachTicketExpired

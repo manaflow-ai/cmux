@@ -319,6 +319,8 @@ final class HostSettingsActions: SettingsHostActions {
         switch kind {
         case .tailscale:
             return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
+        case .manualHost:
+            return String(localized: "settings.mobile.route.manualHost", defaultValue: "Manual Host")
         case .debugLoopback:
             return String(localized: "settings.mobile.route.loopback", defaultValue: "Loopback")
         case .iroh:

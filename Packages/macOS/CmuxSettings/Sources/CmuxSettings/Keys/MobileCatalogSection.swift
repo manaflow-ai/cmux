@@ -34,6 +34,16 @@ public struct MobileCatalogSection: SettingCatalogSection {
         userDefaultsKey: "mobile.iOSPairingHost.port"
     )
 
+    /// Optional LAN IP address or DNS name advertised as an explicit manual
+    /// mobile pairing route. Empty keeps the default Tailscale-only route
+    /// advertisement. This exists for subnet-router topologies where the iPhone
+    /// can reach the Mac's LAN address but the Mac cannot run Tailscale.
+    public let iOSPairingManualHost = DefaultsKey<String>(
+        id: "mobile.iOSPairingHost.manualHost",
+        defaultValue: "",
+        userDefaultsKey: "mobile.iOSPairingHost.manualHost"
+    )
+
     /// Optional override for the name the iOS app shows for this Mac during
     /// pairing. Empty means use the Mac's name from System Settings
     /// (`Host.current().localizedName`). Useful when pairing against several

@@ -39,6 +39,21 @@ import Testing
         #expect(entry == CmxManualPairingEntry(host: "lawrences-mac.tail1234.ts.net", port: 58465))
     }
 
+    @Test func usesExplicitManualHostWhenNoTailscaleRouteExists() throws {
+        let entry = CmxManualPairingEntry.best(in: [
+            try route(id: "manual_host", kind: .manualHost, host: "studio-mac.corp.example", priority: 10),
+        ])
+        #expect(entry == CmxManualPairingEntry(host: "studio-mac.corp.example", port: 58465))
+    }
+
+    @Test func prefersTailscaleOverExplicitManualHostWhenBothExist() throws {
+        let entry = CmxManualPairingEntry.best(in: [
+            try route(id: "manual_host", kind: .manualHost, host: "192.168.4.12", priority: 10),
+            try route(id: "tailscale", host: "100.64.0.5", priority: 20),
+        ])
+        #expect(entry == CmxManualPairingEntry(host: "100.64.0.5", port: 58465))
+    }
+
     @Test func skipsLoopbackRoutesEntirely() throws {
         // A DEBUG Mac's dev loopback route must never be offered for manual
         // phone entry, same rule as the QR encoder.

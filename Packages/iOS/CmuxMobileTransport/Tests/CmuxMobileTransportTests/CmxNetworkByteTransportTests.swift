@@ -16,6 +16,18 @@ import Testing
     #expect(transport is CmxNetworkByteTransport)
 }
 
+@Test func networkTransportFactoryBuildsManualHostTransportByDefault() throws {
+    let route = try CmxAttachRoute(
+        id: "manual_host",
+        kind: .manualHost,
+        endpoint: .hostPort(host: "studio-mac.local", port: 49831)
+    )
+
+    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+
+    #expect(transport is CmxNetworkByteTransport)
+}
+
 @Test func networkTransportFactoryRejectsNonNetworkRouteKind() throws {
     let route = try CmxAttachRoute(
         id: "iroh",

@@ -43,7 +43,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthOnlyForEncryptedOrLoopbackRoutes() throws {
+    @Test func allowsStackAuthOnlyForEncryptedLoopbackOrApprovedManualHostRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
@@ -57,18 +57,26 @@ import Testing
             priority: 0
         )
 
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
+        let manualHostRoute = try hostPortRoute(kind: .manualHost, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
 
-        // Encrypted / loopback channels may carry the Stack bearer token.
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "[::1]") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "100.71.210.41") == .tailscale)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "work-mac.tailnet.ts.net") == .tailscale)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .manualHost)
+
+        // Encrypted / loopback channels and explicitly approved manual hosts may
+        // carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHostRoute))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHostRoute, manualHostTrusted: true))
 
-        // Plaintext-TCP routes must NOT carry the Stack bearer token: a `.tailscale`
-        // route to a private-LAN IP or a `.local`/Bonjour host is dialed over
-        // unencrypted TCP, so it is excluded from the Stack-auth-allowed set.
+        // Plaintext-TCP routes must NOT carry the Stack bearer token by default:
+        // a `.tailscale` route to a private-LAN IP or a `.local`/Bonjour host is
+        // dialed over unencrypted TCP, so it is excluded from the Stack-auth set.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
@@ -78,6 +86,37 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
+    }
+
+    @Test func manualHostTrustScopeIsHostPortAndAccountScoped() async throws {
+        let store = InMemoryMobileManualHostTrustStore()
+        let approved = try #require(MobileManualHostTrustScope(
+            host: "Studio-Mac.local",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let sameHostDifferentCase = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58465,
+            stackUserID: "user-a"
+        ))
+        let differentPort = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58466,
+            stackUserID: "user-a"
+        ))
+        let differentAccount = try #require(MobileManualHostTrustScope(
+            host: "studio-mac.local",
+            port: 58465,
+            stackUserID: "user-b"
+        ))
+
+        #expect(!await store.isTrusted(approved))
+        await store.trust(approved)
+
+        #expect(await store.isTrusted(sameHostDifferentCase))
+        #expect(!await store.isTrusted(differentPort))
+        #expect(!await store.isTrusted(differentAccount))
     }
 
     @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {

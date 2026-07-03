@@ -209,6 +209,25 @@ struct MobileHostAuthorizationTests {
         }
         #expect(snapshot.routes.filter { $0.kind == .debugLoopback }.count == 1)
     }
+    @Test func testMobileRouteResolverUsesManualHostWhenTailscaleIsUnavailable() throws {
+        let resolver = MobileRouteResolver()
+
+        let snapshot = resolver.routes(
+            port: 61234,
+            tailscaleHosts: [],
+            manualHost: " studio-mac.corp.example "
+        )
+
+        let manualRoutes = snapshot.routes.filter { $0.kind == .manualHost }
+        #expect(manualRoutes.count == 1)
+        #expect(snapshot.routes.filter { $0.kind == .tailscale }.isEmpty)
+        if case let .hostPort(host, port) = manualRoutes.first?.endpoint {
+            #expect(host == "studio-mac.corp.example")
+            #expect(port == 61234)
+        } else {
+            #expect(Bool(false), "Expected manual host route to use a host/port endpoint")
+        }
+    }
     @Test func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {
         let resolver = MobileRouteResolver()
 

@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -10,6 +11,7 @@ import SwiftUI
 public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
+    @State private var manualHost: DefaultsValueModel<String>
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
 
@@ -44,6 +46,7 @@ public struct MobileSection: View {
     ) {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
+        _manualHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingManualHost))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
         self.hostActions = hostActions
@@ -65,6 +68,14 @@ public struct MobileSection: View {
         (1...65535).contains(draftPort)
     }
 
+    private var trimmedManualHost: String {
+        manualHost.current.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isManualHostValid: Bool {
+        trimmedManualHost.isEmpty || CmxManualHost(trimmedManualHost) != nil
+    }
+
     /// The Mobile settings section content.
     public var body: some View {
         Group {
@@ -76,6 +87,9 @@ public struct MobileSection: View {
                 SettingsCardDivider()
                 portRow
                 boundPortStatusRow
+                SettingsCardDivider()
+                manualHostRow
+                manualHostStatusRow
                 SettingsCardDivider()
                 displayNameRow
                 if iOSPairingHost.current {
@@ -96,6 +110,7 @@ public struct MobileSection: View {
             iOSPairingHost,
             port,
             displayName,
+            manualHost,
             status,
         ]
         models.forEach { $0.startObserving() }
@@ -251,6 +266,48 @@ public struct MobileSection: View {
                 systemImage: "checkmark.circle.fill"
             )
             .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var manualHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:iOSPairingManualHost",
+            String(localized: "settings.mobile.manualHost", defaultValue: "Manual Host"),
+            subtitle: String(
+                localized: "settings.mobile.manualHost.subtitle",
+                defaultValue: "Optional LAN IP or DNS host to advertise when this Mac cannot run Tailscale."
+            ),
+            controlWidth: Self.columnWidth
+        ) {
+            TextField(
+                String(localized: "settings.mobile.manualHost.placeholder", defaultValue: "192.168.1.23 or mac.local"),
+                text: Binding(get: { manualHost.current }, set: { manualHost.set($0) })
+            )
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("SettingsMobilePairingManualHostField")
+        }
+    }
+
+    @ViewBuilder
+    private var manualHostStatusRow: some View {
+        if !isManualHostValid {
+            statusCaption {
+                Label(
+                    String(
+                        localized: "settings.mobile.manualHost.invalid",
+                        defaultValue: "Enter a host or IP address, without spaces or URL paths."
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(.orange)
+            }
+        } else if !trimmedManualHost.isEmpty {
+            SettingsCardNote(String(
+                localized: "settings.mobile.manualHost.warning",
+                defaultValue: "Manual hosts are explicit trust routes. The iOS app will ask before sending credentials. With a subnet router, iPhone to router may be encrypted, but router to Mac is normal LAN traffic."
+            ))
         }
     }
 

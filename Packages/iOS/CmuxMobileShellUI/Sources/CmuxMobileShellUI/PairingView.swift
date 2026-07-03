@@ -19,8 +19,10 @@ struct PairingView: View {
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
+    let manualHostTrustWarning: MobileManualHostTrustWarning?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
+    let acceptManualHostTrustWarning: () async -> Void
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
@@ -169,6 +171,44 @@ struct PairingView: View {
                             }
                             .disabled(isPairing)
                             .accessibilityIdentifier("MobilePairingVersionWarningContinueButton")
+                        }
+                    }
+                }
+
+                if let manualHostTrustWarning {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label {
+                                Text(L10n.string("mobile.pairing.manualHostTrustTitle", defaultValue: "Trust manual host?"))
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                            }
+                            .font(.headline)
+                            .foregroundStyle(.orange)
+
+                            Text(manualHostTrustWarning.endpoint)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("MobileManualHostTrustEndpoint")
+
+                            Text(L10n.string(
+                                "mobile.pairing.manualHostTrustBody",
+                                defaultValue: "cmux mobile currently relies on Tailscale/WireGuard for transport encryption. With a subnet router, iPhone to router may be encrypted, but router to Mac is normal LAN traffic. Trust only this host and port if you control that network."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("MobileManualHostTrustWarning")
+
+                            Button(role: .destructive) {
+                                startPairingTask {
+                                    await acceptManualHostTrustWarning()
+                                }
+                            } label: {
+                                Text(L10n.string("mobile.pairing.manualHostTrustContinue", defaultValue: "Trust and Pair"))
+                            }
+                            .disabled(isPairing)
+                            .accessibilityIdentifier("MobileManualHostTrustContinueButton")
                         }
                     }
                 }

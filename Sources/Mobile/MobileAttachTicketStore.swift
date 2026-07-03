@@ -130,7 +130,7 @@ final class MobileAttachTicketStore {
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
         // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
-        // `host:port` routes in the URL query, nothing else. Everything the
+        // and manual-host `host:port` routes in the URL query. Everything the
         // older grammars carried has a better channel: the auth token never
         // authorized anything (the owner's Stack access token is the host's
         // sole gate, `MobileHostService.authorizationError(for:)`), the

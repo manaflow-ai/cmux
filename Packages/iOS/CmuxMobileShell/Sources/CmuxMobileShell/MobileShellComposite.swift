@@ -15,6 +15,18 @@ private let mobileShellLog = Logger(
     category: "mobile-shell"
 )
 
+private enum PendingManualHostTrust {
+    case manual(
+        name: String,
+        host: String,
+        port: Int,
+        pairedMacDeviceID: String?,
+        recordsPairingAttempt: Bool,
+        ifStillCurrent: (() -> Bool)?
+    )
+    case pairingURL(rawURL: String, acceptedVersionWarning: Bool)
+}
+
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -168,6 +180,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A warning that must be accepted before pairing continues, currently used
     /// for Mac/iPhone app-version skew.
     public private(set) var pairingVersionWarning: String?
+    /// A warning that must be accepted before a non-Tailscale manual host can
+    /// carry Stack auth over plaintext LAN transport.
+    public private(set) var manualHostTrustWarning: MobileManualHostTrustWarning?
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
@@ -574,6 +589,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private let pairingHintDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
     let forgottenMacStore: any PairedMacForgottenStoring
+    let manualHostTrustStore: any MobileManualHostTrustStoring
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
     /// web API base URL is unavailable; the email path then fails closed and the
@@ -609,6 +625,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
     private var pendingPairingVersionWarningURL: String?
+    @ObservationIgnored private var pendingManualHostTrust: PendingManualHostTrust?
 
     /// The structured diagnostic log, injected from the app composition root.
     ///
@@ -861,6 +878,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingHintDefaults: UserDefaults = .standard,
         multiMacAggregationDefaults: UserDefaults = .standard,
         forgottenMacStore: any PairedMacForgottenStoring = InMemoryPairedMacForgottenStore(),
+        manualHostTrustStore: any MobileManualHostTrustStoring = UserDefaultsMobileManualHostTrustStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
@@ -884,6 +902,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingHintDefaults = pairingHintDefaults
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.forgottenMacStore = forgottenMacStore
+        self.manualHostTrustStore = manualHostTrustStore
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
@@ -917,6 +936,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.connectionError = nil
         self.connectionErrorGuidance = nil
         self.pairingVersionWarning = nil
+        self.manualHostTrustWarning = nil
         self.activeTicket = nil
         self.activeRoute = nil
         self.selectedWorkspaceID = workspaces.first?.id
@@ -994,10 +1014,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
+    public static func preview(
+        runtime: (any MobileSyncRuntime)? = nil,
+        manualHostTrustStore: any MobileManualHostTrustStoring = InMemoryMobileManualHostTrustStore()
+    ) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
+            manualHostTrustStore: manualHostTrustStore,
             deliveredNotificationClearer: NoopDeliveredNotificationClearer()
         )
     }
@@ -1577,6 +1601,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
+        if let directRoute,
+           await manualHostRouteNeedsApproval(directRoute) {
+            queueManualHostTrustWarning(
+                route: directRoute,
+                displayHost: normalizedHost,
+                pending: .manual(
+                    name: name,
+                    host: normalizedHost,
+                    port: port,
+                    pairedMacDeviceID: pairedMacDeviceID,
+                    recordsPairingAttempt: recordsPairingAttempt,
+                    ifStillCurrent: ifStillCurrent
+                )
+            )
+            return
+        }
         activeRoute = directRoute
         let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
@@ -1584,16 +1624,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let manualRoutes = directRoute.map { [$0] } ?? []
         guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
         do {
+            let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
             let ticket = try await manualHostTicket(
                 name: trimmedName,
                 host: normalizedHost,
                 port: port,
-                attemptStartedAt: pairingAttemptStartedAt
+                attemptStartedAt: pairingAttemptStartedAt,
+                manualHostTrusted: manualHostTrusted
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             let noThrowFailure = try await connect(
                 ticket: ticket,
-                allowsStackAuthFallback: true,
+                allowsStackAuthFallback: directRoute.map {
+                    MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+                        $0,
+                        manualHostTrusted: manualHostTrusted
+                    )
+                },
                 pairedMacDeviceID: pairedMacDeviceID,
                 ifStillCurrent: ifStillCurrent
             )
@@ -3189,6 +3236,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .needsUserApproval
         }
 
+        let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
+        if let approval = await firstManualHostRouteNeedingApproval(in: candidateRoutes),
+           case let .hostPort(host, _) = approval.route.endpoint {
+            queueManualHostTrustWarning(
+                route: approval.route,
+                displayHost: host,
+                pending: .pairingURL(
+                    rawURL: rawURL,
+                    acceptedVersionWarning: acceptedVersionWarning
+                )
+            )
+            return .needsUserApproval
+        }
+
         let attemptID = beginPairingAttempt(method: "qr")
 
         // Offline preflight: fail fast instead of stacking per-route connect
@@ -3198,7 +3259,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // pairing input now (expiry is enforced solely where the RPC attach
         // token is used), so an expired legacy code scanned offline must say
         // "offline", not crawl the route loop's stacked timeouts.
-        let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
         if !candidateRoutes.isEmpty {
             switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
             case .failedOffline: return .failed
@@ -3244,11 +3304,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func cancelPairing() {
         invalidatePairingAttempt()
         clearPairingError()
-        if pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil {
+        if pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil || manualHostTrustWarning != nil {
             clearPairingVersionWarning()
+            clearManualHostTrustWarning()
             return
         }
         clearPairingVersionWarning()
+        clearManualHostTrustWarning()
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
@@ -3377,11 +3439,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let ticket: CmxAttachTicket
         do {
+            let directRoute = try Self.manualHostRoute(host: host, port: port)
+            let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
             ticket = try await manualHostTicket(
                 name: mac.displayName ?? host,
                 host: host,
                 port: port,
-                attemptStartedAt: nil
+                attemptStartedAt: nil,
+                manualHostTrusted: manualHostTrusted
             )
         } catch {
             mobileShellLog.warning(
@@ -3404,11 +3469,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }) ?? supportedRoutes.first(where: { $0.kind != .debugLoopback })
             ?? supportedRoutes.first
         guard let route else { return nil }
+        let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
+        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            route,
+            manualHostTrusted: manualHostTrusted
+        ) else {
+            return nil
+        }
         let client = MobileCoreRPCClient(
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+            allowsStackAuthFallback: true,
+            allowsTrustedManualHostStackAuth: manualHostTrusted,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -4964,12 +5037,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for route in supportedRoutes {
             activeRoute = route
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
+            let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
+            let routeAllowsStackAuth = MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+                route,
+                manualHostTrusted: manualHostTrusted
+            )
             let client = MobileCoreRPCClient(
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
-                    ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+                    ?? routeAllowsStackAuth,
+                allowsTrustedManualHostStackAuth: manualHostTrusted,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -5178,7 +5257,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         generation: UUID,
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
-        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+        let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
+        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            route,
+            manualHostTrusted: manualHostTrusted
+        ),
               let attachToken = activeTicket?.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !attachToken.isEmpty else {
             return false
@@ -5339,6 +5422,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
         clearPairingError()
         clearPairingVersionWarning()
+        clearManualHostTrustWarning()
         return attemptID
     }
 
@@ -5516,6 +5600,98 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingVersionWarning() {
         pairingVersionWarning = nil
         pendingPairingVersionWarningURL = nil
+    }
+
+    private func clearManualHostTrustWarning() {
+        manualHostTrustWarning = nil
+        pendingManualHostTrust = nil
+    }
+
+    private func manualHostTrustScope(for route: CmxAttachRoute?) -> MobileManualHostTrustScope? {
+        guard let route,
+              MobileShellRouteAuthPolicy.routeRequiresManualHostTrust(route) else {
+            return nil
+        }
+        return MobileManualHostTrustScope(
+            route: route,
+            stackUserID: identityProvider?.currentUserID
+        )
+    }
+
+    private func manualHostStackAuthTrusted(for route: CmxAttachRoute?) async -> Bool {
+        guard let scope = manualHostTrustScope(for: route) else {
+            return false
+        }
+        return await manualHostTrustStore.isTrusted(scope)
+    }
+
+    private func manualHostRouteNeedsApproval(_ route: CmxAttachRoute) async -> Bool {
+        guard let scope = manualHostTrustScope(for: route) else {
+            return false
+        }
+        return !(await manualHostTrustStore.isTrusted(scope))
+    }
+
+    private func firstManualHostRouteNeedingApproval(
+        in routes: [CmxAttachRoute]
+    ) async -> (route: CmxAttachRoute, scope: MobileManualHostTrustScope)? {
+        for route in routes {
+            if MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+                return nil
+            }
+            guard let scope = manualHostTrustScope(for: route) else {
+                continue
+            }
+            if await manualHostTrustStore.isTrusted(scope) {
+                return nil
+            }
+            return (route, scope)
+        }
+        return nil
+    }
+
+    private func queueManualHostTrustWarning(
+        route: CmxAttachRoute,
+        displayHost: String,
+        pending: PendingManualHostTrust
+    ) {
+        guard let scope = manualHostTrustScope(for: route) else {
+            return
+        }
+        clearPairingError()
+        pendingManualHostTrust = pending
+        manualHostTrustWarning = MobileManualHostTrustWarning(
+            scope: scope,
+            displayHost: displayHost
+        )
+    }
+
+    @discardableResult
+    public func acceptManualHostTrustWarning() async -> MobilePairingURLConnectionResult {
+        guard let warning = manualHostTrustWarning,
+              let pending = pendingManualHostTrust else {
+            clearManualHostTrustWarning()
+            return .failed
+        }
+        await manualHostTrustStore.trust(warning.scope)
+        clearManualHostTrustWarning()
+        switch pending {
+        case let .manual(name, host, port, pairedMacDeviceID, recordsPairingAttempt, ifStillCurrent):
+            await connectManualHost(
+                name: name,
+                host: host,
+                port: port,
+                pairedMacDeviceID: pairedMacDeviceID,
+                recordsPairingAttempt: recordsPairingAttempt,
+                ifStillCurrent: ifStillCurrent
+            )
+            return connectionState == .connected ? .connected : .failed
+        case let .pairingURL(rawURL, acceptedVersionWarning):
+            return await connectPairingURLResult(
+                rawURL,
+                acceptedVersionWarning: acceptedVersionWarning
+            )
+        }
     }
 
     private func versionWarning(for ticket: CmxAttachTicket) -> String? {
