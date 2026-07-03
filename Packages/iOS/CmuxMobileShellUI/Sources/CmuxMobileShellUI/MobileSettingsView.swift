@@ -66,7 +66,7 @@ struct MobileSettingsView: View {
                 } footer: {
                     Text(L10n.string(
                         "mobile.settings.accountFooter",
-                        defaultValue: "This device must be signed in to the same cmux account as the Mac you pair with."
+                        defaultValue: "This device must be signed in to the same cmux account as the computer you pair with."
                     ))
                 }
 
@@ -96,7 +96,7 @@ struct MobileSettingsView: View {
                     } footer: {
                         Text(L10n.string(
                             "mobile.settings.teamFooter",
-                            defaultValue: "Switches which Stack team's Macs and devices this app shows."
+                            defaultValue: "Switches which Stack team's computers and devices this app shows."
                         ))
                     }
                 }
@@ -108,7 +108,7 @@ struct MobileSettingsView: View {
                     Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
                         if !connectedHostName.isEmpty {
                             LabeledContent(
-                                L10n.string("mobile.settings.mac", defaultValue: "Mac"),
+                                L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName
                             )
                         }
@@ -117,7 +117,7 @@ struct MobileSettingsView: View {
                                 showingHostPicker = true
                             } label: {
                                 Label(
-                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Mac"),
+                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"),
                                     systemImage: "macbook.and.iphone"
                                 )
                             }
@@ -140,7 +140,7 @@ struct MobileSettingsView: View {
                         showingSetupHelp = true
                     } label: {
                         Label(
-                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set up your Mac"),
+                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set Up Computer"),
                             systemImage: "macbook.and.iphone"
                         )
                     }

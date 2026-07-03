@@ -314,32 +314,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else {
-                    return "OK"
-                }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
-                case "feed.push":
-                    return self.v2Response(id: id, ok: true, result: [:])
-                default:
-                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
-                }
+        startDetachedMockServer(listenerFD: listenerFD, state: state, connectionCount: 128) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
             }
-            let result = runProcess(
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "antigravity", subcommand],
                 environment: environment,
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
-            return result
         }
 
         let start = runAntigravityHook(
@@ -3241,21 +3240,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
-
+        let commandBodies = allCommands + allCommands.compactMap { FileManager.default.fileExists(atPath: $0) ? try? String(contentsOf: URL(fileURLWithPath: $0), encoding: .utf8) : nil }
         XCTAssertTrue(
-            allCommands.contains {
+            commandBodies.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
                     && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
             },
-            "Codex hooks should route through the launching app's bundled CLI, saw \(allCommands)"
+            "Codex hooks should route through the launching app's bundled CLI, saw \(commandBodies)"
         )
         XCTAssertFalse(
-            allCommands.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
-            "Codex hooks must not use the reload-global cmux shim directly, saw \(allCommands)"
+            commandBodies.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
+            "Codex hooks must not use the reload-global cmux shim directly, saw \(commandBodies)"
         )
         XCTAssertFalse(
-            allCommands.contains { $0 == previousBundledHookCommand },
-            "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(allCommands)"
+            commandBodies.contains { $0 == previousBundledHookCommand },
+            "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
             allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
@@ -3399,7 +3398,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(params["auto_resume"] as? Bool, true)
             XCTAssertEqual(
                 params["command"] as? String,
-                "{ cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ]; } && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+                "cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ] && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
             )
             XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
             XCTAssertFalse(
