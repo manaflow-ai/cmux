@@ -451,7 +451,7 @@ final class cmuxUITests: XCTestCase {
         for cycle in 1...2 {
             XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 4))
             hideKeyboard.tap()
-            _ = app.keyboards.firstMatch.waitForNonExistence(withTimeout: 4)
+            _ = app.keyboards.firstMatch.waitForNonExistence(timeout: 4)
             surface.tap()
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
             sampleThroughTransition(context: "show\(cycle + 1)")
