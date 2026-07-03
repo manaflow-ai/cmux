@@ -7,6 +7,10 @@
 
 import { controlStatus, normalizeEndpoint } from "./core";
 import { SubrouterControl } from "./do";
+import {
+  consumeRateLimitResetCredit,
+  fetchRateLimitResetCredits,
+} from "./rate-limit-reset-credits";
 
 export { SubrouterControl };
 
@@ -50,6 +54,69 @@ export default {
       return json(endpoint);
     }
 
+    if (url.pathname === "/v1/subrouter/rate-limit-reset-credits") {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      return await handleRateLimitResetCredits(request);
+    }
+
+    if (url.pathname === "/v1/subrouter/rate-limit-reset-credits/consume") {
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      return await handleConsumeRateLimitResetCredit(request);
+    }
+
     return json({ error: "not_found" }, 404);
   },
 } satisfies ExportedHandler<Env>;
+
+async function handleRateLimitResetCredits(request: Request): Promise<Response> {
+  const auth = extractAuthToken(request);
+  if (!auth) {
+    return json({ error: "missing_authorization" }, 401);
+  }
+  try {
+    const result = await fetchRateLimitResetCredits("https://chatgpt.com", auth.token);
+    return json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      return json({ error: "upstream_error", detail: error.message }, 502);
+    }
+    return json({ error: "upstream_error" }, 502);
+  }
+}
+
+async function handleConsumeRateLimitResetCredit(request: Request): Promise<Response> {
+  const auth = extractAuthToken(request);
+  if (!auth) {
+    return json({ error: "missing_authorization" }, 401);
+  }
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+  const consumeRequest = body as { credit_id?: string; redeem_request_id?: string };
+  if (!consumeRequest.credit_id || !consumeRequest.redeem_request_id) {
+    return json({ error: "missing_credit_id_or_redeem_request_id" }, 400);
+  }
+  try {
+    const result = await consumeRateLimitResetCredit("https://chatgpt.com", auth.token, {
+      credit_id: consumeRequest.credit_id,
+      redeem_request_id: consumeRequest.redeem_request_id,
+    });
+    return json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      return json({ error: "upstream_error", detail: error.message }, 502);
+    }
+    return json({ error: "upstream_error" }, 502);
+  }
+}
+
+function extractAuthToken(request: Request): { token: string } | null {
+  const header = request.headers.get("authorization");
+  if (header) {
+    return { token: header };
+  }
+  return null;
+}

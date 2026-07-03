@@ -16,6 +16,8 @@ applied atomically by Wrangler.
 | `/v1/subrouter/capabilities` | `GET` | static support state |
 | `/v1/subrouter/status` | `GET` | global Durable Object status |
 | `/v1/subrouter/endpoint?url=<url>` | `GET` | normalize Subrouter endpoint URLs |
+| `/v1/subrouter/rate-limit-reset-credits` | `GET` | proxy ChatGPT rate-limit reset credits for an account |
+| `/v1/subrouter/rate-limit-reset-credits/consume` | `POST` | redeem a ChatGPT rate-limit reset credit |
 
 ## Local development
 

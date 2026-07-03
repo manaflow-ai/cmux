@@ -14,9 +14,13 @@ The first cmux-owned control plane lives in `workers/subrouter/`.
 Supported today:
 
 - Codex/Hermes endpoint preservation in cmux launches.
-- `cmux subrouter` and `cmux sr` local CLI diagnostics and env/config output.
+- `cmux subrouter` and `cmux sr` diagnostics and env/config output for local
+  routers and the hosted endpoint at `https://subrouter.cmux.dev`.
 - A Cloudflare Worker + Durable Object scaffold for CI/CD and future
   lifecycle control.
+- Subrouter control-plane proxy for Codex rate-limit reset credits
+  (`/v1/subrouter/rate-limit-reset-credits` and `/consume`), so `cmux sr credits`
+  can show which accounts still have a complimentary one-time reset available.
 
 Pending:
 
@@ -65,3 +69,17 @@ The DO should own control-plane state only: desired router version, active
 Freestyle VM id, health, rollout policy, rate/cost counters, and audit
 metadata. It should not proxy model traffic. The data plane stays in the VM or
 edge proxy layer.
+
+## Hosted cmux CLI
+
+Use the hosted control plane without setting local environment variables:
+
+```bash
+cmux sr doctor --hosted
+cmux sr env --hosted --format codex-toml
+cmux sr credits --hosted --token "$CODEX_AUTH_TOKEN"
+```
+
+`cmux sr credits` defaults to the hosted control plane when neither
+`SUBROUTER_CONTROL_PLANE_URL` nor a local Subrouter endpoint is configured.
+Pass `--control-plane-url <url>` for local Worker development.

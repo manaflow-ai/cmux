@@ -2,6 +2,8 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
+    private static let hostedSubrouterOriginURL = "https://subrouter.cmux.dev"
+
     private struct SubrouterEndpoint {
         let source: String
         let originURL: String
@@ -20,6 +22,8 @@ extension CMUXCLI {
             try runSubrouterDoctor(commandName: commandName, commandArgs: rest, jsonOutput: jsonOutput)
         case "env":
             try runSubrouterEnv(commandName: commandName, commandArgs: rest, jsonOutput: jsonOutput)
+        case "credits":
+            try runSubrouterCredits(commandName: commandName, commandArgs: rest, jsonOutput: jsonOutput)
         case "help":
             print(subrouterUsage(commandName: commandName))
         default:
@@ -33,16 +37,20 @@ extension CMUXCLI {
 
     func subrouterUsage(commandName: String) -> String {
         """
-        Usage: cmux \(commandName) <status|doctor|env> [args...]
+        Usage: cmux \(commandName) <status|doctor|env|credits> [args...]
 
         Inspect and configure cmux Subrouter integration. `cmux sr` is an alias
         for `cmux subrouter`.
 
         Subcommands:
           status                         Show current support state.
-          doctor [--url <url>]           Check local endpoint configuration.
-          env [--url <url>] [--format shell|codex-toml|json]
+          doctor [--url <url>|--hosted]  Check endpoint configuration.
+          env [--url <url>|--hosted] [--format shell|codex-toml|json]
                                          Print environment or Codex config values for a Subrouter endpoint.
+          credits [--token <token>] [--control-plane-url <url>|--hosted]
+                                         Show Codex rate-limit reset credits for the authenticated account.
+
+        Hosted endpoint: \(Self.hostedSubrouterOriginURL)
 
         Today, cmux supports Codex/Hermes endpoint preservation and a deployable
         Durable Object control-plane scaffold. Managed Cloud VM router provisioning,
@@ -71,15 +79,20 @@ extension CMUXCLI {
         } else {
             print("  Configured endpoint: none")
         }
-        print("  Next setup command: cmux \(commandName) env --url <subrouter-origin-or-base-url>")
+        print("  Hosted endpoint: \(Self.hostedSubrouterOriginURL)")
+        print("  Next setup command: cmux \(commandName) env --hosted")
     }
 
     private func runSubrouterDoctor(commandName: String, commandArgs: [String], jsonOutput: Bool) throws {
-        let (urlOpt, remaining) = parseOption(commandArgs, name: "--url")
+        let (useHosted, afterHosted) = removeSubrouterFlag(commandArgs, name: "--hosted")
+        let (urlOpt, remaining) = parseOption(afterHosted, name: "--url")
+        if useHosted && urlOpt != nil {
+            throw CLIError(message: "Usage: cmux \(commandName) doctor [--url <url>|--hosted]")
+        }
         try rejectUnexpectedSubrouterArguments(remaining, commandName: commandName, subcommand: "doctor")
         let endpoint = try resolveSubrouterEndpoint(
-            explicitURL: urlOpt,
-            explicitSource: urlOpt == nil ? nil : "--url",
+            explicitURL: useHosted ? Self.hostedSubrouterOriginURL : urlOpt,
+            explicitSource: useHosted ? "--hosted" : (urlOpt == nil ? nil : "--url"),
             environment: ProcessInfo.processInfo.environment
         )
         let ready = endpoint != nil
@@ -96,7 +109,7 @@ extension CMUXCLI {
                 [
                     "name": "endpoint_config",
                     "ok": ready,
-                    "detail": ready ? "Subrouter endpoint configured." : "Set SUBROUTER_REMOTE_URL, CUSTOM_BASE_URL, HERMES_CODEX_BASE_URL, or pass --url."
+                    "detail": ready ? "Subrouter endpoint configured." : "Set SUBROUTER_REMOTE_URL, CUSTOM_BASE_URL, HERMES_CODEX_BASE_URL, pass --url, or pass --hosted."
                 ],
                 [
                     "name": "cmux_agent_launch_env",
@@ -127,7 +140,7 @@ extension CMUXCLI {
             print("  CUSTOM_BASE_URL: \(endpoint.customBaseURL)")
             print("  HERMES_CODEX_BASE_URL: \(endpoint.codexBackendURL)")
         } else {
-            print("  Set an endpoint with SUBROUTER_REMOTE_URL or pass --url.")
+            print("  Set an endpoint with SUBROUTER_REMOTE_URL, pass --url, or pass --hosted.")
         }
         print("  cmux_agent_launch_env: ok")
         print("  durable_object_control_plane_cicd: ok")
@@ -136,26 +149,30 @@ extension CMUXCLI {
     }
 
     private func runSubrouterEnv(commandName: String, commandArgs: [String], jsonOutput: Bool) throws {
-        let (urlOpt, afterURL) = parseOption(commandArgs, name: "--url")
+        let (useHosted, afterHosted) = removeSubrouterFlag(commandArgs, name: "--hosted")
+        let (urlOpt, afterURL) = parseOption(afterHosted, name: "--url")
         let (formatOpt, remaining) = parseOption(afterURL, name: "--format")
         let positional = remaining.filter { !$0.hasPrefix("-") }
         if positional.count > 1 {
-            throw CLIError(message: "Usage: cmux \(commandName) env [--url <url>] [--format shell|codex-toml|json]")
+            throw CLIError(message: "Usage: cmux \(commandName) env [--url <url>|--hosted] [--format shell|codex-toml|json]")
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(message: "cmux \(commandName) env: unknown flag '\(unknown)'")
         }
+        if useHosted && (urlOpt != nil || positional.first != nil) {
+            throw CLIError(message: "Usage: cmux \(commandName) env [--url <url>|--hosted] [--format shell|codex-toml|json]")
+        }
         let explicitURL = urlOpt ?? positional.first
         guard let endpoint = try resolveSubrouterEndpoint(
-            explicitURL: explicitURL,
-            explicitSource: explicitURL == nil ? nil : (urlOpt == nil ? "argument" : "--url"),
+            explicitURL: useHosted ? Self.hostedSubrouterOriginURL : explicitURL,
+            explicitSource: useHosted ? "--hosted" : (explicitURL == nil ? nil : (urlOpt == nil ? "argument" : "--url")),
             environment: ProcessInfo.processInfo.environment
         ) else {
             throw CLIError(message: """
                 No Subrouter endpoint configured.
 
                 Try:
-                  cmux \(commandName) env --url http://subrouter-team.tail41290.ts.net:31415
+                  cmux \(commandName) env --hosted
                 """)
         }
 
@@ -257,6 +274,7 @@ extension CMUXCLI {
             "managed_cloud_vm_lifecycle": false,
             "data_plane_managed_by_cmux": false,
             "freestyle_default_image_bakes_subrouter": false,
+            "hosted_origin_url": Self.hostedSubrouterOriginURL,
             "supported_path_today": [
                 "codex_hermes_endpoint_env": true,
                 "codex_config_preservation": true
@@ -302,6 +320,20 @@ extension CMUXCLI {
         }
     }
 
+    private func removeSubrouterFlag(_ args: [String], name: String) -> (Bool, [String]) {
+        var found = false
+        var remaining: [String] = []
+        remaining.reserveCapacity(args.count)
+        for arg in args {
+            if arg == name {
+                found = true
+            } else {
+                remaining.append(arg)
+            }
+        }
+        return (found, remaining)
+    }
+
     private func normalizedSubrouterEnvValue(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -317,5 +349,132 @@ extension CMUXCLI {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\t", with: "\\t")
+    }
+
+    private func runSubrouterCredits(commandName: String, commandArgs: [String], jsonOutput: Bool) throws {
+        let (tokenOpt, afterToken) = parseOption(commandArgs, name: "--token")
+        let (controlPlaneURLOpt, afterControlPlaneURL) = parseOption(afterToken, name: "--control-plane-url")
+        let (useHosted, remaining) = removeSubrouterFlag(afterControlPlaneURL, name: "--hosted")
+        if useHosted && controlPlaneURLOpt != nil {
+            throw CLIError(message: "Usage: cmux \(commandName) credits [--token <token>] [--control-plane-url <url>|--hosted]")
+        }
+        try rejectUnexpectedSubrouterArguments(remaining, commandName: commandName, subcommand: "credits")
+
+        let environment = ProcessInfo.processInfo.environment
+        let authToken = tokenOpt ?? environment["CODEX_AUTH_TOKEN"]
+        guard let authToken, !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw CLIError(message: """
+                cmux \(commandName) credits requires a Codex auth token.
+
+                Pass --token or set CODEX_AUTH_TOKEN. The token is forwarded to the
+                Subrouter control plane, which proxies the ChatGPT rate-limit-reset-credits
+                endpoint. cmux does not persist the token.
+                """)
+        }
+
+        let controlPlaneURL: String
+        if useHosted {
+            controlPlaneURL = Self.hostedSubrouterOriginURL
+        } else if let explicit = controlPlaneURLOpt ?? environment["SUBROUTER_CONTROL_PLANE_URL"] {
+            controlPlaneURL = explicit
+        } else if let endpoint = try configuredSubrouterEndpoint(environment: environment) {
+            controlPlaneURL = endpoint.originURL
+        } else {
+            controlPlaneURL = Self.hostedSubrouterOriginURL
+        }
+
+        let creditsURL = "\(stripSubrouterTrailingSlashes(controlPlaneURL))/v1/subrouter/rate-limit-reset-credits"
+        let result = try fetchSubrouterRateLimitResetCredits(url: creditsURL, authToken: authToken)
+
+        if jsonOutput {
+            print(jsonString(result))
+            return
+        }
+
+        guard let wrapper = result["rate_limit_reset_credits"] as? [String: Any],
+              let availableCount = wrapper["available_count"] as? Int,
+              let credits = wrapper["credits"] as? [[String: Any]] else {
+            throw CLIError(message: "Unexpected response from Subrouter control plane")
+        }
+
+        print("Codex rate-limit reset credits")
+        print("  available: \(availableCount)")
+        if credits.isEmpty {
+            print("  credits: none")
+        } else {
+            print("  credits:")
+            for credit in credits {
+                let id = credit["id"] as? String ?? "<unknown>"
+                let status = credit["status"] as? String ?? "unknown"
+                let title = credit["title"] as? String ?? "Rate limit reset"
+                let consumedMarker = status == "available" ? "not consumed" : "consumed"
+                print("    - \(id): \(title) (\(status), \(consumedMarker))")
+            }
+        }
+    }
+
+    private func fetchSubrouterRateLimitResetCredits(url: String, authToken: String) throws -> [String: Any] {
+        guard let requestURL = URL(string: url) else {
+            throw CLIError(message: "Invalid Subrouter credits URL: \(url)")
+        }
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(authToken.starts(with: "Bearer ") ? authToken : "Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 30
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        let finished = DispatchSemaphore(value: 0)
+        var result: Result<[String: Any], Error>?
+        let task = session.dataTask(with: request) { data, response, error in
+            if let error {
+                result = .failure(error)
+                finished.signal()
+                return
+            }
+            guard let data else {
+                result = .failure(CLIError(message: "No data received from Subrouter control plane"))
+                finished.signal()
+                return
+            }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                result = .failure(CLIError(message: "Non-HTTP response from Subrouter control plane"))
+                finished.signal()
+                return
+            }
+            guard httpResponse.statusCode == 200 else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                result = .failure(CLIError(message: "Subrouter control plane returned \(httpResponse.statusCode): \(body)"))
+                finished.signal()
+                return
+            }
+            guard let object = try? JSONSerialization.jsonObject(with: data, options: []),
+                  let dictionary = object as? [String: Any] else {
+                result = .failure(CLIError(message: "Invalid JSON from Subrouter control plane"))
+                finished.signal()
+                return
+            }
+            result = .success(dictionary)
+            finished.signal()
+        }
+        task.resume()
+        if finished.wait(timeout: .now() + 35) == .timedOut {
+            task.cancel()
+            throw CLIError(message: "Timed out waiting for Subrouter control plane")
+        }
+
+        switch result {
+        case .success(let dictionary):
+            return dictionary
+        case .failure(let error):
+            throw error
+        case .none:
+            throw CLIError(message: "Unknown error waiting for Subrouter control plane")
+        }
     }
 }

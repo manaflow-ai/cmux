@@ -33991,7 +33991,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
-          subrouter <status|doctor|env> [args...]     (alias: sr)
+          subrouter <status|doctor|env|credits> [args...]     (alias: sr)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows
