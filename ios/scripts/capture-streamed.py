@@ -48,10 +48,7 @@ PROMPT = ("Explain what main.swift does, then give 3 concrete improvements with 
 AGENTS = {
     "claude": {"title": "App entry point", "launch": "claude --resume 21f5e73a-4a3a-42ac-bd73-bc8d88256d65", "order": 3},
     "codex": {"title": "Readability pass", "launch": "codex resume 019f1abc-b2cf-7571-bf39-6127d4ebaba2", "order": 4, "press_enter": True},
-    # OpenCode's TUI negotiates a narrower grid, which the phone scales up to fill
-    # the width -> its glyphs look ~1.3x larger than the others at the same font.
-    # Give it a smaller font so its rendered size roughly matches the rest.
-    "opencode": {"title": "String catalogs", "launch": "opencode --session ses_0e5411393ffeCDprItbIm19S5J", "order": 5, "font": 11},
+    "opencode": {"title": "String catalogs", "launch": "opencode --session ses_0e5411393ffeCDprItbIm19S5J", "order": 5},
     "pi": {"title": "Ship improvements", "launch": "pi --session 019f1abe", "order": 6},
 }
 # response is considered "settled" when the screen shows code + a cost/footer and

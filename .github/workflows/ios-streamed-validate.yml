@@ -228,6 +228,15 @@ jobs:
           {"zai": {"type": "api", "key": "ci-fake-unused"}}
           JSON
           echo "wrote fake opencode auth.json (zai)"
+          # opencode's TUI defaults to layout=auto, which caps content to a narrow
+          # readable column; on the phone that leaves it narrower than the other
+          # agents (scaled up / big margins). layout=stretch uses the full terminal
+          # width so it matches claude/codex/pi.
+          mkdir -p "$HOME/.config/opencode"
+          cat > "$HOME/.config/opencode/opencode.json" <<'JSON'
+          {"$schema": "https://opencode.ai/config.json", "layout": "stretch"}
+          JSON
+          echo "wrote ~/.config/opencode/opencode.json (layout=stretch)"
 
       - name: Pair simulator + capture one streamed terminal
         env:
