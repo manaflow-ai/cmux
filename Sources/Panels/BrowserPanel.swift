@@ -6011,7 +6011,18 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool
     ) {
         cancelHiddenWebViewDiscard()
-        clearWebContentTerminationRecovery()
+        if hasRecoverableWebContentTermination {
+            let terminatedWebView = webView
+            _ = replaceWebViewPreservingState(
+                from: terminatedWebView,
+                websiteDataStore: websiteDataStore,
+                reason: "webcontent_recovery.navigation",
+                overrideRestoreURL: originalURL,
+                restoreAfterReplacement: false
+            )
+        } else {
+            clearWebContentTerminationRecovery()
+        }
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
