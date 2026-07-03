@@ -69,6 +69,10 @@ extension MobileShellComposite {
             )
             return
         }
+        // Frames behind an outstanding typing ACK (or partial frames while a
+        // dropped-frame replay is pending) must not paint an older cursor
+        // frame or establish a baseline from pre-input content.
+        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
         // The alternate baseline flag is maintained by DELIVERED frames only,
@@ -239,6 +243,7 @@ extension MobileShellComposite {
             }
             if remoteClient != nil,
                terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == nil,
+               terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] == nil,
                !terminalReplaySurfaceIDsInFlight.contains(surfaceID),
                !terminalReplayFailureRetryExhausted(surfaceID: surfaceID) {
                 MobileDebugLog.anchormux("terminal.output.replay_retry_after_drop surface=\(surfaceID)")
@@ -354,6 +359,7 @@ extension MobileShellComposite {
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
+                terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
                 MobileDebugLog.anchormux("terminal.output.reset_barrier_active surface=\(surfaceID)")
                 return
             }
@@ -387,6 +393,7 @@ extension MobileShellComposite {
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
@@ -415,6 +422,17 @@ extension MobileShellComposite {
     /// so (like ``terminalOutputDidReset``) no pre-barrier baseline survives.
     public func terminalOutputNeedsReplay(surfaceID: String) {
         guard terminalByteContinuationsBySurfaceID[surfaceID] != nil else { return }
+        if let pendingAckToken = terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID],
+           terminalReplayBarrierTokensBySurfaceID[surfaceID] == pendingAckToken {
+            // A pending viewport acknowledgement owns the next replay
+            // decision. Beginning a fresh barrier here would drop the pending
+            // token and let the acknowledgement dedupe its post-resize replay
+            // against this pre-resize request; record the reset as owed
+            // output so the acknowledgement's resolution replays instead.
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            MobileDebugLog.anchormux("terminal.output.replay_deferred_viewport_ack surface=\(surfaceID)")
+            return
+        }
         let replayBarrierToken = beginTerminalReplayBarrier(surfaceID: surfaceID)
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)

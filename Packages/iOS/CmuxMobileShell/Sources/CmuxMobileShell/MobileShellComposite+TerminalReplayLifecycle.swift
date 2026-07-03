@@ -44,6 +44,8 @@ extension MobileShellComposite {
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+            terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
     }
@@ -80,12 +82,14 @@ extension MobileShellComposite {
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         let token = UUID()
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         if !preservingFollowUpCount {
             terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -167,6 +171,7 @@ extension MobileShellComposite {
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalColdAttachReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)

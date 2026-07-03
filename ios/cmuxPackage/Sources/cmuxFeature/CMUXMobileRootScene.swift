@@ -1,3 +1,4 @@
+import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
@@ -169,7 +170,12 @@ public struct CMUXMobileRootScene: View {
     /// the current session and selected team.
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
-        guard let baseURL = PresenceClient.resolvedServiceBaseURL() else { return nil }
+        // Presence follows the resolved auth channel (not the build config):
+        // a --prod-auth dev build must subscribe to the production worker its
+        // production Macs heartbeat to (issue 7145).
+        guard let baseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ) else { return nil }
         let coordinator = auth.coordinator
         return PresenceClient(
             serviceBaseURL: baseURL,
@@ -183,7 +189,7 @@ public struct CMUXMobileRootScene: View {
     /// Wrap the local paired-Mac store with selected-team scoping, and then add
     /// the DO-backup decorator when `mobilePairedMacBackup` is on and a presence
     /// service URL resolves. Team scoping is unconditional: selected-team
-    /// boundaries must hold even in Release builds where backup is off.
+    /// boundaries must hold even when backup is off.
     @MainActor
     private func makeBackedUpPairedMacStore(
         restoreBoundary: PairedMacRestoreBoundary
@@ -202,7 +208,9 @@ public struct CMUXMobileRootScene: View {
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
         guard MobilePairedMacBackup.resolved().isEnabled,
-              let baseURL = PresenceClient.resolvedServiceBaseURL() else {
+              let baseURL = PresenceClient.resolvedServiceBaseURL(
+                  isDevelopmentAuthChannel: auth.authEnvironment == .development
+              ) else {
             return scopedStore
         }
         let client = PairedMacBackupClient(
@@ -259,7 +267,10 @@ public struct CMUXMobileRootScene: View {
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
-        let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
+        let identityProvider = AuthCoordinatorIdentityProvider(
+            coordinator: auth.coordinator,
+            isDevelopmentAuthEnvironment: auth.authEnvironment == .development
+        )
         let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()
         let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
