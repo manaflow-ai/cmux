@@ -89,7 +89,7 @@ struct ShortcutScopeCaptionTests {
     /// canvas layout, not be mislabeled "Only while a terminal pane is focused".
     @Test func zoomFamilyActionsCarryTheirOwnScopeCaption() {
         for action in [ShortcutAction.browserZoomIn, .browserZoomOut, .browserZoomReset] {
-            #expect(builtInScopeCaption(for: action.defaultFocusWhenClause) == browserCaption)
+            #expect(builtInScopeCaption(for: action.defaultFocusWhenClause) == browserOrFilePreviewTextEditorCaption)
         }
         for action in [ShortcutAction.markdownZoomIn, .markdownZoomOut, .markdownZoomReset] {
             #expect(builtInScopeCaption(for: action.defaultFocusWhenClause) == markdownCaption)
