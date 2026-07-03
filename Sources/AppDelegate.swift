@@ -13878,21 +13878,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if routedManager?.zoomInFocusedTextFilePreview() == true { return true }
-            return shortcutEventBrowserPanel(event)?.zoomIn() ?? false
+            let focusContext = shortcutEventFocusContext(event)
+            if focusContext.filePreviewTextEditorFocused {
+                let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+                return routedManager?.zoomInFocusedTextFilePreview() ?? false
+            }
+            return focusContext.browserPanel?.zoomIn() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if routedManager?.zoomOutFocusedTextFilePreview() == true { return true }
-            return shortcutEventBrowserPanel(event)?.zoomOut() ?? false
+            let focusContext = shortcutEventFocusContext(event)
+            if focusContext.filePreviewTextEditorFocused {
+                let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+                return routedManager?.zoomOutFocusedTextFilePreview() ?? false
+            }
+            return focusContext.browserPanel?.zoomOut() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if routedManager?.resetZoomFocusedTextFilePreview() == true { return true }
-            return shortcutEventBrowserPanel(event)?.resetZoom() ?? false
+            let focusContext = shortcutEventFocusContext(event)
+            if focusContext.filePreviewTextEditorFocused {
+                let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+                return routedManager?.resetZoomFocusedTextFilePreview() ?? false
+            }
+            return focusContext.browserPanel?.resetZoom() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .markdownZoomIn) {
