@@ -117,22 +117,43 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
-    /// sidebar workspace (windows become tabs). Params: `host` (required).
-    nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
+    /// `remote.tmux.attach_here` — mirror every tmux session on a host as plain
+    /// workspaces in the CURRENT window (the default `cmux ssh-tmux` entry point).
+    ///
+    /// Params: `host` (required), optional `port` (Int), optional `identity_file`
+    /// (String), optional `activate` (Bool, default `true`).
+    ///
+    /// Returns `{mirrored: true, window_id}` on success, or
+    /// `{auth_required: true, ssh_argv: […]}` when the host needs interactive
+    /// authentication (the CLI runs `ssh_argv` in the user's terminal and retries).
+    nonisolated func v2RemoteTmuxAttachHere(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        return v2VmCall(id: id, timeoutSeconds: 30) {
+        let activate = (params["activate"] as? Bool) ?? true
+        return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            try await controller.mirrorHost(host: host)
-            return ["host": host.destination, "mirrored": true]
+            let outcome = try await controller.mirrorHostInCurrentWindow(host: host, activateWindow: activate)
+            switch outcome {
+            case .mirrored(let windowId):
+                return [
+                    "host": host.destination,
+                    "mirrored": true,
+                    "window_id": windowId.uuidString,
+                ]
+            case .authRequired(let sshArgv):
+                return [
+                    "host": host.destination,
+                    "auth_required": true,
+                    "ssh_argv": sshArgv,
+                ]
+            }
         }
     }
 

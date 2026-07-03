@@ -85,7 +85,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror",
+        "remote.tmux.attach_here",
         "remote.tmux.window",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
