@@ -104,12 +104,6 @@ extension TerminalController {
                     data: ["workspace_id": requestedWorkspaceID.uuidString]
                 )
             }
-            // Adopt any title-detected coding agent before serializing, so a
-            // hook-bypassed Claude registers and the phone can show the chat
-            // toggle as soon as the workspace rows refresh.
-            for workspace in visibleWorkspaces {
-                adoptDetectedAgentSessions(workspace: workspace)
-            }
             let scopedWorkspaces = visibleWorkspaces.map { workspace in
                 mobileWorkspacePayload(
                     workspace: workspace,
@@ -154,7 +148,6 @@ extension TerminalController {
                     )
                 )
                 for workspace in windowTabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
-                    adoptDetectedAgentSessions(workspace: workspace)
                     flattened.append(
                         mobileWorkspacePayload(
                             workspace: workspace,
