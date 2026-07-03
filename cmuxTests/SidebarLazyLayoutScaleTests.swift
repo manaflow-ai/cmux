@@ -121,6 +121,12 @@ final class SidebarLazyLayoutScaleTests {
             backing: .buffered,
             defer: false
         )
+        // ARC owns this window; without this, close() performs AppKit's own
+        // release on top of ARC's and the double-release SEGVs the test host
+        // at the next autorelease-pool pop (zombies: "-[NSKVONotifying_NSWindow
+        // release]: message sent to deallocated instance"). That crash killed
+        // the host before the pass was recorded, and CI masked it (#5641).
+        window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: root)
 
         return Harness(tabManager: tabManager, unread: unread, counter: counter, window: window)
@@ -254,6 +260,7 @@ final class SidebarLazyLayoutScaleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         defer {
             window.contentView = nil
             window.close()
