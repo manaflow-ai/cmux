@@ -818,7 +818,8 @@
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",
           "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
-          "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
+          "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox.",
+          "reflowCopy": "Quando true (padrão), Cmd+C reflui texto de terminal quebrado ao copiar: linhas que um aplicativo quebrou rigidamente para caber na visualização são reunidas em parágrafos contínuos e o recuo de continuação é removido, enquanto blocos de código, tabelas, citações, listas e URLs são preservados. A cópia bruta e literal está sempre disponível pela ação Copiar bruto. Quando false, Cmd+C copia a seleção literalmente."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Quando ativado, um banner de notificação é retirado automaticamente apenas quando sua superfície é exatamente a superfície focada. Um banner entregue para uma superfície não focada no workspace atualmente visível permanece visível até você focar essa superfície (ou clicar nele/dispensá-lo), em vez de ser retirado quando o workspace se torna visível. Desativado preserva a retirada antiga baseada na visibilidade do workspace."

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Tuning knobs for ``reflowCopiedText(_:options:)``.
+/// Tuning knobs for ``ReflowOptions/reflow(_:)``.
 ///
 /// Defaults are deliberately conservative: the engine prefers leaving text
 /// untouched (a wrap left unjoined) over merging lines that were intentionally
@@ -19,7 +19,8 @@ public struct ReflowOptions: Sendable {
     public var minWrapWidth: Int
 
     /// A physical line counts as "full" (i.e. it wrapped) when its visible
-    /// length is within this many columns of the block's widest line.
+    /// length is within this many columns of the widest line observed in the
+    /// current paragraph candidate.
     public var widthTolerance: Int
 
     /// Characters that end a sentence/paragraph. The engine never joins onto a
@@ -44,6 +45,6 @@ public struct ReflowOptions: Sendable {
         decorationCharacters: ["●", "◆", "▶", "▸", "■", "□", "◇", "○", "›", "»", "❯", "➜", "✔", "✓", "✗", "✘"],
         minWrapWidth: 40,
         widthTolerance: 4,
-        sentenceTerminators: [".", "!", "?"]
+        sentenceTerminators: [".", "!", "?", "。", "！", "？"]
     )
 }

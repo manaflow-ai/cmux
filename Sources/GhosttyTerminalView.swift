@@ -4746,9 +4746,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             && generalPasteboard.availableType(from: [.string]) != nil
         if ghosttyWroteFormattedText {
             // Ghostty wrote trimmed, soft-wrap-unwrapped text. Reflow that clean
-            // text rather than the raw trim=false snapshot: a no-op for ordinary
-            // soft-wrapped prose, and a clean rejoin for genuine hard wraps. Copy
-            // Raw (reflow == false) leaves Ghostty's verbatim output untouched.
+            // text rather than raw trim=false snapshot; Copy Raw leaves Ghostty's
+            // verbatim output untouched. Rectangular selection shape is not
+            // exposed by exported APIs, so an automatic raw gate needs Ghostty.
             if reflow { reflowClipboardTextIfEnabled(generalPasteboard) }
             return true
         }
@@ -4757,7 +4757,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return copied
         }
 
-        let text = (reflow && TerminalReflowCopySettings.isEnabled()) ? reflowCopiedText(selectedText) : selectedText
+        let text = (reflow && TerminalReflowCopySettings.isEnabled()) ? ReflowOptions.default.reflow(selectedText) : selectedText
         GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
         return true
     }
@@ -4770,7 +4770,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard TerminalReflowCopySettings.isEnabled(),
               let original = pasteboard.string(forType: .string),
               !original.isEmpty else { return }
-        let reflowed = reflowCopiedText(original)
+        let reflowed = ReflowOptions.default.reflow(original)
         guard reflowed != original else { return }
         pasteboard.clearContents()
         pasteboard.setString(reflowed, forType: .string)
@@ -4781,7 +4781,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
             // The engine right-trims each line, so per-row padding here cannot
             // become seam gaps.
-            let text = TerminalReflowCopySettings.isEnabled() ? reflowCopiedText(selectedText) : selectedText
+            let text = TerminalReflowCopySettings.isEnabled() ? ReflowOptions.default.reflow(selectedText) : selectedText
             GhosttyApp.terminalPasteboard.writeString(text, to: GHOSTTY_CLIPBOARD_STANDARD)
             return true
         }

@@ -282,9 +282,9 @@ dependency of the app target, with no behavior yet.
 - `cmux.xcodeproj/project.pbxproj` and/or the workspace package list (modify - add the local package)
 **Approach:** Mirror an existing small package (`Packages/CMUXDebugLog`,
 `Packages/CMUXPasteboardFidelity`) for `Package.swift` shape, platforms, and test-target
-naming. Expose a placeholder `public nonisolated func reflowCopiedText(_:options:) ->
-String` returning input unchanged. Add the package to the app target's dependencies the
-same way existing `CMUX*` packages are referenced.
+naming. Expose a placeholder `ReflowOptions.default.reflow(_:)` API returning input
+unchanged. Add the package to the app target's dependencies the same way existing
+`CMUX*` packages are referenced.
 **Patterns to follow:** existing `Packages/CMUX*` packages.
 **Test scenarios:** `Test expectation: none -- scaffolding; SmokeTests only asserts the
 package builds and the stub returns input unchanged.`
@@ -388,7 +388,7 @@ the clipboard - preserving an always-raw path.
 **Approach:** Add a `copyReflowed` vs `copyRaw` distinction. Raw keeps calling
 `performBindingAction("copy_to_clipboard")` unchanged. Reflowed: read the current
 selection text via the existing `ghostty_surface_read_text` path (already soft-wrap
-unwrapped), pass it through `reflowCopiedText`, and write the result to
+unwrapped), pass it through `ReflowOptions.default.reflow(_:)`, and write the result to
 `NSPasteboard.general`. `Cmd+C` runs reflow by default unless the U5 setting is off;
 `Cmd+Shift+C` always runs raw. If the current selection is rectangular, force raw (R9).
 Keep the change to this file as small as possible - all heuristics live in the package.
@@ -411,7 +411,7 @@ sites); existing `ghostty_surface_read_text` usage in `Sources/TerminalControlle
   `NSPasteboard`; cover the seam here and leave true GUI clipboard checks to U7.
 
 ### U5. Setting + schema + Settings UI
-**Goal:** Add the `terminal.copy.reflow` setting (default off) end to end.
+**Goal:** Add the `terminal.copy.reflow` setting (default on) end to end.
 **Requirements:** R8
 **Dependencies:** U4
 **Files:**

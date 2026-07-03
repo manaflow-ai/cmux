@@ -818,7 +818,8 @@
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
           "scrollSpeed": "Multiplikator brukt på rulleverdier fra musehjul og styreflate i terminalen. Høyere verdier ruller raskere, lavere verdier saktere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
-          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
+          "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox.",
+          "reflowCopy": "Når true (standard), flyter Cmd+C om brutt terminaltekst ved kopiering: linjer som en app har hardbrutt for å passe i visningen, samles til sammenhengende avsnitt og innrykk på fortsettelseslinjer fjernes, mens kodegjerder, tabeller, blokksitater, lister og URL-er bevares. Rå, ordrett kopiering er alltid tilgjengelig via handlingen Kopier rått. Når false, kopierer Cmd+C markeringen ordrett."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Når dette er på, trekkes et varselbanner bare automatisk tilbake når overflaten er nøyaktig den fokuserte overflaten. Et banner levert for en ikke-fokusert overflate i det for øyeblikket synlige workspace blir værende til du fokuserer den overflaten (eller klikker/avviser det), i stedet for å bli trukket tilbake når workspace blir synlig. Av beholder den gamle tilbaketrekkingen basert på workspace-synlighet."

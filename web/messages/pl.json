@@ -818,7 +818,8 @@
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
           "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
-          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
+          "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox.",
+          "reflowCopy": "Gdy true (domyślnie), Cmd+C ponownie składa zawijany tekst terminala podczas kopiowania: wiersze twardo zawinięte przez aplikację do szerokości widoku są łączone w ciągłe akapity, a wcięcia kontynuacji są usuwane, przy zachowaniu bloków kodu, tabel, cytatów blokowych, list i adresów URL. Surowe, dosłowne kopiowanie jest zawsze dostępne przez akcję Kopiuj surowe. Gdy false, Cmd+C kopiuje zaznaczenie dosłownie."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace."
