@@ -325,7 +325,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
-        let server = try MobileSyncMockHostServer()
+        let server = try MobileSyncMockHostServer(createdWorkspaceTerminalDelay: 1.5)
         let port = try await server.start()
         defer { server.stop() }
 
@@ -342,11 +342,34 @@ final class cmuxUITests: XCTestCase {
         dismissOpenMenu(in: app)
 
         tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
+        let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
+        let freshTitleMenu = workspaceTitleElement(in: app)
+        let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
+        assertWorkspaceToolbarVisible(
+            backButton: freshBackButton,
+            titleMenu: freshTitleMenu,
+            terminalDropdown: freshTerminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace immediately after create"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        RunLoop.current.run(until: Date().addingTimeInterval(5))
         await assertHostSelection(
             workspaceID: "workspace-3",
             terminalID: "workspace-3-terminal-1",
             server: server
         )
+        assertWorkspaceToolbarVisible(
+            backButton: freshBackButton,
+            titleMenu: freshTitleMenu,
+            terminalDropdown: freshTerminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace after 5s"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertBackButtonFrameStaysCompactAroundPress(freshBackButton, in: app)
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
@@ -362,6 +385,125 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarSurvivesDelayedTerminalLifecycle() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = workspaceTitleElement(in: app)
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace before delayed terminal"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "fresh no-agent workspace after delayed terminal appears"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
+
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+        ])
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = workspaceTitleElement(in: app)
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "long workspace title without chat toggle"
+        )
+        XCTAssertFalse(app.buttons["MobileWorkspaceAgentChatButton"].exists)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitleAndChatToggle() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+            "CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE": "1",
+        ])
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = workspaceTitleElement(in: app)
+        let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "long workspace title with chat toggle"
+        )
+        XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(chatButton.isHittable)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
+        let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
+        let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
+        tap(initialTerminalDropdown, in: app)
+        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let titleMenu = workspaceTitleElement(in: app)
+        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "created no-agent workspace before delayed terminal"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertWorkspaceToolbarVisible(
+            backButton: backButton,
+            titleMenu: titleMenu,
+            terminalDropdown: terminalDropdown,
+            in: app,
+            context: "created no-agent workspace after delayed terminal appears"
+        )
+        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
+
+        tap(terminalDropdown, in: app)
+        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
     }
 
     @MainActor
@@ -1438,6 +1580,18 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+        XCTAssertTrue(
+            afterKeyboard.bottomEdgeEffectSoft,
+            "Chat transcript must keep the soft bottom scroll-edge effect while the keyboard is up from \(scrollPosition), so bottom chrome blends instead of drawing a hard separator. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            afterKeyboard.bottomEdgeElementContainerRegistered,
+            "The keyboard-up shortcut row and input bar must remain registered as the bottom scroll-edge element container. Missing registration leaves a hard line between the transcript and bottom chrome. before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
         XCTAssertEqual(
             afterKeyboard.frameMinY,
             beforeKeyboard.frameMinY,
@@ -1670,6 +1824,36 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+        var launchEnvironment = [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ]
+        for (key, value) in environment {
+            launchEnvironment[key] = value
+        }
+        let app = launchApp(mockData: false, environment: launchEnvironment)
+        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchWorkspaceDetailCreateDelayedTerminalPreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_CREATE_DELAYED_TERMINAL": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        if !workspaceTitleElement(in: app).waitForExistence(timeout: 4) {
+            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8))
+            row.tap()
+        }
+        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
     private func launchApp(
         mockData: Bool,
         clearAuth: Bool = false,
@@ -1853,6 +2037,21 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(
             app.buttons[identifier].exists,
             "Expected menu to exclude \(identifier).",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertToolbarOverflowButtonDoesNotExist(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let overflowButton = app.buttons["More"]
+        XCTAssertFalse(
+            overflowButton.exists && overflowButton.frame.minY < 140,
+            "Workspace detail toolbar must not collapse into SwiftUI's overflow button.",
             file: file,
             line: line
         )
@@ -2197,6 +2396,76 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    private func assertWorkspaceToolbarVisible(
+        backButton: XCUIElement,
+        titleMenu: XCUIElement,
+        terminalDropdown: XCUIElement,
+        in app: XCUIApplication,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4), "\(context): missing back button", file: file, line: line)
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), "\(context): missing title menu", file: file, line: line)
+        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4), "\(context): missing terminal dropdown", file: file, line: line)
+        XCTAssertTrue(
+            waitForCompactToolbarHeightsToMatch(
+                titleMenu: titleMenu,
+                backButton: backButton,
+                surfacePicker: terminalDropdown,
+                tolerance: 2,
+                timeout: 4,
+                file: file,
+                line: line
+            ),
+            "\(context): toolbar items must keep compact native heights",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func workspaceTitleElement(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["MobileWorkspaceTitleMenu"].firstMatch
+    }
+
+    @MainActor
+    private func assertBackButtonFrameStaysCompactAroundPress(
+        _ backButton: XCUIElement,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let before = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("Back button has no usable frame before press", file: file, line: line)
+            return
+        }
+        let start = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before.midX, dy: before.midY))
+        let end = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: before.midX, dy: before.midY + 90))
+        start.press(forDuration: 0.25, thenDragTo: end)
+        guard let after = waitForToolbarFrame(of: backButton, timeout: 4) else {
+            XCTFail("Back button disappeared after press", file: file, line: line)
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            after.height,
+            before.height + 4,
+            "Back button press must not leave an enlarged chevron/control frame. before=\(before), after=\(after)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            after.width,
+            before.width + 8,
+            "Back button press must not leave a stretched rectangular control frame. before=\(before), after=\(after)",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
     private func tapCompactToolbarTitleMenu(
         _ titleMenu: XCUIElement,
         in app: XCUIApplication,
@@ -2301,12 +2570,13 @@ final class cmuxUITests: XCTestCase {
         let topEdgeEffectSoft: Bool
         let bottomEdgeEffectSoft: Bool
         let topContentScrollViewRegistered: Bool
+        let bottomEdgeElementContainerRegistered: Bool
         let scrollTracking: Bool
         let scrollDragging: Bool
         let scrollDecelerating: Bool
 
         var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), bottomEdgeElementContainerRegistered=\(bottomEdgeElementContainerRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
         }
 
         var effectiveFrameMaxY: CGFloat {
@@ -2361,6 +2631,7 @@ final class cmuxUITests: XCTestCase {
             self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
             self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
             self.topContentScrollViewRegistered = (values["topContentScrollViewRegistered"] ?? 0) >= 0.5
+            self.bottomEdgeElementContainerRegistered = (values["bottomEdgeElementContainerRegistered"] ?? 0) >= 0.5
             self.scrollTracking = (values["scrollTracking"] ?? 0) >= 0.5
             self.scrollDragging = (values["scrollDragging"] ?? 0) >= 0.5
             self.scrollDecelerating = (values["scrollDecelerating"] ?? 0) >= 0.5
@@ -3511,6 +3782,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "dev.cmux.ios-ui-tests.mobile-sync-server")
+    private let createdWorkspaceTerminalDelay: TimeInterval?
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -3566,8 +3838,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ),
     ]
 
-    init(defaultTerminalLines: [String]? = nil, additionalMainTerminalCount: Int = 0) throws {
+    init(
+        defaultTerminalLines: [String]? = nil,
+        additionalMainTerminalCount: Int = 0,
+        createdWorkspaceTerminalDelay: TimeInterval? = nil
+    ) throws {
         listener = try NWListener(using: .tcp, on: .any)
+        self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -3779,7 +4056,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let result: [String: Any]
 
         switch method {
-        case "workspace.list":
+        case "mobile.workspace.list", "workspace.list":
             result = workspaceListResult()
         case "workspace.create":
             result = createWorkspaceResult()
@@ -3835,30 +4112,48 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         let nextIndex = workspaces.count + 1
         let workspaceID = "workspace-\(nextIndex)"
         let terminalID = "\(workspaceID)-terminal-1"
+        let terminal = Terminal(
+            id: terminalID,
+            title: "Terminal 1",
+            currentDirectory: "~/workspace-\(nextIndex)",
+            lines: [
+                "$ cmux ios",
+                "workspace: Workspace \(nextIndex)",
+                "terminal: Terminal 1",
+            ]
+        )
         let workspace = Workspace(
             id: workspaceID,
             title: "Workspace \(nextIndex)",
             currentDirectory: "~/workspace-\(nextIndex)",
-            terminals: [
-                Terminal(
-                    id: terminalID,
-                    title: "Terminal 1",
-                    currentDirectory: "~/workspace-\(nextIndex)",
-                    lines: [
-                        "$ cmux ios",
-                        "workspace: Workspace \(nextIndex)",
-                        "terminal: Terminal 1",
-                    ]
-                ),
-            ]
+            terminals: createdWorkspaceTerminalDelay == nil ? [terminal] : []
         )
         workspaces.append(workspace)
         selectedWorkspaceID = workspaceID
-        selectedTerminalID = terminalID
+        if createdWorkspaceTerminalDelay == nil {
+            selectedTerminalID = terminalID
+        } else {
+            scheduleCreatedWorkspaceTerminal(terminal, workspaceID: workspaceID)
+        }
 
         var result = workspaceListResult()
         result["created_workspace_id"] = workspaceID
         return result
+    }
+
+    private func scheduleCreatedWorkspaceTerminal(_ terminal: Terminal, workspaceID: String) {
+        let delay = createdWorkspaceTerminalDelay ?? 0
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self,
+                  let workspaceIndex = self.workspaces.firstIndex(where: { $0.id == workspaceID }),
+                  self.workspaces[workspaceIndex].terminals.isEmpty else {
+                return
+            }
+            self.workspaces[workspaceIndex].terminals.append(terminal)
+            self.selectedWorkspaceID = workspaceID
+            self.selectedTerminalID = terminal.id
+            self.sendWorkspaceUpdatedEvent()
+        }
     }
 
     private func createTerminalResult(params: [String: Any]) -> [String: Any] {
@@ -3922,6 +4217,26 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         text += terminal.lines.joined(separator: "\r\n")
         text += "\r\n"
         return Data(text.utf8)
+    }
+
+    private func sendWorkspaceUpdatedEvent() {
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": "workspace.updated",
+            "payload": [:],
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: envelope) else {
+            return
+        }
+        let frame = Self.frame(payload)
+        for connection in connections {
+            connection.send(
+                content: frame,
+                contentContext: .defaultMessage,
+                isComplete: false,
+                completion: .idempotent
+            )
+        }
     }
 
     private func workspaceListResult() -> [String: Any] {
