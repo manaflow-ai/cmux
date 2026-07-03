@@ -93,6 +93,7 @@ public struct ChatTerminalCardView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ChatTerminalToggle-\(rowID)")
         .accessibilityLabel(headerAccessibilityLabel)
         .accessibilityValue(
             isExpanded
