@@ -3,10 +3,11 @@ import Foundation
 /// Builds and rewrites the `cd`-into-working-directory prefix that cmux prepends to a restored
 /// terminal surface's startup command.
 ///
-/// The prefix is `{ cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ]; } && `, which changes into the
-/// working directory when it still exists and otherwise runs the command in place rather than
-/// failing. The rewriting path also strips any previously-saved prefix shape (including the older
-/// `cd --`/`cd` forms and legacy single-quoting) and removes saved `--cd`/`-C`/`--cwd`/`--workspace`/`-w`
+/// The prefix is `cd -- '<dir>' 2>/dev/null || [ ! -d '<dir>' ] && ` (brace-free for fish-login
+/// safety, #6328/#6285), which changes into the working directory when it still exists and otherwise
+/// runs the command in place rather than failing. The rewriting path also strips any previously-saved
+/// prefix shape (including the older braced and `cd --`/`cd` forms and legacy single-quoting) and
+/// removes saved `--cd`/`-C`/`--cwd`/`--workspace`/`-w`
 /// options whose value matches the working directory, so re-restoring a session does not stack
 /// duplicate `cd`s.
 ///
@@ -22,7 +23,12 @@ public struct TerminalStartupWorkingDirectoryPrefix: Sendable, Equatable {
     public func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting().singleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
+        // Brace-free form (#6328/#6285): cmux resumes agents via `/usr/bin/login`
+        // → `$SHELL`, and a fish login shell errors on POSIX `{ …; }` grouping and
+        // drops the tab to a bare prompt. `&&`/`||` are equal-precedence and
+        // left-associative in POSIX sh, so this parses as `(cd || [ ! -d ]) && cmd`
+        // exactly like the braced form, but is fish-safe.
+        return "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
     }
 
     /// Prepends the ``optionalChangeDirectoryPrefix(for:)`` to `command`, returning `command`
@@ -67,6 +73,7 @@ public struct TerminalStartupWorkingDirectoryPrefix: Sendable, Equatable {
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
             let prefixes = [
+                "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && ",
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
                 "cd -- \(quoted) && ",
