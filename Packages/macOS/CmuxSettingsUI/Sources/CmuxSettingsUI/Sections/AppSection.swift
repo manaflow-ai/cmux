@@ -50,6 +50,9 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
+    @State private var agentTurnComplete: DefaultsValueModel<String>
+    @State private var agentIdleReminder: DefaultsValueModel<Bool>
     @State private var soundName: DefaultsValueModel<String>
     @State private var soundCommand: DefaultsValueModel<String>
     @State private var customSoundFile: DefaultsValueModel<String>
@@ -98,6 +101,9 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
+        _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
+        _agentIdleReminder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentIdleReminder))
         _soundName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound))
         _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
         _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
@@ -130,7 +136,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, persistScrollback, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, persistScrollback, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -571,6 +577,46 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.notifications.paneFlash.subtitle", defaultValue: "Briefly flash a blue outline when cmux highlights a pane.")
             ) {
                 Toggle("", isOn: Binding(get: { paneFlash.current }, set: { paneFlash.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Agent: Needs Permission
+            SettingsCardRow(
+                configurationReview: .json("notifications.agentPermissionPrompt"),
+                String(localized: "settings.notifications.agentPermissionPrompt.title", defaultValue: "Agent Needs Permission"),
+                subtitle: String(localized: "settings.notifications.agentPermissionPrompt.subtitle", defaultValue: "Notify when an agent is blocked waiting for your permission to run a tool.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentPermissionPrompt.current }, set: { agentPermissionPrompt.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Agent: Turn Complete
+            SettingsCardRow(
+                configurationReview: .json("notifications.agentTurnComplete"),
+                String(localized: "settings.notifications.agentTurnComplete.title", defaultValue: "Agent Finished"),
+                subtitle: String(localized: "settings.notifications.agentTurnComplete.subtitle", defaultValue: "When to notify that an agent finished. When idle waits until background tasks and scheduled wakeups drain.")
+            ) {
+                Picker("", selection: Binding(get: { agentTurnComplete.current }, set: { agentTurnComplete.set($0) })) {
+                    Text(String(localized: "settings.notifications.agentTurnComplete.option.whenIdle", defaultValue: "When idle")).tag("whenIdle")
+                    Text(String(localized: "settings.notifications.agentTurnComplete.option.always", defaultValue: "Always")).tag("always")
+                    Text(String(localized: "settings.notifications.agentTurnComplete.option.never", defaultValue: "Never")).tag("never")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Agent: Idle Reminder
+            SettingsCardRow(
+                configurationReview: .json("notifications.agentIdleReminder"),
+                String(localized: "settings.notifications.agentIdleReminder.title", defaultValue: "Agent Waiting for Input"),
+                subtitle: String(localized: "settings.notifications.agentIdleReminder.subtitle", defaultValue: "Notify when an agent has been idle waiting for your input. Suppressed while background work is still running.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentIdleReminder.current }, set: { agentIdleReminder.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

@@ -119,6 +119,9 @@ enum TerminalTextBoxInputSettings {
     static let defaultMaxLines = 10
     static let minimumMaxLines = 1
     static let maximumMaxLines = 20
+    static let submitActionsKey = "terminal.textBoxSubmitActions"
+    static let defaultSubmitActionKey = "terminal.textBoxDefaultSubmitAction"
+    static let defaultSubmitActionID = TextBoxSubmitAction.textEntryAction.id
 
     static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showOnNewTerminalsKey) == nil {
@@ -144,6 +147,7 @@ enum TerminalTextBoxInputSettings {
         }
         return resolvedMaxLines(value)
     }
+
 }
 
 enum TerminalCopyOnSelectSettings {

@@ -159,9 +159,16 @@ public protocol SettingsHostActions: AnyObject {
     /// to the same instance the overlay renderer reads (rather than a package
     /// singleton). Previews/tests get a fresh isolated store via the default.
     func sleepyModeStore() -> SleepyModeSettingsStore
+
+    /// Runs host-owned live-refresh side effects after the package resets every
+    /// catalog-backed setting.
+    func resetAllSettingsSideEffects()
 }
 
 public extension SettingsHostActions {
+    /// Default no-op for hosts with no app-owned reset side effects.
+    func resetAllSettingsSideEffects() {}
+
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.
