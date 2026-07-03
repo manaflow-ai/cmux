@@ -11,7 +11,8 @@ extension MobileHostService {
     /// or `nil` when unset or invalid.
     nonisolated static func configuredManualHost(defaults: UserDefaults = .standard) -> String? {
         guard let raw = defaults.object(forKey: manualHostDefaultsKey) as? String,
-              let host = CmxManualHost(raw)?.rawValue else {
+              let host = CmxManualHost(raw)?.rawValue,
+              !CmxLoopbackHost().matches(host) else {
             return nil
         }
         return host

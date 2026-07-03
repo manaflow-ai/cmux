@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxSettings
 import Foundation
 import Testing
@@ -91,6 +92,28 @@ struct MobileHostServiceSettingsTests {
 
         defaults.set("my:host", forKey: MobileHostService.manualHostDefaultsKey)
         #expect(MobileHostService.configuredManualHost(defaults: defaults) == nil)
+    }
+
+    @Test(arguments: ["127.0.0.1", "127.1", "0.0.0.0", "localhost", "[::1]"])
+    func configuredManualHostRejectsLoopbackHosts(rawHost: String) throws {
+        let suiteName = "MobileHostServiceSettingsTests.ManualHost.Loopback.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(rawHost, forKey: MobileHostService.manualHostDefaultsKey)
+
+        #expect(MobileHostService.configuredManualHost(defaults: defaults) == nil)
+    }
+
+    @Test func routeResolverDoesNotAdvertiseLoopbackManualHost() {
+        let routes = MobileRouteResolver().routes(
+            port: 58_465,
+            tailscaleHosts: ["100.82.214.112"],
+            manualHost: "127.1"
+        ).routes
+
+        #expect(routes.contains { $0.kind == .tailscale })
+        #expect(!routes.contains { $0.kind == .manualHost })
     }
 
     @Test func portApplyPreBindClassifiesNonBindCases() {
