@@ -42,8 +42,8 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
             TerminalLoadingDiagnosticsRow(
                 id: "mac",
                 label: L10n.string("mobile.terminal.loading.mac", defaultValue: "Mac"),
-                value: String(
-                    format: L10n.string(
+                value: String.localizedStringWithFormat(
+                    L10n.string(
                         "mobile.terminal.loading.macStatusFormat",
                         defaultValue: "%@ · %@"
                     ),
@@ -83,8 +83,8 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
 
         return Self(
             title: L10n.string("mobile.terminal.loading.title", defaultValue: "Loading terminals"),
-            message: String(
-                format: L10n.string(
+            message: String.localizedStringWithFormat(
+                L10n.string(
                     "mobile.terminal.loading.messageFormat",
                     defaultValue: "Waiting for %@ to send terminal metadata for this workspace."
                 ),
@@ -121,8 +121,8 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
 
     private static func routeText(activeRoute: CmxAttachRoute?, storedRouteDescription: String?) -> String {
         if let activeRoute {
-            return String(
-                format: L10n.string(
+            return String.localizedStringWithFormat(
+                L10n.string(
                     "mobile.terminal.loading.routeActiveFormat",
                     defaultValue: "%@ · %@"
                 ),
@@ -131,8 +131,8 @@ struct TerminalLoadingDiagnosticsModel: Equatable {
             )
         }
         if let storedRouteDescription = nonEmpty(storedRouteDescription) {
-            return String(
-                format: L10n.string(
+            return String.localizedStringWithFormat(
+                L10n.string(
                     "mobile.terminal.loading.routeStoredFormat",
                     defaultValue: "Saved route · %@"
                 ),
@@ -306,17 +306,36 @@ extension WorkspaceDetailView {
               !macDeviceID.isEmpty else {
             return nil
         }
-        if macDeviceID == store.connectedMacDeviceID {
+        if loadingDiagnosticsMatchesForegroundMac(macDeviceID) {
             return store.activeRoute
         }
+        return nil
+    }
+
+    var loadingDiagnosticsConnectionError: String? {
+        loadingDiagnosticsMatchesForegroundMac(workspace.macDeviceID) ? store.connectionError : nil
+    }
+
+    var loadingDiagnosticsConnectionErrorGuidance: String? {
+        loadingDiagnosticsMatchesForegroundMac(workspace.macDeviceID) ? store.connectionErrorGuidance : nil
+    }
+
+    private func loadingDiagnosticsMatchesForegroundMac(_ macDeviceID: String?) -> Bool {
+        guard let macDeviceID,
+              !macDeviceID.isEmpty else {
+            return false
+        }
+        if macDeviceID == store.connectedMacDeviceID {
+            return true
+        }
         if macDeviceID == store.activeTicket?.macDeviceID {
-            return store.activeRoute
+            return true
         }
         guard let connectedMacDeviceID = store.connectedMacDeviceID,
               store.pairedMacAliasIDs(for: macDeviceID).contains(connectedMacDeviceID) else {
-            return nil
+            return false
         }
-        return store.activeRoute
+        return true
     }
 }
 #endif

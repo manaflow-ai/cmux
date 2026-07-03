@@ -250,8 +250,8 @@ struct WorkspaceDetailView: View {
                             tailnetStatus: tailscaleStatusMonitor?.status,
                             activeRoute: activeLoadingDiagnosticsRoute,
                             storedRouteDescription: loadingDiagnosticsMacSnapshot?.routeDescription,
-                            connectionError: store.connectionError,
-                            connectionErrorGuidance: store.connectionErrorGuidance,
+                            connectionError: loadingDiagnosticsConnectionError,
+                            connectionErrorGuidance: loadingDiagnosticsConnectionErrorGuidance,
                             createTerminal: createTerminal,
                             canCreateTerminal: true
                         )
