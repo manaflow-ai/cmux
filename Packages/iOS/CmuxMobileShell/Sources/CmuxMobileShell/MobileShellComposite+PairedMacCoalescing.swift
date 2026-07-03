@@ -15,7 +15,8 @@ extension MobileShellComposite {
     static func coalescePairedMacsByDialEndpoint(
         _ macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        routeSelection: MobileShellRouteSelection
     ) -> [MobilePairedMac] {
         var selectedByKey: [String: MobilePairedMac] = [:]
         var orderByKey: [String: Int] = [:]
@@ -23,7 +24,8 @@ extension MobileShellComposite {
         for (index, mac) in macs.enumerated() {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                routeSelection: routeSelection
             ) ?? "device:\(mac.macDeviceID)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
             guard let existing = selectedByKey[key] else {
@@ -48,14 +50,23 @@ extension MobileShellComposite {
         _ macDeviceID: String,
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        routeSelection: MobileShellRouteSelection
     ) -> [String] {
         guard let target = macs.first(where: { $0.macDeviceID == macDeviceID }),
-              let key = target.dialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) else {
+              let key = target.dialEndpointKey(
+                  supportedKinds: supportedKinds,
+                  preferNonLoopback: preferNonLoopback,
+                  routeSelection: routeSelection
+              ) else {
             return [macDeviceID]
         }
         let matching = macs.filter {
-            $0.dialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) == key
+            $0.dialEndpointKey(
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback,
+                routeSelection: routeSelection
+            ) == key
         }.map(\.macDeviceID)
         return matching.isEmpty ? [macDeviceID] : matching
     }
@@ -63,26 +74,30 @@ extension MobileShellComposite {
     func macDeviceIDAliasSetsByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        routeSelection: MobileShellRouteSelection
     ) -> [String: Set<String>] {
         macDeviceIDAliasesByPairedMacID(
             in: macs,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            routeSelection: routeSelection
         ).mapValues(Set.init)
     }
 
     func macDeviceIDAliasesByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        routeSelection: MobileShellRouteSelection
     ) -> [String: [String]] {
         var groupKeyByMacID: [String: String] = [:]
         var idsByGroupKey: [String: [String]] = [:]
         for mac in macs {
             let key = mac.dialEndpointKey(
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                routeSelection: routeSelection
             ) ?? "device:\(mac.macDeviceID)"
             groupKeyByMacID[mac.macDeviceID] = key
             idsByGroupKey[key, default: []].append(mac.macDeviceID)
@@ -100,17 +115,18 @@ private extension MobilePairedMac {
     @MainActor
     func dialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        routeSelection: MobileShellRouteSelection
     ) -> String? {
         guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !displayName.isEmpty else {
             return nil
         }
-        guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
+        guard let (host, port) = routeSelection.firstReconnectHostPortRoute(
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
-        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) else {
+        ), let normalizedHost = MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) else {
             return nil
         }
         return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased())"

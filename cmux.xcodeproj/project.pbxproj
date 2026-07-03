@@ -704,6 +704,7 @@
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
 		325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */; };
+		7230A0037230A0037230A003 /* MobilePairingRouteReachability.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7230B0037230B0037230B003 /* MobilePairingRouteReachability.swift */; };
 		A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */; };
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
 		9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */; };
@@ -1987,6 +1988,7 @@
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
 		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
+		7230B0037230B0037230B003 /* MobilePairingRouteReachability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingRouteReachability.swift"; sourceTree = "<group>"; };
 		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView.swift"; sourceTree = "<group>"; };
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
 		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
@@ -2756,6 +2758,7 @@
 				7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */,
 				04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */,
 				B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */,
+				7230B0037230B0037230B003 /* MobilePairingRouteReachability.swift */,
 				F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */,
 				5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */,
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
@@ -4755,6 +4758,7 @@
 				4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */,
 				0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */,
 				325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */,
+				7230A0037230A0037230A003 /* MobilePairingRouteReachability.swift in Sources */,
 				A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */,
 				18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */,
 				9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */,

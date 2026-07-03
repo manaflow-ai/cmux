@@ -37,7 +37,7 @@ import Testing
     }
 
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
@@ -47,7 +47,7 @@ import Testing
 
     @Test func physicalDeviceFallsBackToLoopbackWhenItIsTheOnlyRoute() throws {
         // The on-device XCUITest mock host serves a real listener on 127.0.0.1.
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
@@ -57,7 +57,7 @@ import Testing
 
     @Test func simulatorKeepsLoopbackPriorityOrder() throws {
         // On the simulator 127.0.0.1 IS the host Mac, so priority order stands.
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: false
@@ -86,7 +86,7 @@ import Testing
             endpoint: .hostPort(host: "100.82.214.112", port: 50922),
             priority: 10
         )
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(50922), try magicDNS(50922), ip],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
@@ -97,7 +97,7 @@ import Testing
     @Test func magicDNSHostnameStillUsedWhenNoIPRouteExists() throws {
         // If the only non-loopback route is a hostname, still prefer it over
         // loopback on device (better than dialing the phone's own 127.0.0.1).
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(50922), try magicDNS(50922)],
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
@@ -106,7 +106,7 @@ import Testing
     }
 
     @Test func tailscaleDNSBeatsManualHostIPFallback() throws {
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
+        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
             [try loopback(50922), try manualHost(50922), try magicDNS(50922)],
             supportedKinds: [.debugLoopback, .manualHost, .tailscale],
             preferNonLoopback: true
@@ -115,15 +115,15 @@ import Testing
     }
 
     @Test func ipLiteralHostClassification() {
-        #expect(MobileShellComposite.isIPLiteralHost("100.82.214.112"))
-        #expect(MobileShellComposite.isIPLiteralHost("127.0.0.1"))
-        #expect(MobileShellComposite.isIPLiteralHost("fd7a:115c:a1e0::4b36:d670"))
-        #expect(MobileShellComposite.isIPLiteralHost("::ffff:192.168.0.1"))
-        #expect(MobileShellComposite.isIPLiteralHost("[fd7a:115c:a1e0::4b36:d670]"))
-        #expect(!MobileShellComposite.isIPLiteralHost("lawrences-macbook-pro-2.tail137216.ts.net"))
-        #expect(!MobileShellComposite.isIPLiteralHost("example.com"))
-        #expect(!MobileShellComposite.isIPLiteralHost("my:host"))
-        #expect(!MobileShellComposite.isIPLiteralHost("100.82.214")) // too few octets
-        #expect(!MobileShellComposite.isIPLiteralHost("256.1.1.1")) // out of range
+        #expect(MobileShellRouteSelection().isIPLiteralHost("100.82.214.112"))
+        #expect(MobileShellRouteSelection().isIPLiteralHost("127.0.0.1"))
+        #expect(MobileShellRouteSelection().isIPLiteralHost("fd7a:115c:a1e0::4b36:d670"))
+        #expect(MobileShellRouteSelection().isIPLiteralHost("::ffff:192.168.0.1"))
+        #expect(MobileShellRouteSelection().isIPLiteralHost("[fd7a:115c:a1e0::4b36:d670]"))
+        #expect(!MobileShellRouteSelection().isIPLiteralHost("lawrences-macbook-pro-2.tail137216.ts.net"))
+        #expect(!MobileShellRouteSelection().isIPLiteralHost("example.com"))
+        #expect(!MobileShellRouteSelection().isIPLiteralHost("my:host"))
+        #expect(!MobileShellRouteSelection().isIPLiteralHost("100.82.214")) // too few octets
+        #expect(!MobileShellRouteSelection().isIPLiteralHost("256.1.1.1")) // out of range
     }
 }

@@ -35,13 +35,13 @@ import Testing
             priority: 0
         )
 
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(loopbackIP))
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(localhost))
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(ipv6Loopback))
-        #expect(MobileShellRouteAuthPolicy.routeIsLoopback(loopbackOnNetworkKind))
-        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(pretendLoopback))
-        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(tailscaleIP))
-        #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(loopbackIP))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(localhost))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(ipv6Loopback))
+        #expect(MobileShellRouteAuthPolicy().routeIsLoopback(loopbackOnNetworkKind))
+        #expect(!MobileShellRouteAuthPolicy().routeIsLoopback(pretendLoopback))
+        #expect(!MobileShellRouteAuthPolicy().routeIsLoopback(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy().routeIsLoopback(irohPeer))
     }
 
     @Test func allowsStackAuthOnlyForEncryptedLoopbackOrApprovedManualHostRoutes() throws {
@@ -63,43 +63,43 @@ import Testing
         let manualUnspecifiedIPv4 = try hostPortRoute(kind: .manualHost, host: "0.0.0.0", port: CmxMobileDefaults.defaultHostPort)
         let manualHexLoopback = try hostPortRoute(kind: .manualHost, host: "0x7f.0.0.1", port: CmxMobileDefaults.defaultHostPort)
 
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.1") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "0.0.0.0") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "0x7f.0.0.1") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "[::1]") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "100.71.210.41") == .tailscale)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "work-mac.tailnet.ts.net") == .tailscale)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .manualHost)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.0.0.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "0.0.0.0") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "0x7f.0.0.1") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "[::1]") == .debugLoopback)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "100.71.210.41") == .tailscale)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "work-mac.tailnet.ts.net") == .tailscale)
+        #expect(MobileShellRouteAuthPolicy().manualRouteKind(for: "127.attacker.example") == .manualHost)
 
         // Encrypted / loopback channels and explicitly approved manual hosts may
         // carry the Stack bearer token.
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHostRoute))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHostRoute, manualHostTrusted: true))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualLoopbackAlias, manualHostTrusted: true))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualUnspecifiedIPv4, manualHostTrusted: true))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(manualHexLoopback, manualHostTrusted: true))
+        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(loopback))
+        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleMagicDNS))
+        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleIP))
+        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(irohPeer))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHostRoute))
+        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHostRoute, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualLoopbackAlias, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualUnspecifiedIPv4, manualHostTrusted: true))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHexLoopback, manualHostTrusted: true))
 
         // Plaintext-TCP routes must NOT carry the Stack bearer token by default:
         // a `.tailscale` route to a private-LAN IP or a `.local`/Bonjour host is
         // dialed over unencrypted TCP, so it is excluded from the Stack-auth set.
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
-        #expect(!MobileShellRouteAuthPolicy.routeRequiresManualHostTrust(manualLoopbackAlias))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(lanIP))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(localDNS))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(pretendLoopback))
+        #expect(!MobileShellRouteAuthPolicy().routeRequiresManualHostTrust(manualLoopbackAlias))
 
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.1"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("0.0.0.0"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("0x7f.0.0.1"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
-        #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
-        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
-        #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("127.0.0.1"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("127.1"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("0.0.0.0"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("0x7f.0.0.1"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("100.71.210.41"))
+        #expect(!MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("192.168.1.77"))
+        #expect(MobileShellRouteAuthPolicy().manualHostNeedsTrustWarning("devbox.local"))
     }
 
     @Test func manualHostTrustScopeIsHostPortAndAccountScoped() async throws {
@@ -216,22 +216,22 @@ import Testing
         let loopbackUnderTailscaleKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: 56577)
         let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 56577)
 
-        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [loopback], isPhysicalDevice: true
         ))
-        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [loopbackUnderTailscaleKind], isPhysicalDevice: true
         ))
         // One loopback route poisons the ticket even when a real route rides along.
-        #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [tailscale, loopback], isPhysicalDevice: true
         ))
-        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(!MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [tailscale], isPhysicalDevice: true
         ))
         // The simulator flow legitimately pairs over loopback (127.0.0.1 IS
         // the host Mac there), so the policy never fires off-device.
-        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+        #expect(!MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
             [loopback], isPhysicalDevice: false
         ))
     }

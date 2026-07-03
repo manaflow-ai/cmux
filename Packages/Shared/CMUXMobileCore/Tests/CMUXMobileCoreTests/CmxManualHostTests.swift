@@ -28,9 +28,9 @@ import Testing
 }
 
 @Test func manualHostRouteNormalizerAcceptsAlreadyNormalizedIPv6() {
-    #expect(CmxManualHost.normalizedRouteHost("[fd00::12]") == "fd00::12")
-    #expect(CmxManualHost.normalizedRouteHost("fd00::12") == "fd00::12")
-    #expect(CmxManualHost.normalizedRouteHost("studio-mac.local") == "studio-mac.local")
-    #expect(CmxManualHost.normalizedRouteHost("my:host") == nil)
-    #expect(CmxManualHost.normalizedRouteHost("[my:host]") == nil)
+    #expect(CmxManualHost(routeHost: "[fd00::12]")?.rawValue == "fd00::12")
+    #expect(CmxManualHost(routeHost: "fd00::12")?.rawValue == "fd00::12")
+    #expect(CmxManualHost(routeHost: "studio-mac.local")?.rawValue == "studio-mac.local")
+    #expect(CmxManualHost(routeHost: "my:host") == nil)
+    #expect(CmxManualHost(routeHost: "[my:host]") == nil)
 }

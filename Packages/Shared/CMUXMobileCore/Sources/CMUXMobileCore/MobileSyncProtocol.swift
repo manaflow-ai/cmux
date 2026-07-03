@@ -11,11 +11,17 @@ public struct CmxMobileDefaults {
     public static let pairingCompatibilityVersion = 1
 }
 
+/// Transport families that an attach route may use to reach a Mac host.
 public enum CmxAttachTransportKind: String, Codable, Sendable {
+    /// A WireGuard-encrypted Tailscale host/port route.
     case tailscale
+    /// A user-approved host/port route outside automatic Tailscale discovery.
     case manualHost = "manual_host"
+    /// An encrypted iroh peer route.
     case iroh
+    /// A websocket URL route.
     case websocket
+    /// A loopback host/port route used by local development and simulator flows.
     case debugLoopback = "debug_loopback"
 }
 

@@ -19,14 +19,15 @@ import Testing
 @Suite("SettingsRowAnchorResolution")
 struct SettingsRowAnchorResolutionTests {
     @Test func mobileManualHostAdvertisableValidatorRejectsLoopback() {
-        #expect(MobileSection.isManualHostAdvertisable(""))
-        #expect(MobileSection.isManualHostAdvertisable(" 192.168.1.23 "))
-        #expect(MobileSection.isManualHostAdvertisable("studio-mac.local"))
-        #expect(MobileSection.isManualHostAdvertisable("[fd00::12]"))
-        #expect(!MobileSection.isManualHostAdvertisable("127.0.0.1"))
-        #expect(!MobileSection.isManualHostAdvertisable("localhost"))
-        #expect(!MobileSection.isManualHostAdvertisable("[::1]"))
-        #expect(!MobileSection.isManualHostAdvertisable("my:host"))
+        let validator = MobilePairingManualHostAdvertisability()
+        #expect(validator.isAdvertisable(""))
+        #expect(validator.isAdvertisable(" 192.168.1.23 "))
+        #expect(validator.isAdvertisable("studio-mac.local"))
+        #expect(validator.isAdvertisable("[fd00::12]"))
+        #expect(!validator.isAdvertisable("127.0.0.1"))
+        #expect(!validator.isAdvertisable("localhost"))
+        #expect(!validator.isAdvertisable("[::1]"))
+        #expect(!validator.isAdvertisable("my:host"))
     }
 
     /// Every singular cmux.json path declared by an *unconditionally

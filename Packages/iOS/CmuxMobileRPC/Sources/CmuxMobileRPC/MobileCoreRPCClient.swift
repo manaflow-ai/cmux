@@ -276,7 +276,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     private var routeAllowsStackAuth: Bool {
-        MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+        MobileShellRouteAuthPolicy().routeAllowsStackAuth(
             route,
             manualHostTrusted: allowsTrustedManualHostStackAuth
         )

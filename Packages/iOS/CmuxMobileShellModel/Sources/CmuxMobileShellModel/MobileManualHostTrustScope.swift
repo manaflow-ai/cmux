@@ -20,7 +20,7 @@ public struct MobileManualHostTrustScope: Equatable, Hashable, Sendable {
     ///   - port: The TCP port in `1...65535`.
     ///   - stackUserID: The approving Stack user id, if known.
     public init?(host: String, port: Int, stackUserID: String?) {
-        guard let manualHost = Self.normalizedTrustHost(host),
+        guard let manualHost = CmxManualHost(routeHost: host),
               (1...65535).contains(port) else {
             return nil
         }
@@ -43,28 +43,17 @@ public struct MobileManualHostTrustScope: Equatable, Hashable, Sendable {
 
     var storageKey: String {
         [
-            Self.escape(stackUserID ?? ""),
-            Self.escape(normalizedHost),
+            (stackUserID ?? "").mobileManualHostTrustStorageEscaped,
+            normalizedHost.mobileManualHostTrustStorageEscaped,
             "\(port)",
         ].joined(separator: "|")
     }
+}
 
-    private static func escape(_ value: String) -> String {
-        value
+private extension String {
+    var mobileManualHostTrustStorageEscaped: String {
+        self
             .replacing("%", with: "%25")
             .replacing("|", with: "%7C")
-    }
-
-    private static func normalizedTrustHost(_ host: String) -> CmxManualHost? {
-        if let manualHost = CmxManualHost(host) {
-            return manualHost
-        }
-        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ipv6Characters = CharacterSet(charactersIn: "0123456789abcdefABCDEF:.")
-        guard trimmed.contains(":"),
-              trimmed.unicodeScalars.allSatisfy({ ipv6Characters.contains($0) }) else {
-            return nil
-        }
-        return CmxManualHost("[\(trimmed)]")
     }
 }

@@ -22,7 +22,7 @@ extension MobileShellComposite {
 
     func manualHostTrustScope(for route: CmxAttachRoute?) -> MobileManualHostTrustScope? {
         guard let route,
-              MobileShellRouteAuthPolicy.routeRequiresManualHostTrust(route) else {
+              MobileShellRouteAuthPolicy().routeRequiresManualHostTrust(route) else {
             return nil
         }
         return MobileManualHostTrustScope(
@@ -76,6 +76,8 @@ extension MobileShellComposite {
         )
     }
 
+    /// Persists the queued manual-host trust approval and resumes the pending pairing attempt.
+    /// - Returns: The resumed pairing attempt's connection result, or `.failed` if no warning is pending.
     @discardableResult
     public func acceptManualHostTrustWarning() async -> MobilePairingURLConnectionResult {
         guard let warning = manualHostTrustWarning,

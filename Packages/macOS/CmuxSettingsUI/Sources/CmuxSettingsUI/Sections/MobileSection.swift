@@ -1,4 +1,3 @@
-import CMUXMobileCore
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
@@ -14,6 +13,8 @@ public struct MobileSection: View {
     @State private var manualHost: DefaultsValueModel<String>
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
+
+    private let manualHostAdvertisability = MobilePairingManualHostAdvertisability()
 
     /// The user's in-progress port edit, or `nil` when the field should track
     /// the persisted value. Local so editing does not rebind the listener; only
@@ -73,18 +74,7 @@ public struct MobileSection: View {
     }
 
     private var isManualHostValid: Bool {
-        Self.isManualHostAdvertisable(trimmedManualHost)
-    }
-
-    nonisolated static func isManualHostAdvertisable(_ rawHost: String) -> Bool {
-        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return true
-        }
-        guard let host = CmxManualHost(trimmed) else {
-            return false
-        }
-        return !CmxLoopbackHost().matches(host.rawValue)
+        manualHostAdvertisability.isAdvertisable(trimmedManualHost)
     }
 
     /// The Mobile settings section content.

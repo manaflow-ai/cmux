@@ -99,7 +99,7 @@ final class MobileRouteResolver: @unchecked Sendable {
             }
         }
 
-        if let manualHost = manualHost.flatMap({ CmxManualHost.normalizedRouteHost($0) }),
+        if let manualHost = manualHost.flatMap({ CmxManualHost(routeHost: $0)?.rawValue }),
            !CmxLoopbackHost().matches(manualHost) {
             let manualPriority = 10 + (tailscaleHosts.count * 10)
             if let manualRoute = try? CmxAttachRoute(

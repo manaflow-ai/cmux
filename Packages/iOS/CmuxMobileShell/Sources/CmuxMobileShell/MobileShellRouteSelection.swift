@@ -3,14 +3,19 @@ import CmuxMobileShellModel
 import Darwin
 import Foundation
 
-@MainActor
-extension MobileShellComposite {
+struct MobileShellRouteSelection: Sendable {
+    let routeAuthPolicy: MobileShellRouteAuthPolicy
+
+    init(routeAuthPolicy: MobileShellRouteAuthPolicy = MobileShellRouteAuthPolicy()) {
+        self.routeAuthPolicy = routeAuthPolicy
+    }
+
     /// Whether route selection should avoid loopback routes. A loopback route
     /// (`.debugLoopback`, `127.0.0.1`) names the host it runs on, so on a
     /// physical device it can only ever reach the phone itself, never a remote
     /// Mac. On the simulator `127.0.0.1` IS the host Mac, so loopback is valid
     /// (and is how the dev/UI-test mock host attaches).
-    static var prefersNonLoopbackRoutes: Bool {
+    var prefersNonLoopbackRoutes: Bool {
         #if targetEnvironment(simulator)
         false
         #else
@@ -29,13 +34,13 @@ extension MobileShellComposite {
     /// inside the test runner. This is what lets a restored Mac (whose published
     /// routes include both `debug_loopback` and `tailscale`) actually connect
     /// over Tailscale instead of dialing the phone's own loopback and failing.
-    static func firstReconnectHostPortRoute(
+    func firstReconnectHostPortRoute(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
     ) -> (String, Int)? {
         let supportedKinds = Set(supportedKinds)
-        let ordered = routes.sorted(by: Self.routeSortsBefore)
+        let ordered = routes.sorted(by: routeSortsBefore)
         func firstHostPort(where predicate: (CmxAttachRoute) -> Bool) -> (String, Int)? {
             for route in ordered {
                 if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
@@ -56,7 +61,7 @@ extension MobileShellComposite {
             if let tailscaleIP = firstHostPort(where: { route in
                 guard route.kind == .tailscale,
                       case let .hostPort(host, _) = route.endpoint else { return false }
-                return Self.isIPLiteralHost(host)
+                return isIPLiteralHost(host)
             }) {
                 return tailscaleIP
             }
@@ -73,7 +78,7 @@ extension MobileShellComposite {
     /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name
     /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
     /// MagicDNS hostnames, which fail to resolve on some clients.
-    static func isIPLiteralHost(_ host: String) -> Bool {
+    func isIPLiteralHost(_ host: String) -> Bool {
         let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
         let unbracketed = if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
             String(trimmed.dropFirst().dropLast())
@@ -91,7 +96,7 @@ extension MobileShellComposite {
 
     /// `true` on a physical iPhone/iPad; `false` in the simulator and in
     /// macOS-hosted package tests. Drives the loopback-pairing rejection.
-    static var isPhysicalDevice: Bool {
+    var isPhysicalDevice: Bool {
         #if os(iOS) && !targetEnvironment(simulator)
         true
         #else
@@ -99,8 +104,8 @@ extension MobileShellComposite {
         #endif
     }
 
-    static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
-        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
+    func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
+        let routeKind = routeAuthPolicy.manualRouteKind(for: host)
         return try CmxAttachRoute(
             id: routeKind.rawValue,
             kind: routeKind,
@@ -108,11 +113,11 @@ extension MobileShellComposite {
         )
     }
 
-    static func supportedRoutes(
+    func supportedRoutes(
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
-        let orderedRoutes = ticket.routes.sorted(by: Self.routeSortsBefore)
+        let orderedRoutes = ticket.routes.sorted(by: routeSortsBefore)
         guard !supportedKinds.isEmpty else {
             return orderedRoutes
         }
@@ -122,7 +127,14 @@ extension MobileShellComposite {
         }
     }
 
-    static func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
+    func attachTicketIsUnexpired(_ ticket: CmxAttachTicket, now: Date) -> Bool {
         !ticket.isExpired(at: now)
+    }
+
+    private func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
+        if left.priority == right.priority {
+            return left.id < right.id
+        }
+        return left.priority < right.priority
     }
 }

@@ -97,14 +97,7 @@ struct MobilePairingView: View {
         }
     }
 
-    private enum RouteReachability: Equatable {
-        case tailscale
-        case manualHost
-        case missing
-        case unknown
-    }
-
-    private var routeReachability: RouteReachability {
+    private var routeReachability: MobilePairingRouteReachability {
         switch model.state {
         case let .ready(ready), let .connected(ready):
             if ready.reachableViaTailscale { return .tailscale }
@@ -117,7 +110,7 @@ struct MobilePairingView: View {
         }
     }
 
-    private func routeSubtitle(_ state: RouteReachability) -> String {
+    private func routeSubtitle(_ state: MobilePairingRouteReachability) -> String {
         switch state {
         case .tailscale:
             return String(localized: "mobile.pairing.req.tailscale.reachable", defaultValue: "Reachable over Tailscale.")

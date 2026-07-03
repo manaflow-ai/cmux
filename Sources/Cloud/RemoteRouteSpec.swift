@@ -75,7 +75,7 @@ struct RemoteRouteSpec: Equatable {
 
     /// Whether a signed-in phone could authenticate to this host from the
     /// registry. Manual routes are stored as `.tailscale`, and the iOS attach
-    /// path (`MobileShellRouteAuthPolicy.routeAllowsStackAuth`) only sends the
+    /// path (`MobileShellRouteAuthPolicy().routeAllowsStackAuth`) only sends the
     /// Stack token over a `.tailscale` route whose host is a Tailscale address:
     /// a CGNAT `100.64.0.0/10` IP or a `*.ts.net` MagicDNS name. Any other host
     /// (LAN IP, bare hostname, Tailscale IPv6 ULA) would show in the device list

@@ -149,9 +149,9 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
+// `routes` protects every mutation/copy so nonisolated status RPCs avoid a main-actor hop.
 private final class MobileHostPublicStatusSnapshot: @unchecked Sendable {
     private let routes = OSAllocatedUnfairLock(initialState: [CmxAttachRoute]())
-
     func update(routes nextRoutes: [CmxAttachRoute]) {
         routes.withLock { $0 = nextRoutes }
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)

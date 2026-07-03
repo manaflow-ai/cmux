@@ -15,14 +15,20 @@ import Foundation
 /// manual-host route only after the user accepts the plaintext-LAN warning.
 /// Plain private-LAN and `.local`/Bonjour hosts remain excluded by default even
 /// though they may still be reachable as attach routes.
-public struct MobileShellRouteAuthPolicy {
-    private init() {}
+public struct MobileShellRouteAuthPolicy: Sendable {
+    private let loopbackHost: CmxLoopbackHost
+
+    /// Creates a route-auth policy with an injectable loopback host matcher.
+    /// - Parameter loopbackHost: Matcher used to recognize loopback aliases.
+    public init(loopbackHost: CmxLoopbackHost = CmxLoopbackHost()) {
+        self.loopbackHost = loopbackHost
+    }
 
     /// Normalizes a raw, user-entered host string, stripping IPv6 brackets and
     /// rejecting anything that contains scheme/path/whitespace characters.
     /// - Parameter rawHost: The raw host string typed by the user.
     /// - Returns: The normalized bare host, or `nil` when it is not a valid host.
-    public static func normalizedManualHost(_ rawHost: String) -> String? {
+    public func normalizedManualHost(_ rawHost: String) -> String? {
         CmxManualHost(rawHost)?.rawValue
     }
 
@@ -30,15 +36,15 @@ public struct MobileShellRouteAuthPolicy {
     ///
     /// Unlike ``normalizedManualHost(_:)``, this accepts bare IPv6 because route
     /// endpoints store IPv6 hosts without brackets.
-    public static func normalizedManualRouteHost(_ rawHost: String) -> String? {
-        CmxManualHost.normalizedRouteHost(rawHost)
+    public func normalizedManualRouteHost(_ rawHost: String) -> String? {
+        CmxManualHost(routeHost: rawHost)?.rawValue
     }
 
     /// Maps a manually typed host to the transport kind that should be used.
     /// - Parameter host: The host to classify.
     /// - Returns: `.debugLoopback` for loopback hosts, `.tailscale` for
     ///   Tailscale IP/MagicDNS hosts, otherwise `.manualHost`.
-    public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
+    public func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = (normalizedManualRouteHost(host) ?? host)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -75,7 +81,7 @@ public struct MobileShellRouteAuthPolicy {
     ///     explicit persisted trust approval.
     /// - Returns: `true` only for Tailscale-tunnel, iroh peer, loopback, and
     ///   explicitly approved manual-host routes.
-    public static func routeAllowsStackAuth(
+    public func routeAllowsStackAuth(
         _ route: CmxAttachRoute,
         manualHostTrusted: Bool = false
     ) -> Bool {
@@ -96,7 +102,7 @@ public struct MobileShellRouteAuthPolicy {
     /// Whether a route is an explicit manual-host route that needs approval.
     /// - Parameter route: The candidate attach route.
     /// - Returns: `true` only for `.manualHost` host/port routes.
-    public static func routeRequiresManualHostTrust(_ route: CmxAttachRoute) -> Bool {
+    public func routeRequiresManualHostTrust(_ route: CmxAttachRoute) -> Bool {
         guard route.kind == .manualHost,
               case let .hostPort(host, _) = route.endpoint else {
             return false
@@ -121,18 +127,18 @@ public struct MobileShellRouteAuthPolicy {
     ///     simulator and on other platforms.
     /// - Returns: `true` when the ticket must fail with the loopback-rejected
     ///   error instead of connecting.
-    public static func ticketRejectsLoopbackRoutes(
+    public func ticketRejectsLoopbackRoutes(
         _ routes: [CmxAttachRoute],
         isPhysicalDevice: Bool
     ) -> Bool {
-        isPhysicalDevice && routes.contains(where: CmxLoopbackHost().matches)
+        isPhysicalDevice && routes.contains(where: routeIsLoopback)
     }
 
     /// Whether the given route may carry Stack auth when reached via an implicit
     /// pair-link (no explicit attach token), restricted to loopback only.
     /// - Parameter route: The candidate attach route.
     /// - Returns: `true` only for loopback host/port routes.
-    public static func routeAllowsImplicitPairLinkStackAuth(_ route: CmxAttachRoute) -> Bool {
+    public func routeAllowsImplicitPairLinkStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
@@ -147,7 +153,7 @@ public struct MobileShellRouteAuthPolicy {
     /// dial it.
     /// - Parameter route: The candidate attach route.
     /// - Returns: `true` when the route's host/port endpoint is a loopback host.
-    public static func routeIsLoopback(_ route: CmxAttachRoute) -> Bool {
+    public func routeIsLoopback(_ route: CmxAttachRoute) -> Bool {
         guard case let .hostPort(host, _) = route.endpoint else {
             return false
         }
@@ -157,34 +163,34 @@ public struct MobileShellRouteAuthPolicy {
     /// Whether a manual host should warn the user that it is neither loopback nor Tailscale.
     /// - Parameter host: The manually typed host.
     /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.
-    public static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
+    public func manualHostNeedsTrustWarning(_ host: String) -> Bool {
         guard normalizedManualNetworkHost(host) != nil else {
             return false
         }
         return manualRouteKind(for: host) == .manualHost
     }
 
-    private static func normalizedManualNetworkHost(_ host: String) -> String? {
+    private func normalizedManualNetworkHost(_ host: String) -> String? {
         normalizedManualHost(host)?.lowercased()
     }
 
-    private static func isLoopbackHost(_ host: String) -> Bool {
-        CmxLoopbackHost().matches(host)
+    private func isLoopbackHost(_ host: String) -> Bool {
+        loopbackHost.matches(host)
     }
 
-    private static func isTailscaleHost(_ host: String) -> Bool {
+    private func isTailscaleHost(_ host: String) -> Bool {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return isTailscaleDNSHost(normalizedHost) || isTailscaleIPv4Host(normalizedHost)
     }
 
-    private static func isTailscaleIPv4Host(_ host: String) -> Bool {
+    private func isTailscaleIPv4Host(_ host: String) -> Bool {
         guard let octets = ipv4Octets(host) else {
             return false
         }
         return octets[0] == 100 && (64...127).contains(octets[1])
     }
 
-    private static func ipv4Octets(_ host: String) -> [Int]? {
+    private func ipv4Octets(_ host: String) -> [Int]? {
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else {
             return nil
@@ -204,7 +210,7 @@ public struct MobileShellRouteAuthPolicy {
         return octets
     }
 
-    private static func isTailscaleDNSHost(_ host: String) -> Bool {
+    private func isTailscaleDNSHost(_ host: String) -> Bool {
         host.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .hasSuffix(".ts.net")

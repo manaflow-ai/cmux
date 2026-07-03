@@ -223,7 +223,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               activeTicket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return false
         }
-        return Self.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
+        return routeSelection.attachTicketIsUnexpired(activeTicket, now: runtime?.now() ?? Date())
     }
     /// User-entered pairing code or pairing URL text for the current connection attempt.
     public var pairingCode: String
@@ -288,6 +288,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// stateless infrastructure, not observed state.
     @ObservationIgnored
     private let routePinger: any CmxRoutePinging
+    @ObservationIgnored
+    let routeSelection = MobileShellRouteSelection()
 
     /// Probe whether the phone can reach this route right now (a direct TCP
     /// connect, independent of the live subscription). See ``CmxRoutePinging``.
@@ -1002,6 +1004,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Creates a preview shell store with in-memory manual-host trust.
+    /// - Parameters:
+    ///   - runtime: Optional runtime used by previews or package tests.
+    ///   - manualHostTrustStore: Store used to persist manual-host approvals in the preview shell.
+    /// - Returns: A shell store seeded with preview workspaces.
     public static func preview(
         runtime: (any MobileSyncRuntime)? = nil,
         manualHostTrustStore: any MobileManualHostTrustStoring = InMemoryMobileManualHostTrustStore()
@@ -1560,7 +1567,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) else {
+        guard let normalizedHost = MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionErrorGuidance = nil
             connectionState = .disconnected
@@ -1589,7 +1596,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
 
-        let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
+        let directRoute = try? routeSelection.manualHostRoute(host: normalizedHost, port: port)
         if let directRoute,
            await manualHostRouteNeedsApproval(directRoute) {
             queueManualHostTrustWarning(
@@ -1625,7 +1632,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let noThrowFailure = try await connect(
                 ticket: ticket,
                 allowsStackAuthFallback: directRoute.map {
-                    MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+                    MobileShellRouteAuthPolicy().routeAllowsStackAuth(
                         $0,
                         manualHostTrusted: manualHostTrusted
                     )
@@ -1699,10 +1706,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isScopeCurrent(scope) else { finishStoredMacReconnectAttempt(generation: generation); return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         func reachableRoute(_ mac: MobilePairedMac) -> (String, Int)? {
-            Self.firstReconnectHostPortRoute(
+            routeSelection.firstReconnectHostPortRoute(
                 mac.routes,
                 supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
+                preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
             )
         }
         let loadedActiveMac: MobilePairedMac?
@@ -2213,7 +2220,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         activeMacID,
                         in: knownMacs,
                         supportedKinds: self.runtime?.supportedRouteKinds ?? [],
-                        preferNonLoopback: Self.prefersNonLoopbackRoutes
+                        preferNonLoopback: self.routeSelection.prefersNonLoopbackRoutes,
+                        routeSelection: self.routeSelection
                    )) {
                     self.recoverMobileConnection(trigger: .presencePush)
                 }
@@ -2299,11 +2307,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instance: RegistryAppInstance
     ) async {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        guard let (host, port) = routeSelection.firstReconnectHostPortRoute(
             instance.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) else {
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
+        ), let normalizedHost = MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) else {
             mobileShellLog.error(
                 "connectToRegistryInstance: no reconnectable route device=\(device.deviceId, privacy: .public) tag=\(instance.tag, privacy: .public)"
             )
@@ -2404,12 +2412,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let coalesced = Self.coalescePairedMacsByDialEndpoint(
             visibleLoaded,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
+            routeSelection: routeSelection
         )
         let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoaded,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
+            routeSelection: routeSelection
         )
         pairedMacAliasIDsByRepresentativeID = coalesced.reduce(into: [String: [String]]()) { result, mac in
             result[mac.macDeviceID] = aliasIDsByMacID[mac.macDeviceID] ?? [mac.macDeviceID]
@@ -2582,11 +2592,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macSwitchRestoreBaseline = nil
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        guard let (host, port) = routeSelection.firstReconnectHostPortRoute(
             refreshedTarget.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) != nil else {
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
+        ), MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) != nil else {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .private)")
             if !hasActiveMacConnection,
                await restorePreviousMacIfNeeded(
@@ -2672,7 +2682,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let aliasSetsByMacID = macDeviceIDAliasSetsByPairedMacID(
             in: candidates,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
+            routeSelection: routeSelection
         )
         return candidates.first { candidate in
             guard candidate.macDeviceID != macDeviceID else { return false }
@@ -2705,11 +2716,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
         guard !previousStillForeground else { return true }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        guard let (host, port) = routeSelection.firstReconnectHostPortRoute(
             previousActive.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        ), MobileShellRouteAuthPolicy.normalizedManualRouteHost(host) != nil else {
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
+        ), MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) != nil else {
             mobileShellLog.error("restorePreviousMacIfNeeded: no reconnectable route mac=\(previousActive.macDeviceID, privacy: .private)")
             return false
         }
@@ -3076,9 +3087,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // would be handed to whatever local process answers. Pure policy,
             // unit tested for both device values; only this wiring is
             // compile-time.
-            if MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            if MobileShellRouteAuthPolicy().ticketRejectsLoopbackRoutes(
                 ticket.routes,
-                isPhysicalDevice: Self.isPhysicalDevice
+                isPhysicalDevice: routeSelection.isPhysicalDevice
             ) {
                 throw MobileSyncPairingPayloadError.loopbackRouteRejected
             }
@@ -3128,7 +3139,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .needsUserApproval
         }
 
-        let candidateRoutes = Self.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
+        let candidateRoutes = routeSelection.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
         if let approval = await firstManualHostRouteNeedingApproval(in: candidateRoutes),
            case let .hostPort(host, _) = approval.route.endpoint {
             queueManualHostTrustWarning(
@@ -3322,16 +3333,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
+        guard let (host, port) = routeSelection.firstReconnectHostPortRoute(
             mac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes
         ) else {
             return nil
         }
         let ticket: CmxAttachTicket
         do {
-            let directRoute = try Self.manualHostRoute(host: host, port: port)
+            let directRoute = try routeSelection.manualHostRoute(host: host, port: port)
             let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
             ticket = try await manualHostTicket(
                 name: mac.displayName ?? host,
@@ -3346,7 +3357,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return nil
         }
-        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        let supportedRoutes = routeSelection.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         // Dial the route we PROVED reachable above (the non-loopback host/port the
         // ticket was built from), NOT `supportedRoutes.first`: on a physical phone a
         // Mac ticket can advertise a higher-priority `debugLoopback` (127.0.0.1)
@@ -3362,7 +3373,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ?? supportedRoutes.first
         guard let route else { return nil }
         let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
-        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+        guard MobileShellRouteAuthPolicy().routeAllowsStackAuth(
             route,
             manualHostTrusted: manualHostTrusted
         ) else {
@@ -3555,12 +3566,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let macs = Self.coalescePairedMacsByDialEndpoint(
             visibleLoadedMacs,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
+            routeSelection: routeSelection
         )
         let aliasIDsByMacID = macDeviceIDAliasesByPairedMacID(
             in: visibleLoadedMacs,
             supportedKinds: supportedRouteKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: routeSelection.prefersNonLoopbackRoutes,
+            routeSelection: routeSelection
         )
         let foregroundMacDeviceIDs = foregroundMacDeviceID.map {
             aliasIDsByMacID[$0] ?? [$0]
@@ -4890,7 +4903,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
+        let supportedRoutes = routeSelection.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
@@ -4930,7 +4943,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             activeRoute = route
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
             let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
-            let routeAllowsStackAuth = MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            let routeAllowsStackAuth = MobileShellRouteAuthPolicy().routeAllowsStackAuth(
                 route,
                 manualHostTrusted: manualHostTrusted
             )
@@ -5132,7 +5145,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
-        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+        guard MobileShellRouteAuthPolicy().routeAllowsStackAuth(
             route,
             manualHostTrusted: manualHostTrusted
         ),
@@ -5547,7 +5560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         phase: String,
         routes: [CmxAttachRoute]
     ) async -> PairingPreflightOutcome {
-        if routes.contains(where: MobileShellRouteAuthPolicy.routeIsLoopback) { return .proceed }
+        if routes.contains(where: MobileShellRouteAuthPolicy().routeIsLoopback) { return .proceed }
         guard await reachability.isOnline == false else { return .proceed }
         guard isCurrentPairingAttempt(attemptID) else { return .superseded }
         mobileShellLog.info("pairing preflight: device offline, short-circuiting")
