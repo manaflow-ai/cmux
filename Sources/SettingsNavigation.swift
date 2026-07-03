@@ -482,6 +482,7 @@ enum SettingsSearchIndex {
         "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .appearance, idSuffix: "appearance"),
+        "app.globalFontMagnification": settingID(for: .appearance, idSuffix: "global-font-magnification"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
         "app.newWorkspacePlacement": settingID(for: .app, idSuffix: "new-workspace-placement"),
         "workspaceGroups.newWorkspacePlacement": settingID(for: .app, idSuffix: "workspace-group-new-workspace-placement"),
