@@ -69,6 +69,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         /// Codex compaction completed.
         case postCompact = "PostCompact"
         case permissionRequest = "PermissionRequest"
+        /// Agent-owned approval flow is waiting in the agent's own UI.
         case approvalWait = "ApprovalWait"
         case askUserQuestion = "AskUserQuestion"
         case exitPlanMode = "ExitPlanMode"
