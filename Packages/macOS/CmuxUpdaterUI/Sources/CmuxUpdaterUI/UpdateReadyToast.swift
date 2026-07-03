@@ -120,7 +120,6 @@ public struct UpdateReadyToast: View {
                     Text(String(localized: "update.toast.restart", defaultValue: "Restart"))
                         .frame(maxWidth: .infinity)
                 }
-                .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .accessibilityIdentifier("UpdateReadyToastRestart")
