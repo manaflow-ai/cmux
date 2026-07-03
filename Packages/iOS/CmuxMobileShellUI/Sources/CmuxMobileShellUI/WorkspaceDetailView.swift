@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxAgentChatUI
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -34,14 +35,10 @@ struct WorkspaceDetailView: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
-    /// Phone-local browser surfaces, injected from the app root. When this
-    /// workspace has an active browser surface the detail view presents a
-    /// browser pane in place of the terminal; otherwise it shows the terminal.
+    /// Phone-local browser surfaces, injected from the app root.
     @Environment(BrowserSurfaceStore.self) private var browserStore
-    /// Drives the destructive close-workspace confirmation dialog launched from
-    /// the top-bar menu. Owned here (not in the menu builder) so the dialog stays
-    /// attached to the detail view across menu open/close cycles.
-    @State private var isConfirmingClose = false
+    /// Drives the destructive close-workspace confirmation dialog.
+    @State var isConfirmingClose = false
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -53,87 +50,141 @@ struct WorkspaceDetailView: View {
     @State private var pendingTerminalPickerAction: TerminalPickerAction?
     /// Drives the rename-workspace dialog launched from the picker menu, and its
     /// editable text (seeded with the current name when presented).
-    @State private var isRenamePresented = false
-    @State private var renameText = ""
-    /// Live pane width, used to width-cap the leading glass title pill so a long
-    /// workspace name truncates instead of underlapping the toolbar buttons.
+    @State var isRenamePresented = false
+    @State var renameText = ""
+    /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
-    /// Captured at the moment the "View as Text" action is tapped so the
-    /// sheet keeps showing the terminal the user asked about even if the
-    /// workspace selection changes underneath it (e.g. Mac-side sync) while
-    /// the sheet is open; the sheet loads its snapshot once per presentation.
+    /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    /// Chat-mode toggle: when on (and a session exists) the detail renders
-    /// the agent chat inline in place of the terminal. The toolbar button
-    /// flips this; there is no cover and no Done button.
-    @State private var isChatMode = false
+    /// Chat-mode toggle for inline agent chat in place of the terminal.
+    @State var isChatMode = false
     /// The session chat mode was entered on, pinned so a newer session
     /// sorting first cannot swap the conversation out from under the user
     /// mid-read. Cleared when chat mode turns off.
-    @State private var pinnedChatSessionID: String?
-    @State private var chatSessions: [ChatSessionDescriptor] = []
+    @State var pinnedChatSessionID: String?
+    @State var chatSessions: [ChatSessionDescriptor] = []
+    @State var chatSessionsWorkspaceID: String?
+    /// Last terminal id whose cached snapshot said it had a chat session.
+    @State var cachedChatToggleTerminalID: String?
+    /// Per-session chat stores kept warm while the workspace detail is visible.
+    @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
-    @State private var chatDrafts: [String: String] = [:]
-    /// App lifecycle phase. Returning from `.background` re-pulls the session
-    /// list: pushes are best-effort and can be dropped while suspended, so on
-    /// foreground we re-read the host's authoritative list rather than trust
-    /// that every push arrived.
-    @Environment(\.scenePhase) private var scenePhase
+    @State var chatDrafts: [String: String] = [:]
+    /// App lifecycle phase used to re-pull chat sessions on foreground.
+    @Environment(\.scenePhase) var scenePhase
     #endif
-
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
 
-    #if os(iOS)
-    /// The chat session belonging to the currently visible tab/terminal, if
-    /// any. The toggle and the chat bind to THIS — the tab the user is
-    /// looking at — so a tab's chat never shows another tab's history, and a
-    /// tab with no agent session yields nil (its toggle is hidden). A past
-    /// agent that has since ended still matches here (its record keeps the
-    /// terminal binding), so the tab keeps showing the conversation read-only.
-    ///
-    /// This per-tab match relies on surface ids being stable across app
-    /// relaunch / session restore (cmux reuses a panel's persisted id when it
-    /// is still unique), so the session's recorded terminal id keeps matching
-    /// the live terminal.
-    private var sessionForSelectedTerminal: ChatSessionDescriptor? {
-        guard let terminalID = selectedTerminal?.id.rawValue else { return nil }
-        return chatSessions.first { $0.terminalID == terminalID }
-    }
-
-    /// The session chat mode opens: the visible tab's session, or the pinned
-    /// session while chat mode is on.
-    private var chosenChatSession: ChatSessionDescriptor? {
-        // While chat is open it is pinned to one session: return that exact
-        // session or nil if it vanished — never silently switch to another
-        // (the transcript/store can't follow that switch, so the header
-        // would claim B while the conversation stays A). nil makes the body
-        // fall back to the terminal and refreshChatSessions exit chat mode.
-        if let pinnedChatSessionID {
-            return chatSessions.first { $0.id == pinnedChatSessionID }
-        }
-        return sessionForSelectedTerminal
-    }
-
-    #endif
-
     var body: some View {
-        Group {
+        let content = Group {
             detailSurfaceContent
         }
-        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+
+        #if os(iOS)
+        content
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+            .navigationTitle(systemNavigationTitle)
+            .mobileTerminalNavigationChrome()
+            .toolbar { workspaceDetailToolbar }
+            .task(id: chatRefreshKey) { await refreshChatSessions() }
+            .task(id: chatConversationWarmKey) {
+                await runWarmChatConversation()
+            }
+            .onChange(of: selectedTerminalID) { _, _ in
+                refreshCachedChatToggleAnchor()
+            }
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .sheet(isPresented: $isFeedbackComposerPresented) {
+                feedbackComposer
+            }
+            .sheet(isPresented: $isTextSheetPresented) {
+                TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .workspaceRenameDialog(
+                isPresented: $isRenamePresented,
+                text: $renameText,
+                onSave: commitRenameFromDialog
+            )
+            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+        #else
+        content
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+        #endif
     }
+
+    #if os(iOS)
+    @ToolbarContentBuilder
+    private var workspaceDetailToolbar: some ToolbarContent {
+        if backButtonConfiguration != nil {
+            ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
+                workspaceBackToolbarButton
+            }
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarLeading)
+            }
+        }
+        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
+            workspaceTitleToolbarMenu
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            toolbarTrailingCluster
+        }
+    }
+
+    private var workspaceTitleToolbarMenu: some View {
+        WorkspaceTitleMenu(
+            contentWidth: contentWidth,
+            hasBackButton: backButtonConfiguration != nil,
+            hasTrailingCluster: true,
+            hasChatToggle: shouldShowChatToggle,
+            isEnabled: hasTitleMenuActions,
+            menuContent: { titleMenuContent }
+        ) {
+            toolbarTitleLabel
+        }
+    }
+
+    @ViewBuilder
+    private var toolbarTitleLabel: some View {
+        if isChatMode,
+           let session = chosenChatSession,
+           let conversation = chatConversationStores[session.id] {
+            ChatSessionHeaderView(
+                descriptor: conversation.descriptor,
+                agentState: conversation.agentState,
+                isConnected: conversation.isConnected,
+                titleOverride: workspace.name,
+                subtitle: tabName(for: session),
+                style: .toolbarCompact
+            )
+        } else if let browser = activeBrowser {
+            Text(browser.title ?? workspace.name)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(TerminalPalette.foreground)
+        } else {
+            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var detailSurfaceContent: some View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
-                // Emerge from the toolbar (top edge) rather than snapping in,
-                // matching standard toolbar-driven transitions.
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .transition(.opacity)
         } else if let browser = activeBrowser {
             browserContent(browser)
         } else {
@@ -143,150 +194,6 @@ struct WorkspaceDetailView: View {
         detailContent()
         #endif
     }
-
-    #if os(iOS)
-    @ViewBuilder
-    private func chatContent(_ session: ChatSessionDescriptor) -> some View {
-        WorkspaceChatPane(
-            session: session,
-            store: store,
-            workspaceName: workspace.name,
-            tabName: tabName(for: session),
-            draft: Binding(
-                get: { chatDrafts[session.id] ?? "" },
-                set: { chatDrafts[session.id] = $0 }
-            ),
-            backButtonConfiguration: backButtonConfiguration,
-            titleMenuContent: { titleMenuContent },
-            onExitChat: {
-                withAnimation(.snappy(duration: 0.28)) {
-                    isChatMode = false
-                }
-                pinnedChatSessionID = nil
-            }
-        )
-        .id(session.id)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .mobileChatTopScrollEdgeLayout(legacyTopPadding: terminalTopPadding)
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                terminalPickerToolbarButton
-            }
-        }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
-    }
-
-    @ViewBuilder
-    private var chatToggleButton: some View {
-        if isChatMode || sessionForSelectedTerminal != nil {
-            Button(action: toggleChatMode) {
-                Image(systemName: isChatMode
-                    ? "bubble.left.and.bubble.right.fill"
-                    : "bubble.left.and.bubble.right")
-            }
-            .accessibilityLabel(L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat"))
-            .accessibilityIdentifier("MobileWorkspaceAgentChatButton")
-            .disabled(!isChatMode && chosenChatSession == nil)
-        }
-    }
-
-    /// Flip between the terminal and the inline agent chat, pinning/unpinning the
-    /// chosen session. Shared by the (legacy) toolbar button and the menu row.
-    private func toggleChatMode() {
-        withAnimation(.snappy(duration: 0.28)) {
-            isChatMode.toggle()
-        }
-        pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
-    }
-
-    /// Identity for the session refetch: workspace, connection epoch, and a
-    /// foreground epoch. A change re-runs `.task(id:)`, which re-subscribes to
-    /// the push stream and re-pulls the authoritative session list.
-    ///
-    /// The foreground epoch flips only on `.background` (not transient
-    /// `.inactive` like control center or a banner), so a real
-    /// background-then-foreground re-pulls while momentary inactivity does not
-    /// churn the subscription. `.background` tears the stream down to save
-    /// battery; returning to the foreground re-establishes and reconciles.
-    private var chatRefreshKey: String {
-        let connected = store.connectionState == .connected ? 1 : 0
-        let foreground = scenePhase == .background ? 0 : 1
-        return "\(workspace.id.rawValue)#\(connected)#\(foreground)"
-    }
-
-    /// Keeps the chat-capable session list current while this workspace is
-    /// shown, so the GUI toggle appears as soon as a coding agent becomes
-    /// active, without polling. The Mac pushes a `chat.message` frame on
-    /// every descriptor/state change (a brand-new agent emits
-    /// `descriptorChanged`); we register the push stream first, seed the
-    /// list once, then fold each subsequent frame in. Registering before
-    /// seeding plus idempotent folds means a change that races the seed
-    /// converges either way. The stream finishes when the connection drops;
-    /// `.task(id: chatRefreshKey)` re-runs this on reconnect, and cancels it
-    /// on workspace change or when the view goes away.
-    private func refreshChatSessions() async {
-        guard let source = store.makeChatEventSource() else {
-            chatSessions = []
-            applyChatModeFallback()
-            return
-        }
-        let reducer = ChatSessionListReducer(workspaceID: workspace.id.rawValue)
-        let stream = await source.sessionEvents()
-        // Animate the list update so the toggle eases in rather than popping
-        // when a session is found (the seed/first frame arriving over the
-        // wire is the "appears real quickly but not smooth" moment).
-        let seeded = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
-        withAnimation(.snappy(duration: 0.25)) { chatSessions = seeded }
-        repinToReopenedSession()
-        applyChatModeFallback()
-        for await frame in stream {
-            let next = reducer.applying(frame, to: chatSessions)
-            withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
-            repinToReopenedSession()
-            applyChatModeFallback()
-        }
-    }
-
-    /// While chat is open and pinned to a session that has ENDED, if the agent
-    /// was reopened on the same terminal (a newer, non-ended session bound to
-    /// the same terminal id), re-pin to it so the GUI becomes editable again.
-    /// Only an ended pin is switched, never a live one, so an active read is
-    /// never swapped out; `.id(session.id)` rebuilds the conversation store for
-    /// the new session.
-    private func repinToReopenedSession() {
-        guard isChatMode,
-              let pinnedID = pinnedChatSessionID,
-              let pinned = chatSessions.first(where: { $0.id == pinnedID }),
-              pinned.state == .ended,
-              let terminalID = pinned.terminalID else { return }
-        let live = chatSessions
-            .filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
-            .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }
-        if let live {
-            pinnedChatSessionID = live.id
-        }
-    }
-
-    /// If the session backing chat mode disappeared, fall back to the
-    /// terminal rather than showing an empty chat.
-    private func applyChatModeFallback() {
-        if isChatMode, chosenChatSession == nil {
-            isChatMode = false
-            pinnedChatSessionID = nil
-        }
-    }
-    #endif
 
     #if os(iOS)
     /// The browser pane shown when this workspace has an active browser surface.
@@ -301,57 +208,12 @@ struct WorkspaceDetailView: View {
         // Key on the surface id so switching/reopening rebuilds the WKWebView.
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-        .navigationTitle("")
-        .mobileTerminalNavigationChrome()
-        .toolbar {
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
-            }
-            ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
-                    menuContent: { titleMenuContent }
-                ) {
-                    Text(browser.title ?? workspace.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(TerminalPalette.foreground)
-                }
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                terminalPickerToolbarButton
-            }
-        }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
     }
     #endif
 
     private func detailContent() -> some View {
-        // `GhosttySurfaceView` owns the bottom accessory bar: it docks the
-        // `TerminalInputAccessoryAction` toolbar persistently at the bottom
-        // (above the keyboard when up, above the home indicator when down) and
-        // reserves its height in the terminal grid. The SwiftUI bar that used to
-        // live here has been removed so the two stacked toolbars from
-        // dogfood iosfin no longer fight for the same screen edge.
+        // `GhosttySurfaceView` owns the bottom accessory bar and reserves its
+        // height in the terminal grid.
         Group {
             #if os(iOS)
             if let terminalID = selectedTerminal?.id.rawValue {
@@ -359,24 +221,14 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
-                    // While the composer is presented the terminal input proxy
-                    // must not grab first responder on attach. This covers both
-                    // composer states: mid-compose (the field owns the keyboard
-                    // and a surface re-create from switching terminals must not
-                    // steal it back) and the default-open presentation (the field
-                    // is visible but unfocused — iMessage semantics — so the
-                    // keyboard stays DOWN until the user taps the terminal or the
-                    // field).
+                    // Do not let a terminal reattach steal focus while the
+                    // composer owns or intentionally withholds the keyboard.
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                         && !store.isComposerPresented,
                     isComposerActive: store.isComposerPresented
                 )
-                // Identity must track the selected terminal. The representable's
-                // coordinator binds its byte sink to the surfaceID at make time and
-                // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
-                // reuses the first terminal's surface and the dropdown never switches.
-                // Keying on terminalID tears down the old surface (unregistering its
-                // sink via dismantleUIView) and builds the newly-selected one.
+                // Identity must track the selected terminal because the
+                // coordinator binds its byte sink to the surfaceID at make time.
                 .id(terminalID)
                 .onAppear {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
@@ -388,13 +240,7 @@ struct WorkspaceDetailView: View {
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
                 // and the reservation double-counts (extra gap when open).
                 .ignoresSafeArea(.keyboard, edges: .bottom)
-                // Keep the grid INSIDE the top safe area and add extra blank top
-                // padding so the first rows sit clear of the Dynamic Island and
-                // the nav bar instead of being stuck in the non-visible area
-                // behind them. The padded region shows the terminal background
-                // (the window-filling `.background` below extends under the bar),
-                // so it reads as blank terminal color, and the glass title pill
-                // floats over it.
+                // Keep the grid clear of the Dynamic Island and nav bar.
                 .padding(.top, terminalTopPadding)
             } else {
                 TerminalPalette.background
@@ -406,19 +252,13 @@ struct WorkspaceDetailView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        #if os(iOS)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-        #endif
         .overlay(alignment: .topLeading) {
             MobileMacConnectionStatusPill(host: host, status: connectionStatus)
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
         .overlay {
-            // When the phone is not connected to this Mac, show a clear
-            // reconnecting/offline state with an action instead of a black
-            // terminal (the recurring "black screen" — a dropped connection left
-            // the user staring at an unrendered surface).
+            // Show a reconnecting/offline state instead of a black terminal.
             if connectionStatus != .connected {
                 TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
                     Task {
@@ -433,12 +273,7 @@ struct WorkspaceDetailView: View {
             }
         }
         #if os(iOS) && DEBUG
-        // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
-        // store flags that drive the surface's composer mirror, so a UI test can assert
-        // the store and surface agree across repeated open/close cycles and that the
-        // draft (`terminalInputText`) survives. Zero-size + read live on every query;
-        // never compiled into a shipping build. Pairs with `MobileComposerDockProbe`
-        // on the surface side.
+        // DEBUG/UI-test-only store-side composer probe.
         .overlay {
             ComposerStoreProbe(
                 isComposerPresented: store.isComposerPresented,
@@ -448,78 +283,28 @@ struct WorkspaceDetailView: View {
         }
         #endif
         #if os(iOS)
-        // The whole bottom dock (terminal grid / composer band / accessory toolbar /
-        // keyboard) is owned by `GhosttySurfaceView` in one coordinate system. The
-        // iMessage composer is mounted INTO the surface's composer band by
-        // `GhosttySurfaceRepresentable` (a `UIHostingController`), not added here as a
-        // `safeAreaInset`. There is no second layout system reaching into the
-        // surface's bottom, so the accessory toolbar can never be reparented out (its
-        // buttons can never disappear) and a composer-grow pushes only the terminal up.
+        // The whole bottom dock is owned by `GhosttySurfaceView` in one
+        // coordinate system, so composer growth pushes only the terminal up.
         .mobileTerminalSafeAreaExpansion(
             context: safeAreaContext,
             includesBottom: true
         )
         .background {
-            // Fill the whole window, including under the translucent nav bar, so
-            // the glass tints the terminal's own dark color rather than the page
-            // background.
+            // Fill under translucent chrome with the terminal's own color.
             TerminalPalette.background
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
         .background(TerminalPalette.background)
         #endif
+        #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
         .mobileTerminalNavigationChrome()
-        #if os(iOS)
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        #endif
         .toolbar {
-            #if os(iOS)
-            if backButtonConfiguration != nil {
-                ToolbarItem(placement: .topBarLeading) {
-                    workspaceBackToolbarButton
-                }
-                if #available(iOS 26.0, *) {
-                    ToolbarSpacer(.fixed, placement: .topBarLeading)
-                }
-            }
-            ToolbarItem(placement: .topBarLeading) {
-                WorkspaceTitleMenu(
-                    contentWidth: contentWidth,
-                    hasBackButton: backButtonConfiguration != nil,
-                    hasChatToggle: isChatMode || sessionForSelectedTerminal != nil,
-                    menuContent: { titleMenuContent }
-                ) {
-                    WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-                }
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                chatToggleButton
-                terminalPickerToolbarButton
-            }
-            #else
             ToolbarItem {
                 terminalToolbarButtons
             }
-        #endif
         }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        #if canImport(UIKit)
-        .sheet(isPresented: $isFeedbackComposerPresented) {
-            feedbackComposer
-        }
-        .sheet(isPresented: $isTextSheetPresented) {
-            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
-        }
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
         #endif
     }
 
@@ -530,8 +315,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Compact-stack back button colocated with the leading title so both
-    /// terminal and chat modes share one toolbar order.
+    /// Leading back-button island; iOS 26 supplies toolbar glass.
     @ViewBuilder
     private var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
@@ -543,7 +327,7 @@ struct WorkspaceDetailView: View {
         }
     }
 
-    private var titleMenuContent: some View {
+    var titleMenuContent: some View {
         WorkspaceTitleMenuContent(
             workspace: workspace,
             canCloseWorkspace: closeWorkspace != nil,
@@ -552,6 +336,7 @@ struct WorkspaceDetailView: View {
             requestClose: requestCloseWorkspaceFromMenu
         )
     }
+
     #endif
 
     private var newWorkspaceToolbarButton: some View {
@@ -565,7 +350,13 @@ struct WorkspaceDetailView: View {
     }
 
     private var terminalPickerToolbarButton: some View {
-        Button {
+        #if DEBUG
+        let copyDebugLogsAction: (() -> Void)? = { queueTerminalPickerAction(.copyDebugLogs) }
+        #else
+        let copyDebugLogsAction: (() -> Void)? = nil
+        #endif
+
+        return Button {
             dismissTerminalKeyboardForChrome()
             isTerminalPickerPresented = true
         } label: {
@@ -578,12 +369,7 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(host)
-        #if DEBUG
-        let copyDebugLogsAction: (() -> Void)? = { queueTerminalPickerAction(.copyDebugLogs) }
-        #else
-        let copyDebugLogsAction: (() -> Void)? = nil
-        #endif
+        .accessibilityValue(selectedTerminal?.name ?? "")
         .sheet(isPresented: $isTerminalPickerPresented, onDismiss: performPendingTerminalPickerActionIfNeeded) {
             TerminalPickerSheet(
                 workspace: workspace,
@@ -625,8 +411,8 @@ struct WorkspaceDetailView: View {
     private func copyDebugLogsFromMenu() {
         // Include "what the user sees" (the visible terminal text) above the
         // debug log so a pasted bug report shows the on-screen content too.
-        let terminalText = GhosttySurfaceView.visibleTerminalSnapshot()
         Task { @MainActor in
+            let terminalText = await GhosttySurfaceView.visibleTerminalSnapshot()
             let count = await MobileDebugLog.shared.copyToPasteboard(prepending: terminalText)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             NSLog("cmux.terminal copied %d debug log lines + visible terminal to pasteboard", count)
@@ -752,10 +538,10 @@ struct WorkspaceDetailView: View {
         // Only the agent path reads the terminal/debug snapshots; reading them is
         // cheap and harmless on the email path, but skip the work when unused.
         // `visibleTerminalSnapshot()` reads off the output queue with a bounded
-        // wait (never a main-thread `ghostty_surface_read_text`, which blanks the
+        // async deadline (never a main-thread `ghostty_surface_read_text`, which blanks the
         // terminal). The debug-log snapshot is awaited from its actor.
-        let terminalText = routesToAgent ? GhosttySurfaceView.visibleTerminalSnapshot() : ""
         Task { @MainActor in
+            let terminalText = routesToAgent ? await GhosttySurfaceView.visibleTerminalSnapshot() : ""
             let debugLogText = routesToAgent ? await MobileDebugLog.shared.sink.snapshotWithCount().1 : ""
             let outcome = await store.submitFeedback(
                 message: note,
@@ -792,7 +578,7 @@ struct WorkspaceDetailView: View {
         isConfirmingClose = true
     }
 
-    private func confirmCloseWorkspaceFromMenu() {
+    func confirmCloseWorkspaceFromMenu() {
         closeWorkspace?(workspace.id)
     }
 
@@ -817,7 +603,7 @@ struct WorkspaceDetailView: View {
 
     /// Commit the rename dialog: forward the trimmed name to the Mac, which echoes
     /// it back via the authoritative list sync. Empty names are ignored.
-    private func commitRenameFromDialog() {
+    func commitRenameFromDialog() {
         let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let store = store
