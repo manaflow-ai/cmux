@@ -105,6 +105,22 @@ public final class NotificationDismissalModel: NotificationDismissing {
         guard host.selectedWorkspaceId == workspaceId else { return false }
         if context.requiresActiveApp {
             guard host.isAppActive else { return false }
+            // Opt-in (`notifications.suppressOnlyFocusedSurface`): narrow the
+            // implicit, workspace-visibility-driven auto-withdraw to the exact
+            // focused surface. Without this, a banner delivered for a
+            // non-focused surface in the now-visible workspace could be swept
+            // along; the delivery gate (`shouldSuppressExternalDelivery`)
+            // already keys on the focused surface, and this makes the withdraw
+            // side match it. Nesting under `requiresActiveApp` keeps it off the
+            // explicit per-surface paths (direct click, terminal typing) — so
+            // the setting is never read on the per-keystroke dismiss — and a
+            // `nil` `surfaceId` (workspace-level dismissal) stays broad. See
+            // issue #6601.
+            if host.suppressOnlyFocusedSurface,
+               let surfaceId,
+               host.focusedSurfaceId(in: workspaceId) != surfaceId {
+                return false
+            }
         }
         guard host.hasNotificationStore else { return false }
         guard host.storeHasDismissibleActivity(workspaceId: workspaceId) else { return false }

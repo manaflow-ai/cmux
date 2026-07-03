@@ -63,6 +63,7 @@ extension ShortcutAction {
         case .closeTab: return ShortcutStroke(key: "w", command: true)
         case .closeOtherTabsInPane: return ShortcutStroke(key: "t", command: true, option: true)
         case .closeWorkspace: return ShortcutStroke(key: "w", command: true, shift: true)
+        case .newWorkspaceGroup: return ShortcutStroke(key: "g", command: true, control: true)
         case .groupSelectedWorkspaces: return ShortcutStroke(key: "g", command: true, shift: true)
         case .toggleFocusedWorkspaceGroupCollapsed: return ShortcutStroke(key: ".", command: true, control: true)
         case .reopenClosedBrowserPanel: return ShortcutStroke(key: "t", command: true, shift: true)
@@ -81,7 +82,7 @@ extension ShortcutAction {
         case .canvasOverview: return ShortcutStroke(key: "o", command: true, control: true)
         case .canvasZoomIn: return ShortcutStroke(key: "=", command: true, option: true)
         case .canvasZoomOut: return ShortcutStroke(key: "-", command: true, option: true)
-        case .canvasZoomReset: return ShortcutStroke(key: "0", command: true, option: true)
+        case .canvasZoomReset: return ShortcutStroke(key: "0", command: true)
         case .canvasTidy: return ShortcutStroke(key: "t", command: true, control: true)
         case .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
              .canvasEqualizeWidths, .canvasEqualizeHeights,
@@ -96,9 +97,13 @@ extension ShortcutAction {
         case .newSurface: return ShortcutStroke(key: "t", command: true)
         case .toggleTerminalCopyMode: return ShortcutStroke(key: "m", command: true, shift: true)
         case .focusTextBoxInput: return ShortcutStroke(key: "a", command: true, shift: true)
+        case .cycleTextBoxSubmitAction: return ShortcutStroke(key: "\t", shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .sendCtrlFToTerminal: return nil
+        case .clearScreenKeepScrollback: return ShortcutStroke(key: "k", command: true, shift: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
+        case .fileExplorerOpenSelection: return ShortcutStroke(key: "\r")
+        case .fileExplorerOpenSelectionFinderAlias: return ShortcutStroke(key: "↓", command: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)
@@ -106,6 +111,7 @@ extension ShortcutAction {
         case .browserBack: return ShortcutStroke(key: "[", command: true)
         case .browserForward: return ShortcutStroke(key: "]", command: true)
         case .browserReload: return ShortcutStroke(key: "r", command: true)
+        case .browserHardReload: return ShortcutStroke(key: "r", command: true, shift: true)
         case .browserZoomIn: return ShortcutStroke(key: "=", command: true)
         case .browserZoomOut: return ShortcutStroke(key: "-", command: true)
         case .browserZoomReset: return ShortcutStroke(key: "0", command: true)

@@ -1,4 +1,4 @@
-public import Foundation
+internal import Foundation
 internal import UserNotifications
 
 /// Production ``DeliveredNotificationClearing`` backed by the system
@@ -21,6 +21,7 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
     /// Remove the delivered banners carrying the given Mac notification ids.
     /// - Parameter ids: The stable Mac-side notification ids to clear.
     public func removeDelivered(ids: [String]) async {
+        guard Self.canUseNotificationCenter else { return }
         guard !ids.isEmpty else { return }
         let targets = Set(ids)
         // Resolve the Mac ids to the actual delivered request identifiers
@@ -39,7 +40,8 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
     /// reconcile sweep.
     /// - Returns: One id per delivered notification (see ``macNotificationID(for:)``).
     public func deliveredIdentifiers() async -> [String] {
-        await UNUserNotificationCenter.current()
+        guard Self.canUseNotificationCenter else { return [] }
+        return await UNUserNotificationCenter.current()
             .deliveredNotifications()
             .map { Self.macNotificationID(for: $0.request) }
     }
@@ -47,6 +49,7 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
     /// SET the app-icon badge to the Mac's authoritative unread total.
     /// - Parameter count: The unread total; clamped to zero.
     public func setBadgeCount(_ count: Int) {
+        guard Self.canUseNotificationCenter else { return }
         // Fire-and-forget: a badge write failure (no authorization yet) is
         // non-fatal and the next event/push/reconcile sets the total again.
         UNUserNotificationCenter.current().setBadgeCount(max(0, count), withCompletionHandler: nil)
@@ -66,5 +69,9 @@ public struct SystemDeliveredNotificationClearer: DeliveredNotificationClearing 
             return id
         }
         return request.identifier
+    }
+
+    private static var canUseNotificationCenter: Bool {
+        Bundle.main.bundleURL.pathExtension == "app"
     }
 }

@@ -205,6 +205,32 @@ public struct CodexTranscriptParser: Sendable {
         let callID = payload["call_id"]?.string
         let arguments = payload["arguments"]?.string
         let parsedArguments = arguments.flatMap { TranscriptJSONValue(jsonLine: $0) }
+        // Codex's interactive picker is a `request_user_input` function call whose
+        // arguments carry `questions[]` in the same shape as Claude's
+        // AskUserQuestion. Render each as a tappable `.question` so the GUI shows
+        // a real picker (wired to mobile.chat.answer) instead of plain text.
+        if name == "request_user_input" {
+            let questions = Self.codexQuestions(from: parsedArguments)
+            if !questions.isEmpty {
+                for (index, question) in questions.enumerated() {
+                    let baseID = callID ?? "line-\(seq)"
+                    assembler.append(
+                        ChatMessage(
+                            id: index == 0 ? baseID : "\(baseID)-q\(index)",
+                            seq: seq,
+                            role: .agent,
+                            timestamp: timestamp,
+                            kind: .question(question)
+                        ),
+                        // Pair with the request_user_input function_call_output by
+                        // call id so the answer marks the question resolved (the
+                        // GUI then shows the selection and stops being tappable).
+                        pendingKey: index == 0 ? callID : nil
+                    )
+                }
+                return
+            }
+        }
         let kind: ChatMessageKind
         if Self.shellToolNames.contains(name),
             let command = shellCommand(arguments: parsedArguments, payload: payload) {
@@ -226,6 +252,27 @@ public struct CodexTranscriptParser: Sendable {
             ),
             pendingKey: callID
         )
+    }
+
+    /// Maps a `request_user_input` arguments object into tappable questions.
+    /// Mirrors the Claude parser's question shape: `questions[].question` with
+    /// `options[].label` and an optional `options[].description` detail.
+    private static func codexQuestions(from arguments: TranscriptJSONValue?) -> [ChatQuestion] {
+        let questions = arguments?["questions"]?.array ?? []
+        return questions.compactMap { question -> ChatQuestion? in
+            guard let prompt = question["question"]?.string else { return nil }
+            let options = (question["options"]?.array ?? []).compactMap { option in
+                option["label"]?.string.map {
+                    ChatQuestion.Option(label: $0, detail: option["description"]?.string)
+                }
+            }
+            guard !options.isEmpty else { return nil }
+            return ChatQuestion(
+                prompt: prompt,
+                options: options,
+                questionID: question["id"]?.string
+            )
+        }
     }
 
     private func appendCustomToolCall(

@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxCanvasUI
 import CmuxSettingsUI
 
@@ -18,6 +19,7 @@ struct WorkspaceCanvasHostView: View {
     let isWorkspaceInputActive: Bool
     let portalPriority: Int
     let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
 
     var body: some View {
@@ -32,8 +34,10 @@ struct WorkspaceCanvasHostView: View {
     private var descriptors: [CanvasPaneDescriptor] {
         let focusedPanelId = workspace.focusedPanelId
         let closeActionLabel = String(localized: "canvas.pane.close.help", defaultValue: "Close Pane")
+        let isSplit = workspace.orderedPanelIds.count > 1
         return workspace.orderedPanelIds.compactMap { panelId in
             guard let panel = workspace.panels[panelId] else { return nil }
+            let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
             return CanvasPaneDescriptor(
                 id: panelId,
                 tab: CanvasTabChrome(
@@ -41,7 +45,7 @@ struct WorkspaceCanvasHostView: View {
                     title: panel.displayTitle,
                     iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType)
                 ),
-                isFocused: isWorkspaceInputActive && focusedPanelId == panelId,
+                isFocused: isFocused,
                 closeActionLabel: closeActionLabel,
                 makeMount: { [weak workspace] container in
                     CanvasPaneContentMount(
@@ -51,6 +55,7 @@ struct WorkspaceCanvasHostView: View {
                             isWorkspaceVisible: isWorkspaceVisible,
                             portalPriority: portalPriority,
                             appearance: appearance,
+                            windowAppearance: windowAppearance,
                             settingsRuntime: settingsRuntime
                         ),
                         panelId: panelId,
@@ -58,6 +63,15 @@ struct WorkspaceCanvasHostView: View {
                         onFocusPanel: { [weak workspace] panelId in
                             workspace?.focusPanel(panelId)
                         }
+                    )
+                },
+                updateMount: { mount in
+                    guard let mount = mount as? CanvasPaneContentMount else { return }
+                    mount.updatePresentation(
+                        isFocused: isFocused,
+                        showsInactiveOverlay: isSplit && !isFocused,
+                        inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+                        inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity
                     )
                 }
             )
@@ -71,6 +85,7 @@ struct WorkspaceCanvasHostView: View {
         case .markdown: return "doc.richtext"
         case .filePreview: return "doc.text.magnifyingglass"
         case .rightSidebarTool: return "sidebar.right"
+        case .customSidebar: return "wand.and.stars"
         case .agentSession: return "sparkles"
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
@@ -84,6 +99,7 @@ struct WorkspaceCanvasHostView: View {
         isWorkspaceVisible: Bool,
         portalPriority: Int,
         appearance: PanelAppearance,
+        windowAppearance: WindowAppearanceSnapshot,
         settingsRuntime: SettingsRuntime?
     ) -> CanvasPaneContent {
         if let terminalPanel = panel as? TerminalPanel {
@@ -99,6 +115,8 @@ struct WorkspaceCanvasHostView: View {
             isVisibleInUI: isWorkspaceVisible,
             portalPriority: portalPriority,
             appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)
             }

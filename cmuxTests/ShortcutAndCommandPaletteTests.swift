@@ -10,7 +10,6 @@ import Bonsplit
 import UserNotifications
 import Sparkle
 import CmuxUpdater
-import CmuxCommandPaletteUI
 // Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
@@ -642,23 +641,17 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
         )
     }
 
-    func testAllowsArrowAndDeleteEditingCommandsForPaletteTextEditing() {
-        XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "",
-                keyCode: 123
+    func testAllowsSystemAndEditingKeyEquivalentsForPaletteTextEditing() {
+        for (chars, keyCode) in [(" ", UInt16(49)), ("", UInt16(123)), ("", UInt16(51))] {
+            XCTAssertFalse(
+                shouldConsumeShortcutWhileCommandPaletteVisible(
+                    isCommandPaletteVisible: true,
+                    normalizedFlags: [.command],
+                    chars: chars,
+                    keyCode: keyCode
+                )
             )
-        )
-        XCTAssertFalse(
-            shouldConsumeShortcutWhileCommandPaletteVisible(
-                isCommandPaletteVisible: true,
-                normalizedFlags: [.command],
-                chars: "",
-                keyCode: 51
-            )
-        )
+        }
     }
 
     func testConsumesEscapeWhenPaletteIsVisible() {

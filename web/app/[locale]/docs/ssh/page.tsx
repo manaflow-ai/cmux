@@ -1,6 +1,6 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "../../components/code-block";
 import { DocsHeading } from "../../components/docs-heading";
 
@@ -14,11 +14,17 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default function SshPage() {
-  const t = useTranslations("docs.ssh");
+export default async function SshPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.ssh" });
 
   return (
     <>
+      <DocsSchema namespace="docs.ssh" path="/docs/ssh" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 

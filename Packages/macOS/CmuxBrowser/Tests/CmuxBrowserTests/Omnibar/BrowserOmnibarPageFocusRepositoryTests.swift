@@ -91,11 +91,29 @@ private struct StubError: Error {}
         repo.restoreIfNeeded(panelDebugID: "abcde") { outcome = $0 }
         // Bump generation before the scheduled 0.0s retry runs.
         repo.invalidateRestoreAttempts(panelDebugID: "abcde")
-        // Let the main queue drain the asyncAfter block.
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        // Drain the main queue until the scheduled asyncAfter block fires its
+        // completion. The stale-generation guard inside that block reports
+        // false, so `outcome` becoming non-nil is the real completion signal;
+        // wait on it rather than on wall-clock time.
+        await Self.drainUntil(deadlineSeconds: 2.0) { outcome != nil }
         #expect(outcome == false)
         // Only the initial attempt ran; the stale retry was dropped.
         #expect(evaluator.evaluatedScripts.count == 1)
+    }
+
+    /// Pumps the main run loop until `predicate` holds, returning the instant it
+    /// does. The scheduled retry runs as a `DispatchQueue.main.asyncAfter` work
+    /// item, so yielding lets the main queue drain it; this resolves as soon as
+    /// the completion fires and only fails at the generous deadline.
+    private static func drainUntil(
+        deadlineSeconds: Double,
+        _ predicate: @MainActor () -> Bool
+    ) async {
+        let deadline = Date().addingTimeInterval(deadlineSeconds)
+        while !predicate() {
+            if Date() >= deadline { break }
+            await Task.yield()
+        }
     }
 
     @Test func restoreReportsFalseOnEvaluationError() {

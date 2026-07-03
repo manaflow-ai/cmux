@@ -7,7 +7,7 @@ import SwiftUI
 /// when one is already open (so repeated requests focus instead of spawning
 /// duplicates) and hosts ``MobilePairingView`` in an `NSHostingController`.
 @MainActor
-final class MobilePairingWindowController {
+final class MobilePairingWindowController: ReleasingWindowController {
     /// The shared controller. The app target composes window controllers as
     /// singletons (see the task-manager and debug windows).
     static let shared = MobilePairingWindowController()
@@ -18,23 +18,31 @@ final class MobilePairingWindowController {
     /// window behind it; referenced from the Cmd+W regression test.
     static let windowIdentifier = "cmux.mobilePairingWindow"
 
-    private var window: NSWindow?
+    private override init() {
+        super.init()
+    }
 
-    private init() {}
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     /// Brings the pairing window to the front, creating it if needed.
     func show() {
         NSApp.activate(ignoringOtherApps: true)
 
-        if let existing = existingWindow() {
-            if existing.isMiniaturized {
-                existing.deminiaturize(nil)
-            }
-            existing.makeKeyAndOrderFront(nil)
-            existing.orderFrontRegardless()
-            return
+        let window = managedWindow()
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
         }
+        if !window.isVisible {
+            window.center()
+        }
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+    }
 
+    override func makeWindow() -> NSWindow {
         let appearanceMode = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
         let root = MobilePairingView()
             .cmuxAppearanceColorScheme(appearanceMode)
@@ -46,7 +54,6 @@ final class MobilePairingWindowController {
         // Resizable so the QR (which fills the window width) can be made even
         // larger for scanning at a distance.
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.isReleasedWhenClosed = false
         // Tall enough that the title, the manual-entry block, and the whole QR
         // are visible without scrolling out of the box; the 540x720 default
         // clipped the heading and pushed Copy IP/Port below the fold in
@@ -55,17 +62,6 @@ final class MobilePairingWindowController {
         window.setContentSize(NSSize(width: 560, height: 800))
         window.contentMinSize = NSSize(width: 480, height: 600)
         window.center()
-        self.window = window
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-    }
-
-    private func existingWindow() -> NSWindow? {
-        if let window, window.isVisible || window.isMiniaturized {
-            return window
-        }
-        return NSApp.windows.first {
-            $0.identifier?.rawValue == Self.windowIdentifier && ($0.isVisible || $0.isMiniaturized)
-        }
+        return window
     }
 }

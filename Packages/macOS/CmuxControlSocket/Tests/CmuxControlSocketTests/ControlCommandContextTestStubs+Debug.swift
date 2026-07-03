@@ -28,6 +28,9 @@ extension ControlDebugContext {
     func controlDebugPanelSnapshot(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugPanelSnapshotReset(surfaceArgument: String) -> String { "ERROR: not implemented" }
     func controlDebugCaptureScreenshot(label: String) -> String { "ERROR: not implemented" }
+    func controlDebugShowCanvasCommandScrollHint(
+        routing: ControlRoutingSelectors
+    ) -> ControlCanvasActionResolution { .tabManagerUnavailable }
     func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution { .noWindow }
     func controlDebugTabManagerAvailable() -> Bool { false }
     func controlDebugTextBoxInlineFixture(

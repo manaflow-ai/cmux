@@ -85,7 +85,8 @@ extension SidebarGitMetadataService {
                 self.beginWorkspaceGitMetadataProbeAttempt(
                     probeKey: key,
                     expectedDirectory: normalizedDirectory,
-                    isLastAttempt: isLastAttempt
+                    isLastAttempt: isLastAttempt,
+                    reason: reason
                 )
             }
         }
@@ -94,7 +95,8 @@ extension SidebarGitMetadataService {
     private func beginWorkspaceGitMetadataProbeAttempt(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
-        isLastAttempt: Bool
+        isLastAttempt: Bool,
+        reason: String
     ) {
         guard host?.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) != true else {
             workspaceGitProbeStateByKey[probeKey] = .idle
@@ -121,14 +123,16 @@ extension SidebarGitMetadataService {
         enqueueWorkspaceGitMetadataSnapshotRequest(
             probeKey: probeKey,
             expectedDirectory: expectedDirectory,
-            isLastAttempt: isLastAttempt
+            isLastAttempt: isLastAttempt,
+            reason: reason
         )
     }
 
     private func enqueueWorkspaceGitMetadataSnapshotRequest(
         probeKey: WorkspaceGitProbeKey,
         expectedDirectory: String,
-        isLastAttempt: Bool
+        isLastAttempt: Bool,
+        reason: String
     ) {
         let request = WorkspaceGitSnapshotProbeRequest(
             probeKey: probeKey,
@@ -139,14 +143,17 @@ extension SidebarGitMetadataService {
             removeWorkspaceGitSnapshotRequest(for: probeKey)
         }
         workspaceGitSnapshotDirectoryByProbeKey[probeKey] = expectedDirectory
-        if var requests = workspaceGitSnapshotRequestsByDirectory[expectedDirectory],
-           let existingRequestIndex = requests.firstIndex(where: { $0.probeKey == probeKey }) {
-            requests[existingRequestIndex] = request
-            workspaceGitSnapshotRequestsByDirectory[expectedDirectory] = requests
-        } else {
-            workspaceGitSnapshotRequestsByDirectory[expectedDirectory, default: []].append(request)
-        }
+        workspaceGitSnapshotRequestsByDirectory[expectedDirectory, default: [:]][probeKey] = request
+        let taskContext = WorkspaceGitSnapshotTaskContext(
+            trackedPathEventGeneration: trackedPathEventGenerationForSnapshot(
+                directory: expectedDirectory,
+                reason: reason
+            )
+        )
         guard workspaceGitSnapshotTasksByDirectory[expectedDirectory] == nil else {
+            if workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] != taskContext {
+                markWorkspaceGitSnapshotRerunPending(directory: expectedDirectory)
+            }
 #if DEBUG
             debugLog(
                 "workspace.gitProbe.joinSnapshot dir=\(expectedDirectory) " +
@@ -158,6 +165,7 @@ extension SidebarGitMetadataService {
 
         let reader = workspaceGitMetadataReader
         let probeLimiter = probeLimiter
+        workspaceGitSnapshotTaskContextByDirectory[expectedDirectory] = taskContext
         workspaceGitSnapshotTasksByDirectory[expectedDirectory] = Task.detached(priority: .utility) { [weak self] in
             let didAcquirePermit = await probeLimiter.acquire()
             guard didAcquirePermit else { return }
@@ -170,7 +178,8 @@ extension SidebarGitMetadataService {
             guard !Task.isCancelled else { return }
             let snapshot = await InitialWorkspaceGitMetadataSnapshot(
                 probing: expectedDirectory,
-                reader: reader
+                reader: reader,
+                trackedPathEventGeneration: taskContext.trackedPathEventGeneration
             )
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
@@ -188,8 +197,9 @@ extension SidebarGitMetadataService {
         expectedDirectory: String
     ) {
         workspaceGitSnapshotTasksByDirectory.removeValue(forKey: expectedDirectory)
-        let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? []
-        for request in requests {
+        workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: expectedDirectory)
+        let requests = workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: expectedDirectory) ?? [:]
+        for request in requests.values {
             workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: request.probeKey)
             applyWorkspaceGitMetadataSnapshot(
                 snapshot,
@@ -198,29 +208,6 @@ extension SidebarGitMetadataService {
                 isLastAttempt: request.isLastAttempt
             )
         }
-    }
-
-    func removeWorkspaceGitSnapshotRequest(for key: WorkspaceGitProbeKey) {
-        guard let directory = workspaceGitSnapshotDirectoryByProbeKey.removeValue(forKey: key),
-              var requests = workspaceGitSnapshotRequestsByDirectory[directory] else {
-            return
-        }
-        requests.removeAll { $0.probeKey == key }
-        if requests.isEmpty {
-            workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: directory)
-            workspaceGitSnapshotTasksByDirectory.removeValue(forKey: directory)?.cancel()
-        } else {
-            workspaceGitSnapshotRequestsByDirectory[directory] = requests
-        }
-    }
-
-    func cancelAllWorkspaceGitSnapshotTasks() {
-        for task in workspaceGitSnapshotTasksByDirectory.values {
-            task.cancel()
-        }
-        workspaceGitSnapshotTasksByDirectory.removeAll()
-        workspaceGitSnapshotRequestsByDirectory.removeAll()
-        workspaceGitSnapshotDirectoryByProbeKey.removeAll()
     }
 
     func cancelWorkspaceGitProbeTask(for key: WorkspaceGitProbeKey) {
@@ -319,7 +306,8 @@ extension SidebarGitMetadataService {
         host.updatePanelDirectory(
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId,
-            directory: expectedDirectory
+            directory: expectedDirectory,
+            displayLabel: nil
         )
 
         if shouldTrackGitDirectory {
@@ -331,6 +319,15 @@ extension SidebarGitMetadataService {
         }
         updateWorkspaceGitMetadataFallbackTimer()
 
+        let previousBranchState = host.panelGitBranch(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        )
+        let previousPullRequestBadge = host.panelPullRequestBadge(
+            workspaceId: probeKey.workspaceId,
+            panelId: probeKey.panelId
+        )
+        var didApplyMaterialSidebarGitChange = false
         let nextBranch = snapshot.branch
         if let nextBranch {
             if let headSignature = snapshot.headSignature {
@@ -356,6 +353,8 @@ extension SidebarGitMetadataService {
                     isDirty = true
                 }
             }
+            let nextBranchState = SidebarPanelGitBranch(branch: nextBranch, isDirty: isDirty)
+            didApplyMaterialSidebarGitChange = previousBranchState != nextBranchState
             host.updatePanelGitBranch(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,
@@ -378,28 +377,33 @@ extension SidebarGitMetadataService {
             workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
             workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
             workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
+            didApplyMaterialSidebarGitChange = previousBranchState != nil
             host.clearPanelGitBranch(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
         }
 
         switch snapshot.pullRequest {
         case .resolved(let pullRequest):
             if shouldTrackPullRequests {
+                let nextBadge = SidebarPullRequestBadge(
+                    number: pullRequest.number,
+                    label: pullRequest.label,
+                    url: pullRequest.url,
+                    status: pullRequest.status,
+                    branch: pullRequest.branch,
+                    isStale: false
+                )
+                didApplyMaterialSidebarGitChange = didApplyMaterialSidebarGitChange
+                    || previousPullRequestBadge != nextBadge
                 host.updatePanelPullRequest(
                     workspaceId: probeKey.workspaceId,
                     panelId: probeKey.panelId,
-                    badge: SidebarPullRequestBadge(
-                        number: pullRequest.number,
-                        label: pullRequest.label,
-                        url: pullRequest.url,
-                        status: pullRequest.status,
-                        branch: pullRequest.branch,
-                        isStale: false
-                    )
+                    badge: nextBadge
                 )
             } else if host.panelPullRequestBadge(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId
             ) != nil {
+                didApplyMaterialSidebarGitChange = true
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
         case .notFound:
@@ -407,6 +411,7 @@ extension SidebarGitMetadataService {
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId
             ) != nil {
+                didApplyMaterialSidebarGitChange = true
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
         case .deferred, .unsupportedRepository, .transientFailure:
@@ -415,11 +420,16 @@ extension SidebarGitMetadataService {
                    workspaceId: probeKey.workspaceId,
                    panelId: probeKey.panelId
                ) != nil {
+                didApplyMaterialSidebarGitChange = true
                 host.clearPanelPullRequest(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             }
         }
-
-        if snapshot.branch != nil, shouldTrackPullRequests {
+        let isPullRequestRefreshTracked = pullRequestProbing
+            .workspacePullRequestTrackedPanelIds(workspaceId: probeKey.workspaceId)
+            .contains(probeKey.panelId)
+        if let nextBranch,
+           shouldTrackPullRequests,
+           previousBranchState?.branch != nextBranch || !isPullRequestRefreshTracked {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
                 workspaceId: probeKey.workspaceId,
                 panelId: probeKey.panelId,

@@ -110,7 +110,7 @@ enum AppFocusState {
     }
 }
 
-enum NotificationAuthorizationState: Equatable {
+enum NotificationAuthorizationState: Equatable, Sendable {
     case unknown
     case notDetermined
     case authorized
@@ -173,7 +173,7 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
-struct TerminalNotification: Identifiable, Hashable {
+struct TerminalNotification: Identifiable, Hashable, Sendable {
     let id: UUID
     let tabId: UUID
     let surfaceId: UUID?
@@ -500,6 +500,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
     private var detailedDismissLookupObserverForTesting: ((String) -> Void)?
 #endif
+    private var nativeNotificationDeliveryHooks = NativeNotificationDeliveryHooks()
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -523,7 +524,9 @@ final class TerminalNotificationStore: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshDockBadge()
+            Task { @MainActor [weak self] in
+                self?.refreshDockBadge()
+            }
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
@@ -620,7 +623,7 @@ final class TerminalNotificationStore: ObservableObject {
 #if DEBUG
         cmuxDebugLog("notification.auth \(message)")
 #endif
-        NSLog("notification.auth %@", message)
+        terminalNotificationLogger.info("Authorization \(message, privacy: .private)")
     }
 
     private static func authorizationStatusLabel(_ status: UNAuthorizationStatus) -> String {
@@ -693,7 +696,9 @@ final class TerminalNotificationStore: ObservableObject {
 
             self.center.add(request) { error in
                 if let error {
-                    NSLog("Failed to schedule test notification: \(error)")
+                    terminalNotificationLogger.error(
+                        "Failed to schedule test notification error=\(error.localizedDescription, privacy: .private)"
+                    )
                     self.logAuthorization("settings test schedule failed error=\(error.localizedDescription)")
                 } else {
                     self.logAuthorization("settings test schedule succeeded")
@@ -1096,7 +1101,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
-            hooks: cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
+            hooks: cmuxConfigStore?.notificationHooks(startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
@@ -1809,63 +1814,62 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized, effectiveAuthorizationState in
-            guard let self else { return }
+        let nativeDeliveryHooks = nativeNotificationDeliveryHooks
+        let notificationTitle = resolvedNotificationTitle(for: notification)
+        let notificationSubtitle = notification.subtitle
+        let notificationBody = notification.body
+        let notificationId = notification.id
+        let notificationTabId = notification.tabId
+        let notificationSurfaceId = notification.surfaceId
+        let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
+        let categoryIdentifier = Self.categoryIdentifier
+
+        let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
             let content = UNMutableNotificationContent()
-            content.title = self.resolvedNotificationTitle(for: notification)
-            content.subtitle = notification.subtitle
-            content.body = notification.body
+            content.title = notificationTitle
+            content.subtitle = notificationSubtitle
+            content.body = notificationBody
             guard authorized else {
-                self.playLocalNotificationFeedback(
-                    title: content.title,
-                    subtitle: content.subtitle,
-                    body: content.body,
+                NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(
                     effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
                 )
                 return
             }
             content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
-            content.categoryIdentifier = Self.categoryIdentifier
+            content.categoryIdentifier = categoryIdentifier
             content.userInfo = [
-                "tabId": notification.tabId.uuidString,
-                "notificationId": notification.id.uuidString,
+                "tabId": notificationTabId.uuidString,
+                "notificationId": notificationId.uuidString,
             ]
-            if let surfaceId = notification.surfaceId {
+            if let surfaceId = notificationSurfaceId {
                 content.userInfo["surfaceId"] = surfaceId.uuidString
             }
-            if let clickAction = notification.clickAction {
-                for (key, value) in clickAction.userInfo {
-                    content.userInfo[key] = value
-                }
+            for (key, value) in clickActionUserInfo {
+                content.userInfo[key] = value
             }
 
             let request = UNNotificationRequest(
-                identifier: notification.id.uuidString,
+                identifier: notificationId.uuidString,
                 content: content,
                 trigger: nil
             )
+            let commandTitle = content.title
+            let commandSubtitle = content.subtitle
+            let commandBody = content.body
 
-            self.center.add(request) { error in
+            nativeDeliveryHooks.schedule(request) { error in
                 if let error {
                     terminalNotificationLogger.error(
                         "Failed to schedule notification error=\(error.localizedDescription, privacy: .private)"
                     )
-                    Task { @MainActor [weak self] in
-                        self?.playLocalNotificationFeedback(
-                            title: content.title,
-                            subtitle: content.subtitle,
-                            body: content.body,
-                            effects: effects
-                        )
-                    }
+                    NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
                 } else if effects.command {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: content.title,
-                        subtitle: content.subtitle,
-                        body: content.body
-                    )
+                    nativeDeliveryHooks.runCommand(title: commandTitle, subtitle: commandSubtitle, body: commandBody)
                 }
             }
+        }
+        if !nativeDeliveryHooks.authorizeForTesting(handleAuthorization) {
+            ensureAuthorization(origin: .notificationDelivery, handleAuthorization)
         }
     }
 
@@ -1873,7 +1877,7 @@ final class TerminalNotificationStore: ObservableObject {
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
-        playLocalNotificationFeedback(
+        nativeNotificationDeliveryHooks.runLocalFeedback(
             title: resolvedNotificationTitle(for: notification),
             subtitle: notification.subtitle,
             body: notification.body,
@@ -1887,16 +1891,12 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         effects: TerminalNotificationPolicyEffects
     ) {
-        if effects.sound {
-            NotificationSoundSettings.playSelectedSound()
-        }
-        if effects.command {
-            NotificationSoundSettings.runCustomCommand(
-                title: title,
-                subtitle: subtitle,
-                body: body
-            )
-        }
+        nativeNotificationDeliveryHooks.runLocalFeedback(
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            effects: effects
+        )
     }
 
     /// `completion` receives the decision plus the effective authorization
@@ -2156,6 +2156,12 @@ final class TerminalNotificationStore: ObservableObject {
         notificationDeliveryHandler = { store, notification, effects in
             store.scheduleUserNotification(notification, effects: effects)
         }
+    }
+
+    func configureNativeNotificationDeliveryHooksForTesting(
+        _ update: (inout NativeNotificationDeliveryHooks) -> Void
+    ) {
+        update(&nativeNotificationDeliveryHooks)
     }
 
     func configureSuppressedNotificationFeedbackHandlerForTesting(

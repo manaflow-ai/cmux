@@ -1,4 +1,5 @@
 public import SwiftUI
+import CmuxFoundation
 public import CmuxUpdater
 import AppKit
 
@@ -8,8 +9,11 @@ public struct UpdatePill: View {
     private let appearance: UpdateAppearance
     private let actions: any UpdateActionsHost
     @State private var showPopover = false
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
-    private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+    private var textFont: NSFont {
+        GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+    }
 
     /// Creates the pill.
     ///
@@ -49,7 +53,7 @@ public struct UpdatePill: View {
                     .frame(width: 14, height: 14)
 
                 Text(model.text)
-                    .font(Font(textFont))
+                    .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: textWidth, alignment: .leading)
@@ -91,6 +95,7 @@ public struct UpdatePill: View {
     }
 
     private var textWidth: CGFloat? {
+        _ = globalFontPercent
         let attributes: [NSAttributedString.Key: Any] = [.font: textFont]
         let size = (model.maxWidthText as NSString).size(withAttributes: attributes)
         return size.width
@@ -209,16 +214,20 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
 /// Menu item that shows "Install Update and Relaunch" when an update is ready.
 public struct InstallUpdateMenuItem: View {
     private let model: UpdateStateModel
+    private let actions: any UpdateActionsHost
 
     /// Creates the menu item for `model`.
-    public init(model: UpdateStateModel) {
+    public init(model: UpdateStateModel, actions: any UpdateActionsHost) {
         self.model = model
+        self.actions = actions
     }
 
     public var body: some View {
         if model.state.isInstallable {
             Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
-                model.state.confirm()
+                // Re-resolve to the latest available version before installing rather than
+                // installing the version that was current when this menu item appeared (#6366).
+                actions.attemptUpdate()
             }
         }
     }

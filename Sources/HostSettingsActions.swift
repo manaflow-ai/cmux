@@ -1,6 +1,6 @@
 import AppKit
 import CMUXMobileCore
-import CmuxFileOpen
+import CmuxWorkspaces
 import CmuxSettingsUI
 import CmuxFoundation
 import Foundation
@@ -40,7 +40,8 @@ final class HostSettingsActions: SettingsHostActions {
     /// Retains the AppKit window hosting ``ConfigSettingsView`` so repeated
     /// "Open Config" presses reuse the same dedicated terminal-config
     /// window instead of stacking duplicates.
-    private weak var configWindow: NSWindow?
+    private var configWindow: NSWindow?
+    private var configWindowCloseObserver: WindowCloseObserver?
 
     init(configFileURL: URL) {
         self.configFileURL = configFileURL
@@ -70,6 +71,18 @@ final class HostSettingsActions: SettingsHostActions {
 
     func clearBrowserHistory() {
         BrowserHistoryStore.shared.clearHistory()
+    }
+
+    func sleepyModePreview() {
+        SleepyModeController.shared.preview()
+    }
+
+    func sleepyModeStart() {
+        SleepyModeController.shared.activate()
+    }
+
+    func sleepyModeStore() -> SleepyModeSettingsStore {
+        SleepyModeController.shared.store
     }
 
     func openConfigInExternalEditor() {
@@ -138,6 +151,9 @@ final class HostSettingsActions: SettingsHostActions {
         window.setContentSize(NSSize(width: 980, height: 680))
         window.center()
         configWindow = window
+        configWindowCloseObserver = WindowCloseObserver(window: window) { [weak self] in
+            self?.releaseConfigWindow($0)
+        }
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
@@ -158,6 +174,14 @@ final class HostSettingsActions: SettingsHostActions {
         return NSApp.windows.first {
             $0.identifier?.rawValue == configWindowIdentifier && ($0.isVisible || $0.isMiniaturized)
         }
+    }
+
+    private func releaseConfigWindow(_ window: NSWindow) {
+        guard configWindow === window else { return }
+        configWindowCloseObserver = nil
+        window.contentView = nil
+        window.contentViewController = nil
+        configWindow = nil
     }
 
     func previewNotificationSound(value: String, customFilePath: String) {
@@ -323,6 +347,7 @@ final class HostSettingsActions: SettingsHostActions {
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
     }
+
 }
 
 /// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the

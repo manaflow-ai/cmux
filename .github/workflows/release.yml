@@ -16,9 +16,21 @@ env:
 
 jobs:
   build-ghostty-cli-helper:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -55,11 +67,23 @@ jobs:
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Notarization wait times vary on Apple's side; v0.64.14 finished at 19m16s
     # and v0.64.15 attempt 1 was killed by a 20-minute budget mid-notarization.
     timeout-minutes: 40
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -531,7 +555,6 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; brew install awscli; }
 
           # Guard: only upload if this tag is the highest semver release.
           # Prevents a backport tag (e.g. v0.62.1 after v0.63.1) from
@@ -546,9 +569,11 @@ jobs:
           # Upload after GitHub Release publish so the appcast never references
           # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
           # is either the old version or the new one, never missing.
-          aws s3 cp appcast.xml \
-            "s3://cmux-binaries/stable/appcast.xml" \
+          python3 scripts/ci/upload-r2-object.py \
+            --file appcast.xml \
             --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --key stable/appcast.xml \
             --cache-control "no-cache, no-store, must-revalidate"
 
           echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"

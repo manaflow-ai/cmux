@@ -1,7 +1,6 @@
 import Combine
-import CmuxFileWatch
+import CmuxFoundation
 import CmuxSettings
-import CmuxSocketControl
 import Foundation
 import os
 
@@ -437,6 +436,16 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        if let value = jsonInt(section["globalFontMagnification"]) {
+            let clamped = GlobalFontMagnification.clamp(value)
+            guard clamped == value else {
+                logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[GlobalFontMagnification.percentKey] = .int(clamped)
+        } else if section.keys.contains("globalFontMagnification") {
+            logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {
                 snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
@@ -489,6 +498,13 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if let raw = jsonString(section["agentTurnComplete"]) {
+            if AgentTurnCompleteMode(rawValue: raw) != nil {
+                snapshot.managedUserDefaults[NotificationsCatalogSection().agentTurnComplete.userDefaultsKey] = .string(raw)
+            } else {
+                logInvalid("notifications.agentTurnComplete", sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseTerminalSection(
@@ -497,7 +513,7 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
-
+        applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
             snapshot.managedUserDefaults[TerminalTextBoxInputSettings.showOnNewTerminalsKey] = .bool(value)
         } else if section.keys.contains("showTextBoxOnNewTerminals") {
@@ -569,6 +585,30 @@ final class CmuxSettingsFileStore {
             }
         } else if section.keys.contains("textBoxMaxLines") {
             logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["textBoxDefaultSubmitAction"]) {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.defaultSubmitActionKey] = .string(normalized)
+            } else {
+                logInvalid("terminal.textBoxDefaultSubmitAction", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("textBoxDefaultSubmitAction") {
+            logInvalid("terminal.textBoxDefaultSubmitAction", sourcePath: sourcePath)
+        }
+
+        if section.keys.contains("textBoxSubmitActions") {
+            if let data = try? JSONSerialization.data(
+                withJSONObject: section["textBoxSubmitActions"] as Any,
+                options: [.withoutEscapingSlashes]
+            ),
+               let actions = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data), actions.allSatisfy(\.isValid),
+               let json = String(data: data, encoding: .utf8) {
+                snapshot.managedUserDefaults[TerminalTextBoxInputSettings.submitActionsKey] = .string(json)
+            } else {
+                logInvalid("terminal.textBoxSubmitActions", sourcePath: sourcePath)
+            }
         }
     }
 
@@ -1593,6 +1633,8 @@ final class CmuxSettingsFileStore {
                     )
                 } else if change.defaultsKey == AppIconSettings.modeKey {
                     AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                } else if change.defaultsKey == GlobalFontMagnification.percentKey {
+                    notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
                 }
             }
 

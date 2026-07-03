@@ -19,12 +19,13 @@ struct WorkspaceGroupHeaderRow: View {
     let navigationStyle: WorkspaceNavigationStyle
     /// Whether the anchor workspace is the current selection (sidebar style only).
     let isAnchorSelected: Bool
-    /// Select (and, in push style, navigate to) the anchor workspace.
+    /// Select the anchor workspace in sidebar layouts.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Toggle the group's collapsed state on the Mac. When `nil` (previews, or a
     /// Mac without the groups capability), the chevron renders without a tap
     /// action.
     let toggleCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
+    var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
 
     /// The leading disclosure chevron. Its own hit target, so tapping it only
     /// collapses/expands and never opens the anchor.
@@ -87,9 +88,12 @@ struct WorkspaceGroupHeaderRow: View {
     private var anchorTarget: some View {
         switch navigationStyle {
         case .push:
-            NavigationLink(value: group.anchorWorkspaceID) {
+            Button {
+                selectWorkspace(group.anchorWorkspaceID)
+            } label: {
                 nameLabel
             }
+            .buttonStyle(.plain)
         case .sidebar:
             Button {
                 selectWorkspace(group.anchorWorkspaceID)
@@ -104,7 +108,7 @@ struct WorkspaceGroupHeaderRow: View {
         HStack(spacing: 6) {
             // Same leading unread gutter as workspace rows (dot hidden when
             // read) so headers and top-level rows keep their columns aligned.
-            WorkspaceUnreadDot(isUnread: hasUnread)
+            WorkspaceUnreadDot(isUnread: hasUnread, leftShift: unreadIndicatorLeftShift)
             chevron
             anchorTarget
                 // The dot itself is accessibility-hidden; VoiceOver hears the

@@ -1,3 +1,5 @@
+import CMUXAgentLaunch
+import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -131,11 +133,116 @@ extension CMUXCLI {
         }
     }
 
+    /// Whether the user passed `--dangerously-skip-permissions` as a real Claude
+    /// *option* (not as prompt text). This gates a trust-boundary decision, so it
+    /// must not treat a token that lands in the prompt as an opt-in: a claude-teams
+    /// prompt can legitimately contain `--dangerously-skip-permissions` after a
+    /// prompt-boundary option (`--tmux`), after `--`, or as another option's value.
+    /// Defer to the claude-teams launch parser's option/prompt-boundary rules, which
+    /// match how Claude itself treats those positions (including options that follow
+    /// the prompt positional).
+    func claudeTeamsHasDangerousSkipPermissions(commandArgs: [String]) -> Bool {
+        AgentLaunchSanitizer.claudeTeamsLaunchHasOption(
+            "--dangerously-skip-permissions",
+            args: commandArgs
+        )
+    }
+
+    /// Environment the lead `claude` is launched with. CLAUDE_CODE_SANDBOXED skips
+    /// Claude Code's interactive "Do you trust this folder?" gate so the unattended
+    /// lead/teammate panes don't deadlock on it (#6447). That gate is a real safety
+    /// boundary — running `claude` in an untrusted checkout — so it is only waived
+    /// when the user has already opted into skipping safety prompts with
+    /// `--dangerously-skip-permissions`. Without that flag the trust prompt is left
+    /// in place and the user vets the directory normally.
+    ///
+    /// The opt-in decision is made here, once, by an exact argv check, and recorded
+    /// in `CMUX_CLAUDE_TEAMS_SANDBOXED` so teammate respawns (which run as a separate
+    /// `cmux __tmux-compat` process and cannot see this argv) re-apply the same
+    /// decision without re-deriving it from untrusted command text — see
+    /// `tmuxClaudeTeamsRespawnEnvironment()`.
+    func claudeTeamsExtraEnvVars(commandArgs: [String]) -> [(key: String, value: String)] {
+        var vars: [(key: String, value: String)] = [
+            (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
+        ]
+        if claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) {
+            vars.append((key: "CLAUDE_CODE_SANDBOXED", value: "1"))
+            vars.append((key: "CMUX_CLAUDE_TEAMS_SANDBOXED", value: "1"))
+        }
+        return vars
+    }
+
     func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
         guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
             return commandArgs
         }
         return ["--teammate-mode", "auto"] + commandArgs
+    }
+
+    func claudeTeamsHasExplicitSystemPrompt(commandArgs: [String]) -> Bool {
+        commandArgs.contains { arg in
+            arg == "--system-prompt" || arg.hasPrefix("--system-prompt=")
+                || arg == "--system-prompt-file" || arg.hasPrefix("--system-prompt-file=")
+                || arg == "--append-system-prompt" || arg.hasPrefix("--append-system-prompt=")
+                || arg == "--append-system-prompt-file" || arg.hasPrefix("--append-system-prompt-file=")
+        }
+    }
+
+    /// The whole point of `cmux claude-teams` is "just start a team." Claude Code's
+    /// Task tool only opens a teammate in its own split pane when it is called with
+    /// a `name`; without a name it runs an in-process subagent (no pane). Left to a
+    /// bare prompt the lead tends to use the nameless form — or stops to ask "demo
+    /// *what*?" — so a plain `cmux claude-teams "make a demo team with 5 subagents"`
+    /// produced no panes. Append a small system-prompt nudge that steers the lead to
+    /// named, split-pane teammates for team/parallel requests so no elaborate prompt
+    /// is needed. Kept out of `claudeTeamsLaunchArguments` (and thus the exported
+    /// restore command) so that stays canonical; restore re-invokes `cmux
+    /// claude-teams`, which re-applies the nudge. Skipped when the user supplies
+    /// their own system prompt.
+    var claudeTeamsTeamSpawnGuidance: String {
+        """
+        You are Claude Code running inside cmux, started with `cmux claude-teams`. \
+        Agent teams are enabled and every NAMED teammate opens in its own split \
+        pane. When the user asks you to start a team, demo teams, or run several \
+        subagents/teammates in parallel, spawn them as named teammates: make one \
+        Task tool call per teammate, each with a distinct `name` (a short role), all \
+        in a single message so they run concurrently in their own split panes. \
+        Prefer named teammates over in-process subagents for any team or \
+        parallel-agent request. If the user asks for an open-ended demo such as \
+        "make a demo team with 5 subagents" without naming a topic, do not ask which \
+        feature — pick that many sensible roles and spawn them right away.
+        """
+    }
+
+    /// The live `execv` argv for the lead: the canonical launch arguments plus the
+    /// split-pane-teammate system-prompt nudge (see `claudeTeamsTeamSpawnGuidance`).
+    /// The nudge is inserted right after a leading `--teammate-mode <value>` pair so
+    /// callers/tests that expect that pair first keep working.
+    func claudeTeamsExecArguments(commandArgs: [String]) -> [String] {
+        let base = claudeTeamsLaunchArguments(commandArgs: commandArgs)
+        guard !claudeTeamsHasExplicitSystemPrompt(commandArgs: commandArgs) else {
+            return base
+        }
+        let nudge = ["--append-system-prompt", claudeTeamsTeamSpawnGuidance]
+        if base.count >= 2, base[0] == "--teammate-mode" {
+            return Array(base[0..<2]) + nudge + Array(base[2...])
+        }
+        return nudge + base
+    }
+
+    func clearInheritedClaudeSessionEnvironment() {
+        for key in [
+            "CLAUDECODE",
+            "CLAUDE_CODE",
+            "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_PARENT_SESSION_ID",
+            "CLAUDE_CODE_SESSION_ID",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "CLAUDE_CODE_EXECPATH",
+            "CLAUDE_CODE_SSE_PORT",
+        ] {
+            unsetenv(key)
+        }
     }
 
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {

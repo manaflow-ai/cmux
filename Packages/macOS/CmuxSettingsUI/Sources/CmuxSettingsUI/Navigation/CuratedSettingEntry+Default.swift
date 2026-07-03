@@ -42,6 +42,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
             .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
+            .init(section: .app, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome bigger smaller accessibility"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
             .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
             .init(section: .app, id: "menu-bar-only", title: "Menu Bar Only", synonyms: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
@@ -70,12 +71,38 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "show-menu-bar", title: "Show in Menu Bar", synonyms: "notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: "Unread Pane Ring", synonyms: "notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: "Pane Flash", synonyms: "notifications.paneFlash flash blink highlight pane notification pulse"),
+            .init(
+                section: .app,
+                id: "agent-permission-prompt",
+                title: String(localized: "settings.notifications.agentPermissionPrompt.title", defaultValue: "Agent Needs Permission"),
+                synonyms: "notifications.agentPermissionPrompt agent permission prompt approval blocked claude codex tool notify"
+            ),
+            .init(
+                section: .app,
+                id: "agent-turn-complete",
+                title: String(localized: "settings.notifications.agentTurnComplete.title", defaultValue: "Agent Finished"),
+                synonyms: "notifications.agentTurnComplete agent finished turn complete done completed when idle always never background tasks monitor notify"
+            ),
+            .init(
+                section: .app,
+                id: "agent-idle-reminder",
+                title: String(localized: "settings.notifications.agentIdleReminder.title", defaultValue: "Agent Waiting for Input"),
+                synonyms: "notifications.agentIdleReminder agent waiting input idle reminder nag notify claude"
+            ),
             .init(section: .app, id: "notification-sound", title: "Notification Sound", synonyms: "notifications.sound sound audio alert chime beep custom file wav mp3 caf aiff"),
             .init(section: .app, id: "notification-command", title: "Notification Command", synonyms: "notifications.command shell command hook script env environment variable variables done agent"),
             .init(section: .app, id: "desktop-notifications", title: "Desktop Notifications", synonyms: "desktop notifications permission authorize enable alerts banners send test notification center"),
 
             // Terminal
             .init(section: .terminal, id: "scrollbar", title: "Show Terminal Scroll Bar", synonyms: "terminal.showScrollBar scrollback scrollbar scroll bar right edge alternate screen tui"),
+            .init(
+                section: .terminal,
+                id: "scroll-speed",
+                title: String(localized: "settings.terminal.scrollSpeed", defaultValue: "Scroll Speed"),
+                detailText: String(localized: "settings.terminal.scrollSpeed.subtitle", defaultValue: "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher scrolls faster."),
+                paths: ["terminal.scrollSpeed"],
+                synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
+            ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
@@ -84,11 +111,29 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "renderer-realization", title: "Reclaim Offscreen Terminal Memory", synonyms: "terminal.rendererRealization.enabled renderer reclaim offscreen memory iosurface gpu idle warm release background terminals"),
             .init(section: .terminal, id: "renderer-realization-idle", title: "Reclaim After Idle Seconds", synonyms: "terminal.rendererRealization.idleSeconds renderer reclaim idle seconds timeout delay offscreen memory"),
             .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
+            .init(
+                section: .terminal,
+                id: "memory-guardrail",
+                title: String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
+                detailText: [
+                    String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux warns you with a badge and a banner when one pane's process tree uses too much memory, so a single leak can't crash the whole app."),
+                    String(localized: "settings.terminal.memoryGuardrail.subtitleOff", defaultValue: "No warning is shown when a pane's process tree grows large. A leaking process can OOM-suspend the entire app."),
+                ].joined(separator: " "),
+                synonyms: "terminal.runawayMemoryGuardrail.enabled runaway memory guardrail high memory warning badge banner oom leak process tree pane"
+            ),
+            .init(
+                section: .terminal,
+                id: "memory-guardrail-threshold",
+                title: String(localized: "settings.terminal.memoryGuardrail.threshold", defaultValue: "Memory Warning Threshold (GB)"),
+                detailText: String(localized: "settings.terminal.memoryGuardrail.threshold.subtitle", defaultValue: "A pane is flagged once its combined process-tree memory crosses this many gigabytes."),
+                synonyms: "terminal.runawayMemoryGuardrail.thresholdGB memory warning threshold gb gigabytes limit process tree pane"
+            ),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "terminal.resumeCommands surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
 
             // TextBox
             .init(section: .textBox, id: "show-textbox-new-terminals", title: "Show TextBox on New Terminals", synonyms: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
             .init(section: .textBox, id: "focus-textbox-new-terminals", title: "Focus TextBox on New Terminals", synonyms: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
+            .init(section: .textBox, id: "default-submit-action", title: String(localized: "settings.textBox.defaultSubmitAction", defaultValue: "Default Submit Action"), synonyms: "terminal.textBoxDefaultSubmitAction submit action shift tab claude codex opencode pi agent route provider icon new session"),
             .init(section: .textBox, id: "textbox-max-lines", title: "TextBox Max Lines", synonyms: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
 
             // Sidebar appearance + sidebar workspace row details
@@ -143,7 +188,11 @@ extension Array where Element == CuratedSettingEntry {
                     String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic"),
                 ].joined(separator: " "),
                 paths: ["automation.workspaceAutoNaming"],
-                synonyms: "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.automation.workspace-auto-naming",
+                    defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"
+                ),
+                anchorPath: "automation.workspaceAutoNaming"
             ),
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
@@ -155,6 +204,13 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
             .init(section: .browser, id: "hidden-webview-discard", title: "Browser Memory Saver", synonyms: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
             .init(section: .browser, id: "hidden-webview-discard-delay", title: "Memory Saver Delay", synonyms: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
+            .init(
+                section: .browser,
+                id: "ask-where-to-save-downloads",
+                title: String(localized: "settings.browser.askWhereToSaveDownloads", defaultValue: "Ask Where to Save Downloads"),
+                detailText: String(localized: "settings.browser.askWhereToSaveDownloads.subtitle", defaultValue: "When off, browser downloads save directly to Downloads without a save panel."),
+                synonyms: String(localized: "settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail")
+            ),
             .init(section: .browser, id: "terminal-links", title: "Open Terminal Links in cmux Browser", synonyms: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
             .init(section: .browser, id: "intercept-open", title: "Intercept open http(s) in Terminal", synonyms: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),

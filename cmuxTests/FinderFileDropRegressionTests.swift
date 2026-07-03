@@ -1,7 +1,6 @@
 import XCTest
-import CmuxTerminalServices
-import AppKit
 import CmuxTerminal
+import AppKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

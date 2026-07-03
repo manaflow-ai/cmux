@@ -3,7 +3,7 @@
 ///
 /// The app target reads the raw C trigger returned by `ghostty_config_trigger` and
 /// packs the parts cmux cares about into this value at the call seam, so
-/// `GhosttyTriggerShortcutDecoder` can decode it with no GhosttyKit dependency.
+/// `GhosttyTriggerShortcut(decoding:)` can decode it with no GhosttyKit dependency.
 public struct GhosttyTriggerInput: Sendable, Equatable, Hashable {
     /// The kind of trigger Ghostty resolved the binding to.
     public enum Tag: Sendable, Equatable, Hashable {

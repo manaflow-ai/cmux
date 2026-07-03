@@ -56,6 +56,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire capability required for write acknowledgement notifications
     /// (`pty.write.notification`; value is test-pinned, do not change).
     public static let requiredPTYWriteNotificationCapability = RemoteDaemonCapability.ptyWriteNotification.rawValue
+    /// Wire capability required for resize notifications
+    /// (`pty.resize.notification`; value is test-pinned, do not change).
+    public static let requiredPTYResizeNotificationCapability = RemoteDaemonCapability.ptyResizeNotification.rawValue
 
     // Subscription records pair the caller's delivery queue with its handler.
     // @unchecked Sendable: the handler is only ever invoked via
@@ -90,7 +93,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var webSocketSession: URLSession?
     var webSocketTask: URLSessionWebSocketTask?
     var webSocketDelegate: RemoteDaemonWebSocketDelegate?
-    var webSocketKeepaliveTimer: DispatchSourceTimer?
+    var webSocketKeepaliveTimer: (any DispatchSourceTimer)?
     var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
     var webSocketKeepaliveInFlight = false
     var isClosed = true
@@ -168,6 +171,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             capabilities.append(requiredPTYSessionCapability)
             capabilities.append(requiredPTYSessionTokenCapability)
             capabilities.append(requiredPTYWriteNotificationCapability)
+            capabilities.append(requiredPTYResizeNotificationCapability)
         }
         if configuration.persistentDaemonSlot != nil {
             capabilities.append(requiredPTYPersistentDaemonCapability)

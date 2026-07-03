@@ -11,6 +11,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.terminal", defaultValue: "shell scrollback scrollbar scroll bar ghostty tty pty")
         case .textBox:
             return localized("settings.search.alias.section.textBox", defaultValue: "textbox text box rich input prompt beta focus composer compose attachments")
+        case .sleepyMode:
+            return localized("settings.search.alias.section.sleepyMode", defaultValue: "sleepy mode screensaver caffeinate keep awake do not sleep lock touch id battery wifi clock mascot theme glow pixel night")
         case .mobile:
             return localized("settings.search.alias.section.mobile", defaultValue: "ios iphone ipad mobile pairing local network permission sync")
         case .sidebarAppearance:
@@ -98,6 +100,7 @@ enum SettingsSearchAliasIndex {
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
         "textBox:show-textbox-new-terminals": localized("settings.search.alias.setting.textBox.show-textbox-new-terminals", defaultValue: "terminal.showTextBoxOnNewTerminals show textbox text box rich input prompt default new terminal workspace split tab beta"),
         "textBox:focus-textbox-new-terminals": localized("settings.search.alias.setting.textBox.focus-textbox-new-terminals", defaultValue: "terminal.focusTextBoxOnNewTerminals focus textbox text box rich input prompt default new terminal workspace split tab beta"),
+        "textBox:default-submit-action": localized("settings.search.alias.setting.textBox.default-submit-action", defaultValue: "terminal.textBoxDefaultSubmitAction submit action shift tab claude codex opencode pi agent route provider icon new session"),
         "textBox:textbox-max-lines": localized("settings.search.alias.setting.textBox.textbox-max-lines", defaultValue: "terminal.textBoxMaxLines textbox text box rich input prompt max height lines grow scroll beta"),
         "sidebarAppearance:match-terminal": localized("settings.search.alias.setting.sidebarAppearance.match-terminal", defaultValue: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         "sidebarAppearance:font-size": localized("settings.search.alias.setting.sidebarAppearance.font-size", defaultValue: "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
@@ -129,7 +132,7 @@ enum SettingsSearchAliasIndex {
         "automation:socket-password": localized("settings.search.alias.setting.automation.socket-password", defaultValue: "automation.socketPassword auth token credential secret password access key"),
         "automation:claude-code": localized("settings.search.alias.setting.automation.claude-code", defaultValue: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
         "automation:claude-path": localized("settings.search.alias.setting.automation.claude-path", defaultValue: "automation.claudeBinaryPath claude binary executable path cli command custom"),
-        "automation:workspace-auto-naming": localized("settings.search.alias.setting.automation.workspace-auto-naming", defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation"),
+        "automation:workspace-auto-naming": localized("settings.search.alias.setting.automation.workspace-auto-naming", defaultValue: "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated name summarize summary summarizer conversation agent picker naming agent"),
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
         "automation:subagent-notifications": localized("settings.search.alias.setting.automation.subagent-notifications", defaultValue: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
         "automation:cursor": localized("settings.search.alias.setting.automation.cursor", defaultValue: "automation.cursorIntegration cursor ide agent hooks notifications"),
@@ -144,6 +147,7 @@ enum SettingsSearchAliasIndex {
         "browser:theme": localized("settings.search.alias.setting.browser.theme", defaultValue: "browser.theme web page theme color scheme light dark system"),
         "browser:hidden-webview-discard": localized("settings.search.alias.setting.browser.hidden-webview-discard", defaultValue: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
+        "browser:ask-where-to-save-downloads": localized("settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail"),
         "browser:terminal-links": localized("settings.search.alias.setting.browser.terminal-links", defaultValue: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
         "browser:intercept-open": localized("settings.search.alias.setting.browser.intercept-open", defaultValue: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
         "browser:host-whitelist": localized("settings.search.alias.setting.browser.host-whitelist", defaultValue: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
