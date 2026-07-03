@@ -12,10 +12,10 @@ struct CmuxFontModifier: ViewModifier {
     }
 
     private var resolvedFont: Font {
-        // Linear typography: Inter for proportional UI text, Berkeley Mono for
-        // monospaced text (paths, code). Font.custom falls back to the system
-        // font automatically if a family is not installed.
-        let familyName = (design == .monospaced) ? "Berkeley Mono" : "Inter"
+        // Inter for proportional UI text, Operator Mono for monospaced text
+        // (paths, code). Font.custom falls back to the system font
+        // automatically if a family is not installed.
+        let familyName = (design == .monospaced) ? "Operator Mono Lig" : "Inter"
         var font = Font.custom(familyName, size: scaledSize).weight(weight)
         if monospacedDigit {
             font = font.monospacedDigit()

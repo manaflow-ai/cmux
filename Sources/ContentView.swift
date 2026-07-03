@@ -13475,9 +13475,9 @@ struct TabItemView: View, Equatable {
         monospacedDigit: Bool = false
     ) -> Font {
         let size = GlobalFontMagnification.scaledSize(baseSize, percent: globalFontMagnificationPercent)
-        // Linear typography: Inter for proportional UI text, Berkeley Mono for
-        // monospaced bits (paths, branch/dir).
-        let familyName = (design == .monospaced) ? "Berkeley Mono" : "Inter"
+        // Inter for proportional UI text, Operator Mono for monospaced bits
+        // (paths, branch/dir).
+        let familyName = (design == .monospaced) ? "Operator Mono Lig" : "Inter"
         var font = Font.custom(familyName, size: size).weight(weight)
         if monospacedDigit {
             font = font.monospacedDigit()
