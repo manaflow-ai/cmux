@@ -23084,7 +23084,7 @@ struct CMUXCLI {
                 client: client
             ) else {
                 telemetry.breadcrumb("claude-hook.session-start.unresolved")
-                print("OK")
+                print(String(localized: "common.ok", defaultValue: "OK"))
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23219,7 +23219,7 @@ struct CMUXCLI {
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.unresolved")
-                    print("OK")
+                    print(String(localized: "common.ok", defaultValue: "OK"))
                     return
                 }
                 let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23361,7 +23361,7 @@ struct CMUXCLI {
                 client: client
             ) else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.unresolved")
-                print("OK")
+                print(String(localized: "common.ok", defaultValue: "OK"))
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -23476,7 +23476,7 @@ struct CMUXCLI {
                     client: client
                 ) else {
                     telemetry.breadcrumb("claude-hook.auto-name.unresolved")
-                    print("OK")
+                    print(String(localized: "common.ok", defaultValue: "OK"))
                     return
                 }
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -23520,7 +23520,7 @@ struct CMUXCLI {
                 client: client
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.unresolved")
-                print("OK")
+                print(String(localized: "common.ok", defaultValue: "OK"))
                 return
             }
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
@@ -23801,7 +23801,7 @@ struct CMUXCLI {
                 client: client
             ) else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.unresolved")
-                print("OK")
+                print(String(localized: "common.ok", defaultValue: "OK"))
                 return
             }
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
@@ -24216,11 +24216,16 @@ struct CMUXCLI {
 
     /// Resolve `raw` to a workspace id only when that workspace currently exists.
     private func strictClaudeHookWorkspaceId(_ raw: String, client: SocketClient) -> String? {
-        guard let candidate = try? resolveWorkspaceId(raw, client: client),
-              claudeHookWorkspaceExists(candidate, client: client) else {
+        // Only trust UUID identities. `resolveWorkspaceId` falls through to
+        // `workspace.current` (the focused tab) for any input that isn't a UUID,
+        // handle ref, or numeric index — which would structurally reintroduce the
+        // focused-tab misroute this resolver exists to prevent (e.g. a non-UUID
+        // CMUX_WORKSPACE_ID). Hook identities are always workspace UUIDs, so this
+        // costs nothing and enforces the "never fall back to focused" invariant.
+        guard isUUID(raw), claudeHookWorkspaceExists(raw, client: client) else {
             return nil
         }
-        return candidate
+        return raw
     }
 
     private func claudeHookWorkspaceExists(_ workspaceId: String, client: SocketClient) -> Bool {

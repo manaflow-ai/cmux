@@ -9585,12 +9585,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Expected notification to route to the live CMUX_WORKSPACE_ID, saw \(state.commands)"
         )
+        // Scope these to the actual routing commands (set_status / notify_target):
+        // state.commands also captures the resolver's own surface.list validation
+        // calls, whose JSON carries the candidate workspace id and would otherwise
+        // false-match a broad `contains`.
+        func routesTo(_ workspaceId: String) -> Bool {
+            state.commands.contains {
+                ($0.hasPrefix("set_status ") || $0.hasPrefix("notify_target")) && $0.contains(workspaceId)
+            }
+        }
         XCTAssertFalse(
-            state.commands.contains { $0.contains(focusedWorkspaceId) },
+            routesTo(focusedWorkspaceId),
             "Notification must not fall back to the focused workspace, saw \(state.commands)"
         )
         XCTAssertFalse(
-            state.commands.contains { $0.contains(staleWorkspaceId) },
+            routesTo(staleWorkspaceId),
             "Notification must not route to the stale recorded workspace, saw \(state.commands)"
         )
     }
@@ -9669,9 +9678,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
+        // Scope to routing commands so the resolver's own surface.list validation
+        // calls (whose JSON carries a candidate workspace id) can't false-match.
         for candidate in [ttyWorkspaceA, ttyWorkspaceB, focusedWorkspaceId] {
             XCTAssertFalse(
-                state.commands.contains { $0.contains(candidate) },
+                state.commands.contains {
+                    ($0.hasPrefix("set_status ") || $0.hasPrefix("notify_target")) && $0.contains(candidate)
+                },
                 "Ambiguous-TTY notification must not guess workspace \(candidate), saw \(state.commands)"
             )
         }
