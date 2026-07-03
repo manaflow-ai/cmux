@@ -4199,7 +4199,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func reassertTerminalFocusForInputIfFirstResponder() {
         guard let terminalSurface, let firstResponder = window?.firstResponder as? NSView,
               firstResponder === self else { return }
-        terminalSurface.setFocus(true)
+        terminalSurface.setFocus(true, force: true)
     }
     private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
         terminalSurface?.requestInputDemandSurfaceStartIfNeeded()

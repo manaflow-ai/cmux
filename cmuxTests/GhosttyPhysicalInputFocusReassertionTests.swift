@@ -1,6 +1,6 @@
-import XCTest
 import AppKit
 import CmuxTerminal
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,8 +8,10 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
+#if DEBUG
 @MainActor
-final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
+@Suite(.serialized)
+struct GhosttyPhysicalInputFocusReassertionTests {
     private struct HostedTerminal {
         let surface: TerminalSurface
         let hostedView: GhosttySurfaceScrollView
@@ -21,15 +23,15 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
-    func testPrintableKeyDownReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
-#if DEBUG
+    @Test
+    func printableKeyDownReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
-        XCTAssertFalse(
-            terminal.surface.debugDesiredFocusState(),
+        #expect(
+            !terminal.surface.debugDesiredFocusState(),
             "Regression setup should simulate Ghostty focus drifting false while AppKit first responder remains on the terminal"
         )
 
@@ -58,25 +60,22 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         )
         terminal.surfaceView.keyDown(with: event)
 
-        XCTAssertEqual(forwardedText, "a", "Regression setup should exercise the printable Ghostty key path")
-        XCTAssertTrue(
+        #expect(forwardedText == "a", "Regression setup should exercise the printable Ghostty key path")
+        #expect(
             terminal.surface.debugDesiredFocusState(),
             "Physical printable input should restore Ghostty focus before sending the key"
         )
-#else
-        throw XCTSkip("DEBUG-only desired Ghostty focus assertion")
-#endif
     }
 
-    func testDirectCommittedTextReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
-#if DEBUG
+    @Test
+    func directCommittedTextReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
-        XCTAssertFalse(
-            terminal.surface.debugDesiredFocusState(),
+        #expect(
+            !terminal.surface.debugDesiredFocusState(),
             "Regression setup should simulate Ghostty focus drifting false while AppKit first responder remains on the terminal"
         )
 
@@ -99,18 +98,15 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
 
-        XCTAssertEqual(forwardedText, "committed", "Regression setup should exercise direct NSTextInputClient commit")
-        XCTAssertTrue(
+        #expect(forwardedText == "committed", "Regression setup should exercise direct NSTextInputClient commit")
+        #expect(
             terminal.surface.debugDesiredFocusState(),
             "Direct committed text should restore Ghostty focus before sending text"
         )
-#else
-        throw XCTSkip("DEBUG-only desired Ghostty focus assertion")
-#endif
     }
 
-    func testDirectCommittedTextDoesNotReassertGhosttyFocusWhenDescendantOverlayOwnsFirstResponder() throws {
-#if DEBUG
+    @Test
+    func directCommittedTextDoesNotReassertGhosttyFocusWhenDescendantOverlayOwnsFirstResponder() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
 
@@ -121,10 +117,10 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         terminal.surfaceView.addSubview(overlayResponder)
         defer { overlayResponder.removeFromSuperview() }
 
-        XCTAssertTrue(terminal.window.makeFirstResponder(overlayResponder))
-        XCTAssertTrue(overlayResponder.isDescendant(of: terminal.surfaceView))
-        XCTAssertFalse(
-            terminal.surface.debugDesiredFocusState(),
+        #expect(terminal.window.makeFirstResponder(overlayResponder))
+        #expect(overlayResponder.isDescendant(of: terminal.surfaceView))
+        #expect(
+            !terminal.surface.debugDesiredFocusState(),
             "Regression setup should simulate an overlay keeping Ghostty focus false while it owns AppKit focus"
         )
 
@@ -133,13 +129,10 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
 
-        XCTAssertFalse(
-            terminal.surface.debugDesiredFocusState(),
+        #expect(
+            !terminal.surface.debugDesiredFocusState(),
             "Input readiness should not restore Ghostty focus for descendant overlay responders"
         )
-#else
-        throw XCTSkip("DEBUG-only desired Ghostty focus assertion")
-#endif
     }
 
     private func makeHostedTerminal() throws -> HostedTerminal {
@@ -159,7 +152,7 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
             defer: false
         )
 
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -175,26 +168,23 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         return HostedTerminal(
             surface: surface,
             hostedView: hostedView,
-            surfaceView: try XCTUnwrap(findGhosttyNSView(in: hostedView)),
+            surfaceView: try #require(findGhosttyNSView(in: hostedView)),
             window: window
         )
     }
 
     private func focusTerminal(_ terminal: HostedTerminal) throws {
-#if DEBUG
-        guard terminal.surface.surface != nil else {
-            throw XCTSkip("Headless runner did not create a live Ghostty surface")
-        }
-        XCTAssertTrue(terminal.window.makeFirstResponder(terminal.surfaceView))
+        try #require(
+            terminal.surface.surface != nil,
+            "Headless runner did not create a live Ghostty surface"
+        )
+        #expect(terminal.window.makeFirstResponder(terminal.surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertTrue(terminal.hostedView.isSurfaceViewFirstResponder())
-        XCTAssertTrue(
+        #expect(terminal.hostedView.isSurfaceViewFirstResponder())
+        #expect(
             terminal.surface.debugDesiredFocusState(),
             "Focused terminal should start with desired Ghostty focus"
         )
-#else
-        throw XCTSkip("DEBUG-only desired Ghostty focus assertion")
-#endif
     }
 
     private func makeKeyDownEvent(
@@ -203,7 +193,7 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         keyCode: UInt16,
         window: NSWindow
     ) throws -> NSEvent {
-        try XCTUnwrap(NSEvent.keyEvent(
+        try #require(NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
             modifierFlags: [],
@@ -217,3 +207,4 @@ final class GhosttyPhysicalInputFocusReassertionTests: XCTestCase {
         ))
     }
 }
+#endif
