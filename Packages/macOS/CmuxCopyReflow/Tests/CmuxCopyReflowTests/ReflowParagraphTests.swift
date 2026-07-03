@@ -178,6 +178,11 @@ struct ReflowParagraphTests {
         #expect(reflow(withoutIndent) == withoutIndent)
     }
 
+    @Test func shortOptionHelpRowsAreNotJoined() {
+        let input = "Options\n  --help  Show help\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func blankLinesPreservedAsParagraphBoundaries() {
         let input = "first paragraph stands on its own here\n\nsecond paragraph also alone\n"
         #expect(reflow(input) == input)

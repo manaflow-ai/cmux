@@ -167,11 +167,14 @@ private extension ReflowOptions {
                     // s1: an explicit continuation indent (line indented past the
                     //     paragraph's first line).
                     let indentationDelta = indent - p.baseIndent
+                    let shortIndentContinuation = indentationDelta <= 2
+                        && p.prevHasSpace
+                        && startsLowercaseLetter(content)
                     let s1 = indentationDelta > 0
-                        && (p.prevVisibleLength >= minWrapWidth || indentationDelta <= 2)
+                        && (p.prevVisibleLength >= minWrapWidth || shortIndentContinuation)
                         && !endsIndentedBlock(p.prevContent)
                     // s3: a wrapped bare URL continues as a spaceless path fragment.
-                    let s3 = p.isURL && !content.contains(" ")
+                    let s3 = p.isURL && startsURLContinuationToken(content)
                     // s4: mid-sentence continuation. The previous line is full
                     //     enough to have wrapped (prose-like, within widthTolerance
                     //     of the candidate paragraph's widest line) and this line
@@ -295,6 +298,16 @@ private extension ReflowOptions {
             return true
         }
         return false
+    }
+
+    /// True for a spaceless fragment that can safely continue a bare URL.
+    func startsURLContinuationToken(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespace()
+        guard !trimmed.isEmpty,
+              !trimmed.contains(" "),
+              !trimmed.contains("\t"),
+              let first = trimmed.first else { return false }
+        return first == "/" || first == "?" || first == "#" || first == "&" || first == "="
     }
 
     /// Any space-like character that copied terminal text may carry: normal space,

@@ -4750,15 +4750,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t, reflow: Bool = true) -> Bool {
         let generalPasteboard = NSPasteboard.general
         let previousChangeCount = generalPasteboard.changeCount
-        let copied = performBindingAction("copy_to_clipboard")
         let bypassReflowForRectangularSelection = activeSelectionShouldBypassCopyReflow(surface: surface)
+        let selectionBoundsForReflow = reflow && !bypassReflowForRectangularSelection
+            ? copyReflowBoundsForActiveSelection(surface: surface)
+            : nil
+        let copied = performBindingAction("copy_to_clipboard")
 
         // Ghostty owns clipboard formatting; the raw selection snapshot is only the no-op pasteboard fallback.
         let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
             && generalPasteboard.availableType(from: [.string]) != nil
         if ghosttyWroteFormattedText {
             if reflow && !bypassReflowForRectangularSelection {
-                reflowClipboardTextIfEnabled(generalPasteboard, surface: surface)
+                reflowClipboardTextIfEnabled(
+                    generalPasteboard,
+                    surface: surface,
+                    selectionBounds: selectionBoundsForReflow
+                )
             }
             return true
         }
@@ -4789,9 +4796,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// pasteboard with its reflowed form. Ghostty's copy output is already
     /// trailing-trimmed and soft-wrap unwrapped, so reflow only rejoins genuine
     /// application hard wrapping and is a no-op for ordinary soft-wrapped prose.
-    private func reflowClipboardTextIfEnabled(_ pasteboard: NSPasteboard, surface: ghostty_surface_t) {
+    private func reflowClipboardTextIfEnabled(
+        _ pasteboard: NSPasteboard,
+        surface: ghostty_surface_t,
+        selectionBounds: (topRow: UInt32, bottomRow: UInt32)?
+    ) {
         guard TerminalReflowCopySettings.isEnabled(),
-              activeSelectionFitsCopyReflowBounds(surface: surface),
+              let selectionBounds,
+              selectionBoundsFitCopyReflow(selectionBounds, surface: surface),
               let original = pasteboard.string(forType: .string),
               shouldReflowCopiedText(original),
               !original.isEmpty else { return }
@@ -4801,18 +4813,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pasteboard.setString(reflowed, forType: .string)
     }
 
-    private func activeSelectionFitsCopyReflowBounds(surface: ghostty_surface_t) -> Bool {
+    private func copyReflowBoundsForActiveSelection(surface: ghostty_surface_t) -> (topRow: UInt32, bottomRow: UInt32)? {
         var topRow: UInt32 = 0
         var bottomRow: UInt32 = 0
         guard ghostty_surface_selection_screen_rows(surface, &topRow, &bottomRow),
-              bottomRow >= topRow else { return false }
+              bottomRow >= topRow else { return nil }
 
         let selectedRows = UInt64(bottomRow - topRow) + 1
-        guard selectedRows <= UInt64(Self.copyReflowMaxLines) else { return false }
+        guard selectedRows <= UInt64(Self.copyReflowMaxLines) else { return nil }
+        return (topRow: topRow, bottomRow: bottomRow)
+    }
 
+    private func selectionBoundsFitCopyReflow(
+        _ selectionBounds: (topRow: UInt32, bottomRow: UInt32),
+        surface: ghostty_surface_t
+    ) -> Bool {
         var text = ghostty_text_s()
         let maxBytes = UInt(Self.copyReflowMaxBytes + 1)
-        guard ghostty_surface_read_screen_clipboard_text(surface, topRow, bottomRow, maxBytes, &text) else {
+        guard ghostty_surface_read_screen_clipboard_text(
+            surface,
+            selectionBounds.topRow,
+            selectionBounds.bottomRow,
+            maxBytes,
+            &text
+        ) else {
             return false
         }
         defer { ghostty_surface_free_text(surface, &text) }

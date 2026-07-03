@@ -86,6 +86,16 @@ struct ReflowStructureTests {
         #expect(reflow(input) == "https://example.com/very/long/resource/path/continues/here\n")
     }
 
+    @Test func adjacentBareURLsAreNotJoined() {
+        let input = "https://a.example\nhttps://b.example\n"
+        #expect(reflow(input) == input)
+    }
+
+    @Test func bareURLDoesNotAbsorbStatusToken() {
+        let input = "https://example.com\nOK\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func urlBehindListMarkerJoinsWithoutSpace() {
         let input = "- https://example.com/a\n/b/c\n"
         #expect(reflow(input) == "- https://example.com/a/b/c\n")
