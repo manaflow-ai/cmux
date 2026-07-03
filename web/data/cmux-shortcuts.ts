@@ -121,6 +121,13 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "selectWorkspaceByNumber", combos: [["⌃", "1…9"]], description: { en: "Select workspace 1…9", ja: "ワークスペース1…9を選択" } },
       { id: "renameWorkspace", combos: [["⌘", "⇧", "R"]], description: { en: "Rename workspace", ja: "ワークスペース名を変更" } },
       { id: "editWorkspaceDescription", combos: [["⌥", "⌘", "E"]], description: { en: "Edit workspace description", ja: "ワークスペースの説明を編集" } },
+      { id: "newWorkspaceGroup", combos: [["⌃", "⌘", "G"]], description: { en: "New empty workspace group", ja: "空のワークスペースグループを作成" } },
+      { id: "groupSelectedWorkspaces", combos: [["⌘", "⇧", "G"]], description: { en: "Group selected workspaces", ja: "選択したワークスペースをグループ化" } },
+      {
+        id: "toggleFocusedWorkspaceGroupCollapsed",
+        combos: [["⌃", "⌘", "."]],
+        description: { en: "Collapse or expand focused workspace group", ja: "フォーカス中のワークスペースグループを折りたたみ/展開" },
+      },
       { id: "focusRightSidebar", combos: [["⌘", "⇧", "E"]], description: { en: "Toggle right-sidebar focus", ja: "右サイドバーのフォーカスを切り替え" } },
       {
         id: "navigateRightSidebarRows",
@@ -246,6 +253,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
       { id: "clearScreenKeepScrollback", combos: [["⌘", "⇧", "K"]], description: { en: "Clear screen (keep scrollback)", ja: "画面をクリア（スクロールバックを保持）" } },
       { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
+      { id: "cycleTextBoxSubmitAction", combos: [["⇧", "Tab"]], description: { en: "Cycle TextBox submit action", ja: "TextBoxの送信アクションを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
         id: "sendCtrlFToTerminal",
