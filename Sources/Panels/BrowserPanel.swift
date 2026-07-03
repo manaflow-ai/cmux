@@ -3054,9 +3054,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingStartedAt: Date?
     private var loadingEndWorkItem: DispatchWorkItem?
     private var loadingGeneration: Int = 0
-    private let mediaCapturePermissionPendingTimeout: TimeInterval = 300
-    // WebKit has no denial/dismiss callback after `.prompt`, so bound this blocker with a one-shot deadline.
-    private var mediaCapturePermissionFallbackTimer: DispatchSourceTimer?
     private var suppressHiddenWebViewDiscardReevaluation = false
 
     private var faviconTask: Task<Void, Never>?
@@ -3137,31 +3134,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private func setPendingMediaCapturePermission(_ pending: Bool, reason: String, reevaluate: Bool = true) -> Bool {
         guard hasPendingMediaCapturePermission != pending else { return false }
         hasPendingMediaCapturePermission = pending
-        if pending {
-            armMediaCapturePermissionFallbackTimer()
-        } else {
-            mediaCapturePermissionFallbackTimer?.cancel()
-            mediaCapturePermissionFallbackTimer = nil
-        }
         if reevaluate {
             reevaluateHiddenWebViewDiscardScheduling(reason: reason)
         }
         return true
-    }
-
-    private func armMediaCapturePermissionFallbackTimer() {
-        mediaCapturePermissionFallbackTimer?.cancel()
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + mediaCapturePermissionPendingTimeout)
-        timer.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.mediaCapturePermissionFallbackTimer = nil
-                self.setPendingMediaCapturePermission(false, reason: "media_permission_timeout")
-            }
-        }
-        mediaCapturePermissionFallbackTimer = timer
-        timer.resume()
     }
 
     /// Folds a per-frame playback report into retention and audio-glyph state.
@@ -6232,8 +6208,6 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.stop()
         developerToolsRestoreRetryWorkItem?.cancel()
         developerToolsRestoreRetryWorkItem = nil
-        mediaCapturePermissionFallbackTimer?.cancel()
-        mediaCapturePermissionFallbackTimer = nil
         developerToolsTransitionSettleWorkItem?.cancel()
         developerToolsTransitionSettleWorkItem = nil
         developerToolsVisibilityLossCheckWorkItem?.cancel()
