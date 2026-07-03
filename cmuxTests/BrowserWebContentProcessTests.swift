@@ -331,6 +331,23 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func recoverableTerminationClosesBackgroundPreloadHost() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: recoveryURL,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+        #expect(panel.hasBackgroundPreloadHost)
+
+        simulateWebContentProcessTermination(for: panel)
+
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(!panel.hasBackgroundPreloadHost)
+    }
+
+    @Test
     func recoverableTerminationArmsRecoveryBeforeMediaTeardownCanDiscard() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
