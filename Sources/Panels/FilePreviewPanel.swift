@@ -989,7 +989,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isDirty = false
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
-    @Published private(set) var isFindVisible = false
+    private(set) var isFindVisible = false
     @Published private(set) var previewMode: FilePreviewMode
 
     let nativeViewSessions = FilePreviewNativeViewSessions()

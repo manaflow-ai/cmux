@@ -36,7 +36,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     @Published private(set) var isSaving: Bool = false
 
     /// Whether the AppKit text finder is visible or queued to become visible.
-    @Published private(set) var isFindVisible: Bool = false
+    private(set) var isFindVisible: Bool = false
 
     /// The current view mode for this markdown panel. New panels default to preview.
     @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
