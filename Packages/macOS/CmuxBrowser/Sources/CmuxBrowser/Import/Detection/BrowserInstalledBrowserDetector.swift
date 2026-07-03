@@ -257,7 +257,7 @@ public struct BrowserInstalledBrowserDetector {
         rootURL: URL
     ) -> (family: BrowserImportEngineFamily, profiles: [InstalledBrowserProfile]) {
         let candidates: [(BrowserImportEngineFamily, [InstalledBrowserProfile])] = [
-            (.chromium, chromiumProfiles(descriptor: descriptor, rootURL: rootURL)),
+            (.chromium, chromiumProfiles(rootURL: rootURL)),
             (.firefox, firefoxProfiles(rootURL: rootURL)),
             (.webkit, webKitProfiles(descriptor: descriptor, rootURL: rootURL)),
         ]
@@ -325,7 +325,7 @@ public struct BrowserInstalledBrowserDetector {
         return score
     }
 
-    private func chromiumProfiles(descriptor: BrowserImportBrowserDescriptor, rootURL: URL) -> [InstalledBrowserProfile] {
+    private func chromiumProfiles(rootURL: URL) -> [InstalledBrowserProfile] {
         let nameMap = Self.chromiumProfileNameMap(rootURL: rootURL)
         var profiles: [InstalledBrowserProfile] = []
         if looksLikeChromiumProfile(rootURL: rootURL, allowNetworkCookies: false) {
@@ -353,8 +353,7 @@ public struct BrowserInstalledBrowserDetector {
             let name = child.lastPathComponent
             guard name != "Network" else { continue }
             guard looksLikeChromiumProfile(rootURL: child, allowNetworkCookies: true) else { continue }
-            guard name == "Default" || name.hasPrefix("Profile ") || name.hasPrefix("Guest Profile") ||
-                name.hasPrefix("Person ") || nameMap[name] != nil || descriptor.id == "arc" else { continue }
+            guard name == "Default" || name.hasPrefix("Profile ") || name.hasPrefix("Guest Profile") || name.hasPrefix("Person ") || nameMap[name] != nil else { continue }
             profiles.append(
                 InstalledBrowserProfile(
                     displayName: Self.chromiumProfileDisplayName(

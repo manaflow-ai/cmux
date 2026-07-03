@@ -106,8 +106,11 @@ struct BrowserInstalledBrowserDetectorTests {
             at: workProfile.appendingPathComponent("Network", isDirectory: true),
             withIntermediateDirectories: true
         )
+        let systemProfile = arcUserDataRoot.appendingPathComponent("System Profile", isDirectory: true)
+        try FileManager.default.createDirectory(at: systemProfile.appendingPathComponent("Network", isDirectory: true), withIntermediateDirectories: true)
         try Data().write(to: defaultProfile.appendingPathComponent("Network/Cookies"))
         try Data().write(to: workProfile.appendingPathComponent("Network/Cookies"))
+        try Data().write(to: systemProfile.appendingPathComponent("Network/Cookies"))
         try Data(
             """
             {
