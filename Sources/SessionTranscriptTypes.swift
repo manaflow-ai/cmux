@@ -74,24 +74,6 @@ enum SessionTranscriptRole: Equatable, Sendable {
         case .event: return Color.primary.opacity(0.02)
         }
     }
-
-    var bodyFontSize: CGFloat {
-        switch self {
-        case .tool, .system:
-            return 11
-        case .user, .assistant, .event:
-            return 12
-        }
-    }
-
-    var bodyFontDesign: Font.Design {
-        switch self {
-        case .tool, .system:
-            return .monospaced
-        case .user, .assistant, .event:
-            return .default
-        }
-    }
 }
 
 extension SessionTranscriptRole {
