@@ -23050,15 +23050,26 @@ struct CMUXCLI {
             ]
         )
 
+        enum ClaudeFeedTelemetryWorkspace {
+            case defaultArgument
+            case explicit(String?)
+        }
+
         var didSendFeedTelemetry = false
-        func sendClaudeFeedTelemetry(workspaceId: String? = nil) {
+        func sendClaudeFeedTelemetry(workspace: ClaudeFeedTelemetryWorkspace = .defaultArgument) {
             didSendFeedTelemetry = true
+            let telemetryWorkspaceId: String? = switch workspace {
+            case .defaultArgument:
+                workspaceArg
+            case .explicit(let workspaceId):
+                workspaceId
+            }
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg,
+                workspaceId: telemetryWorkspaceId,
                 socketPassword: socketPassword
             )
         }
@@ -23087,7 +23098,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -23238,12 +23249,12 @@ struct CMUXCLI {
                 // fallback here would stamp this turn onto whichever workspace is
                 // selected (https://github.com/manaflow-ai/cmux/issues/7132).
                 sendClaudeFeedTelemetry(
-                    workspaceId: Self.claudeFeedTelemetryWorkspaceId(
+                    workspace: .explicit(Self.claudeFeedTelemetryWorkspaceId(
                         resolvedWorkspaceId: workspaceId,
                         mappedSessionWorkspaceId: mappedSessionWorkspaceId,
                         surfaceIsAuthoritative: resolvedSurface.isAuthoritative,
                         callerWorkspaceId: callerWorkspaceId
-                    )
+                    ))
                 )
 
                 guard shouldApplyClaudeHookVisibleMutation(
@@ -23395,12 +23406,12 @@ struct CMUXCLI {
             // See the `.stop` branch: never attribute the conversation subtitle to a
             // focused/first-workspace fallback (#7132).
             sendClaudeFeedTelemetry(
-                workspaceId: Self.claudeFeedTelemetryWorkspaceId(
+                workspace: .explicit(Self.claudeFeedTelemetryWorkspaceId(
                     resolvedWorkspaceId: workspaceId,
                     mappedSessionWorkspaceId: mappedSessionWorkspaceId,
                     surfaceIsAuthoritative: resolvedSurface.isAuthoritative,
                     callerWorkspaceId: callerWorkspaceId
-                )
+                ))
             )
             let shouldApplyPromptSubmit =
                 shouldApplyClaudeHookVisibleMutation(
@@ -23543,7 +23554,7 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -23765,7 +23776,7 @@ struct CMUXCLI {
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
@@ -23824,7 +23835,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId)
+            sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
