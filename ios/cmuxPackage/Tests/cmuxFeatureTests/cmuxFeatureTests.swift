@@ -1974,6 +1974,60 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
+@Test func signOutClearsPendingManualHostTrustWarning() async throws {
+    let responses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.manualHost],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-signout-manual-warning"
+    )
+    let store = CMUXMobileShellStore.preview(
+        runtime: runtime,
+        manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+    )
+
+    store.signIn()
+    let firstResult = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=3&pc=1&m=studio-mac.local:61234"
+    )
+    store.signOut()
+    let staleApprovalResult = await store.acceptManualHostTrustWarning()
+
+    #expect(firstResult == .needsUserApproval)
+    #expect(staleApprovalResult == .failed)
+    #expect(store.manualHostTrustWarning == nil)
+    #expect(store.connectionState == .disconnected)
+    #expect(try await responses.sentRequests().isEmpty)
+}
+
+@MainActor
+@Test func manualHostTrustWarningSupersedesPendingVersionWarning() async throws {
+    let responses = ScriptedTransportResponses([])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale, .manualHost],
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-version-manual-warning"
+    )
+    let store = CMUXMobileShellStore.preview(
+        runtime: runtime,
+        manualHostTrustStore: InMemoryMobileManualHostTrustStore()
+    )
+
+    store.signIn()
+    let versionWarningResult = await store.connectPairingURLResult(
+        "cmux-ios://attach?v=2&pc=2&av=0.65.0&ab=9&r=100.71.210.41:\(CmxMobileDefaults.defaultHostPort)"
+    )
+    await store.connectManualHost(name: "Studio LAN", host: "192.168.1.77", port: 15432)
+    let staleVersionApprovalResult = await store.acceptPairingVersionWarning()
+
+    #expect(versionWarningResult == .needsUserApproval)
+    #expect(staleVersionApprovalResult == .failed)
+    #expect(store.pairingVersionWarning == nil)
+    #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:15432")
+    #expect(try await responses.sentRequests().isEmpty)
+}
+
+@MainActor
 @Test func mixedPairingQRCodeBlocksManualFallbackUntilApproved() async throws {
     let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(

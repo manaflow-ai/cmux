@@ -1051,6 +1051,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
+        clearManualHostTrustWarning()
         // Wipe every saved draft so the next account never sees the previous
         // user's unsent text. Guard the in-memory clear (and the selection resets
         // below) so the per-terminal draft hooks do not write partial state into a
@@ -5470,7 +5471,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionErrorGuidance = nil
     }
 
-    private func clearPairingVersionWarning() {
+    func clearPairingVersionWarning() {
         pairingVersionWarning = nil
         pendingPairingVersionWarningURL = nil
     }

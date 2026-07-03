@@ -68,6 +68,7 @@ extension MobileShellComposite {
             return
         }
         clearPairingError()
+        clearPairingVersionWarning()
         pendingManualHostTrust = pending
         manualHostTrustWarning = MobileManualHostTrustWarning(
             scope: scope,
