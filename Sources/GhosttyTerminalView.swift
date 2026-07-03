@@ -3076,9 +3076,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         return true
     }
 
-    // Copies a run of viewport lines to the clipboard via a synthetic Ghostty
-    // drag. App-side for the same reason as selectKeyboardCopyModeCursorCell.
-    private func copyCurrentViewportLinesToClipboard(
+    // Selects a run of viewport lines via a synthetic Ghostty drag. App-side for
+    // the same reason as selectKeyboardCopyModeCursorCell.
+    private func selectKeyboardCopyModeViewportLines(
         surface: ghostty_surface_t,
         metrics: TerminalKeyboardCopyModeGridMetrics,
         startRow: Int,
@@ -3102,9 +3102,82 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
             _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         }
         ghostty_surface_mouse_pos(surface, Double(geometry.endPoint.x), Double(geometry.endPoint.y), mods)
-        guard ghostty_surface_has_selection(surface) else { return false }
+        return ghostty_surface_has_selection(surface)
+    }
 
-        return performBindingAction("copy_to_clipboard")
+    private func copyCurrentGhosttySelectionToClipboard() -> Bool {
+        let generalPasteboard = NSPasteboard.general
+        let previousChangeCount = generalPasteboard.changeCount
+        let copied = performBindingAction("copy_to_clipboard")
+
+        // Ghostty owns clipboard formatting; the raw selection snapshot is only the no-op pasteboard fallback.
+        let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
+            && generalPasteboard.availableType(from: [.string]) != nil
+        if ghosttyWroteFormattedText {
+            return true
+        }
+
+        guard let selectedText = readSelectionSnapshot()?.string, !selectedText.isEmpty else {
+            return copied
+        }
+
+        GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+        return true
+    }
+
+    private func copyVisualLineSelectionToClipboard(
+        _ selection: TerminalKeyboardCopyModeVisualLineSelection,
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        maxBytes: UInt
+    ) -> Bool {
+        guard let surface,
+              let readRows = TerminalKeyboardCopyModeVisualLineSelection.boundedReadRows(
+                selectedRows: selection.selectedRows,
+                columns: metrics.columns,
+                maxBytes: maxBytes
+              ) else { return false }
+
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_SCREEN,
+            coord: GHOSTTY_POINT_COORD_EXACT,
+            x: 0,
+            y: readRows.lower
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_SCREEN,
+            coord: GHOSTTY_POINT_COORD_EXACT,
+            x: UInt32(clamping: max(metrics.columns - 1, 0)),
+            y: readRows.upper
+        )
+        let runtimeSelection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, runtimeSelection, &text) else { return false }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len <= maxBytes,
+              let byteCount = Int(exactly: text.text_len),
+              let rawText = text.text else { return false }
+        let selectedText = String(decoding: Data(bytes: rawText, count: byteCount), as: UTF8.self)
+        guard !selectedText.isEmpty else { return false }
+
+        GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+        return true
+    }
+
+    // Copies a run of viewport lines to the clipboard via a synthetic Ghostty
+    // drag. App-side for the same reason as selectKeyboardCopyModeCursorCell.
+    private func copyCurrentViewportLinesToClipboard(
+        surface: ghostty_surface_t,
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        startRow: Int,
+        lineCount: Int
+    ) -> Bool {
+        guard selectKeyboardCopyModeViewportLines(
+            surface: surface,
+            metrics: metrics,
+            startRow: startRow,
+            lineCount: lineCount
+        ) else { return false }
+        return copyCurrentGhosttySelectionToClipboard()
     }
 
     // NSEvent adapter for the copy-mode controller's state machine. Decodes the
@@ -3124,7 +3197,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
-        _ = performBindingAction("copy_to_clipboard")
+        if !keyboardCopyModeController.copySelectionToClipboard() {
+            _ = performBindingAction("copy_to_clipboard")
+        }
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -3186,8 +3261,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
-            guard let surface = surface else { return false }
-            return ghostty_surface_has_selection(surface)
+            guard surface != nil else { return false }
+            return keyboardCopyModeController.hasCopyableSelection()
         case #selector(paste(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
@@ -5026,7 +5101,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
             flashItem.target = self
             menu.addItem(.separator())
         }
-        if ghostty_surface_has_selection(surface) {
+        if keyboardCopyModeController.hasCopyableSelection() {
             let item = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
@@ -5738,6 +5813,14 @@ extension GhosttyNSView: TerminalSurfaceGridReading {
         scrollbar?.offset
     }
 
+    func copyModeScrollbarTotal() -> UInt64? {
+        scrollbar?.total
+    }
+
+    func copyModeScrollbarVisibleLength() -> UInt64? {
+        scrollbar?.len
+    }
+
     @discardableResult
     func copyModePerformBindingAction(_ action: String) -> Bool {
         performBindingAction(action)
@@ -5748,12 +5831,43 @@ extension GhosttyNSView: TerminalSurfaceGridReading {
         _ = GhosttyRuntimeCInterop.clearSelection(surface)
     }
 
+    func copyModeHasRuntimeSelection() -> Bool {
+        guard let surface else { return false }
+        return ghostty_surface_has_selection(surface)
+    }
+
     func copyModeSelectCursorCell(
         metrics: TerminalKeyboardCopyModeGridMetrics,
         cursor: TerminalKeyboardCopyModeCursor
     ) -> Bool {
         guard let surface else { return false }
         return selectKeyboardCopyModeCursorCell(surface: surface, metrics: metrics, cursor: cursor)
+    }
+
+    func copyModeSelectViewportLines(
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        startRow: Int,
+        lineCount: Int
+    ) -> Bool {
+        guard let surface else { return false }
+        return selectKeyboardCopyModeViewportLines(
+            surface: surface,
+            metrics: metrics,
+            startRow: startRow,
+            lineCount: lineCount
+        )
+    }
+
+    func copyModeCopyCurrentSelectionToClipboard() -> Bool {
+        copyCurrentGhosttySelectionToClipboard()
+    }
+
+    func copyModeCopyVisualLineSelection(
+        _ selection: TerminalKeyboardCopyModeVisualLineSelection,
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        maxBytes: UInt
+    ) -> Bool {
+        copyVisualLineSelectionToClipboard(selection, metrics: metrics, maxBytes: maxBytes)
     }
 
     func copyModeCopyViewportLines(

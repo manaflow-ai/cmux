@@ -516,6 +516,8 @@ extension Workspace {
             agentSessionSnapshot = nil
         case .extensionBrowser:
             return nil
+        case .customSidebar:
+            return nil
         }
 
         return SessionPanelSnapshot(
@@ -1308,6 +1310,8 @@ extension Workspace {
             return projectPanel.id
         case .extensionBrowser:
             return nil
+        case .customSidebar:
+            return nil
         }
     }
 
@@ -1581,6 +1585,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     private(set) var terminalScrollBarHidden: Bool = false
+    /// Aggregate browser media-activity summary read by the sidebar observation
+    /// (WorkspaceSidebarObservation). Restored during the main merge: the
+    /// property + its sidebar read are wired; the per-BrowserPanel auto-update
+    /// (main's setBrowserMediaActivity/refreshBrowserMediaActivity fold) is a
+    /// deferred follow-up, so this stays at its default (inactive) until that
+    /// wiring is ported. The sidebar reads it safely either way.
+    private(set) var browserMediaActivity = BrowserMediaActivity()
     var currentDirectory: String {
         didSet {
             // Combine bridge for the remaining `$currentDirectory` subscribers

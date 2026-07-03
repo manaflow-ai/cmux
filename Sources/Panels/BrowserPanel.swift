@@ -493,6 +493,13 @@ final class BrowserPanel: Panel, ObservableObject, BrowserNavigationHosting, Bro
 
     /// Published page title
     @Published private(set) var pageTitle: String = ""
+    /// URL of the locally-rendered PDF for the current page, when the browser is
+    /// displaying a PDF document (drives the PDF toolbar/print actions in
+    /// BrowserPanel+PDFDocumentActions / BrowserPDFDocumentToolbarButtons).
+    /// Restored during the main merge; the navigation-delegate PDF-detection that
+    /// sets this is a deferred follow-up, so it stays nil (PDF actions hidden)
+    /// until that wiring is ported. Consumers read it safely either way.
+    @Published private(set) var renderedPDFDocumentURL: URL?
 
     /// Published favicon (PNG data). When present, the tab bar can render it instead of a SF symbol.
     @Published private(set) var faviconPNGData: Data?

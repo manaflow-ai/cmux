@@ -52,6 +52,12 @@ public protocol TerminalSurfaceGridReading: AnyObject {
     /// The current scrollbar offset in scrollback lines, or `nil` when unavailable.
     func copyModeScrollbarOffset() -> UInt64?
 
+    /// The total scrollback height in rows, or `nil` when unavailable.
+    func copyModeScrollbarTotal() -> UInt64?
+
+    /// The visible scrollbar length in rows, or `nil` when unavailable.
+    func copyModeScrollbarVisibleLength() -> UInt64?
+
     /// Sends a Ghostty binding action to the live surface.
     ///
     /// - Parameter action: The binding-action string (e.g. `"copy_to_clipboard"`).
@@ -62,6 +68,9 @@ public protocol TerminalSurfaceGridReading: AnyObject {
     /// Clears the live surface selection.
     func copyModeClearSelection()
 
+    /// Whether the live runtime currently reports a selectable range.
+    func copyModeHasRuntimeSelection() -> Bool
+
     /// Synthesizes a single-cell selection at the cursor.
     ///
     /// - Parameters:
@@ -71,6 +80,37 @@ public protocol TerminalSurfaceGridReading: AnyObject {
     func copyModeSelectCursorCell(
         metrics: TerminalKeyboardCopyModeGridMetrics,
         cursor: TerminalKeyboardCopyModeCursor
+    ) -> Bool
+
+    /// Synthesizes a viewport-line selection without copying it.
+    ///
+    /// - Parameters:
+    ///   - metrics: The grid snapshot to position the drag against.
+    ///   - startRow: The first viewport row to select.
+    ///   - lineCount: The number of viewport lines to select.
+    /// - Returns: Whether the runtime selection was created.
+    func copyModeSelectViewportLines(
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        startRow: Int,
+        lineCount: Int
+    ) -> Bool
+
+    /// Copies the runtime's current selection to the standard clipboard.
+    ///
+    /// - Returns: Whether copying succeeded.
+    func copyModeCopyCurrentSelectionToClipboard() -> Bool
+
+    /// Copies an absolute-row visual-line selection to the standard clipboard.
+    ///
+    /// - Parameters:
+    ///   - selection: The linewise selection tracked by the controller.
+    ///   - metrics: The grid snapshot used to bound the runtime text read.
+    ///   - maxBytes: The maximum formatted byte count to copy through the fallback path.
+    /// - Returns: Whether copying succeeded.
+    func copyModeCopyVisualLineSelection(
+        _ selection: TerminalKeyboardCopyModeVisualLineSelection,
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        maxBytes: UInt
     ) -> Bool
 
     /// Copies a run of viewport lines to the clipboard via a synthetic drag.

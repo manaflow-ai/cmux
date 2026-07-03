@@ -69,11 +69,20 @@ public final class TerminalKeyboardCopyModeController {
     private var pendingViewportJumpGeneration = 0
     private var pendingViewportJumpFallbackLineDelta: Int?
     private var pendingViewportJumpAppliedFallbackLineDelta = 0
+    private var pendingViewportJumpVisualLineReselect = false
+    private var pendingViewportJumpUpdatesVisualLineEndpoint = false
+    private var pendingViewportJumpVisualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
 
     // MARK: Ghostty key-sequence / key-table stacks
 
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
+    private var visualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
+    private var visualLineRuntimeSelectionSynced = false
+    private var visualLineActive: Bool {
+        visualLineSelection != nil
+    }
+    private static let visualLineFallbackMaxBytes: UInt = 2 * 1024 * 1024
 
     /// Whether there is a pending Ghostty key sequence or active key table.
     ///
@@ -111,11 +120,10 @@ public final class TerminalKeyboardCopyModeController {
         guard let host else { return }
         inputState.reset()
         visualActive = false
+        visualLineSelection = nil
+        visualLineRuntimeSelectionSynced = false
         pendingViewportJumpGeneration += 1
-        pendingViewportJumpSync = false
-        pendingViewportJumpScrollbarOffset = nil
-        pendingViewportJumpFallbackLineDelta = nil
-        pendingViewportJumpAppliedFallbackLineDelta = 0
+        clearViewportJumpCursorSync()
         isActive = active
         if active {
             host.copyModeClearSelection()
@@ -195,7 +203,7 @@ public final class TerminalKeyboardCopyModeController {
         )
         self.cursor = cursor
         if scrollDelta != 0 {
-            host.copyModePerformBindingAction("scroll_page_lines:\(scrollDelta)")
+            _ = performLineScroll(scrollDelta)
         }
         syncCursorOverlay()
     }
@@ -210,12 +218,64 @@ public final class TerminalKeyboardCopyModeController {
 
     // MARK: Viewport-jump cursor sync
 
-    private func beginViewportJumpCursorSync(fallbackLineDelta: Int? = nil) {
+    private func clearViewportJumpCursorSync() {
+        pendingViewportJumpSync = false
+        pendingViewportJumpVisualLineReselect = false
+        pendingViewportJumpUpdatesVisualLineEndpoint = false
+        pendingViewportJumpScrollbarOffset = nil
+        pendingViewportJumpFallbackLineDelta = nil
+        pendingViewportJumpAppliedFallbackLineDelta = 0
+        pendingViewportJumpVisualLineSelection = nil
+    }
+
+    private func beginViewportJumpCursorSync(
+        fallbackLineDelta: Int? = nil,
+        visualLineReselect: Bool = false,
+        updatesVisualLineEndpoint: Bool = false
+    ) {
+        let flushedScrollbar = host?.copyModeFlushPendingScrollbarIfAvailable() ?? false
+        if pendingViewportJumpSync, !flushedScrollbar {
+            if pendingViewportJumpVisualLineReselect, visualLineReselect {
+                pendingViewportJumpFallbackLineDelta =
+                    (pendingViewportJumpFallbackLineDelta ?? 0) + (boundedFallbackLineDelta(fallbackLineDelta) ?? 0)
+                pendingViewportJumpVisualLineSelection = visualLineSelection
+                pendingViewportJumpUpdatesVisualLineEndpoint =
+                    pendingViewportJumpUpdatesVisualLineEndpoint || updatesVisualLineEndpoint
+                scheduleViewportJumpCursorSyncFallback()
+                return
+            }
+
+            if !pendingViewportJumpVisualLineReselect, !visualLineReselect {
+                scheduleViewportJumpCursorSyncFallback()
+                return
+            }
+        }
+
         pendingViewportJumpGeneration += 1
         pendingViewportJumpSync = true
         pendingViewportJumpScrollbarOffset = host?.copyModeScrollbarOffset()
-        pendingViewportJumpFallbackLineDelta = fallbackLineDelta
+        pendingViewportJumpFallbackLineDelta = boundedFallbackLineDelta(fallbackLineDelta)
         pendingViewportJumpAppliedFallbackLineDelta = 0
+        pendingViewportJumpVisualLineReselect = visualLineReselect
+        pendingViewportJumpUpdatesVisualLineEndpoint = updatesVisualLineEndpoint
+        pendingViewportJumpVisualLineSelection = visualLineReselect ? visualLineSelection : nil
+        scheduleViewportJumpCursorSyncFallback()
+    }
+
+    private func boundedFallbackLineDelta(_ lineDelta: Int?) -> Int? {
+        guard let lineDelta,
+              let offset = host?.copyModeScrollbarOffset(),
+              let total = host?.copyModeScrollbarTotal(),
+              let visibleLength = host?.copyModeScrollbarVisibleLength() else { return lineDelta }
+        guard lineDelta != 0 else { return 0 }
+
+        if lineDelta > 0 {
+            let maxOffset = total > visibleLength ? total - visibleLength : 0
+            let available = maxOffset > offset ? maxOffset - offset : 0
+            return min(lineDelta, Int(clamping: available))
+        }
+
+        return max(lineDelta, -Int(clamping: offset))
     }
 
     private func scheduleViewportJumpCursorSyncFallback() {
@@ -226,12 +286,28 @@ public final class TerminalKeyboardCopyModeController {
     ///
     /// - Parameter generation: The generation captured when the jump was scheduled.
     public func previewViewportJumpCursorSyncIfNeeded(generation: Int) {
-        guard let host,
-              pendingViewportJumpSync,
+        guard pendingViewportJumpSync,
               generation == pendingViewportJumpGeneration,
               isActive else { return }
 
+        resolveViewportJumpCursorSyncAfterBinding()
+    }
+
+    private func resolveViewportJumpCursorSyncAfterBinding() {
+        guard let host,
+              pendingViewportJumpSync,
+              isActive else { return }
+
         if host.copyModeFlushPendingScrollbarIfAvailable() {
+            return
+        }
+
+        if pendingViewportJumpVisualLineReselect {
+            if pendingViewportJumpUpdatesVisualLineEndpoint {
+                updateVisualLineEndpointFromCursor()
+            }
+            pendingViewportJumpVisualLineSelection = visualLineSelection
+            reselectVisualLineSelection()
             return
         }
 
@@ -253,10 +329,14 @@ public final class TerminalKeyboardCopyModeController {
         guard pendingViewportJumpSync,
               generation == pendingViewportJumpGeneration else { return }
 
-        pendingViewportJumpSync = false
-        pendingViewportJumpScrollbarOffset = nil
-        pendingViewportJumpFallbackLineDelta = nil
-        pendingViewportJumpAppliedFallbackLineDelta = 0
+        clearViewportJumpCursorSync()
+    }
+
+    private func cancelViewportJumpCursorSyncIfNeeded(generation: Int) {
+        guard pendingViewportJumpSync,
+              generation == pendingViewportJumpGeneration else { return }
+
+        clearViewportJumpCursorSync()
     }
 
     /// Finishes the viewport-jump cursor sync when a fresh scrollbar lands.
@@ -264,15 +344,31 @@ public final class TerminalKeyboardCopyModeController {
     /// - Parameter newScrollbarOffset: The offset of the newly applied scrollbar, or `nil`.
     public func finishViewportJumpCursorSyncIfNeeded(newScrollbarOffset: UInt64?) {
         guard pendingViewportJumpSync else { return }
-        pendingViewportJumpSync = false
-        defer {
-            pendingViewportJumpScrollbarOffset = nil
-            pendingViewportJumpFallbackLineDelta = nil
-            pendingViewportJumpAppliedFallbackLineDelta = 0
+        guard let host, isActive else {
+            clearViewportJumpCursorSync()
+            return
+        }
+        let resolvedNewOffset = newScrollbarOffset ?? host.copyModeScrollbarOffset()
+        if pendingViewportJumpVisualLineReselect,
+           let expectedOffset = pendingVisualLineScrollOffset(),
+           let resolvedNewOffset,
+           let delta = pendingViewportJumpFallbackLineDelta,
+           delta != 0 && (delta > 0 ? resolvedNewOffset < expectedOffset : resolvedNewOffset > expectedOffset) {
+            return
         }
 
-        guard let host, isActive else { return }
-        let resolvedNewOffset = newScrollbarOffset ?? host.copyModeScrollbarOffset()
+        pendingViewportJumpSync = false
+        defer { clearViewportJumpCursorSync() }
+
+        if pendingViewportJumpVisualLineReselect {
+            if pendingViewportJumpUpdatesVisualLineEndpoint,
+               pendingViewportJumpVisualLineSelection == visualLineSelection {
+                updateVisualLineEndpointFromCursor()
+            }
+            reselectVisualLineSelection()
+            return
+        }
+
         if let previousOffset = pendingViewportJumpScrollbarOffset,
            let resolvedNewOffset {
             let lineDelta = viewportLineDelta(from: previousOffset, to: resolvedNewOffset)
@@ -336,11 +432,272 @@ public final class TerminalKeyboardCopyModeController {
     private func copyCurrentViewportLinesToClipboard(startRow: Int, lineCount: Int) -> Bool {
         guard let host, host.copyModeGridMetrics() != nil else { return false }
         let metrics = host.copyModeGridMetrics()!
-        return host.copyModeCopyViewportLines(
+        guard host.copyModeSelectViewportLines(
+            metrics: metrics,
+            startRow: startRow,
+            lineCount: lineCount
+        ) else { return false }
+        return host.copyModeCopyCurrentSelectionToClipboard()
+    }
+
+    private func pendingVisualLineScrollOffset() -> UInt64? {
+        guard pendingViewportJumpSync,
+              let lineDelta = pendingViewportJumpFallbackLineDelta,
+              let baseOffset = pendingViewportJumpScrollbarOffset else { return nil }
+        return TerminalKeyboardCopyModeVisualLineSelection.pendingScrollOffset(
+            baseOffset: baseOffset,
+            lineDelta: lineDelta,
+            totalRows: host?.copyModeScrollbarTotal()
+        )
+    }
+
+    private func boundaryFallbackLineDelta(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        visibleRows: Int
+    ) -> Int? {
+        guard let offset = host?.copyModeScrollbarOffset(),
+              let total = host?.copyModeScrollbarTotal() else { return nil }
+        return TerminalKeyboardCopyModeVisualLineSelection.boundaryFallbackLineDelta(
+            direction,
+            scrollOffset: offset,
+            totalRows: total,
+            visibleRows: UInt64(max(visibleRows, 1))
+        )
+    }
+
+    private func updateVisualLineEndpointFromCursor() {
+        guard var selection = visualLineSelection,
+              let host,
+              let metrics = host.copyModeGridMetrics() else { return }
+        let cursor = (self.cursor ?? initialCursor())
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        self.cursor = cursor
+        selection.updateEndpoint(
+            from: cursor,
+            viewportRows: metrics.rows,
+            scrollOffset: host.copyModeScrollbarOffset() ?? 0,
+            totalRows: host.copyModeScrollbarTotal()
+        )
+        visualLineSelection = selection
+        _ = syncVisualLineRuntimeSelection()
+    }
+
+    private func clearVisualLineSelection() {
+        visualActive = false
+        visualLineSelection = nil
+        visualLineRuntimeSelectionSynced = false
+        host?.copyModeClearSelection()
+    }
+
+    private func syncVisualLineRuntimeSelection() -> Bool {
+        guard let selection = visualLineSelection,
+              let host,
+              let metrics = host.copyModeGridMetrics() else { return false }
+        let scrollOffset = pendingVisualLineScrollOffset() ?? host.copyModeScrollbarOffset() ?? 0
+        guard let visibleRows = selection.visibleIntersection(scrollOffset: scrollOffset, viewportRows: metrics.rows) else {
+            visualLineRuntimeSelectionSynced = false
+            host.copyModeClearSelection()
+            return true
+        }
+
+        let startRow = Int(clamping: visibleRows.lowerBound - scrollOffset)
+        let lineCount = Int(clamping: visibleRows.upperBound - visibleRows.lowerBound + 1)
+        let selected = host.copyModeSelectViewportLines(
             metrics: metrics,
             startRow: startRow,
             lineCount: lineCount
         )
+        visualLineRuntimeSelectionSynced = selected
+        if !selected {
+            host.copyModeClearSelection()
+        }
+        return selected
+    }
+
+    private func copyVisualLineSelectionToClipboard() -> Bool {
+        guard let selection = visualLineSelection,
+              let host,
+              let metrics = host.copyModeGridMetrics() else { return false }
+        return host.copyModeCopyVisualLineSelection(
+            selection,
+            metrics: metrics,
+            maxBytes: Self.visualLineFallbackMaxBytes
+        )
+    }
+
+    /// Copies the active copy-mode selection, including package-owned visual-line selections.
+    ///
+    /// - Returns: Whether a selection was copied.
+    @discardableResult
+    public func copySelectionToClipboard() -> Bool {
+        guard let host else { return false }
+        if visualLineActive {
+            return copyVisualLineSelectionToClipboard()
+        }
+        return host.copyModeCopyCurrentSelectionToClipboard()
+    }
+
+    /// Returns whether the controller or runtime currently owns a copyable selection.
+    public func hasCopyableSelection() -> Bool {
+        if visualLineActive {
+            return true
+        }
+        return host?.copyModeHasRuntimeSelection() ?? false
+    }
+
+    private func startLineSelection(lineCount: Int) {
+        let startRow = currentViewportRow()
+        let clampedCount = terminalKeyboardCopyModeClampCount(lineCount)
+        guard let host,
+              let metrics = host.copyModeGridMetrics() else {
+            clearVisualLineSelection()
+            syncCursorOverlay()
+            return
+        }
+        cursor = (cursor ?? initialCursor())
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        if clampedCount > 1 {
+            cursor?.row = min(startRow + clampedCount - 1, metrics.rows - 1)
+        }
+        let scrollOffset = pendingVisualLineScrollOffset() ?? host.copyModeScrollbarOffset() ?? 0
+        let totalRows = host.copyModeScrollbarTotal()
+        visualLineSelection = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: TerminalKeyboardCopyModeVisualLineSelection.screenRow(
+                forViewportRow: startRow,
+                viewportRows: metrics.rows,
+                scrollOffset: scrollOffset,
+                totalRows: totalRows
+            ),
+            endpointScreenRow: TerminalKeyboardCopyModeVisualLineSelection.screenRow(
+                forViewportRow: cursor?.row ?? startRow,
+                viewportRows: metrics.rows,
+                scrollOffset: scrollOffset,
+                totalRows: totalRows
+            )
+        )
+        guard syncVisualLineRuntimeSelection() else {
+            clearVisualLineSelection()
+            syncCursorOverlay()
+            return
+        }
+        visualActive = true
+        syncCursorOverlay()
+    }
+
+    private func reselectVisualLineSelection() {
+        guard let selection = visualLineSelection,
+              let host,
+              let metrics = host.copyModeGridMetrics() else { return }
+        let cursor = (self.cursor ?? initialCursor())
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        self.cursor = selection.endpointCursor(
+            column: cursor.column,
+            viewportRows: metrics.rows,
+            viewportColumns: metrics.columns,
+            scrollOffset: host.copyModeScrollbarOffset() ?? 0
+        )
+        guard syncVisualLineRuntimeSelection() else {
+            clearVisualLineSelection()
+            syncCursorOverlay()
+            return
+        }
+        syncCursorOverlay()
+    }
+
+    private func adjustVisualLineSelectionToBoundary(_ direction: TerminalKeyboardCopyModeSelectionMove) {
+        guard let host,
+              let metrics = host.copyModeGridMetrics() else { return }
+        var cursor = (self.cursor ?? initialCursor())
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        switch direction {
+        case .home:
+            cursor.row = 0
+            cursor.column = 0
+        case .end:
+            cursor.row = metrics.rows - 1
+            cursor.column = metrics.columns - 1
+        default:
+            return
+        }
+        self.cursor = cursor
+
+        var updatesEndpointFromCursor = true
+        if var selection = visualLineSelection,
+           selection.moveEndpointToBoundary(direction, totalRows: host.copyModeScrollbarTotal()) {
+            visualLineSelection = selection
+            updatesEndpointFromCursor = false
+            guard syncVisualLineRuntimeSelection() else {
+                clearVisualLineSelection()
+                syncCursorOverlay()
+                return
+            }
+        }
+
+        beginViewportJumpCursorSync(
+            fallbackLineDelta: boundaryFallbackLineDelta(direction, visibleRows: metrics.rows),
+            visualLineReselect: true,
+            updatesVisualLineEndpoint: updatesEndpointFromCursor
+        )
+        let action = direction == .home ? "scroll_to_top" : "scroll_to_bottom"
+        guard host.copyModePerformBindingAction(action) else {
+            cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+            if updatesEndpointFromCursor {
+                updateVisualLineEndpointFromCursor()
+            }
+            reselectVisualLineSelection()
+            return
+        }
+        resolveViewportJumpCursorSyncAfterBinding()
+    }
+
+    private func adjustVisualLineSelection(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int
+    ) {
+        guard var selection = visualLineSelection,
+              let host,
+              let metrics = host.copyModeGridMetrics() else { return }
+        if direction == .home || direction == .end {
+            adjustVisualLineSelectionToBoundary(direction)
+            return
+        }
+
+        let scrollOffset = pendingVisualLineScrollOffset() ?? host.copyModeScrollbarOffset() ?? 0
+        let currentCursor = cursor ?? initialCursor()
+        let move = selection.moveEndpoint(
+            direction,
+            count: count,
+            currentColumn: currentCursor.column,
+            viewportRows: metrics.rows,
+            viewportColumns: metrics.columns,
+            scrollOffset: scrollOffset,
+            totalRows: host.copyModeScrollbarTotal()
+        )
+        visualLineSelection = selection
+        cursor = move.cursor
+        guard syncVisualLineRuntimeSelection() else {
+            clearVisualLineSelection()
+            syncCursorOverlay()
+            return
+        }
+
+        let scrollDelta = move.scrollDelta
+        if scrollDelta != 0 {
+            beginViewportJumpCursorSync(
+                fallbackLineDelta: scrollDelta,
+                visualLineReselect: true,
+                updatesVisualLineEndpoint: false
+            )
+            guard performLineScroll(scrollDelta) else {
+                cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+                reselectVisualLineSelection()
+                return
+            }
+            resolveViewportJumpCursorSyncAfterBinding()
+            return
+        }
+
+        reselectVisualLineSelection()
     }
 
     // MARK: Per-key state machine
@@ -407,40 +764,54 @@ public final class TerminalKeyboardCopyModeController {
         case .startSelection:
             if selectCursorCell() {
                 visualActive = true
+                visualLineSelection = nil
+                visualLineRuntimeSelectionSynced = false
                 syncCursorOverlay()
             }
+        case .startLineSelection:
+            startLineSelection(lineCount: count)
         case .clearSelection:
-            visualActive = false
-            host.copyModeClearSelection()
+            clearVisualLineSelection()
             syncCursorOverlay()
         case .copyAndExit:
-            host.copyModePerformBindingAction("copy_to_clipboard")
-            host.copyModeClearSelection()
-            setActive(false)
+            if copySelectionToClipboard() {
+                host.copyModeClearSelection()
+                setActive(false)
+            }
         case .copyLineAndExit:
             let startRow = currentViewportRow()
-            _ = copyCurrentViewportLinesToClipboard(startRow: startRow, lineCount: count)
-            host.copyModeClearSelection()
-            setActive(false)
+            if copyCurrentViewportLinesToClipboard(startRow: startRow, lineCount: count) {
+                host.copyModeClearSelection()
+                setActive(false)
+            }
         case let .scrollLines(delta):
             let lineDelta = delta * terminalKeyboardCopyModeClampCount(count)
             beginViewportJumpCursorSync(fallbackLineDelta: lineDelta)
-            host.copyModePerformBindingAction("scroll_page_lines:\(lineDelta)")
-            scheduleViewportJumpCursorSyncFallback()
+            if performLineScroll(lineDelta) {
+                resolveViewportJumpCursorSyncAfterBinding()
+            } else {
+                cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+            }
         case let .scrollPage(delta):
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let rows = host.copyModeGridMetrics()?.rows ?? max(host.copyModeViewportRowCount(), 1)
             beginViewportJumpCursorSync(fallbackLineDelta: delta * rows * clampedCount)
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount)
-            scheduleViewportJumpCursorSyncFallback()
+            if performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount) {
+                resolveViewportJumpCursorSyncAfterBinding()
+            } else {
+                cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+            }
         case let .scrollHalfPage(delta):
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let fraction = delta > 0 ? 0.5 : -0.5
             let rows = host.copyModeGridMetrics()?.rows ?? max(host.copyModeViewportRowCount(), 1)
             let linesPerScroll = Int((Double(rows) * 0.5).rounded(.towardZero))
             beginViewportJumpCursorSync(fallbackLineDelta: delta * linesPerScroll * clampedCount)
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
-            scheduleViewportJumpCursorSyncFallback()
+            if performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount) {
+                resolveViewportJumpCursorSyncAfterBinding()
+            } else {
+                cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+            }
         case .scrollToTop:
             if var cursor = self.cursor {
                 if let metrics = host.copyModeGridMetrics() {
@@ -466,21 +837,41 @@ public final class TerminalKeyboardCopyModeController {
             host.copyModePerformBindingAction("scroll_to_bottom")
             syncCursorOverlay()
         case let .jumpToPrompt(delta):
-            beginViewportJumpCursorSync()
-            host.copyModePerformBindingAction("jump_to_prompt:\(delta * count)")
-            scheduleViewportJumpCursorSyncFallback()
+            beginViewportJumpCursorSync(
+                visualLineReselect: visualLineActive,
+                updatesVisualLineEndpoint: visualLineActive
+            )
+            if host.copyModePerformBindingAction("jump_to_prompt:\(delta * count)") {
+                resolveViewportJumpCursorSyncAfterBinding()
+            } else {
+                cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+            }
         case .startSearch:
             host.copyModePerformBindingAction("start_search")
         case .searchNext:
-            beginViewportJumpCursorSync()
-            performBindingAction("navigate_search:next", repeatCount: count)
-            scheduleViewportJumpCursorSyncFallback()
+            beginViewportJumpCursorSync(
+                visualLineReselect: visualLineActive,
+                updatesVisualLineEndpoint: visualLineActive
+            )
+            if performBindingAction("navigate_search:next", repeatCount: count) {
+                resolveViewportJumpCursorSyncAfterBinding()
+            } else {
+                cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+            }
         case .searchPrevious:
-            beginViewportJumpCursorSync()
-            performBindingAction("navigate_search:previous", repeatCount: count)
-            scheduleViewportJumpCursorSyncFallback()
+            beginViewportJumpCursorSync(
+                visualLineReselect: visualLineActive,
+                updatesVisualLineEndpoint: visualLineActive
+            )
+            if performBindingAction("navigate_search:previous", repeatCount: count) {
+                resolveViewportJumpCursorSyncAfterBinding()
+            } else {
+                cancelViewportJumpCursorSyncIfNeeded(generation: pendingViewportJumpGeneration)
+            }
         case let .adjustSelection(direction):
-            if visualActive {
+            if visualLineActive {
+                adjustVisualLineSelection(direction, count: count)
+            } else if visualActive {
                 adjustSelection(direction, count: count)
             } else {
                 moveCursor(direction, count: count)
@@ -489,12 +880,25 @@ public final class TerminalKeyboardCopyModeController {
         return true
     }
 
-    private func performBindingAction(_ action: String, repeatCount: Int) {
-        guard let host else { return }
+    private func performBindingAction(_ action: String, repeatCount: Int) -> Bool {
+        guard let host else { return false }
+        var performed = true
         let count = terminalKeyboardCopyModeClampCount(repeatCount)
         for _ in 0 ..< count {
-            host.copyModePerformBindingAction(action)
+            performed = host.copyModePerformBindingAction(action) && performed
         }
+        return performed
+    }
+
+    private func performLineScroll(_ lineDelta: Int) -> Bool {
+        guard let host else { return false }
+        var remaining = lineDelta
+        while remaining != 0 {
+            let chunk = max(Int(Int16.min), min(Int(Int16.max), remaining))
+            remaining -= chunk
+            guard host.copyModePerformBindingAction("scroll_page_lines:\(chunk)") else { return false }
+        }
+        return true
     }
 
     // MARK: Ghostty key-sequence / key-table stacks

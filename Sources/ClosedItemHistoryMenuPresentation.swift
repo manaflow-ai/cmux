@@ -93,6 +93,8 @@ struct ClosedItemHistoryMenuItem: Identifiable {
             return String(localized: "menu.history.recentlyClosed.panel.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .customSidebar:
+            return String(localized: "menu.history.recentlyClosed.panel.customSidebar", defaultValue: "Custom Sidebar")
         }
     }
 

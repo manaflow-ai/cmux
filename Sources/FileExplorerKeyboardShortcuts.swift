@@ -1,4 +1,6 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import CmuxSettings
 import CmuxWorkspaces
 

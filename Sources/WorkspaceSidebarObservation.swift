@@ -149,13 +149,22 @@ extension Workspace {
             remoteConnectionDetailPublisher,
             activeRemoteTerminalSessionCountPublisher
         )
-        return Publishers.CombineLatest4(
+        let groupedPublisher = Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
             gitFields,
             remoteFields
         )
-            .combineLatest(listeningPortsPublisher, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+        // Explicit CombineLatest3 (vs `.combineLatest(a, b)`) so the type-erased
+        // AnyPublisher operands do not resolve against the ambiguous
+        // `combineLatest(other:transform:)` overload. Behavior is identical: the
+        // downstream closure still receives (groupedFields, listeningPorts,
+        // panelDirectoryDisplayLabels).
+        return Publishers.CombineLatest3(
+            groupedPublisher,
+            listeningPortsPublisher,
+            sidebarMetadata.panelDirectoryDisplayLabelsPublisher
+        )
             .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
                 guard let self else { return nil }
                 let workspaceFields = groupedFields.0

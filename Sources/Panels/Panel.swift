@@ -75,6 +75,8 @@ extension PanelType {
             return .filePreview
         case .rightSidebarTool:
             return .rightSidebarTool
+        case .customSidebar:
+            return .customSidebar
         case .agentSession:
             return .agentSession
         case .project:

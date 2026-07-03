@@ -8,15 +8,23 @@ private final class FakeCopyModeHost: TerminalSurfaceGridReading {
     var metrics: TerminalKeyboardCopyModeGridMetrics?
     var imePoint: TerminalSurfaceIMEPoint? = TerminalSurfaceIMEPoint(x: 0, y: 0)
     var scrollbarOffset: UInt64?
+    var scrollbarTotal: UInt64?
+    var scrollbarVisibleLength: UInt64?
     var hasSurface = true
     var selectCellResult = true
+    var selectViewportLinesResult = true
+    var copyCurrentSelectionResult = true
+    var copyVisualLineSelectionResult = true
     var copyLinesResult = true
+    var runtimeSelectionActive = false
 
     var bindingActions: [String] = []
     var clearSelectionCount = 0
     var overlayRects: [CGRect?] = []
     var activeChanges: [Bool] = []
     var scheduledGenerations: [Int] = []
+    var selectedViewportLines: [(startRow: Int, lineCount: Int)] = []
+    var copiedVisualLineSelections: [TerminalKeyboardCopyModeVisualLineSelection] = []
     var flushReturns = false
 
     func copyModeHasSurface() -> Bool { hasSurface }
@@ -25,6 +33,8 @@ private final class FakeCopyModeHost: TerminalSurfaceGridReading {
     func copyModeViewportColumnCount() -> Int { metrics?.columns ?? 80 }
     func copyModeIMEPoint() -> TerminalSurfaceIMEPoint? { imePoint }
     func copyModeScrollbarOffset() -> UInt64? { scrollbarOffset }
+    func copyModeScrollbarTotal() -> UInt64? { scrollbarTotal }
+    func copyModeScrollbarVisibleLength() -> UInt64? { scrollbarVisibleLength }
 
     @discardableResult
     func copyModePerformBindingAction(_ action: String) -> Bool {
@@ -33,11 +43,35 @@ private final class FakeCopyModeHost: TerminalSurfaceGridReading {
     }
 
     func copyModeClearSelection() { clearSelectionCount += 1 }
+    func copyModeHasRuntimeSelection() -> Bool { runtimeSelectionActive }
 
     func copyModeSelectCursorCell(
         metrics: TerminalKeyboardCopyModeGridMetrics,
         cursor: TerminalKeyboardCopyModeCursor
     ) -> Bool { selectCellResult }
+
+    func copyModeSelectViewportLines(
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        startRow: Int,
+        lineCount: Int
+    ) -> Bool {
+        selectedViewportLines.append((startRow: startRow, lineCount: lineCount))
+        return selectViewportLinesResult
+    }
+
+    func copyModeCopyCurrentSelectionToClipboard() -> Bool {
+        bindingActions.append("copy_to_clipboard")
+        return copyCurrentSelectionResult
+    }
+
+    func copyModeCopyVisualLineSelection(
+        _ selection: TerminalKeyboardCopyModeVisualLineSelection,
+        metrics: TerminalKeyboardCopyModeGridMetrics,
+        maxBytes: UInt
+    ) -> Bool {
+        copiedVisualLineSelections.append(selection)
+        return copyVisualLineSelectionResult
+    }
 
     func copyModeCopyViewportLines(
         metrics: TerminalKeyboardCopyModeGridMetrics,
@@ -138,6 +172,56 @@ struct TerminalKeyboardCopyModeControllerTests {
 
         #expect(host.bindingActions.contains("copy_to_clipboard"))
         #expect(controller.isActive == false)
+    }
+
+    @Test func startLineSelectionThenCopyAndExitCopiesAbsoluteRows() {
+        let (controller, host) = makeController()
+        host.scrollbarOffset = 100
+        host.scrollbarTotal = 200
+        host.scrollbarVisibleLength = 24
+        controller.setActive(true)
+        host.selectedViewportLines.removeAll()
+
+        _ = controller.handleKeyIfNeeded(keyCode: 9, charactersIgnoringModifiers: "v", modifiers: [.shift])
+        #expect(controller.hasCopyableSelection())
+        #expect(host.selectedViewportLines.last?.startRow == 0)
+        #expect(host.selectedViewportLines.last?.lineCount == 1)
+
+        _ = controller.handleKeyIfNeeded(keyCode: 16, charactersIgnoringModifiers: "y", modifiers: [])
+
+        #expect(host.copiedVisualLineSelections == [
+            TerminalKeyboardCopyModeVisualLineSelection(anchorScreenRow: 100, endpointScreenRow: 100),
+        ])
+        #expect(controller.isActive == false)
+    }
+
+    @Test func visualLineMotionExtendsRuntimeSelection() {
+        let (controller, host) = makeController()
+        host.scrollbarOffset = 100
+        host.scrollbarTotal = 200
+        host.scrollbarVisibleLength = 24
+        controller.setActive(true)
+        host.selectedViewportLines.removeAll()
+
+        _ = controller.handleKeyIfNeeded(keyCode: 9, charactersIgnoringModifiers: "v", modifiers: [.shift])
+        _ = controller.handleKeyIfNeeded(keyCode: 38, charactersIgnoringModifiers: "j", modifiers: [])
+
+        #expect(host.selectedViewportLines.last?.startRow == 0)
+        #expect(host.selectedViewportLines.last?.lineCount == 2)
+    }
+
+    @Test func clearSelectionClearsVisualLineSelection() {
+        let (controller, host) = makeController()
+        host.scrollbarOffset = 100
+        host.scrollbarTotal = 200
+        host.scrollbarVisibleLength = 24
+        controller.setActive(true)
+
+        _ = controller.handleKeyIfNeeded(keyCode: 9, charactersIgnoringModifiers: "v", modifiers: [.shift])
+        _ = controller.handleKeyIfNeeded(keyCode: 9, charactersIgnoringModifiers: "v", modifiers: [])
+
+        #expect(controller.hasCopyableSelection() == false)
+        #expect(host.clearSelectionCount >= 1)
     }
 
     @Test func downMotionMovesCursorWithoutLeavingMode() {

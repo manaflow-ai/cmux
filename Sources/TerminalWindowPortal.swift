@@ -726,13 +726,24 @@ final class WindowTerminalPortal: NSObject {
     /// Update the visibleInUI flag on an existing entry without rebinding.
     /// Used when a deferred bind is pending — this ensures synchronizeHostedView
     /// won't hide a view that updateNSView has already marked as visible.
-    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
-        guard var entry = entriesByHostedId[hostedId] else { return }
+    @discardableResult
+    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
+        let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
+        guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
         entry.visibleInUI = visibleInUI
         if !visibleInUI {
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
+        return needsReattach
+    }
+
+    /// Whether the hosted terminal view must be re-attached into the portal
+    /// before it can present visibly (ported from main: the Dock split-store
+    /// pane-focus path uses the returned flag to request a portal reattach).
+    func hostedViewNeedsPortalReattachForVisiblePresentation(withId hostedId: ObjectIdentifier) -> Bool {
+        guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView, let anchor = entry.anchorView else { return true }
+        return !entry.visibleInUI || anchor.window !== window || anchor.superview == nil || (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false) || hostedView.superview !== hostView || hostedView.window !== window
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -1644,11 +1655,12 @@ enum TerminalWindowPortalRegistry {
     /// Update the visibleInUI flag on an existing portal entry without rebinding.
     /// Called when a bind is deferred (host not yet in window) to prevent stale
     /// portal syncs from hiding a view that is about to become visible.
-    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) {
+    @discardableResult
+    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId],
-              let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+              let portal = portalsByWindowId[windowId] else { return visibleInUI }
+        return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
