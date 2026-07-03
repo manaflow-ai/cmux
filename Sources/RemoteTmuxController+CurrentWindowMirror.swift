@@ -16,10 +16,10 @@ extension RemoteTmuxController {
         } ?? appDelegate.tabManager
 
         return try await withMirrorAttachGuard(host: host) {
-            let preflight = try await prepareMirrorAttach(host: host, createIfEmpty: false) { _ in
+            let preflight = try await prepareMirrorAttach(host: host, createIfEmpty: false) { discoveredSessions in
                 try completeCurrentWindowMirrorOutcome(
                     host: host,
-                    sessions: sessions,
+                    sessions: discoveredSessions,
                     activateWindow: activateWindow,
                     appDelegate: appDelegate
                 )
