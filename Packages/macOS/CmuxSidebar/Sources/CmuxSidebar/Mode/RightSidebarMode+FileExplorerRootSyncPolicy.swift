@@ -8,7 +8,7 @@ extension RightSidebarMode {
         switch self {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock:
+        case .sessions, .feed, .dock, .customSidebar:
             return false
         }
     }
