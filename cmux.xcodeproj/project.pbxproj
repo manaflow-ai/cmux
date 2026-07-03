@@ -628,6 +628,7 @@
 		C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */; };
 		C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670020000000000000002 /* KeyboardShortcutContextTests.swift */; };
 		6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */; };
+		C34670060000000000000001 /* KeyboardShortcutPlusKeyFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670060000000000000002 /* KeyboardShortcutPlusKeyFallbackTests.swift */; };
 		A50012F7 /* KeyboardShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F6 /* KeyboardShortcutRecorder.swift */; };
 		A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 		A50012F8 /* KeyboardShortcutSettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F9 /* KeyboardShortcutSettingsControls.swift */; };
@@ -1923,6 +1924,7 @@
 		C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextSwiftTests.swift; sourceTree = "<group>"; };
 		C34670020000000000000002 /* KeyboardShortcutContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutContextTests.swift; sourceTree = "<group>"; };
 		6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutModifierHoldHintsSettingsFileTests.swift; sourceTree = "<group>"; };
+		C34670060000000000000002 /* KeyboardShortcutPlusKeyFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutPlusKeyFallbackTests.swift; sourceTree = "<group>"; };
 		A50012F6 /* KeyboardShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutRecorder.swift; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
 		A50012F9 /* KeyboardShortcutSettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsControls.swift; sourceTree = "<group>"; };
@@ -3800,6 +3802,7 @@
 				C0DE7B360000000000000002 /* TextBoxSubmitActionTests.swift */,
 				C34670020000000000000002 /* KeyboardShortcutContextTests.swift */,
 				C34670050000000000000002 /* KeyboardShortcutContextSwiftTests.swift */,
+				C34670060000000000000002 /* KeyboardShortcutPlusKeyFallbackTests.swift */,
 				F5996002A1B2C3D4E5F60002 /* FileExplorerShortcutSettingsTests.swift */,
 				6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */,
 				D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */,
@@ -5445,6 +5448,7 @@
 				C34670050000000000000001 /* KeyboardShortcutContextSwiftTests.swift in Sources */,
 				C34670020000000000000001 /* KeyboardShortcutContextTests.swift in Sources */,
 				6042A0026042A0026042A002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift in Sources */,
+				C34670060000000000000001 /* KeyboardShortcutPlusKeyFallbackTests.swift in Sources */,
 				E3309A0B /* KeyboardShortcutSettingsEqualizeSplitsTests.swift in Sources */,
 				C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */,
 				E3337001E3337001E3337001 /* KeyboardShortcutSettingsFileStoreStartupTests.swift in Sources */,
