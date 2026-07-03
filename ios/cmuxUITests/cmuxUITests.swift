@@ -2613,13 +2613,9 @@ final class cmuxUITests: XCTestCase {
                lastBackFrame.midY > 60,
                usableTrailingFrames.count == trailingControls.count,
                let firstTrailingFrame = usableTrailingFrames.min(by: { $0.minX < $1.minX }),
-               lastTitleFrame.minX >= lastBackFrame.maxX - 1 {
-                let titleRightEdgeIsSeparated = lastTitleFrame.maxX <= firstTrailingFrame.minX - 2
-                let availableTitleWidth = firstTrailingFrame.minX - lastTitleFrame.minX
-                let titleFrameUsesIdealTextWidth = lastTitleFrame.width > availableTitleWidth + 80
-                if titleRightEdgeIsSeparated || titleFrameUsesIdealTextWidth {
-                    return
-                }
+               lastTitleFrame.minX >= lastBackFrame.maxX - 1,
+               lastTitleFrame.maxX <= firstTrailingFrame.minX - 2 {
+                return
             }
 
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
