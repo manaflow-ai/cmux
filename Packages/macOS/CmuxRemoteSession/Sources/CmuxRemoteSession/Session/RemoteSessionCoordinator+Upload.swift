@@ -85,7 +85,7 @@ extension RemoteSessionCoordinator {
                 for option in scpSSHOptions {
                     scpArgs += ["-o", option]
                 }
-                scpArgs += [normalizedLocalURL.path, WorkspaceRemoteConfiguration.scpRemoteTarget(destination: configuration.destination, remotePath: remotePath)]
+                scpArgs += [normalizedLocalURL.path, configuration.scpRemoteTarget(remotePath: remotePath)]
 
                 let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
                 guard scpResult.status == 0 else {

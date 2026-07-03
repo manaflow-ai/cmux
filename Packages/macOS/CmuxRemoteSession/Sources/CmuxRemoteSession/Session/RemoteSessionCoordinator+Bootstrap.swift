@@ -336,7 +336,7 @@ extension RemoteSessionCoordinator {
         for option in scpSSHOptions {
             scpArgs += ["-o", option]
         }
-        scpArgs += [localBinary.path, WorkspaceRemoteConfiguration.scpRemoteTarget(destination: configuration.destination, remotePath: remoteTempPath)]
+        scpArgs += [localBinary.path, configuration.scpRemoteTarget(remotePath: remoteTempPath)]
         let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
         guard scpResult.status == 0 else {
             let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ?? "scp exited \(scpResult.status)"

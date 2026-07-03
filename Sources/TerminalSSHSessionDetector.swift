@@ -174,7 +174,7 @@ struct DetectedSSHSession: Equatable {
             args += ["-o", option]
         }
 
-        args += [localPath, WorkspaceRemoteConfiguration.scpRemoteTarget(destination: destination, remotePath: remotePath)]
+        args += [localPath, SCPRemoteDestination(destination).remoteTarget(remotePath: remotePath)]
         return args
     }
 

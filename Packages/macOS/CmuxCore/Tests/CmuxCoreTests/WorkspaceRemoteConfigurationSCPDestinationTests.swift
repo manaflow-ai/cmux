@@ -10,10 +10,10 @@ import CmuxCore
 struct WorkspaceRemoteConfigurationSCPDestinationTests {
     @Test("Bare IPv6 host is bracketed")
     func bracketsBareIPv6() {
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("2001:db8::5") == "[2001:db8::5]")
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("::1") == "[::1]")
+        #expect(bracketedDestination("2001:db8::5") == "[2001:db8::5]")
+        #expect(bracketedDestination("::1") == "[::1]")
         #expect(
-            WorkspaceRemoteConfiguration.scpBracketedDestination("2a02:1234:abcd::22")
+            bracketedDestination("2a02:1234:abcd::22")
                 == "[2a02:1234:abcd::22]"
         )
     }
@@ -21,49 +21,78 @@ struct WorkspaceRemoteConfigurationSCPDestinationTests {
     @Test("Bare IPv6 host with a user prefix keeps the user and brackets the host")
     func bracketsBareIPv6WithUser() {
         #expect(
-            WorkspaceRemoteConfiguration.scpBracketedDestination("lawrence@2001:db8::5")
+            bracketedDestination("lawrence@2001:db8::5")
                 == "lawrence@[2001:db8::5]"
         )
     }
 
     @Test("Link-local IPv6 with a zone id is bracketed")
     func bracketsLinkLocalIPv6() {
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("fe80::1%en0") == "[fe80::1%en0]")
+        #expect(bracketedDestination("fe80::1%en0") == "[fe80::1%en0]")
     }
 
     @Test("Hostnames and IPv4 addresses pass through untouched")
     func leavesNonIPv6Untouched() {
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("example.com") == "example.com")
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("user@example.com") == "user@example.com")
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("1.2.3.4") == "1.2.3.4")
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("root@1.2.3.4") == "root@1.2.3.4")
+        #expect(bracketedDestination("example.com") == "example.com")
+        #expect(bracketedDestination("user@example.com") == "user@example.com")
+        #expect(bracketedDestination("1.2.3.4") == "1.2.3.4")
+        #expect(bracketedDestination("root@1.2.3.4") == "root@1.2.3.4")
     }
 
     @Test("Already-bracketed IPv6 hosts are preserved (idempotent)")
     func preservesAlreadyBracketed() {
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination("[2001:db8::5]") == "[2001:db8::5]")
+        #expect(bracketedDestination("[2001:db8::5]") == "[2001:db8::5]")
         #expect(
-            WorkspaceRemoteConfiguration.scpBracketedDestination("user@[2001:db8::5]")
+            bracketedDestination("user@[2001:db8::5]")
                 == "user@[2001:db8::5]"
         )
         // Idempotent: bracketing the bracketed result yields the same string.
-        let once = WorkspaceRemoteConfiguration.scpBracketedDestination("lawrence@2001:db8::5")
-        #expect(WorkspaceRemoteConfiguration.scpBracketedDestination(once) == once)
+        let once = bracketedDestination("lawrence@2001:db8::5")
+        #expect(bracketedDestination(once) == once)
     }
 
     @Test("scpRemoteTarget joins the bracketed host to the remote path")
     func buildsRemoteTarget() {
         #expect(
-            WorkspaceRemoteConfiguration.scpRemoteTarget(
-                destination: "lawrence@2001:db8::5",
+            remoteTarget(
+                for: "lawrence@2001:db8::5",
                 remotePath: "/home/u/.cmux/cmuxd-remote.tmp-AB12"
             ) == "lawrence@[2001:db8::5]:/home/u/.cmux/cmuxd-remote.tmp-AB12"
         )
         #expect(
-            WorkspaceRemoteConfiguration.scpRemoteTarget(
-                destination: "user@host.example",
+            remoteTarget(
+                for: "user@host.example",
                 remotePath: "/tmp/cmux-drop-1.png"
             ) == "user@host.example:/tmp/cmux-drop-1.png"
         )
+    }
+
+    @Test("WorkspaceRemoteConfiguration builds an scp remote target from its destination")
+    func configurationBuildsRemoteTarget() {
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "lawrence@2001:db8::5",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+
+        #expect(
+            configuration.scpRemoteTarget(remotePath: "/tmp/cmuxd")
+                == "lawrence@[2001:db8::5]:/tmp/cmuxd"
+        )
+    }
+
+    private func bracketedDestination(_ destination: String) -> String {
+        SCPRemoteDestination(destination).bracketedDestination
+    }
+
+    private func remoteTarget(for destination: String, remotePath: String) -> String {
+        SCPRemoteDestination(destination).remoteTarget(remotePath: remotePath)
     }
 }
