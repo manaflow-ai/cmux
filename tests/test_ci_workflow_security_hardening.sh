@@ -90,6 +90,8 @@ grep -Fq 'WORKFLOW_RUN_HEAD_REPOSITORY' "$WORKFLOW_DIR/update-homebrew.yml" \
   || fail "update-homebrew.yml must validate the workflow_run repository"
 grep -Fq 'WORKFLOW_RUN_EVENT' "$WORKFLOW_DIR/update-homebrew.yml" \
   || fail "update-homebrew.yml must validate the triggering workflow event"
+grep -Fq "github.event.workflow_run.conclusion == 'success'" "$WORKFLOW_DIR/update-homebrew.yml" \
+  || fail "update-homebrew.yml must only run after successful release workflows"
 grep -Fq 'x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/manaflow-ai/homebrew-cmux.git' \
   "$WORKFLOW_DIR/update-homebrew.yml" \
   || fail "update-homebrew.yml must push with an explicit tokenized URL after checkout credentials are disabled"
