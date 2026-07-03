@@ -261,10 +261,19 @@ public final class HostBrowserSignInFlow {
         lastFailure = nil
         nextAttemptID &+= 1
         let attemptID = nextAttemptID
-        let callbackState = pendingManualCallbackState ?? makeCallbackState()
+        let manualCallbackState = pendingManualCallbackState
         pendingManualCallbackState = nil
+        let callbackState = manualCallbackState ?? makeCallbackState()
         activeAttemptID = attemptID
         activeCallbackState = callbackState
+        // The manual fallback URL (`auth.sign_in_url` / the printed CLI link)
+        // shares this attempt's state; the user may complete it out-of-band
+        // after the popup ends (e.g. the system popup auto-dismissed). Retain it
+        // as an accepted fallback — like `activeAttemptSignInURL` — so the late
+        // callback completes sign-in instead of being rejected (#6158).
+        if let manualCallbackState {
+            pendingFallbackCallbackState = manualCallbackState
+        }
         isSigningIn = true
         log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedAuthState(callbackState))")
         scheduleAttemptTimeout(attemptID)
