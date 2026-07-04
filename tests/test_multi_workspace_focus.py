@@ -258,26 +258,29 @@ def test_browser_panel_focus_and_return(c: cmux) -> None:
 
     # Create a browser surface in the same pane
     browser_panel_id = c.new_surface(panel_type="browser", url="about:blank")
-    time.sleep(0.5)
 
-    # Focus the browser and verify
+    # Focus the browser and verify: wait_for_webview_focus polls the real
+    # first-responder signal, so it covers both surface readiness and focus
+    # routing without a fixed sleep.
     c.focus_webview(browser_panel_id)
-    time.sleep(0.3)
-    assert c.is_webview_focused(browser_panel_id), \
-        "Browser panel should have focus after focus_webview"
+    try:
+        c.wait_for_webview_focus(browser_panel_id, timeout_s=5.0)
+    except cmuxError as e:
+        raise AssertionError(
+            "Browser panel should have focus after focus_webview"
+        ) from e
 
-    # Switch back to terminal and verify it's responsive
+    # Switch back to terminal and verify it's responsive. The marker file is
+    # the real completion signal; _wait_marker deadline-bounds the wait.
     c.focus_surface_by_panel(term_panel_id)
-    time.sleep(0.3)
 
     m = _marker("browser_return")
     try:
         # Use the focused terminal
         _clear(m)
         c.send_key("ctrl-c")
-        time.sleep(0.2)
         c.send(f"touch {m}\n")
-        assert _wait_marker(m, timeout=3.0), \
+        assert _wait_marker(m, timeout=5.0), \
             "Terminal not responsive after switching back from browser"
     finally:
         _clear(m)
@@ -299,13 +302,16 @@ def test_browser_focus_across_workspaces(c: cmux) -> None:
     time.sleep(0.3)
     # Create a browser in workspace B
     browser_panel_id = c.new_surface(panel_type="browser", url="about:blank")
-    time.sleep(0.5)
 
-    # Focus browser in workspace B
+    # Focus browser in workspace B: wait on the real first-responder signal,
+    # which also covers surface readiness, instead of a fixed sleep.
     c.focus_webview(browser_panel_id)
-    time.sleep(0.3)
-    assert c.is_webview_focused(browser_panel_id), \
-        "Browser should have focus in workspace B"
+    try:
+        c.wait_for_webview_focus(browser_panel_id, timeout_s=5.0)
+    except cmuxError as e:
+        raise AssertionError(
+            "Browser should have focus in workspace B"
+        ) from e
 
     # Switch to workspace A (terminal)
     c.select_workspace(ws_a)
@@ -319,13 +325,16 @@ def test_browser_focus_across_workspaces(c: cmux) -> None:
     finally:
         _clear(m)
 
-    # Switch back to workspace B and verify browser still works
+    # Switch back to workspace B and verify browser still works. Polling the
+    # real first-responder signal replaces the post-switch and post-focus sleeps.
     c.select_workspace(ws_b)
-    time.sleep(0.5)
     c.focus_webview(browser_panel_id)
-    time.sleep(0.3)
-    assert c.is_webview_focused(browser_panel_id), \
-        "Browser should regain focus after switching back to workspace B"
+    try:
+        c.wait_for_webview_focus(browser_panel_id, timeout_s=5.0)
+    except cmuxError as e:
+        raise AssertionError(
+            "Browser should regain focus after switching back to workspace B"
+        ) from e
 
     # Cleanup
     c.close_workspace(ws_b)

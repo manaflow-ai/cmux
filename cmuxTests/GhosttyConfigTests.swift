@@ -2,15 +2,12 @@
 import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxBrowser
-import CmuxBrowserImport
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
-import CmuxSocketControl
 import CmuxFoundation
 import AppKit
-import CmuxFoundation
 import Combine
 import CoreText
 import WebKit
@@ -1458,6 +1455,23 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertEqual(colors.borderHex, "#4F504A5B")
     }
+
+    func testResolvedChromeColorsUseConfiguredPaneBorderColor() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            paneBorderColorHex: "#33AAFF"
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
+    }
 }
 
 final class WindowChromeSeparatorColorTests: XCTestCase {
@@ -1583,6 +1597,28 @@ final class WorkspaceChromeColorTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+    }
+
+    func testBonsplitChromeColorsUseConfiguredPaneBorderColor() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            renderingMode: .windowHostBackdrop,
+            paneBorderColorHex: "#33AAFF"
+        )
+
+        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(colors.borderHex, "#33AAFF")
     }
 }
 
@@ -3004,6 +3040,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
     }
 }
 
+@MainActor
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)
@@ -3011,12 +3048,10 @@ final class NotificationBurstCoalescerTests: XCTestCase {
         expectation.expectedFulfillmentCount = 1
         var flushCount = 0
 
-        DispatchQueue.main.async {
-            for _ in 0..<8 {
-                coalescer.signal {
-                    flushCount += 1
-                    expectation.fulfill()
-                }
+        for _ in 0..<8 {
+            coalescer.signal {
+                flushCount += 1
+                expectation.fulfill()
             }
         }
 
@@ -3029,14 +3064,12 @@ final class NotificationBurstCoalescerTests: XCTestCase {
         let expectation = expectation(description: "latest action flushed")
         var value = 0
 
-        DispatchQueue.main.async {
-            coalescer.signal {
-                value = 1
-            }
-            coalescer.signal {
-                value = 2
-                expectation.fulfill()
-            }
+        coalescer.signal {
+            value = 1
+        }
+        coalescer.signal {
+            value = 2
+            expectation.fulfill()
         }
 
         wait(for: [expectation], timeout: 1.0)
@@ -3049,12 +3082,12 @@ final class NotificationBurstCoalescerTests: XCTestCase {
         expectation.expectedFulfillmentCount = 2
         var flushCount = 0
 
-        DispatchQueue.main.async {
-            coalescer.signal {
-                flushCount += 1
-                expectation.fulfill()
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        coalescer.signal {
+            flushCount += 1
+            expectation.fulfill()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            MainActor.assumeIsolated {
                 coalescer.signal {
                     flushCount += 1
                     expectation.fulfill()
@@ -4315,11 +4348,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
-    func testShouldApplyManagedDefaultAppearanceSkipsExplicitTerminalColorDirective() throws {
-        try withTempConfig("background = #101010\n") { path in
-            XCTAssertFalse(
-                GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path])
-            )
+    func testShouldApplyManagedDefaultAppearanceAppliesWithExplicitTerminalColorDirective() throws {
+        // A lone color key must not suppress the managed default theme (#7161).
+        try withTempConfig("background = black\n") { path in
+            XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(configPaths: [path]))
         }
     }
 

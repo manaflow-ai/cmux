@@ -1,3 +1,4 @@
+import CmuxSettingsUI
 import AppKit
 import CmuxRemoteSession
 import CmuxCore
@@ -9,21 +10,17 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
-import CmuxTerminalEngine
-import CmuxTerminalServices
+import CmuxTerminal
 import CmuxSettings
-import CmuxSocketControl
 import CmuxSwiftRenderUI
 import Carbon.HIToolbox
 import CMUXMobileCore
-import CMUXWorkstream
+import CMUXAgentLaunch
 import Foundation
 import Bonsplit
-import CmuxBrowserImport
 import WebKit
 import CmuxSidebar
-import CmuxTerminal
-import CmuxWorkspaceCore
+import CmuxWorkspaces
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
@@ -38,6 +35,8 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let authenticated: Bool
 }
+// Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
+// AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
 
 nonisolated private struct RemotePTYSocketTarget {
     let controller: RemoteSessionCoordinator?
@@ -141,12 +140,11 @@ class TerminalController {
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
+    private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     private struct MobileViewportReport {
-        var columns: Int
-        var rows: Int
-        var updatedAt: Date
+        var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
         /// Sticky reports come from the dedicated `mobile.terminal.viewport`
         /// RPC and live for the client's connection lifetime (cleared on
         /// disconnect or surface detach), so an idle paired device keeps its
@@ -156,7 +154,7 @@ class TerminalController {
         var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
-    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
+    private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
@@ -263,6 +261,7 @@ class TerminalController {
     private var v2BrowserInitStylesBySurface: [UUID: [String]] = [:]
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
+    private var v2ConsumedBrowserDownloadKeysBySurface: [UUID: [String]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     /// Stateless browser-control logic (JS builders, value normalization,
@@ -285,6 +284,7 @@ class TerminalController {
             v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+            v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
 
@@ -341,9 +341,7 @@ class TerminalController {
                   let event = note.userInfo?["event"] as? [String: Any] else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                var queue = self.v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-                queue.append(event)
-                self.v2BrowserDownloadEventsBySurface[surfaceId] = queue
+                self.v2RecordBrowserDownloadEvent(surfaceId: surfaceId, event: event)
             }
         }
     }
@@ -772,12 +770,13 @@ class TerminalController {
             workspace.recomputeListeningPorts()
         }
         PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
-            guard let self, let tabManager = self.tabManager else { return }
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            guard let self, let tabManager = self.tabManager else { return false }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return false }
             if workspace.agentListeningPorts != ports {
                 workspace.agentListeningPorts = ports
                 workspace.recomputeListeningPorts()
             }
+            return true
         }
         PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
             guard let self, let tabManager = self.tabManager else { return [:] }
@@ -791,6 +790,7 @@ class TerminalController {
             }
             return pidsByWorkspace
         }
+        PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
@@ -1049,7 +1049,7 @@ class TerminalController {
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
-             "browser.snapshot", "browser.eval", "browser.wait",
+             "browser.snapshot", "browser.eval", "browser.wait", "browser.screenshot",
              "browser.click", "browser.dblclick", "browser.hover", "browser.focus",
              "browser.type", "browser.fill", "browser.press", "browser.keydown", "browser.keyup",
              "browser.check", "browser.uncheck", "browser.select", "browser.scroll",
@@ -1060,10 +1060,17 @@ class TerminalController {
              "browser.find.role", "browser.find.text", "browser.find.label",
              "browser.find.placeholder", "browser.find.alt", "browser.find.title",
              "browser.find.testid", "browser.find.first", "browser.find.last", "browser.find.nth",
-             "browser.highlight":
+             "browser.highlight",
+             "browser.frame.select",
+             "browser.dialog.accept", "browser.dialog.dismiss",
+             "browser.cookies.get", "browser.cookies.set", "browser.cookies.clear",
+             "browser.storage.get", "browser.storage.set", "browser.storage.clear",
+             "browser.console.list", "browser.console.clear", "browser.errors.list",
+             "browser.state.save", "browser.state.load",
+             "browser.addinitscript", "browser.addscript", "browser.addstyle":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
-            return v2Result(id: request.id, v2BrowserJSCommandOnSocketWorker(method: request.method, params: request.params))
+            return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)
@@ -1093,6 +1100,8 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        case "mobile.terminal.set_font":
+            return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
@@ -1131,6 +1140,8 @@ class TerminalController {
             return v2Result(id: request.id, v2CustomSidebarReload(params: request.params))
         case "sidebar.custom.select":
             return v2Result(id: request.id, v2CustomSidebarSelect(params: request.params))
+        case "sidebar.custom.open":
+            return v2Result(id: request.id, v2CustomSidebarOpen(params: request.params))
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
@@ -1676,6 +1687,9 @@ class TerminalController {
         case "send_workspace":
             return sendInputToWorkspace(args)
 
+        case "sleepy_mode":
+            return sleepyModeCommand(args)
+
         case "simulate_type":
             return simulateType(args)
 
@@ -1819,6 +1833,8 @@ class TerminalController {
         // feedback.open handled by ControlCommandCoordinator.
 
         // Feed (workstream): feed.jump/feed.list handled by ControlCommandCoordinator.
+        case "sidebar.custom.open":
+            return v2Result(id: id, self.v2CustomSidebarOpen(params: params))
 
 
         // Surfaces / input: surface.list/current/focus/split/respawn/create/close/move/
@@ -1826,10 +1842,9 @@ class TerminalController {
         // still-shared v2SurfaceMove). surface.action/tab.action and
         // surface.drag_to_split/surface.split_off (the latter forwarding to the
         // still-shared v2SurfaceSplitOff) handled by ControlCommandCoordinator too.
-        // surface.refresh/health/resume.set/get/clear, debug.terminals (forwards to the
-        // still-shared v2DebugTerminals), surface.send_text/send_key/report_tty/
-        // report_shell_state/ports_kick/clear_history/trigger_flash, and surface.read_text
-        // handled by ControlCommandCoordinator.
+        // surface.refresh/health/resume.set/get/clear, debug.terminals, surface.send_text/
+        // send_key/report_tty/report_pwd/report_shell_state/ports_kick/clear_history/
+        // trigger_flash/read_text handled by ControlCommandCoordinator.
 
         // Panes
         // pane.* handled by ControlCommandCoordinator.
@@ -1844,10 +1859,10 @@ class TerminalController {
         // Browser
         case "browser.open_split":
             return v2Result(id: id, self.v2BrowserOpenSplit(params: params))
-        // browser methods that evaluate page JavaScript (navigate/back/forward/
-        // reload included) run on the socket worker (see
+        // Browser automation methods that can wait on page JavaScript, WebKit
+        // cookies, or capture callbacks run on the socket worker (see
         // ControlCommandExecutionPolicy.socketWorkerMethods and
-        // v2BrowserJSCommandOnSocketWorker); they never reach this switch.
+        // v2BrowserAutomationCommandOnSocketWorker); they never reach this switch.
         case "browser.react_grab.toggle":
             return v2Result(id: id, self.v2BrowserReactGrabToggle(params: params))
         case "browser.devtools.toggle":
@@ -1866,32 +1881,12 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserFocusWebView(params: params))
         case "browser.is_webview_focused":
             return v2Result(id: id, self.v2BrowserIsWebViewFocused(params: params))
-        case "browser.screenshot":
-            return v2Result(id: id, self.v2BrowserScreenshot(params: params))
         case "browser.get.title":
             return v2Result(id: id, self.v2BrowserGetTitle(params: params))
-        case "browser.frame.select":
-            return v2Result(id: id, self.v2BrowserFrameSelect(params: params))
         case "browser.frame.main":
             return v2Result(id: id, self.v2BrowserFrameMain(params: params))
-        case "browser.dialog.accept":
-            return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: true))
-        case "browser.dialog.dismiss":
-            return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
         case "browser.import.dialog":
             return v2Result(id: id, self.v2BrowserImportDialog(params: params))
-        case "browser.cookies.get":
-            return v2Result(id: id, self.v2BrowserCookiesGet(params: params))
-        case "browser.cookies.set":
-            return v2Result(id: id, self.v2BrowserCookiesSet(params: params))
-        case "browser.cookies.clear":
-            return v2Result(id: id, self.v2BrowserCookiesClear(params: params))
-        case "browser.storage.get":
-            return v2Result(id: id, self.v2BrowserStorageGet(params: params))
-        case "browser.storage.set":
-            return v2Result(id: id, self.v2BrowserStorageSet(params: params))
-        case "browser.storage.clear":
-            return v2Result(id: id, self.v2BrowserStorageClear(params: params))
         case "browser.tab.new":
             return v2Result(id: id, self.v2BrowserTabNew(params: params))
         case "browser.tab.list":
@@ -1900,22 +1895,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserTabSwitch(params: params))
         case "browser.tab.close":
             return v2Result(id: id, self.v2BrowserTabClose(params: params))
-        case "browser.console.list":
-            return v2Result(id: id, self.v2BrowserConsoleList(params: params))
-        case "browser.console.clear":
-            return v2Result(id: id, self.v2BrowserConsoleClear(params: params))
-        case "browser.errors.list":
-            return v2Result(id: id, self.v2BrowserErrorsList(params: params))
-        case "browser.state.save":
-            return v2Result(id: id, self.v2BrowserStateSave(params: params))
-        case "browser.state.load":
-            return v2Result(id: id, self.v2BrowserStateLoad(params: params))
-        case "browser.addinitscript":
-            return v2Result(id: id, self.v2BrowserAddInitScript(params: params))
-        case "browser.addscript":
-            return v2Result(id: id, self.v2BrowserAddScript(params: params))
-        case "browser.addstyle":
-            return v2Result(id: id, self.v2BrowserAddStyle(params: params))
         case "browser.viewport.set":
             return v2Result(id: id, self.v2BrowserViewportSet(params: params))
         case "browser.geolocation.set":
@@ -1970,10 +1949,12 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "sidebar.custom.open",
             "system.top",
             "system.memory",
             "mobile.host.status",
             "mobile.attach_ticket.create",
+            "mobile.terminal.set_font",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
@@ -2082,6 +2063,7 @@ class TerminalController {
             "surface.send_text",
             "surface.send_key",
             "surface.report_tty",
+            "surface.report_pwd",
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
@@ -2202,49 +2184,7 @@ class TerminalController {
             "browser.input_touch",
         ]
 #if DEBUG
-        methods.append(contentsOf: [
-            "debug.shortcut.set",
-            "debug.shortcut.simulate",
-            "debug.type",
-            "debug.textbox.inline_fixture",
-            "debug.textbox.interact",
-            "debug.app.activate",
-            "debug.command_palette.toggle",
-            "debug.command_palette.rename_tab.open",
-            "debug.command_palette.visible",
-            "debug.command_palette.selection",
-            "debug.command_palette.results",
-            "debug.command_palette.rename_input.interact",
-            "debug.command_palette.rename_input.delete_backward",
-            "debug.command_palette.rename_input.selection",
-            "debug.command_palette.rename_input.select_all",
-            "debug.browser.address_bar_focused",
-            "debug.browser.favicon",
-            "debug.right_sidebar.focus",
-            "debug.sidebar.visible",
-            "debug.terminal.is_focused",
-            "debug.terminal.read_text",
-            "debug.terminal.render_stats",
-            "debug.layout",
-            "debug.portal.stats",
-            "debug.bonsplit_underflow.count",
-            "debug.bonsplit_underflow.reset",
-            "debug.empty_panel.count",
-            "debug.empty_panel.reset",
-            "debug.notification.focus",
-            "debug.flash.count",
-            "debug.flash.reset",
-            "debug.panel_snapshot",
-            "debug.panel_snapshot.reset",
-            "debug.session_snapshot_benchmark",
-            "debug.session_snapshot_seed_scrollback",
-            "debug.window.screenshot",
-            "mobile.dev_stack_auth.configure",
-        ])
-#endif
-#if DEBUG
-        methods.append("debug.terminal.simulate_file_drop")
-        methods.append("debug.sidebar.simulate_drag")
+        methods.append(contentsOf: Self.v2DebugMethodNames)
 #endif
 
         return [
@@ -3223,19 +3163,25 @@ class TerminalController {
             }
         }
         if let wsId = v2UUID(params, "workspace_id") {
+            if wsId == AppDelegate.windowDockAliasWorkspaceId {
+                return v2MainSync { tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager }
+            }
             if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(tabId: wsId) }) {
+                return tm
+            }
+            // A window-Dock owner id IS its owning window's id, so a Dock-scoped
+            // workspace_id routes to that window rather than the caller's.
+            if let tm = v2MainSync({ AppDelegate.shared?.tabManagerForWindowDockOwner(wsId) }) {
                 return tm
             }
         }
         if let surfaceId = v2UUID(params, "surface_id")
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
-            if let tm = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager }) {
-                return tm
-            }
+            if let located = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) }) { return located.tabManager }
         }
         if let paneId = v2UUID(params, "pane_id") {
-            if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager }) {
+            if let tm = v2MainSync({ v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager }) {
                 return tm
             }
         }
@@ -3270,16 +3216,24 @@ class TerminalController {
            let tm = v2LocateTabManager(forGroupId: groupId) {
             return tm
         }
-        if let workspaceId = routing.workspaceID,
-           let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
-            return tm
+        if let workspaceId = routing.workspaceID {
+            if workspaceId == AppDelegate.windowDockAliasWorkspaceId {
+                return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
+            }
+            if let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
+                return tm
+            }
+            // A window-Dock owner id IS its owning window's id, so a Dock-scoped
+            // workspace_id routes to that window rather than the caller's.
+            if let tm = AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceId) {
+                return tm
+            }
         }
-        if let surfaceId = routing.surfaceID,
-           let tm = AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager {
-            return tm
+        if let surfaceId = routing.surfaceID {
+            if let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId) ?? locateDockSurface(surfaceId) { return located.tabManager }
         }
         if let paneId = routing.paneID,
-           let tm = v2LocatePane(paneId)?.tabManager {
+           let tm = v2LocatePane(paneId)?.tabManager ?? locateDockPane(paneId)?.tabManager {
             return tm
         }
         return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
@@ -3295,119 +3249,6 @@ class TerminalController {
     }
 
     // MARK: - V2 Workspace Methods
-
-
-
-    private nonisolated func v2CustomSidebarValidate(params: [String: Any]) -> V2CallResult {
-        let name = v2CustomSidebarName(params: params)
-        if let name, name.isEmpty {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.sidebar.custom.invalidName",
-                    defaultValue: "Sidebar name must not be empty."
-                ),
-                data: nil
-            )
-        }
-        let report = v2CustomSidebarValidationReport(name: name)
-        return .ok(v2CustomSidebarReportPayload(report))
-    }
-
-    private nonisolated func v2CustomSidebarReload(params: [String: Any]) -> V2CallResult {
-        let name = v2CustomSidebarName(params: params)
-        if let name, name.isEmpty {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.sidebar.custom.invalidName",
-                    defaultValue: "Sidebar name must not be empty."
-                ),
-                data: nil
-            )
-        }
-        let report = v2CustomSidebarValidationReport(name: name)
-        let validNames = report.validNames
-        let reloadNames = report.names
-        if !reloadNames.isEmpty {
-            v2MainSync {
-                NotificationCenter.default.post(
-                    name: .customSidebarReloadRequested,
-                    object: nil,
-                    userInfo: ["names": reloadNames]
-                )
-            }
-        }
-        var payload = v2CustomSidebarReportPayload(report)
-        payload["reloaded_count"] = validNames.count
-        payload["reloaded_names"] = validNames
-        return .ok(payload)
-    }
-
-    private nonisolated func v2CustomSidebarSelect(params: [String: Any]) -> V2CallResult {
-        guard let name = v2CustomSidebarName(params: params), !name.isEmpty else {
-            return .err(
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.sidebar.custom.selectMissingName",
-                    defaultValue: "Select requires a sidebar name."
-                ),
-                data: nil
-            )
-        }
-
-        let report = v2CustomSidebarValidationReport(name: name)
-        guard let entry = report.entries.first else {
-            return .ok(v2CustomSidebarReportPayload(report))
-        }
-        if let errorMessage = entry.errorMessage {
-            var payload = v2CustomSidebarReportPayload(report)
-            payload["message"] = errorMessage
-            return .ok(payload)
-        }
-
-        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
-        v2MainSync {
-            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
-            CmuxExtensionSidebarSelection.setProviderId(providerId)
-            NotificationCenter.default.post(
-                name: .customSidebarReloadRequested,
-                object: nil,
-                userInfo: ["names": [name]]
-            )
-        }
-        var payload = v2CustomSidebarReportPayload(report)
-        payload["selected_provider_id"] = providerId
-        payload["selected_name"] = name
-        return .ok(payload)
-    }
-
-    private nonisolated func v2CustomSidebarName(params: [String: Any]) -> String? {
-        guard let raw = params["name"] as? String else { return nil }
-        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private nonisolated func v2CustomSidebarValidationReport(name: String?) -> CustomSidebarValidationReport {
-        let directory = CmuxExtensionSidebarSelection.customSidebarsDirectory
-        return CustomSidebarValidator().validate(directory: directory, name: name)
-    }
-
-    private nonisolated func v2CustomSidebarReportPayload(_ report: CustomSidebarValidationReport) -> [String: Any] {
-        [
-            "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
-            "valid_count": report.validCount,
-            "error_count": report.errorCount,
-            "sidebars": report.entries.map { entry in
-                [
-                    "name": entry.name,
-                    "path": entry.fileURL.path,
-                    "kind": entry.kind.rawValue,
-                    "ok": entry.isValid,
-                    "error": v2OrNull(entry.errorMessage)
-                ] as [String: Any]
-            }
-        ]
-    }
 
     @MainActor
 
@@ -5289,7 +5130,7 @@ class TerminalController {
     }
 
     private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
-        guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop || event.hookEventName == .subagentStop,
+        guard event.hookEventName == .userPromptSubmit || event.hookEventName == .stop,
               let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawWorkspaceId.isEmpty
         else { return }
@@ -5306,7 +5147,7 @@ class TerminalController {
                     iMessageModeEnabled: iMessageModeEnabled
                 )
             }
-        case .stop, .subagentStop:
+        case .stop:
             let assistantFinalMessage = event.assistantFinalMessage
             Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled] in
                 guard let self,
@@ -5398,7 +5239,7 @@ class TerminalController {
 
     func v2BrowserWithPanel(
         params: [String: Any],
-        _ body: (_ tabManager: TabManager, _ workspace: Workspace, _ surfaceId: UUID, _ browserPanel: BrowserPanel) -> V2CallResult
+        _ body: (_ workspaceID: UUID, _ surfaceId: UUID, _ browserPanel: BrowserPanel) -> V2CallResult
     ) -> V2CallResult {
         var result: V2CallResult = .err(code: "internal_error", message: "Browser operation failed", data: nil)
         v2MainSync {
@@ -5406,36 +5247,100 @@ class TerminalController {
                 result = .err(code: "unavailable", message: "TabManager not available", data: nil)
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
-            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
-            if let error = resolvedSurface.error {
+            let resolved = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolved.error {
                 result = error
                 return
             }
-            let surfaceId = resolvedSurface.surfaceId
-            guard let surfaceId else {
-                result = .err(code: "not_found", message: "No focused browser surface", data: nil)
+            guard let context = resolved.context else {
+                result = .err(code: "internal_error", message: "Browser operation failed", data: nil)
                 return
             }
-            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
-                result = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
-                return
-            }
-            result = body(tabManager, ws, surfaceId, browserPanel)
+            result = body(context.workspaceId, context.surfaceId, context.browserPanel)
         }
         return result
     }
 
     /// Value snapshot of a resolved browser surface for socket-worker handlers:
     /// resolution happens on the main actor, the JS-evaluating body runs off it.
-    private struct V2BrowserPanelContext {
+    // Internal (not private): the window-Dock browser resolvers live in
+    // TerminalController+WindowDockBrowserRouting.swift.
+    struct V2BrowserPanelContext {
         let workspaceId: UUID
         let surfaceId: UUID
         let browserPanel: BrowserPanel
         let webView: WKWebView
+    }
+
+    private func v2ResolveBrowserPanelContext(
+        params: [String: Any],
+        tabManager: TabManager
+    ) -> (context: V2BrowserPanelContext?, error: V2CallResult?) {
+        let windowDockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
+        if windowDockResolution.handled {
+            return (windowDockResolution.context, windowDockResolution.error)
+        }
+
+        guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            return (nil, .err(code: "not_found", message: "Workspace not found", data: nil))
+        }
+        let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
+        if let error = resolvedSurface.error {
+            return (nil, error)
+        }
+        guard let surfaceId = resolvedSurface.surfaceId else {
+            return (nil, .err(code: "not_found", message: "No focused browser surface", data: nil))
+        }
+        guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+            return (nil, .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]))
+        }
+        return (
+            V2BrowserPanelContext(
+                workspaceId: ws.id,
+                surfaceId: surfaceId,
+                browserPanel: browserPanel,
+                webView: browserPanel.webView
+            ),
+            nil
+        )
+    }
+
+    private func v2BrowserTabListPayload(
+        workspaceId: UUID,
+        focusedPanelId: UUID?,
+        panels: [any Panel],
+        paneIdForPanel: (UUID) -> PaneID?
+    ) -> [String: Any] {
+        let browserPanels = panels.compactMap { $0 as? BrowserPanel }
+        let tabs: [[String: Any]] = browserPanels.enumerated().map { index, panel in
+            let paneId = paneIdForPanel(panel.id)
+            return [
+                "id": panel.id.uuidString,
+                "ref": v2Ref(kind: .surface, uuid: panel.id),
+                "index": index,
+                "title": panel.displayTitle,
+                "url": panel.currentURL?.absoluteString ?? "",
+                "focused": panel.id == focusedPanelId,
+                "pane_id": v2OrNull(paneId?.id.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id)
+            ]
+        }
+        return [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": v2OrNull(focusedPanelId?.uuidString),
+            "surface_ref": v2Ref(kind: .surface, uuid: focusedPanelId),
+            "tabs": tabs
+        ]
+    }
+
+    private nonisolated func v2BrowserPanelFields(_ ctx: V2BrowserPanelContext, adding fields: [String: Any] = [:]) -> [String: Any] {
+        var result: [String: Any] = [
+            "workspace_id": ctx.workspaceId.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+            "surface_id": ctx.surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
+        ]
+        fields.forEach { result[$0.key] = $0.value }
+        return result
     }
 
     /// Off-main counterpart of v2BrowserWithPanel for the socket-worker browser
@@ -5453,29 +5358,16 @@ class TerminalController {
                 failure = .err(code: "unavailable", message: "TabManager not available", data: nil)
                 return
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                failure = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
-            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
-            if let error = resolvedSurface.error {
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
                 failure = error
                 return
             }
-            guard let surfaceId = resolvedSurface.surfaceId else {
-                failure = .err(code: "not_found", message: "No focused browser surface", data: nil)
+            guard let context = resolvedContext.context else {
+                failure = .err(code: "internal_error", message: "Browser operation failed", data: nil)
                 return
             }
-            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
-                failure = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
-                return
-            }
-            resolved = V2BrowserPanelContext(
-                workspaceId: ws.id,
-                surfaceId: surfaceId,
-                browserPanel: browserPanel,
-                webView: browserPanel.webView
-            )
+            resolved = context
         }
         guard let resolved else { return failure }
         return body(resolved)
@@ -5610,76 +5502,7 @@ class TerminalController {
         timeout: TimeInterval,
         start: (@escaping (T) -> Void) -> Void
     ) -> T? {
-        if Thread.isMainThread {
-            let runLoop = CFRunLoopGetCurrent()
-            let lock = NSLock()
-            var resolved = false
-            var timedOut = false
-            var result: T?
-
-            let finish: (T) -> Void = { value in
-                lock.lock()
-                guard !resolved else {
-                    lock.unlock()
-                    return
-                }
-                resolved = true
-                result = value
-                lock.unlock()
-                CFRunLoopStop(runLoop)
-            }
-
-            guard let timeoutTimer = CFRunLoopTimerCreateWithHandler(
-                kCFAllocatorDefault,
-                CFAbsoluteTimeGetCurrent() + timeout,
-                0,
-                0,
-                0,
-                { _ in
-                    lock.lock()
-                    if !resolved {
-                        resolved = true
-                        timedOut = true
-                    }
-                    lock.unlock()
-                    CFRunLoopStop(runLoop)
-                }
-            ) else {
-                return nil
-            }
-            CFRunLoopAddTimer(runLoop, timeoutTimer, .defaultMode)
-            defer { CFRunLoopTimerInvalidate(timeoutTimer) }
-
-            start(finish)
-            while true {
-                lock.lock()
-                if resolved {
-                    let value = result
-                    let didTimeOut = timedOut
-                    lock.unlock()
-                    return didTimeOut ? nil : value
-                }
-                lock.unlock()
-
-                CFRunLoopRun()
-            }
-        }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var result: T?
-        start { value in
-            lock.lock()
-            result = value
-            lock.unlock()
-            semaphore.signal()
-        }
-        guard semaphore.wait(timeout: .now() + timeout) == .success else {
-            return nil
-        }
-        lock.lock()
-        defer { lock.unlock() }
-        return result
+        socketAwaitCallback(timeout: timeout, start: start)
     }
 
     private nonisolated func v2WaitForBrowserCondition(
@@ -6084,13 +5907,13 @@ class TerminalController {
         }
     }
 
-    private func v2PNGData(from image: NSImage) -> Data? {
+    private nonisolated func v2PNGData(from image: NSImage) -> Data? {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
     }
 
-    private func bestEffortPruneTemporaryFiles(
+    private nonisolated func bestEffortPruneTemporaryFiles(
         in directoryURL: URL,
         keepingMostRecent maxCount: Int = 50,
         maxAge: TimeInterval = 24 * 60 * 60
@@ -6393,18 +6216,30 @@ class TerminalController {
         }
 
         var basePayload: [String: Any]?
+        var resolutionError: V2CallResult?
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
-            browserPanel.navigateSmart(url)
-            basePayload = [
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
-            ]
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
+                resolutionError = error
+                return
+            }
+            guard let context = resolvedContext.context,
+                  context.surfaceId == surfaceId else { return }
+            context.browserPanel.navigateSmart(url)
+            if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
+                basePayload = v2WindowDockBrowserActionPayload(context)
+            } else {
+                basePayload = v2BrowserActionPayload(
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    tabManager: tabManager
+                )
+            }
+        }
+        // Preserve the resolver's specific error (mirrors v2BrowserWithPanelContext)
+        // instead of flattening every resolution failure to a generic not_found.
+        if let resolutionError {
+            return resolutionError
         }
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
@@ -6978,30 +6813,18 @@ class TerminalController {
                 setupResult = .err(code: "unavailable", message: "TabManager not available", data: nil)
                 return
             }
-            guard let ws = self.v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                setupResult = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
-            // Route by surface_id / tab_id / pane_id / focused, matching every other
-            // socket-worker browser command. The bespoke surface_id-or-focused
-            // resolution this replaced ignored pane_id and tab_id, so a wait routed
-            // by pane could run against the wrong webview.
-            let resolvedSurface = self.v2ResolveBrowserSurfaceId(params: params, workspace: ws)
-            if let error = resolvedSurface.error {
+            let resolvedContext = self.v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
                 setupResult = error
                 return
             }
-            guard let surfaceId = resolvedSurface.surfaceId else {
-                setupResult = .err(code: "not_found", message: "No focused browser surface", data: nil)
+            guard let context = resolvedContext.context else {
+                setupResult = .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
                 return
             }
-            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
-                setupResult = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
-                return
-            }
-            workspaceId = ws.id
-            surfaceIdOut = surfaceId
-            webView = browserPanel.webView
+            workspaceId = context.workspaceId
+            surfaceIdOut = context.surfaceId
+            webView = context.webView
         }
 
         if let setupResult {
@@ -7516,7 +7339,7 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserScreenshot(params: [String: Any]) -> V2CallResult {
         let resolved: (
             error: V2CallResult?,
             workspaceId: UUID?,
@@ -7526,25 +7349,14 @@ class TerminalController {
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return (.err(code: "unavailable", message: "TabManager not available", data: nil), nil, nil, nil)
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                return (.err(code: "not_found", message: "Workspace not found", data: nil), nil, nil, nil)
-            }
-            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
-            if let error = resolvedSurface.error {
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
                 return (error, nil, nil, nil)
             }
-            guard let surfaceId = resolvedSurface.surfaceId else {
-                return (.err(code: "not_found", message: "No focused browser surface", data: nil), nil, nil, nil)
+            guard let context = resolvedContext.context else {
+                return (.err(code: "internal_error", message: "Browser operation failed", data: nil), nil, nil, nil)
             }
-            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
-                return (
-                    .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]),
-                    nil,
-                    nil,
-                    nil
-                )
-            }
-            return (nil, ws.id, surfaceId, browserPanel)
+            return (nil, context.workspaceId, context.surfaceId, context.browserPanel)
         }
 
         if let error = resolved.error {
@@ -7557,12 +7369,14 @@ class TerminalController {
         }
 
         let snapshotResult: Data?? = v2AwaitCallback(timeout: 15.0) { finish in
-            browserPanel.captureAutomationVisibleViewportSnapshot { result in
-                switch result {
-                case .success(let image):
-                    finish(self.v2PNGData(from: image))
-                case .failure:
-                    finish(nil)
+            v2MainSync {
+                browserPanel.captureAutomationVisibleViewportSnapshot { result in
+                    switch result {
+                    case .success(let image):
+                        finish(self.v2PNGData(from: image))
+                    case .failure:
+                        finish(nil)
+                    }
                 }
             }
         }
@@ -7655,10 +7469,10 @@ class TerminalController {
     }
 
     private func v2BrowserGetTitle(params: [String: Any]) -> V2CallResult {
-        v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+        v2BrowserWithPanel(params: params) { workspaceId, surfaceId, browserPanel in
             .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "title": browserPanel.pageTitle
@@ -7789,28 +7603,38 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
 
+        var setupError: V2CallResult?
         var basePayload: [String: Any]?
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
+                setupError = error
+                return
+            }
+            guard let context = resolvedContext.context,
+                  context.surfaceId == surfaceId else { return }
             switch action {
             case "back":
-                browserPanel.goBack()
+                context.browserPanel.goBack()
             case "forward":
-                browserPanel.goForward()
+                context.browserPanel.goForward()
             case "reload":
-                browserPanel.reload()
+                context.browserPanel.reload()
             default:
                 break
             }
-            basePayload = [
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
-            ]
+            if AppDelegate.shared?.tabManagerForWindowDockOwner(context.workspaceId) != nil {
+                basePayload = v2WindowDockBrowserActionPayload(context)
+            } else {
+                basePayload = v2BrowserActionPayload(
+                    workspaceId: context.workspaceId,
+                    surfaceId: context.surfaceId,
+                    tabManager: tabManager
+                )
+            }
+        }
+        if let setupError {
+            return setupError
         }
         guard var payload = basePayload else {
             return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
@@ -7851,15 +7675,15 @@ class TerminalController {
     /// Builds the standard workspace/surface/window identity payload for a browser action.
     @MainActor
     private func v2BrowserActionPayload(
-        workspace: Workspace,
+        workspaceId: UUID,
         surfaceId: UUID,
         tabManager: TabManager,
         extra: [String: Any] = [:]
     ) -> [String: Any] {
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         var payload: [String: Any] = [
-            "workspace_id": workspace.id.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "surface_id": surfaceId.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
             "window_id": v2OrNull(windowId?.uuidString),
@@ -7869,11 +7693,29 @@ class TerminalController {
         return payload
     }
 
+    @MainActor
+    private func v2BrowserActionPayload(
+        workspace: Workspace,
+        surfaceId: UUID,
+        tabManager: TabManager,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        v2BrowserActionPayload(
+            workspaceId: workspace.id,
+            surfaceId: surfaceId,
+            tabManager: tabManager,
+            extra: extra
+        )
+    }
+
     /// Returns an error if any of the given handle params is SUPPLIED but does not resolve.
     /// v2UUID returns nil for both an absent param and a present-but-unresolvable handle (e.g. a
     /// stale `surface:2`/`workspace:99` ref), so a supplied target must not be treated as omitted
     /// and silently fall back to the focused/selected context. Returns nil when all are valid.
-    private func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
+    // Internal (not private): the window-Dock browser resolvers in
+    // TerminalController+WindowDockBrowserRouting.swift apply the same
+    // supplied-but-unresolvable rejection before their Dock fallbacks.
+    func v2RejectUnresolvedHandles(_ params: [String: Any], _ keys: [String]) -> V2CallResult? {
         // Use v2HasNonNullParam (not v2String) for presence: v2String trims empties to nil, so an
         // empty/whitespace explicit handle would otherwise look absent and silently fall back.
         for key in keys where v2HasNonNullParam(params, key) && v2UUID(params, key) == nil {
@@ -7916,6 +7758,17 @@ class TerminalController {
         if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                if let error = dockResolution.error {
+                    result = error
+                    return
+                }
+                guard let context = dockResolution.context else { return }
+                let handled = context.browserPanel.toggleDeveloperTools()
+                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled]))
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
             let handled = target.panel.toggleDeveloperTools()
@@ -7934,6 +7787,17 @@ class TerminalController {
         if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                if let error = dockResolution.error {
+                    result = error
+                    return
+                }
+                guard let context = dockResolution.context else { return }
+                let handled = context.browserPanel.showDeveloperToolsConsole()
+                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled]))
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
             let handled = target.panel.showDeveloperToolsConsole()
@@ -7958,6 +7822,32 @@ class TerminalController {
         }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                if let error = dockResolution.error {
+                    result = error
+                    return
+                }
+                guard let context = dockResolution.context else { return }
+                let willActivate = enterAliases.contains(mode)
+                    || (mode == "toggle" && !context.browserPanel.isBrowserFocusModeActive)
+                if willActivate,
+                   context.browserPanel.searchState == nil,
+                   let windowDock = windowDockContainingPanel(context.surfaceId),
+                   windowDock.focusedPanelId != context.surfaceId {
+                    windowDock.focusPanel(context.surfaceId)
+                }
+                let handled: Bool
+                if enterAliases.contains(mode) {
+                    handled = context.browserPanel.setBrowserFocusModeActive(true, reason: "cli.focusMode", focusWebView: true)
+                } else if exitAliases.contains(mode) {
+                    handled = context.browserPanel.setBrowserFocusModeActive(false, reason: "cli.focusMode", focusWebView: false)
+                } else {
+                    handled = context.browserPanel.toggleBrowserFocusMode(reason: "cli.focusMode", focusWebView: true)
+                }
+                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "mode": mode]))
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
             // Entering browser focus mode requires the target browser to be the focused, on-screen
@@ -8001,6 +7891,22 @@ class TerminalController {
         }
         var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
         v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                if let error = dockResolution.error {
+                    result = error
+                    return
+                }
+                guard let context = dockResolution.context else { return }
+                let handled: Bool
+                switch direction {
+                case "in": handled = context.browserPanel.zoomIn()
+                case "out": handled = context.browserPanel.zoomOut()
+                default: handled = context.browserPanel.resetZoom()
+                }
+                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled, "direction": direction]))
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
             let handled: Bool
@@ -8033,29 +7939,25 @@ class TerminalController {
     }
 
     private func v2BrowserGetURL(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
         guard let surfaceId = v2UUID(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
 
-        var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
-        v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+        return v2BrowserWithPanel(params: params) { workspaceId, resolvedSurfaceId, browserPanel in
+            guard resolvedSurfaceId == surfaceId else {
+                return .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
+            }
             // A never-navigated surface reports about:blank (matching JS location.href)
             // instead of an empty string, so agents can tell "blank page" from "no data".
             let urlString = browserPanel.currentURL?.absoluteString
                 ?? browserPanel.webView.url?.absoluteString
                 ?? "about:blank"
-            result = .ok([
-                "workspace_id": ws.id.uuidString,
-                "surface_id": surfaceId.uuidString,
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "surface_id": resolvedSurfaceId.uuidString,
                 "url": urlString
             ])
         }
-        return result
     }
 
     private func v2BrowserFocusWebView(params: [String: Any]) -> V2CallResult {
@@ -8068,15 +7970,31 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "Surface not found or not a browser", data: ["surface_id": surfaceId.uuidString])
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
-
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
+                result = error
+                return
             }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
+            guard let context = resolvedContext.context,
+                  context.surfaceId == surfaceId else { return }
+            let browserPanel = context.browserPanel
+
+            if let windowDock = windowDockContainingPanel(surfaceId) {
+                _ = focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
+                windowDock.focusPanel(surfaceId)
+            } else {
+                if let windowId = v2ResolveWindowId(tabManager: tabManager) {
+                    _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                    setActiveTabManager(tabManager)
+                }
+                if let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) {
+                    if tabManager.selectedTabId != ws.id {
+                        tabManager.selectWorkspace(ws)
+                    }
+                    if ws.focusedPanelId != surfaceId {
+                        ws.focusPanel(surfaceId)
+                    }
+                }
             }
 
             // Prevent omnibar auto-focus from immediately stealing first responder back.
@@ -8112,8 +8030,10 @@ class TerminalController {
 
         var focused = false
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
-                  let browserPanel = ws.browserPanel(for: surfaceId) else { return }
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            guard let context = resolvedContext.context,
+                  context.surfaceId == surfaceId else { return }
+            let browserPanel = context.browserPanel
             let webView = browserPanel.webView
             guard let window = webView.window,
                   let fr = window.firstResponder as? NSView else {
@@ -8398,12 +8318,13 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserFrameSelect(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserFrameSelect(params: [String: Any]) -> V2CallResult {
         guard let selectorRaw = v2BrowserSelector(params) else {
             return .err(code: "invalid_params", message: "Missing selector", data: nil)
         }
 
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let surfaceId = ctx.surfaceId
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
@@ -8422,21 +8343,17 @@ class TerminalController {
               return { ok: true };
             })()
             """
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
                    ok {
-                    v2BrowserFrameSelectorBySurface[surfaceId] = selector
-                    return .ok([
-                        "workspace_id": ws.id.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                        "surface_id": surfaceId.uuidString,
-                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                        "frame_selector": selector
-                    ])
+                    v2MainSync {
+                        v2BrowserFrameSelectorBySurface[surfaceId] = selector
+                    }
+                    return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
                 }
                 if let dict = value as? [String: Any],
                    let errorText = dict["error"] as? String,
@@ -8449,11 +8366,11 @@ class TerminalController {
     }
 
     private func v2BrowserFrameMain(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, _ in
+        return v2BrowserWithPanel(params: params) { workspaceId, surfaceId, _ in
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "frame_selector": NSNull()
@@ -8461,28 +8378,30 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
+    private nonisolated func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, webView: WKWebView) {
+        let source = v2MainSync { BrowserPanel.telemetryHookBootstrapScriptSource }
         _ = v2RunJavaScript(
-            browserPanel.webView,
-            script: BrowserPanel.telemetryHookBootstrapScriptSource,
+            webView,
+            script: source,
             timeout: 5.0,
             world: .page
         )
     }
 
-    private func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel) {
+    private nonisolated func v2BrowserEnsureDialogHooks(webView: WKWebView) {
+        let source = v2MainSync { BrowserPanel.dialogTelemetryHookBootstrapScriptSource }
         _ = v2RunJavaScript(
-            browserPanel.webView,
-            script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
+            webView,
+            script: source,
             timeout: 5.0,
             world: .page
         )
     }
 
-    private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
-            v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
+    private nonisolated func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            v2BrowserEnsureTelemetryHooks(surfaceId: ctx.surfaceId, webView: ctx.webView)
+            v2BrowserEnsureDialogHooks(webView: ctx.webView)
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
@@ -8507,26 +8426,22 @@ class TerminalController {
             })()
             """
 
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
+            switch v2RunJavaScript(ctx.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
                       ok else {
-                    let pending = v2BrowserPendingDialogs(surfaceId: surfaceId)
+                    let pending = v2BrowserPendingDialogs(surfaceId: ctx.surfaceId)
                     return .err(code: "not_found", message: "No pending dialog", data: ["pending": pending])
                 }
 
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "accepted": accept,
                     "dialog": v2NormalizeJSValue(dict["dialog"]),
                     "remaining": v2OrNull(dict["remaining"])
-                ])
+                ]))
             }
         }
     }
@@ -8546,9 +8461,9 @@ class TerminalController {
         case watcherSetupFailed(errnoCode: Int32)
     }
 
-    /// Socket-worker router for browser methods that evaluate page JavaScript.
+    /// Socket-worker router for browser automation methods that may wait on WebKit.
     /// See ControlCommandExecutionPolicy for why these must not hold the main actor.
-    private nonisolated func v2BrowserJSCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserAutomationCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
         switch method {
         case "browser.navigate": return v2BrowserNavigate(params: params)
         case "browser.back": return v2BrowserBack(params: params)
@@ -8557,6 +8472,7 @@ class TerminalController {
         case "browser.snapshot": return v2BrowserSnapshot(params: params)
         case "browser.eval": return v2BrowserEval(params: params)
         case "browser.wait": return v2BrowserWait(params: params)
+        case "browser.screenshot": return v2BrowserScreenshot(params: params)
         case "browser.click": return v2BrowserClick(params: params)
         case "browser.dblclick": return v2BrowserDblClick(params: params)
         case "browser.hover": return v2BrowserHover(params: params)
@@ -8592,6 +8508,23 @@ class TerminalController {
         case "browser.find.last": return v2BrowserFindLast(params: params)
         case "browser.find.nth": return v2BrowserFindNth(params: params)
         case "browser.highlight": return v2BrowserHighlight(params: params)
+        case "browser.frame.select": return v2BrowserFrameSelect(params: params)
+        case "browser.dialog.accept": return v2BrowserDialogRespond(params: params, accept: true)
+        case "browser.dialog.dismiss": return v2BrowserDialogRespond(params: params, accept: false)
+        case "browser.cookies.get": return v2BrowserCookiesGet(params: params)
+        case "browser.cookies.set": return v2BrowserCookiesSet(params: params)
+        case "browser.cookies.clear": return v2BrowserCookiesClear(params: params)
+        case "browser.storage.get": return v2BrowserStorageGet(params: params)
+        case "browser.storage.set": return v2BrowserStorageSet(params: params)
+        case "browser.storage.clear": return v2BrowserStorageClear(params: params)
+        case "browser.console.list": return v2BrowserConsoleList(params: params)
+        case "browser.console.clear": return v2BrowserConsoleClear(params: params)
+        case "browser.errors.list": return v2BrowserErrorsList(params: params)
+        case "browser.state.save": return v2BrowserStateSave(params: params)
+        case "browser.state.load": return v2BrowserStateLoad(params: params)
+        case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
+        case "browser.addscript": return v2BrowserAddScript(params: params)
+        case "browser.addstyle": return v2BrowserAddStyle(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -8705,70 +8638,96 @@ class TerminalController {
                     error: .err(code: "unavailable", message: "TabManager not available", data: nil)
                 )
             }
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            let resolvedContext = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
+            if let error = resolvedContext.error {
                 return V2BrowserDownloadWaitSnapshot(
                     workspaceId: UUID(),
                     workspaceRef: NSNull(),
                     surfaceId: UUID(),
                     surfaceRef: NSNull(),
                     queuedEvent: nil,
-                    error: .err(code: "not_found", message: "Workspace not found", data: nil)
-                )
-            }
-            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
-            if let error = resolvedSurface.error {
-                return V2BrowserDownloadWaitSnapshot(
-                    workspaceId: ws.id,
-                    workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
-                    surfaceId: UUID(),
-                    surfaceRef: NSNull(),
-                    queuedEvent: nil,
                     error: error
                 )
             }
-            let surfaceId = resolvedSurface.surfaceId
-            guard let surfaceId else {
+            guard let context = resolvedContext.context else {
                 return V2BrowserDownloadWaitSnapshot(
-                    workspaceId: ws.id,
-                    workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
+                    workspaceId: UUID(),
+                    workspaceRef: NSNull(),
                     surfaceId: UUID(),
                     surfaceRef: NSNull(),
                     queuedEvent: nil,
-                    error: .err(code: "not_found", message: "No focused browser surface", data: nil)
-                )
-            }
-            guard ws.browserPanel(for: surfaceId) != nil else {
-                return V2BrowserDownloadWaitSnapshot(
-                    workspaceId: ws.id,
-                    workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
-                    surfaceId: surfaceId,
-                    surfaceRef: v2Ref(kind: .surface, uuid: surfaceId),
-                    queuedEvent: nil,
-                    error: .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+                    error: .err(code: "internal_error", message: "Browser operation failed", data: nil)
                 )
             }
 
             return V2BrowserDownloadWaitSnapshot(
-                workspaceId: ws.id,
-                workspaceRef: v2Ref(kind: .workspace, uuid: ws.id),
-                surfaceId: surfaceId,
-                surfaceRef: v2Ref(kind: .surface, uuid: surfaceId),
+                workspaceId: context.workspaceId,
+                workspaceRef: v2Ref(kind: .workspace, uuid: context.workspaceId),
+                surfaceId: context.surfaceId,
+                surfaceRef: v2Ref(kind: .surface, uuid: context.surfaceId),
                 queuedEvent: Self.v2WorkerString(params, "path") == nil
-                    ? v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+                    ? v2PopBrowserDownloadEvent(surfaceId: context.surfaceId)
                     : nil,
                 error: nil
             )
         }
     }
 
-    private func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
-        guard let first = v2BrowserDownloadEventsBySurface[surfaceId]?.first else {
-            return nil
+    func v2RecordBrowserDownloadEvent(surfaceId: UUID, event: [String: Any]) {
+        guard v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId), (event["type"] as? String) != "started" else { return }
+        var queue = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
+        if v2IsTerminalBrowserDownloadEvent(event),
+           let downloadID = v2DownloadID(from: event) {
+            queue.removeAll { v2DownloadID(from: $0) == downloadID }
         }
+        queue.append(event)
+        if queue.count > Self.v2ConsumedBrowserDownloadIDLimit { queue.removeFirst(queue.count - Self.v2ConsumedBrowserDownloadIDLimit) }
+        v2BrowserDownloadEventsBySurface[surfaceId] = queue
+    }
+
+    func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
         var remaining = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-        remaining.removeFirst()
-        v2BrowserDownloadEventsBySurface[surfaceId] = remaining
-        return first
+        while !remaining.isEmpty {
+            let first = remaining.removeFirst()
+            v2BrowserDownloadEventsBySurface[surfaceId] = remaining
+            guard v2ShouldStoreBrowserDownloadEvent(first, surfaceId: surfaceId), (first["type"] as? String) != "started" else { continue }
+            v2MarkBrowserDownloadEventConsumed(first, surfaceId: surfaceId)
+            return first
+        }
+        return nil
+    }
+
+    private func v2DownloadID(from event: [String: Any]) -> String? {
+        (event["download_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private func v2IsTerminalBrowserDownloadEvent(_ event: [String: Any]) -> Bool {
+        let type = event["type"] as? String
+        return type == "saved" || type == "cancelled" || type == "failed"
+    }
+
+    private func v2ShouldStoreBrowserDownloadEvent(_ event: [String: Any], surfaceId: UUID) -> Bool {
+        guard let downloadID = v2DownloadID(from: event) else { return true }
+        let consumed = v2ConsumedBrowserDownloadKeysBySurface[surfaceId] ?? []
+        if consumed.contains(downloadID) { return false }
+        guard let type = (event["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else { return true }
+        return !consumed.contains("\(type)\u{0}\(downloadID)")
+    }
+
+    func v2MarkBrowserDownloadEventConsumed(_ event: [String: Any], surfaceId: UUID) {
+        guard let downloadID = v2DownloadID(from: event), let type = (event["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty else { return }
+        let isTerminal = v2IsTerminalBrowserDownloadEvent(event)
+        let eventKey = "\(type)\u{0}\(downloadID)"
+        let consumedKey = isTerminal ? downloadID : eventKey
+        var consumed = v2ConsumedBrowserDownloadKeysBySurface[surfaceId] ?? []
+        consumed.removeAll { $0 == consumedKey }
+        consumed.append(consumedKey)
+        if consumed.count > Self.v2ConsumedBrowserDownloadIDLimit { consumed.removeFirst(consumed.count - Self.v2ConsumedBrowserDownloadIDLimit) }
+        v2ConsumedBrowserDownloadKeysBySurface[surfaceId] = consumed
+        v2BrowserDownloadEventsBySurface[surfaceId]?.removeAll {
+            if isTerminal { return v2DownloadID(from: $0) == downloadID }
+            return v2DownloadID(from: $0) == downloadID && (($0["type"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty == type)
+        }
     }
 
     private nonisolated func v2WaitForDownloadFile(path: String, timeout: TimeInterval) -> V2DownloadFileWaitResult {
@@ -8856,11 +8815,12 @@ class TerminalController {
             object: nil,
             queue: nil
         ) { note in
-            guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID,
-                  candidateSurfaceId == surfaceId,
-                  let event = note.userInfo?["event"] as? [String: Any] else {
+            guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID, candidateSurfaceId == surfaceId,
+                  let event = note.userInfo?["event"] as? [String: Any],
+                  (event["type"] as? String) != "started" else {
                 return
             }
+            guard self.v2MainSync({ self.v2ShouldStoreBrowserDownloadEvent(event, surfaceId: surfaceId) }) else { return }
             finishOnce(event)
         }
 
@@ -8872,6 +8832,11 @@ class TerminalController {
         }
         if let observer {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let event {
+            v2MainSync {
+                v2MarkBrowserDownloadEventConsumed(event, surfaceId: surfaceId)
+            }
         }
         return event
     }
@@ -8951,7 +8916,7 @@ class TerminalController {
         ])
     }
 
-    private func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
+    private nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
             "value": cookie.value,
@@ -8968,31 +8933,37 @@ class TerminalController {
         return out
     }
 
-    private func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
+    private nonisolated func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
         v2AwaitCallback(timeout: timeout) { finish in
-            store.getAllCookies { items in
-                finish(items)
+            v2MainSync {
+                store.getAllCookies { items in
+                    finish(items)
+                }
             }
         }
     }
 
-    private func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+    private nonisolated func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
         v2AwaitCallback(timeout: timeout) { finish in
-            store.setCookie(cookie) {
-                finish(true)
+            v2MainSync {
+                store.setCookie(cookie) {
+                    finish(true)
+                }
             }
         } ?? false
     }
 
-    private func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
+    private nonisolated func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
         v2AwaitCallback(timeout: timeout) { finish in
-            store.delete(cookie) {
-                finish(true)
+            v2MainSync {
+                store.delete(cookie) {
+                    finish(true)
+                }
             }
         } ?? false
     }
 
-    private func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
+    private nonisolated func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
         var props: [HTTPCookiePropertyKey: Any] = [:]
         if let name = raw["name"] as? String {
             props[.name] = name
@@ -9031,9 +9002,11 @@ class TerminalController {
         return HTTPCookie(properties: props)
     }
 
-    private func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
+    private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let store = v2MainSync {
+                ctx.webView.configuration.websiteDataStore.httpCookieStore
+            }
             guard var cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
@@ -9048,20 +9021,18 @@ class TerminalController {
                 cookies = cookies.filter { $0.path == path }
             }
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "cookies": cookies.map(v2BrowserCookieDict)
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": cookies.map(v2BrowserCookieDict)]))
         }
     }
 
-    private func v2BrowserCookiesSet(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            let fallbackURL = browserPanel.currentURL
+    private nonisolated func v2BrowserCookiesSet(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let cookieContext = v2MainSync {
+                (
+                    store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
+                    fallbackURL: ctx.browserPanel.currentURL
+                )
+            }
 
             var cookieObjects: [[String: Any]] = []
             if let rows = params["cookies"] as? [[String: Any]] {
@@ -9086,29 +9057,25 @@ class TerminalController {
 
             var setCount = 0
             for raw in cookieObjects {
-                guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: fallbackURL) else {
+                guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: cookieContext.fallbackURL) else {
                     return .err(code: "invalid_params", message: "Invalid cookie payload", data: ["cookie": raw])
                 }
-                if v2BrowserCookieStoreSet(store, cookie: cookie) {
+                if v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
                     setCount += 1
                 } else {
                     return .err(code: "timeout", message: "Timed out setting cookie", data: ["name": cookie.name])
                 }
             }
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "set": setCount
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["set": setCount]))
         }
     }
 
-    private func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
+    private nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let store = v2MainSync {
+                ctx.webView.configuration.websiteDataStore.httpCookieStore
+            }
             guard let cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
@@ -9130,26 +9097,20 @@ class TerminalController {
                 }
             }
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "cleared": removed
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cleared": removed]))
         }
     }
 
-    private func v2BrowserStorageType(_ params: [String: Any]) -> String {
+    private nonisolated func v2BrowserStorageType(_ params: [String: Any]) -> String {
         v2BrowserControl.storageType(params: params)
     }
 
-    private func v2BrowserStorageGet(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserStorageGet(params: [String: Any]) -> V2CallResult {
         let storageType = v2BrowserStorageType(params)
         let key = v2String(params, "key")
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+        return v2BrowserWithPanelContext(params: params) { ctx in
             let script = v2BrowserControl.storageGetScript(storageType: storageType, key: key)
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -9158,20 +9119,16 @@ class TerminalController {
                       ok else {
                     return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
                 }
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "type": storageType,
                     "key": v2OrNull(key),
                     "value": v2NormalizeJSValue(dict["value"])
-                ])
+                ]))
             }
         }
     }
 
-    private func v2BrowserStorageSet(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserStorageSet(params: [String: Any]) -> V2CallResult {
         let storageType = v2BrowserStorageType(params)
         guard let key = v2String(params, "key") else {
             return .err(code: "invalid_params", message: "Missing key", data: nil)
@@ -9180,10 +9137,10 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing value", data: nil)
         }
 
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+        return v2BrowserWithPanelContext(params: params) { ctx in
             let valueLiteral = v2JSONLiteral(v2NormalizeJSValue(value))
             let script = v2BrowserControl.storageSetScript(storageType: storageType, key: key, valueLiteral: valueLiteral)
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -9192,23 +9149,19 @@ class TerminalController {
                       ok else {
                     return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
                 }
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "type": storageType,
                     "key": key
-                ])
+                ]))
             }
         }
     }
 
-    private func v2BrowserStorageClear(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserStorageClear(params: [String: Any]) -> V2CallResult {
         let storageType = v2BrowserStorageType(params)
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+        return v2BrowserWithPanelContext(params: params) { ctx in
             let script = v2BrowserControl.storageClearScript(storageType: storageType)
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -9217,14 +9170,10 @@ class TerminalController {
                       ok else {
                     return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
                 }
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "type": storageType,
                     "cleared": true
-                ])
+                ]))
             }
         }
     }
@@ -9234,37 +9183,32 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        var payload: [String: Any]?
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
-            let browserPanels = orderedPanels(in: ws).compactMap { panel -> BrowserPanel? in
-                panel as? BrowserPanel
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                guard let dock = dockResolution.dock else {
+                    result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                result = .ok(v2BrowserTabListPayload(
+                    workspaceId: dock.workspaceId,
+                    focusedPanelId: dock.focusedPanelId,
+                    panels: orderedPanels(in: dock),
+                    paneIdForPanel: { dock.paneId(forPanelId: $0) }
+                ))
+                return
             }
-            let tabs: [[String: Any]] = browserPanels.enumerated().map { index, panel in
-                [
-                    "id": panel.id.uuidString,
-                    "ref": v2Ref(kind: .surface, uuid: panel.id),
-                    "index": index,
-                    "title": panel.displayTitle,
-                    "url": panel.currentURL?.absoluteString ?? "",
-                    "focused": panel.id == ws.focusedPanelId,
-                    "pane_id": v2OrNull(ws.paneId(forPanelId: panel.id)?.id.uuidString),
-                    "pane_ref": v2Ref(kind: .pane, uuid: ws.paneId(forPanelId: panel.id)?.id)
-                ]
-            }
-            payload = [
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": v2OrNull(ws.focusedPanelId?.uuidString),
-                "surface_ref": v2Ref(kind: .surface, uuid: ws.focusedPanelId),
-                "tabs": tabs
-            ]
-        }
 
-        guard let payload else {
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            result = .ok(v2BrowserTabListPayload(
+                workspaceId: ws.id,
+                focusedPanelId: ws.focusedPanelId,
+                panels: orderedPanels(in: ws),
+                paneIdForPanel: { ws.paneId(forPanelId: $0) }
+            ))
         }
-        return .ok(payload)
+        return result
     }
 
     private func v2BrowserTabNew(params: [String: Any]) -> V2CallResult {
@@ -9280,6 +9224,45 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
         v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                guard let dock = dockResolution.dock else {
+                    result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                let paneUUID = v2UUID(params, "pane_id")
+                    ?? v2UUID(params, "target_pane_id")
+                    ?? (v2UUID(params, "surface_id").flatMap { dock.paneId(forPanelId: $0)?.id })
+                    ?? dock.focusedPanelId.flatMap { dock.paneId(forPanelId: $0)?.id }
+                    ?? dock.bonsplitController.focusedPaneId?.id
+                guard let paneUUID,
+                      let pane = dock.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID }) else {
+                    result = .err(code: "not_found", message: "Target pane not found", data: nil)
+                    return
+                }
+
+                guard let panelId = dock.newSurface(
+                    kind: .browser,
+                    inPane: pane,
+                    url: url,
+                    focus: true
+                ),
+                    let panel = dock.browserPanel(for: panelId) else {
+                    result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
+                    return
+                }
+                result = .ok([
+                    "workspace_id": dock.workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: dock.workspaceId),
+                    "pane_id": pane.id.uuidString,
+                    "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
+                    "surface_id": panel.id.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+                    "url": panel.currentURL?.absoluteString ?? ""
+                ])
+                return
+            }
+
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
@@ -9324,6 +9307,40 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "Browser tab not found", data: nil)
         v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                guard let dock = dockResolution.dock else {
+                    result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                let browserIds = orderedPanels(in: dock).compactMap { panel -> UUID? in
+                    (panel as? BrowserPanel)?.id
+                }
+                let targetId: UUID? = {
+                    if let explicit = v2UUID(params, "target_surface_id") ?? v2UUID(params, "tab_id") {
+                        return explicit
+                    }
+                    if let idx = v2Int(params, "index"), idx >= 0, idx < browserIds.count {
+                        return browserIds[idx]
+                    }
+                    return v2UUID(params, "surface_id")
+                }()
+
+                guard let targetId, browserIds.contains(targetId) else {
+                    result = .err(code: "not_found", message: "Browser tab not found", data: nil)
+                    return
+                }
+
+                dock.focusPanel(targetId)
+                result = .ok([
+                    "workspace_id": dock.workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: dock.workspaceId),
+                    "surface_id": targetId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: targetId)
+                ])
+                return
+            }
+
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
@@ -9366,6 +9383,55 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "not_found", message: "Browser tab not found", data: nil)
         v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserTabStore(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                guard let dock = dockResolution.dock else {
+                    result = dockResolution.error ?? .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                let browserIds = orderedPanels(in: dock).compactMap { panel -> UUID? in
+                    (panel as? BrowserPanel)?.id
+                }
+                guard !browserIds.isEmpty else {
+                    result = .err(code: "not_found", message: "No browser tabs", data: nil)
+                    return
+                }
+
+                let targetId: UUID? = {
+                    if let explicit = v2UUID(params, "target_surface_id") ?? v2UUID(params, "tab_id") {
+                        return explicit
+                    }
+                    if let idx = v2Int(params, "index"), idx >= 0, idx < browserIds.count {
+                        return browserIds[idx]
+                    }
+                    if let sid = v2UUID(params, "surface_id") {
+                        return sid
+                    }
+                    return dock.focusedPanelId
+                }()
+
+                guard let targetId, browserIds.contains(targetId) else {
+                    result = .err(code: "not_found", message: "Browser tab not found", data: nil)
+                    return
+                }
+
+                if dock.panels.count <= 1 {
+                    result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+                    return
+                }
+
+                let ok = closeWindowDockBrowserPanel(targetId, in: dock)
+                result = ok
+                    ? .ok([
+                        "workspace_id": dock.workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: dock.workspaceId),
+                        "surface_id": targetId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: targetId)
+                    ])
+                    : .err(code: "internal_error", message: "Failed to close browser tab", data: ["surface_id": targetId.uuidString])
+                return
+            }
+
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
@@ -9415,9 +9481,9 @@ class TerminalController {
         return result
     }
 
-    private func v2BrowserConsoleList(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+    private nonisolated func v2BrowserConsoleList(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            v2BrowserEnsureTelemetryHooks(surfaceId: ctx.surfaceId, webView: ctx.webView)
             let clear = v2Bool(params, "clear") ?? false
             let clearLiteral = clear ? "true" : "false"
             let script = """
@@ -9429,33 +9495,29 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
+            switch v2RunJavaScript(ctx.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "entries": items.map(v2NormalizeJSValue),
                     "count": items.count
-                ])
+                ]))
             }
         }
     }
 
-    private func v2BrowserConsoleClear(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserConsoleClear(params: [String: Any]) -> V2CallResult {
         var withClear = params
         withClear["clear"] = true
         return v2BrowserConsoleList(params: withClear)
     }
 
-    private func v2BrowserErrorsList(params: [String: Any]) -> V2CallResult {
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+    private nonisolated func v2BrowserErrorsList(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            v2BrowserEnsureTelemetryHooks(surfaceId: ctx.surfaceId, webView: ctx.webView)
             let clear = v2Bool(params, "clear") ?? false
             let clearLiteral = clear ? "true" : "false"
             let script = """
@@ -9467,20 +9529,16 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, world: .page) {
+            switch v2RunJavaScript(ctx.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "errors": items.map(v2NormalizeJSValue),
                     "count": items.count
-                ])
+                ]))
             }
         }
     }
@@ -9505,12 +9563,12 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserStateSave(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserStateSave(params: [String: Any]) -> V2CallResult {
         guard let path = v2String(params, "path") else {
             return .err(code: "invalid_params", message: "Missing path", data: nil)
         }
 
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+        return v2BrowserWithPanelContext(params: params) { ctx in
             let storageScript = """
             (() => {
               const readStorage = (st) => {
@@ -9530,21 +9588,29 @@ class TerminalController {
             """
 
             let storageValue: Any
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: storageScript, timeout: 10.0) {
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: storageScript, timeout: 10.0) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 storageValue = v2NormalizeJSValue(value)
             }
 
-            let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
+            let store = v2MainSync {
+                ctx.webView.configuration.websiteDataStore.httpCookieStore
+            }
             let cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
+            let stateSnapshot = v2MainSync {
+                (
+                    url: ctx.browserPanel.currentURL?.absoluteString ?? "",
+                    frameSelector: v2BrowserFrameSelectorBySurface[ctx.surfaceId]
+                )
+            }
 
             let state: [String: Any] = [
-                "url": browserPanel.currentURL?.absoluteString ?? "",
+                "url": stateSnapshot.url,
                 "cookies": cookies,
                 "storage": storageValue,
-                "frame_selector": v2OrNull(v2BrowserFrameSelectorBySurface[surfaceId])
+                "frame_selector": v2OrNull(stateSnapshot.frameSelector)
             ]
 
             do {
@@ -9554,18 +9620,14 @@ class TerminalController {
                 return .err(code: "internal_error", message: "Failed to write state file", data: ["path": path, "error": error.localizedDescription])
             }
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            return .ok(v2BrowserPanelFields(ctx, adding: [
                 "path": path,
                 "cookies": cookies.count
-            ])
+            ]))
         }
     }
 
-    private func v2BrowserStateLoad(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserStateLoad(params: [String: Any]) -> V2CallResult {
         guard let path = v2String(params, "path") else {
             return .err(code: "invalid_params", message: "Missing path", data: nil)
         }
@@ -9582,24 +9644,29 @@ class TerminalController {
             return .err(code: "not_found", message: "Failed to read state file", data: ["path": path, "error": error.localizedDescription])
         }
 
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
-                v2BrowserFrameSelectorBySurface[surfaceId] = frameSelector
-            } else {
-                v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
-            }
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let cookieContext = v2MainSync {
+                if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
+                    v2BrowserFrameSelectorBySurface[ctx.surfaceId] = frameSelector
+                } else {
+                    v2BrowserFrameSelectorBySurface.removeValue(forKey: ctx.surfaceId)
+                }
 
-            if let urlStr = raw["url"] as? String,
-               !urlStr.isEmpty,
-               let parsed = URL(string: urlStr) {
-                browserPanel.navigate(to: parsed)
-            }
+                if let urlStr = raw["url"] as? String,
+                   !urlStr.isEmpty,
+                   let parsed = URL(string: urlStr) {
+                    ctx.browserPanel.navigate(to: parsed)
+                }
 
+                return (
+                    store: ctx.webView.configuration.websiteDataStore.httpCookieStore,
+                    fallbackURL: ctx.browserPanel.currentURL
+                )
+            }
             if let cookieRows = raw["cookies"] as? [[String: Any]] {
-                let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
                 for row in cookieRows {
-                    if let cookie = v2BrowserCookieFromObject(row, fallbackURL: browserPanel.currentURL) {
-                        _ = v2BrowserCookieStoreSet(store, cookie: cookie)
+                    if let cookie = v2BrowserCookieFromObject(row, fallbackURL: cookieContext.fallbackURL) {
+                        _ = v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie)
                     }
                 }
             }
@@ -9621,72 +9688,55 @@ class TerminalController {
                   return true;
                 })()
                 """
-                _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 10.0)
+                _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
             }
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            return .ok(v2BrowserPanelFields(ctx, adding: [
                 "path": path,
                 "loaded": true
-            ])
+            ]))
         }
     }
 
-    private func v2BrowserAddInitScript(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserAddInitScript(params: [String: Any]) -> V2CallResult {
         guard let script = v2String(params, "script") ?? v2String(params, "content") else {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            var scripts = v2BrowserInitScriptsBySurface[surfaceId] ?? []
-            scripts.append(script)
-            v2BrowserInitScriptsBySurface[surfaceId] = scripts
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            let scriptsCount = v2MainSync {
+                var scripts = v2BrowserInitScriptsBySurface[ctx.surfaceId] ?? []
+                scripts.append(script)
+                v2BrowserInitScriptsBySurface[ctx.surfaceId] = scripts
 
-            let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-            browserPanel.webView.configuration.userContentController.addUserScript(userScript)
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 10.0)
+                let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+                ctx.webView.configuration.userContentController.addUserScript(userScript)
+                return scripts.count
+            }
+            _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "scripts": scripts.count
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["scripts": scriptsCount]))
         }
     }
 
-    private func v2BrowserAddScript(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserAddScript(params: [String: Any]) -> V2CallResult {
         guard let script = v2String(params, "script") ?? v2String(params, "content") else {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 10.0) {
+        return v2BrowserWithPanelContext(params: params) { ctx in
+            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script, timeout: 10.0) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "value": v2NormalizeJSValue(value)
-                ])
+                return .ok(v2BrowserPanelFields(ctx, adding: ["value": v2NormalizeJSValue(value)]))
             }
         }
     }
 
-    private func v2BrowserAddStyle(params: [String: Any]) -> V2CallResult {
+    private nonisolated func v2BrowserAddStyle(params: [String: Any]) -> V2CallResult {
         guard let css = v2String(params, "css") ?? v2String(params, "style") ?? v2String(params, "content") else {
             return .err(code: "invalid_params", message: "Missing css/style content", data: nil)
         }
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            var styles = v2BrowserInitStylesBySurface[surfaceId] ?? []
-            styles.append(css)
-            v2BrowserInitStylesBySurface[surfaceId] = styles
-
+        return v2BrowserWithPanelContext(params: params) { ctx in
             let cssLiteral = v2JSONLiteral(css)
             let source = """
             (() => {
@@ -9697,17 +9747,18 @@ class TerminalController {
             })()
             """
 
-            let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
-            browserPanel.webView.configuration.userContentController.addUserScript(userScript)
-            _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: source, timeout: 10.0)
+            let stylesCount = v2MainSync {
+                var styles = v2BrowserInitStylesBySurface[ctx.surfaceId] ?? []
+                styles.append(css)
+                v2BrowserInitStylesBySurface[ctx.surfaceId] = styles
 
-            return .ok([
-                "workspace_id": ws.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "styles": styles.count
-            ])
+                let userScript = WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+                ctx.webView.configuration.userContentController.addUserScript(userScript)
+                return styles.count
+            }
+            _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: source, timeout: 10.0)
+
+            return .ok(v2BrowserPanelFields(ctx, adding: ["styles": stylesCount]))
         }
     }
 
@@ -10205,7 +10256,7 @@ class TerminalController {
           ports_kick [--tab=X] [--panel=Y] [--reason=command|refresh] - Request batched port scan for panel
           report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
-          report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
+          report_pwd <path|display-label> [--path=/actual/path] [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -10233,6 +10284,7 @@ class TerminalController {
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
+          sleepy_mode <cmd> [val]         - Sleepy Mode: on|off|unlock|preview|theme <t>|mascot <m>|glow <g>|toggle <k>|pets <c x o|clear> (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
@@ -11060,9 +11112,9 @@ class TerminalController {
             storedKey = "↑"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
-        case "enter", "return":
-            storedKey = "\r"
-            keyCode = UInt16(kVK_Return)
+        case "enter", "return", "tab":
+            storedKey = keyToken.lowercased() == "tab" ? "\t" : "\r"
+            keyCode = UInt16(keyToken.lowercased() == "tab" ? kVK_Tab : kVK_Return)
             charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()
@@ -11264,7 +11316,12 @@ class TerminalController {
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
-            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
+            let workspace = tabManager.addWorkspace(
+                title: title,
+                select: focus,
+                eagerLoadTerminal: !focus,
+                allowTextBoxFocusDefault: false
+            )
             newTabId = workspace.id
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
@@ -11326,7 +11383,8 @@ class TerminalController {
             switch tab.newTerminalSplitOutcome(
                 from: targetSurface,
                 orientation: direction.orientation,
-                insertFirst: direction.insertFirst
+                insertFirst: direction.insertFirst,
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 result = "OK \(panel.id.uuidString)"
@@ -11400,7 +11458,8 @@ class TerminalController {
                 return
             }
             let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-            let (title, subtitle, body) = parseNotificationPayload(args)
+            let (title, subtitle, body, meta) = parseNotificationPayload(args)
+            guard shouldDeliverAgentNotification(meta) else { return }
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -11432,7 +11491,8 @@ class TerminalController {
                 result = "ERROR: Surface not found"
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
+            let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+            guard shouldDeliverAgentNotification(meta) else { return }
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -11455,7 +11515,8 @@ class TerminalController {
         let tabArg = parts[0]
         let panelArg = parts[1]
         let payload = parts.count > 2 ? parts[2] : ""
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        guard shouldDeliverAgentNotification(meta) else { return "OK" }
 
         if let workspaceId = UUID(uuidString: tabArg),
            let panelId = UUID(uuidString: panelArg) {
@@ -11529,7 +11590,21 @@ class TerminalController {
         guard !payload.isEmpty else {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
-        let (title, subtitle, body) = parseNotificationPayload(payload)
+        let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+
+        // Agent-tagged notifications carry a category + a background-work-pending
+        // flag; gate delivery by the user's notification settings. Untagged
+        // notifications (meta == nil) always pass, preserving prior behavior.
+        guard shouldDeliverAgentNotification(meta) else {
+#if DEBUG
+            if let meta {
+                cmuxDebugLog(
+                    "socket.notifyTargetAsync.gated category=\(meta.category.rawValue) pending=\(meta.pending) workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8))"
+                )
+            }
+#endif
+            return "OK"
+        }
 #if DEBUG
         cmuxDebugLog(
             "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
@@ -11645,6 +11720,82 @@ class TerminalController {
     }
 
 #if DEBUG
+    /// Drives Sleepy Mode from the debug socket so automation can exercise the
+    /// overlay. `on`/`off` force a state, `toggle` flips it, and unknown commands
+    /// return an error (so e.g. `unlock` can never accidentally activate it).
+    func sleepyModeCommand(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        let cmd = parts.first?.lowercased() ?? ""
+        let value = parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespaces).lowercased() : ""
+        var isActive = false
+        var holding = false
+        var unknown = false
+        v2MainSync {
+            let store = SleepyModeController.shared.store
+            switch cmd {
+            case "on", "activate", "start":
+                SleepyModeController.shared.activate()
+            case "off", "deactivate", "stop", "unlock", "wake":
+                SleepyModeController.shared.deactivate()
+            case "preview":
+                SleepyModeController.shared.preview()
+            case "theme":
+                if let theme = SleepyTheme.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.theme = theme }
+            case "mascot":
+                if let mascot = SleepyMascot.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.mascot = mascot }
+            case "glow":
+                if let glow = SleepyGlow.allCases.first(where: { $0.rawValue.lowercased() == value }) { store.glow = glow }
+            case "toggle":
+                // No scene name: flip Sleepy Mode itself. A scene name flips that toggle.
+                switch value {
+                case "": SleepyModeController.shared.toggle()
+                case "moon": store.showMoon.toggle()
+                case "stars": store.showStars.toggle()
+                case "zs", "z": store.showZs.toggle()
+                case "clock": store.showClock.toggle()
+                case "status": store.showStatus.toggle()
+                case "pets": store.showPets.toggle()
+                default: unknown = true
+                }
+            case "customcolor":
+                let fields = value.split(separator: " ").map(String.init)
+                if fields.count == 2 {
+                    let hex = fields[1].uppercased()
+                    switch fields[0] {
+                    case "face": store.customFace = hex
+                    case "cap": store.customCap = hex
+                    case "blush": store.customBlush = hex
+                    case "eyes", "ink": store.customInk = hex
+                    case "logo": store.customLogo = hex
+                    case "bg", "background": store.customBackground = hex
+                    default: break
+                    }
+                }
+            case "pets":
+                if value == "clear" {
+                    SleepyModeController.shared.agentCensus.debugOverride = nil
+                } else {
+                    let n = value.split(separator: " ").map { Int($0) ?? 0 }
+                    SleepyModeController.shared.agentCensus.debugOverride = SleepyAgentCounts(
+                        claude: n.count > 0 ? n[0] : 0,
+                        codex: n.count > 1 ? n[1] : 0,
+                        opencode: n.count > 2 ? n[2] : 0,
+                        pi: n.count > 3 ? n[3] : 0
+                    )
+                }
+            default:
+                unknown = true
+            }
+            isActive = SleepyModeController.shared.isActive
+            holding = SleepyModeController.shared.isHoldingPowerAssertions
+        }
+        if unknown {
+            return "ERROR: unknown sleepy_mode command '\(cmd)' (use on/off/toggle/preview/unlock/theme/mascot/glow/pets/customcolor)"
+        }
+        return "OK \(isActive ? "active" : "inactive") assertions=\(holding)"
+    }
+
     func focusFromNotification(_ args: String) -> String {
         guard let tabManager else { return "ERROR: TabManager not available" }
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12291,16 +12442,58 @@ class TerminalController {
         return nil
     }
 
-    private func parseNotificationPayload(_ args: String) -> (String, String, String) {
+    /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
+    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
+    /// delivery by user config. The 4th segment is only treated as meta when it
+    /// begins with `c=`; otherwise it is folded back into the body, so legacy
+    /// callers whose body itself contains `|` parse byte-identically to before
+    /// (the fold reconstructs exactly the `maxSplits: 2` result).
+    private func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return ("Notification", "", "") }
-        let parts = trimmed.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard !trimmed.isEmpty else { return ("Notification", "", "", nil) }
+        var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+        var meta: AgentNotificationMeta? = nil
+        if parts.count == 4 {
+            // The 4th segment is treated as gating metadata only when it parses
+            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
+            // a legacy body that happens to contain "|c=..." — is folded back into
+            // the body so pre-meta callers parse byte-identically to before.
+            // Conscious tradeoff: this reserves exactly three trailing literals
+            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
+            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
+            // tail (unknown categories included) stays part of the body. Accepted
+            // because the only meta producers are cmux's own agent hooks (whose
+            // fields are |-sanitized) and a collision requires one of those exact
+            // suffixes.
+            let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
+            if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
+                meta = parsed
+            } else {
+                parts[2] += "|" + parts[3]
+            }
+            parts.removeLast()
+        }
         let title = parts.count > 0 ? parts[0].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let subtitle = parts.count > 2 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let body = parts.count > 2
             ? parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
             : (parts.count > 1 ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines) : "")
-        return (title.isEmpty ? "Notification" : title, subtitle, body)
+        return (title.isEmpty ? "Notification" : title, subtitle, body, meta)
+    }
+
+    /// Applies the user's agent-notification settings to a parsed meta tag.
+    /// `nil` meta (legacy/untagged payloads) always delivers.
+    private func shouldDeliverAgentNotification(_ meta: AgentNotificationMeta?) -> Bool {
+        guard let meta else { return true }
+        let catalog = NotificationsCatalogSection()
+        let turnMode = AgentTurnCompleteMode(rawValue: catalog.agentTurnComplete.value(in: .standard)) ?? .whenIdle
+        return agentNotificationShouldDeliver(
+            category: meta.category,
+            pending: meta.pending,
+            permissionEnabled: catalog.agentPermissionPrompt.value(in: .standard),
+            turnMode: turnMode,
+            idleEnabled: catalog.agentIdleReminder.value(in: .standard)
+        )
     }
 
     private func closeWorkspace(_ tabId: String) -> String {
@@ -13091,6 +13284,47 @@ class TerminalController {
         }
     }
 
+    /// Publish a `terminal.set_font` event to connected iOS device(s) so the
+    /// mirrored terminal live-zooms its font (the grid reflows automatically on
+    /// the phone). Drives the same iOS apply path as a pinch/zoom step, just
+    /// initiated from the Mac for automation (`cmux mobile set-font <size>`).
+    ///
+    /// Params: `{ "font_size": Number, optional "surface_id": String,
+    /// optional "workspace_id": String }`. When `surface_id` is omitted the
+    /// phone applies the size to every mounted surface. `nonisolated` because it
+    /// only touches the Sendable connection registry via
+    /// ``MobileHostService/emitEvent(topic:payload:)``.
+    nonisolated func v2MobileTerminalSetFont(params: [String: Any]) -> V2CallResult {
+        guard let fontSize = v2Double(params, "font_size") else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid font_size",
+                data: nil
+            )
+        }
+        guard fontSize.isFinite, fontSize > 0 else {
+            return .err(
+                code: "invalid_params",
+                message: "font_size must be a positive number of points",
+                data: ["font_size": fontSize]
+            )
+        }
+        var payload: [String: Any] = ["font_size": fontSize]
+        if let surfaceID = v2RawString(params, "surface_id") {
+            payload["surface_id"] = surfaceID
+        }
+        if let workspaceID = v2RawString(params, "workspace_id") {
+            payload["workspace_id"] = workspaceID
+        }
+        let hasSubscribers = MobileHostService.hasEventSubscribers(topic: "terminal.set_font")
+        MobileHostService.emitEvent(topic: "terminal.set_font", payload: payload)
+        return .ok([
+            "ok": true,
+            "font_size": fontSize,
+            "delivered": hasSubscribers,
+        ])
+    }
+
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.
     func v2MobileWorkspaceAction(params: [String: Any]) -> V2CallResult {
         let rawAction = v2RawString(params, "action")
@@ -13292,16 +13526,13 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty ||
-            !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else {
-            return
-        }
+        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else { return }
 
         for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
             timer.cancel()
         }
-        let surfaceIDs = Array(mobileViewportReportsBySurfaceID.keys)
-        mobileViewportReportsBySurfaceID.removeAll()
+        let surfaceIDs = Array(Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys))
+        mobileViewportReportsBySurfaceID.removeAll(); mobileViewportGenerationsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
@@ -13355,134 +13586,6 @@ class TerminalController {
         )
     }
 
-    // Shared workspace-create implementation (restored): the workspace.create
-    // command moved to ControlCommandCoordinator, but v2MobileWorkspaceCreate
-    // still drives this body for the mobile data-plane create path.
-    func v2WorkspaceCreate(
-        params: [String: Any],
-        tabManager resolvedTabManager: TabManager? = nil
-    ) -> V2CallResult {
-        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-
-        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
-
-        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
-
-        let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
-        let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
-            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !key.isEmpty else { return }
-            result[key] = pair.value
-        }
-        // Persistent per-workspace environment (issue #5995): applied to the initial
-        // shell AND every later pane/surface/split, and round-tripped through session
-        // restore. Socket callers must use `workspace_env`; bare `env` remains
-        // layout/config spelling elsewhere and is not silently reinterpreted here.
-        // Unlike `initial_env`, this is NOT gated on the presence of a layout — the
-        // workspace set must apply to layout-defined surfaces too.
-        let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(
-            v2StringMap(params, "workspace_env") ?? [:]
-        )
-        let cwd: String?
-        if let workingDirectory {
-            cwd = workingDirectory
-        } else if let raw = params["cwd"] {
-            guard let str = raw as? String else {
-                return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
-            }
-            cwd = str
-        } else {
-            cwd = nil
-        }
-
-        let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
-        let description = v2RawString(params, "description")
-
-        // Decode optional layout param (same JSON schema as cmux.json layout field).
-        // Validate before creating the workspace so malformed layouts fail fast.
-        var layoutNode: CmuxLayoutNode?
-        if let rawLayout = params["layout"] {
-            guard JSONSerialization.isValidJSONObject(rawLayout),
-                  let layoutData = try? JSONSerialization.data(withJSONObject: rawLayout) else {
-                return .err(code: "invalid_params", message: "layout must be a valid JSON object", data: nil)
-            }
-            do {
-                layoutNode = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
-            } catch {
-                return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
-            }
-        }
-
-        var newId: UUID?
-        var initialSurfaceId: UUID?
-        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-        let shouldEagerLoadTerminal = v2Bool(params, "eager_load_terminal") ?? !shouldFocus
-        let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
-        v2MainSync {
-            let ws = tabManager.addWorkspace(
-                title: title,
-                workingDirectory: cwd,
-                initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
-                initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
-                workspaceEnvironment: workspaceEnv,
-                select: shouldFocus,
-                eagerLoadTerminal: shouldEagerLoadTerminal,
-                autoRefreshMetadata: shouldAutoRefreshMetadata
-            )
-            ws.setCustomDescription(description)
-            if let layoutNode {
-                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
-            }
-            newId = ws.id
-            initialSurfaceId = ws.focusedPanelId
-        }
-
-        guard let newId else {
-            return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
-        }
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return .ok([
-            "window_id": v2OrNull(windowId?.uuidString),
-            "window_ref": v2Ref(kind: .window, uuid: windowId),
-            "workspace_id": newId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: newId),
-            "surface_id": v2OrNull(initialSurfaceId?.uuidString),
-            "surface_ref": v2Ref(kind: .surface, uuid: initialSurfaceId)
-        ])
-    }
-
-    func v2MobileWorkspaceCreate(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
-        }
-        var createParams = params
-        createParams["focus"] = false
-        createParams["eager_load_terminal"] = false
-        createParams["auto_refresh_metadata"] = false
-        let createResult = v2WorkspaceCreate(params: createParams, tabManager: tabManager)
-        switch createResult {
-        case let .ok(payload):
-            let createdWorkspaceID = (payload as? [String: Any])?["workspace_id"] as? String
-            if let createdWorkspaceID {
-                createParams["workspace_id"] = createdWorkspaceID
-            }
-            // workspace.updated emit is handled by MobileWorkspaceListObserver
-            // which watches TabManager.tabsPublisher directly. Don't fire here.
-            return v2MobileWorkspaceList(
-                params: createParams,
-                tabManager: tabManager,
-                createdWorkspaceID: createdWorkspaceID
-            )
-        case .err:
-            return createResult
-        }
-    }
-
     func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
@@ -13500,7 +13603,9 @@ class TerminalController {
             inPane: paneId,
             focus: false,
             autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false, inheritWorkingDirectoryFallback: true
+            preserveFocusWhenUnfocused: false,
+            inheritWorkingDirectoryFallback: true,
+            allowTextBoxFocusDefault: false
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
@@ -13527,6 +13632,11 @@ class TerminalController {
             #endif
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
+        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
+            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+        }
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
         let renderGrid = mobileTerminalRenderGridFrame(
@@ -13590,23 +13700,38 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        let reportedGrid: (columns: Int, rows: Int)?
+        let allowLiveSurfaceFallback: Bool
         if v2Bool(params, "clear") == true {
             if let clientID = v2String(params, "client_id") {
-                clearMobileViewportReport(
+                reportedGrid = clearMobileViewportReport(
                     surfaceID: terminalPanel.id,
-                    clientID: clientID,
+                    clientID: clientID, generation: v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }, requireGeneration: true,
                     reason: "mobile.terminal.viewport.clear"
                 )
+            } else {
+                reportedGrid = nil
             }
+            allowLiveSurfaceFallback = false
         } else {
-            applyMobileViewportReport(params: params, terminalPanel: terminalPanel, sticky: true)
+            reportedGrid = applyMobileViewportReport(
+                params: params,
+                terminalPanel: terminalPanel,
+                sticky: true,
+                reason: "mobile.terminal.viewport"
+            )
+            allowLiveSurfaceFallback = true
         }
 
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
         ]
-        if let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
+        if let reportedGrid {
+            payload["columns"] = reportedGrid.columns
+            payload["rows"] = reportedGrid.rows
+        } else if allowLiveSurfaceFallback,
+                  let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalViewport") {
             let size = ghostty_surface_size(surface)
             payload["columns"] = max(Int(size.columns), 1)
             payload["rows"] = max(Int(size.rows), 1)
@@ -13684,7 +13809,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
@@ -13742,7 +13867,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
@@ -13838,7 +13963,7 @@ class TerminalController {
             submitKeyName = "ctrl+enter"
         }
 
-        applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
+        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         // Send through the TerminalPanel explicit-input wrappers (not the raw
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
@@ -13902,38 +14027,73 @@ class TerminalController {
     private func applyMobileViewportReport(
         params: [String: Any],
         terminalPanel: TerminalPanel,
-        sticky: Bool = false
-    ) {
+        sticky: Bool = false,
+        reason: String = "mobile.terminal.input"
+    ) -> (columns: Int, rows: Int)? {
         guard let clientID = v2String(params, "client_id"),
               let rawColumns = v2Int(params, "viewport_columns"),
               let rawRows = v2Int(params, "viewport_rows") else {
-            return
+            return nil
         }
-
         let columns = min(max(rawColumns, 20), 300)
-        let rows = min(max(rawRows, 5), 120)
+        let rows = min(max(rawRows, 5), 120); let generation = v2Int(params, "viewport_generation").flatMap { $0 >= 0 ? UInt64($0) : nil }
         let now = Date()
         var reports = mobileViewportReportsBySurfaceID[terminalPanel.id] ?? [:]
         reports = reports.filter { _, report in
             report.sticky || now.timeIntervalSince(report.updatedAt) <= Self.mobileViewportReportTTL
         }
+        // The generation fence orders only the dedicated viewport reports
+        // (which carry viewport_generation) against each other and against
+        // generation-carrying clears. Generationless piggybacks from
+        // terminal.input / terminal.paste / scroll / mobile.terminal.replay
+        // stay accepted: they ride live requests, so their dimensions are
+        // current by construction, and they remain the recovery path when a
+        // dedicated report fails or exhausts its retries. The separate fence
+        // map survives their overwrites, so a later stale dedicated report is
+        // still rejected.
+        if let generation {
+            if let existingGeneration = reports[clientID]?.generation
+                ?? mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID],
+               existingGeneration > generation { return nil }
+            mobileViewportGenerationsBySurfaceID[terminalPanel.id, default: [:]][clientID] = generation
+        } else if reports[clientID] == nil,
+                  mobileViewportGenerationsBySurfaceID[terminalPanel.id]?[clientID] != nil {
+            // A generation-carrying clear tombstoned this client (fence entry
+            // recorded, report removed) and no newer dedicated report has
+            // re-pinned it, so a generationless report arriving now was sent
+            // before the detach. Reject it: a detached device must not
+            // resurrect its viewport pin. Attached clients keep a sticky
+            // dedicated report, so their piggyback recovery path is
+            // unaffected.
+            return nil
+        } else if reports[clientID]?.generation != nil {
+            // A generationless report cannot supersede a generation-carrying
+            // pin: modern clients attach generations to every dims-carrying
+            // request once a dedicated report exists, so a generationless
+            // arrival here is a stale pre-fence report (for example cached
+            // dimensions surviving a reconnect) that must not overwrite newer
+            // geometry. Legacy clients never record a generation, so their
+            // reports keep replacing each other freely.
+            return nil
+        }
+        let reportIsSticky = sticky || (reports[clientID]?.sticky ?? false)
         reports[clientID] = MobileViewportReport(
             columns: columns,
             rows: rows,
-            updatedAt: now,
-            sticky: sticky
+            updatedAt: now, generation: generation,
+            sticky: reportIsSticky
         )
         mobileViewportReportsBySurfaceID[terminalPanel.id] = reports
         scheduleMobileViewportReportCleanup(surfaceID: terminalPanel.id, reports: reports)
 
         guard let minColumns = reports.values.map(\.columns).min(),
               let minRows = reports.values.map(\.rows).min() else {
-            return
+            return nil
         }
-        terminalPanel.surface.applyMobileViewportLimit(
+        return terminalPanel.surface.applyMobileViewportLimit(
             columns: minColumns,
             rows: minRows,
-            reason: "mobile.terminal.input"
+            reason: reason
         )
     }
 
@@ -13941,28 +14101,34 @@ class TerminalController {
     /// `mobile.terminal.viewport` clear, or a disconnect), then recompute the
     /// remaining min and re-apply or clear the surface's viewport limit so the
     /// macOS border reflects only the devices still attached.
-    private func clearMobileViewportReport(surfaceID: UUID, clientID: String, reason: String) {
-        guard var reports = mobileViewportReportsBySurfaceID[surfaceID],
-              reports.removeValue(forKey: clientID) != nil else {
-            return
-        }
+    private func clearMobileViewportReport(
+        surfaceID: UUID,
+        clientID: String, generation: UInt64? = nil, requireGeneration: Bool = false,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
+        if requireGeneration, let generation { if let existingGeneration = mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID], existingGeneration > generation { return nil }; mobileViewportGenerationsBySurfaceID[surfaceID, default: [:]][clientID] = generation }
+        else if requireGeneration, (mobileViewportReportsBySurfaceID[surfaceID]?[clientID]?.generation ?? mobileViewportGenerationsBySurfaceID[surfaceID]?[clientID]) != nil { return nil }
+        else if var generations = mobileViewportGenerationsBySurfaceID[surfaceID] { generations.removeValue(forKey: clientID); mobileViewportGenerationsBySurfaceID[surfaceID] = generations.isEmpty ? nil : generations }
+        guard var reports = mobileViewportReportsBySurfaceID[surfaceID], reports[clientID] != nil else { return nil }
+        reports.removeValue(forKey: clientID)
         if reports.isEmpty {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
             terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
-            return
+            return nil
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            return terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason
             )
         }
+        return nil
     }
 
     /// Drop every viewport report owned by the given client IDs across all
@@ -13971,9 +14137,9 @@ class TerminalController {
     /// clear. Sticky reports rely on this signal instead of the TTL.
     func clearMobileViewportReports(clientIDs: Set<String>, reason: String) {
         guard !clientIDs.isEmpty else { return }
-        for surfaceID in Array(mobileViewportReportsBySurfaceID.keys) {
+        for surfaceID in Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys) {
             for clientID in clientIDs {
-                clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
+                _ = clearMobileViewportReport(surfaceID: surfaceID, clientID: clientID, reason: reason)
             }
         }
     }
@@ -14028,7 +14194,7 @@ class TerminalController {
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
+            _ = terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
                 columns: minColumns,
                 rows: minRows,
                 reason: reason

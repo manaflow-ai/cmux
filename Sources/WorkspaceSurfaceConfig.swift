@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import CmuxTerminalCore
 
 // CmuxSurfaceConfigTemplate and the surface runtime probes moved to
@@ -25,13 +26,20 @@ func cmuxInheritedSurfaceConfig(
     context: ghostty_surface_context_e
 ) -> CmuxSurfaceConfigTemplate {
     let inherited = ghostty_surface_inherited_config(sourceSurface, context)
-    var config = CmuxSurfaceConfigTemplate(cConfig: inherited)
+    let percent = GlobalFontMagnification.storedPercent
+    var config = CmuxSurfaceConfigTemplate(
+        cConfig: inherited,
+        globalFontMagnificationPercent: percent
+    )
 
     // Make runtime zoom inheritance explicit, even when Ghostty's
     // inherit-font-size config is disabled.
     let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
     if let points = runtimePoints {
-        config.fontSize = points
+        config.fontSize = CmuxSurfaceConfigTemplate.baseFontSize(
+            fromRuntimePoints: points,
+            percent: percent
+        )
     }
 
 #if DEBUG

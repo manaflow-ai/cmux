@@ -12,8 +12,8 @@ import Foundation
 /// accepts any bareword and an absent key evaluates to `false`, matching VS Code.
 /// This catalog is what tooling (docs, autocomplete) advertises as supported.
 ///
-/// The four focus keys (``sidebarFocus``, ``browserFocus``, ``markdownFocus``,
-/// ``terminalFocus``) are also expressed as ``ShortcutFocusAtom`` cases; a clause
+/// The focus keys (``sidebarFocus``, ``browserFocus``, ``markdownFocus``,
+/// ``filePreviewTextEditorFocus``, ``terminalFocus``) are also expressed as ``ShortcutFocusAtom`` cases; a clause
 /// referencing one of those names parses to ``ShortcutWhenClause/atom(_:)`` rather
 /// than ``ShortcutWhenClause/key(_:)`` so existing focus behavior is preserved.
 public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
@@ -23,12 +23,16 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     case browserFocus
     /// A markdown preview viewer owns focus.
     case markdownFocus
+    /// A file-preview text editor owns focus.
+    case filePreviewTextEditorFocus
     /// A terminal owns focus (no other focus atom holds).
     case terminalFocus
     /// The command palette overlay is visible in the shortcut's window.
     case commandPaletteVisible
     /// The focused terminal's find overlay is open.
     case terminalFindVisible
+    /// The focused workspace is using the freeform canvas layout.
+    case workspaceCanvasLayout
     /// The right sidebar's active mode (`files`, `find`, `sessions`, `feed`, `dock`).
     case sidebarMode
     /// The number of panes in the focused workspace.
@@ -39,8 +43,8 @@ public enum ShortcutContextKnownKey: String, CaseIterable, Sendable {
     /// The static value kind this key carries.
     public var valueType: ShortcutContextValueType {
         switch self {
-        case .sidebarFocus, .browserFocus, .markdownFocus, .terminalFocus,
-             .commandPaletteVisible, .terminalFindVisible:
+        case .sidebarFocus, .browserFocus, .markdownFocus, .filePreviewTextEditorFocus, .terminalFocus,
+             .commandPaletteVisible, .terminalFindVisible, .workspaceCanvasLayout:
             return .bool
         case .sidebarMode:
             return .string

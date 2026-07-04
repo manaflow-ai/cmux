@@ -3,7 +3,7 @@
 # Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
 # through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
 # GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/macos-ci-runners.md.
+# see docs/ci-runners.md.
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -54,14 +54,42 @@ check_release_build_runner_disk_capacity() {
   if ! awk '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /warp-macos-26-arm64-6x/ { saw_release_runner=1 }
+    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /blacksmith-6vcpu-macos-26/ { saw_release_runner=1 }
     END { exit !saw_release_runner }
   ' "$CI_FILE"; then
-    echo "FAIL: release-build must use the release-specific macOS 26 runner var with clean Warp fallback for disk-heavy universal builds"
+    echo "FAIL: release-build must use the release-specific macOS 26 runner var with a cloud (Blacksmith) fallback for disk-heavy universal builds"
     exit 1
   fi
 
   echo "PASS: release-build uses release-specific macOS 26 runner fallback"
+}
+
+check_build_lag_deriveddata_cache_path() {
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Prepare isolated DerivedData/ { in_prepare=1; next }
+    in_prepare && /^[[:space:]]*- name:/ { in_prepare=0 }
+    in_prepare && /DERIVED_DATA_PATH="\$RUNNER_TEMP\/cmux-deriveddata-tests-build-and-lag"/ { saw_prepare_path=1 }
+    in_prepare && /GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/ { saw_dynamic_prepare_path=1 }
+
+    in_job && /- name: Cache DerivedData/ { in_cache=1; after_cache=1; next }
+    in_cache && /^[[:space:]]*- name:/ { in_cache=0 }
+    in_cache && /path:[[:space:]]*\$\{\{ runner\.temp \}\}\/cmux-deriveddata-tests-build-and-lag/ { saw_cache_path=1 }
+    in_cache && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_cache_path=1 }
+
+    in_job && after_cache && /rm -rf "\$CMUX_DERIVED_DATA_PATH"/ { saw_post_cache_delete=1 }
+
+    END {
+      exit !(saw_prepare_path && saw_cache_path && !saw_dynamic_prepare_path && !saw_home_cache_path && !saw_post_cache_delete)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests-build-and-lag DerivedData cache must restore into the stable RUNNER_TEMP path xcodebuild uses, and must not delete that path after restore"
+    exit 1
+  fi
+
+  echo "PASS: tests-build-and-lag DerivedData cache path matches xcodebuild path"
 }
 
 check_e2e_runner_fallbacks() {
@@ -96,7 +124,7 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
+  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
     exit 1
   fi
@@ -221,7 +249,19 @@ check_signing_intermediate_imports() {
       echo "FAIL: signing helper must import Apple's $cert intermediate"
       exit 1
     fi
+    # Both intermediates must be vendored in-repo so signing never depends on a
+    # live www.apple.com fetch (a flaky request was producing intermittent
+    # "unable to build chain to self-signed root" codesign failures).
+    if [[ ! -s "$ROOT_DIR/scripts/apple-developer-id-certs/$cert" ]]; then
+      echo "FAIL: signing helper must vendor scripts/apple-developer-id-certs/$cert"
+      exit 1
+    fi
   done
+
+  if ! grep -Fq 'apple-developer-id-certs' "$helper"; then
+    echo "FAIL: signing helper must prefer the vendored apple-developer-id-certs copies before downloading"
+    exit 1
+  fi
 
   for curl_flag in "--connect-timeout 20" "--max-time 120"; do
     if ! grep -Fq -- "$curl_flag" "$helper"; then
@@ -306,24 +346,57 @@ esac
 EOF
   chmod +x "$bin_dir/security"
 
+  # --- Vendored path (default): the real helper has the certs committed beside
+  # it, so it must import both WITHOUT touching the network. ---
   if ! PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" "$helper" "$keychain" >"$tmp_dir/success.out" 2>"$tmp_dir/success.err"; then
-    echo "FAIL: signing helper behavior test should import both intermediates"
+    echo "FAIL: signing helper behavior test should import both intermediates from vendored copies"
     cat "$tmp_dir/success.err" >&2 || true
     exit 1
   fi
 
+  if [[ -s "$curl_log" ]]; then
+    echo "FAIL: signing helper must not hit the network when vendored intermediates are present"
+    cat "$curl_log" >&2 || true
+    exit 1
+  fi
+
+  if [[ "$(grep -c -- '-k '"$keychain" "$security_log")" -ne 2 ]]; then
+    echo "FAIL: signing helper behavior test did not add both vendored certificates to the requested keychain"
+    exit 1
+  fi
+
+  # --- Fallback path: run a copy of the helper with no vendored certs beside it
+  # (VENDOR_DIR resolves next to the script). It must download both intermediates. ---
+  local fb_dir fb_helper fb_curl_log fb_security_log fb_keychain
+  fb_dir="$tmp_dir/fallback"
+  mkdir -p "$fb_dir"
+  fb_helper="$fb_dir/import-apple-developer-id-intermediates.sh"
+  cp "$helper" "$fb_helper"
+  chmod +x "$fb_helper"
+  fb_curl_log="$tmp_dir/fb_curl.log"
+  fb_security_log="$tmp_dir/fb_security.log"
+  fb_keychain="$tmp_dir/fb_build.keychain"
+  touch "$fb_curl_log" "$fb_security_log" "$fb_keychain"
+
+  if ! PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$fb_curl_log" CMUX_STUB_SECURITY_LOG="$fb_security_log" "$fb_helper" "$fb_keychain" >"$tmp_dir/fb.out" 2>"$tmp_dir/fb.err"; then
+    echo "FAIL: signing helper fallback should download and import both intermediates"
+    cat "$tmp_dir/fb.err" >&2 || true
+    exit 1
+  fi
+
   for cert in DeveloperIDCA.cer DeveloperIDG2CA.cer; do
-    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$curl_log"; then
-      echo "FAIL: signing helper behavior test did not download $cert"
+    if ! grep -Fq "https://www.apple.com/certificateauthority/$cert" "$fb_curl_log"; then
+      echo "FAIL: signing helper fallback did not download $cert when no vendored copy was present"
       exit 1
     fi
   done
 
-  if [[ "$(grep -c -- '-k '"$keychain" "$security_log")" -ne 2 ]]; then
-    echo "FAIL: signing helper behavior test did not add both certificates to the requested keychain"
+  if [[ "$(grep -c -- '-k '"$fb_keychain" "$fb_security_log")" -ne 2 ]]; then
+    echo "FAIL: signing helper fallback did not add both downloaded certificates to the requested keychain"
     exit 1
   fi
 
+  # --- Count guard: helper must fail when fewer than two intermediates land. ---
   if PATH="$bin_dir:/usr/bin:/bin" CMUX_STUB_CURL_LOG="$curl_log" CMUX_STUB_SECURITY_LOG="$security_log" CMUX_STUB_CERT_COUNT_OVERRIDE=1 "$helper" "$keychain" >"$tmp_dir/fail.out" 2>"$tmp_dir/fail.err"; then
     echo "FAIL: signing helper behavior test should fail when fewer than two intermediates are visible"
     exit 1
@@ -335,7 +408,7 @@ EOF
   fi
 
   rm -rf "$tmp_dir"
-  echo "PASS: signing helper downloads, imports, and verifies Developer ID intermediates"
+  echo "PASS: signing helper imports vendored intermediates offline, downloads as fallback, and verifies the count"
 }
 
 check_sentry_cli_install_portability() {
@@ -632,12 +705,96 @@ check_tmux_terminal_nightly_isolation() {
   echo "PASS: tmux corpus terminal-nightly uses isolated DerivedData, noninteractive xcodebuild, and expected-failure handling"
 }
 
+check_no_bare_github_hosted_runners() {
+  # Every job must route its runner through a repo variable (LINUX_RUNNER,
+  # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
+  # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
+  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
+  # Bare paid-provider labels (blacksmith-*, warp-*, depot-*) stay allowed for
+  # deliberate single-runner pins such as the testmanagerd-wedged
+  # `app-host-unit-tests` job.
+  local hits
+  hits="$(grep -rnE "runs-on:[[:space:]]*(ubuntu-[a-z0-9.]+|macos-[a-z0-9]+)[[:space:]]*$" "$ROOT_DIR/.github/workflows" || true)"
+  if [[ -n "$hits" ]]; then
+    echo "FAIL: these jobs use a bare GitHub-hosted runner; route them through vars.LINUX_RUNNER / vars.MACOS_RUNNER_IOS so Blacksmith<->overflow stays a repo-variable flip:"
+    echo "$hits"
+    exit 1
+  fi
+  echo "PASS: no workflow pins a bare GitHub-hosted runner; all route through runner repo variables"
+}
+
+check_no_self_hosted_fleet_runners() {
+  # We do NOT use our self-hosted mac fleet for required CI. Those runners carry
+  # custom labels that collide with cloud labels, and GitHub PREFERS a matching
+  # self-hosted runner, so any required job that names such a label can land on
+  # a mini that cannot foreground a GUI app. Forbid every real fleet label (see
+  # the runner registry) and the bare self-hosted/macOS/ARM64 combos in
+  # runner-selection positions, so required jobs only ever use cloud runners.
+  # Allowed macOS labels (none carried by any fleet runner):
+  #   blacksmith-6vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
+  #   depot-macos-{latest,14}.
+  # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
+  # not required CI) and intentionally targets the fleet via a free-form input;
+  # this guard only inspects runner-selection lines, not its input description.
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local allowed='blacksmith-6vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
+
+  # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
+  # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
+  # lowercase `macos`/`arm64` inside cloud labels like warp-macos-15-arm64-6x.
+  local selfhosted='(^|[^A-Za-z0-9_-])(self-hosted|macOS|ARM64)([^A-Za-z0-9_-]|$)'
+  local forbidden="${fleet}|${selfhosted}"
+
+  # Self-test the matcher so a future edit cannot silently narrow it: every
+  # known fleet/self-hosted label must be caught, every allowed cloud label
+  # must pass. Probes are raw YAML values (no path:lineno: prefix).
+  local probe
+  for probe in 'runs-on: macfleet' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
+               "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
+               '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
+               'runs-on: [self-hosted, macOS, ARM64]'; do
+    if ! printf '%s\n' "$probe" | grep -Eq "($forbidden)"; then
+      echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
+      exit 1
+    fi
+  done
+  for probe in "runs-on: \${{ vars.X || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
+               '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
+               '- blacksmith-4vcpu-ubuntu-2404'; do
+    if printf '%s\n' "$probe" | grep -E "($forbidden)" | grep -Eqv "($allowed)"; then
+      echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
+      exit 1
+    fi
+  done
+
+  local hits="" line content
+  # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
+  # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
+  # `runs-on:` arrays). `- name:` / `- uses:` step entries have a colon and are
+  # excluded. grep matches against file CONTENT; strip the `path:lineno:` prefix
+  # before matching the value so the checkout path (which contains "cmux") can
+  # never match the bare `cmux` label.
+  while IFS= read -r line; do
+    content="${line#*:*:}"
+    printf '%s\n' "$content" | grep -Eq "($forbidden)" || continue
+    printf '%s\n' "$content" | grep -Eq "($allowed)" && continue
+    hits+="$line"$'\n'
+  done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
+  if [[ -n "$hits" ]]; then
+    echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
+    echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
+    echo "      blacksmith-6vcpu-macos-{15,26,latest} / warp-macos-15-arm64-6x / depot-macos-{latest,14}."
+    echo "$hits"
+    exit 1
+  fi
+  echo "PASS: no workflow can route a required job to a self-hosted mac fleet runner (cloud only)"
+}
+
 # ci.yml jobs
-# The heavy macOS test work runs in the tests-shard matrix and the package-tests
-# job. The `tests` job is a lightweight ubuntu aggregator that reports the
-# required status check, so it is intentionally not on a paid macOS runner.
-check_macos_runner "$CI_FILE" "tests-shard"
-check_macos_runner "$CI_FILE" "package-tests"
+check_no_bare_github_hosted_runners
+check_no_self_hosted_fleet_runners
+check_macos_runner "$CI_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-ghostty-cli-helper"
 check_macos_runner "$CI_FILE" "release-build"
@@ -645,6 +802,7 @@ check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
 check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
+check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"

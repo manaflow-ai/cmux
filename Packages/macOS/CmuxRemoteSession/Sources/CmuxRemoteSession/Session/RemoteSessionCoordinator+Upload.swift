@@ -15,7 +15,7 @@ extension RemoteSessionCoordinator {
     public func uploadDroppedFiles(
         _ fileURLs: [URL],
         operation: any RemoteTransferCancelling,
-        completion: @escaping @Sendable (Result<[String], Error>) -> Void
+        completion: @escaping @Sendable (Result<[String], any Error>) -> Void
     ) {
         queue.async { [weak self] in
             guard let self else {

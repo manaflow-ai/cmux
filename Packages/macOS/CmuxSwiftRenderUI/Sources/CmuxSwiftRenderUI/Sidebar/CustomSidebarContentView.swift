@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSwiftRender
 import SwiftUI
 
@@ -56,7 +57,7 @@ public struct CustomSidebarContentView: View {
         case .missing:
             scrollWrap(
                 Text(String(localized: "sidebar.custom.missing", defaultValue: "Sidebar file is empty or missing.", bundle: .module))
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
             )
         case let .json(document):
@@ -119,10 +120,10 @@ public struct CustomSidebarContentView: View {
                 String(localized: "sidebar.custom.error", defaultValue: "Sidebar error", bundle: .module),
                 systemImage: "exclamationmark.triangle.fill"
             )
-            .font(.caption.bold())
+            .cmuxFont(.caption, weight: .bold)
             .foregroundStyle(.orange)
             Text(message)
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

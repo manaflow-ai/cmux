@@ -1,7 +1,6 @@
 import AppKit
 import Testing
 import CmuxTerminalCore
-import CmuxTerminalCopyMode
 
 @Suite struct CopyModeModifierMappingTests {
     @Test func mapsEachRelevantFlag() {

@@ -57,9 +57,10 @@ import UserNotifications
             pendingDismissQueue: queue
         )
 
-        await store.dismissNotification(ids: [" n-1 ", "", "n-2"])
+        await store.dismissNotification(ids: [" n-1 ", "", "n-2"], macDeviceID: " mac-a ")
 
         #expect(queue.pendingIDs == ["n-1", "n-2"])
+        #expect(queue.pendingDismisses.map(\.macDeviceID) == ["mac-a", "mac-a"])
     }
 
     @Test func dismissWithNoUsableIDsLeavesOutboxEmpty() async {
@@ -74,6 +75,59 @@ import UserNotifications
         await store.dismissNotification(ids: ["", "   "])
 
         #expect(queue.pendingIDs.isEmpty)
+    }
+
+    @Test func dismissRoutesToOwningSecondaryMac() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let secondaryRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: foregroundRouter)
+        try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
+
+        await store.dismissNotification(ids: [" n-secondary "], macDeviceID: "mac-secondary")
+
+        let foregroundDismisses = await foregroundRouter.recordedDismisses()
+        let secondaryDismisses = await secondaryRouter.recordedDismisses()
+        #expect(foregroundDismisses.isEmpty)
+        #expect(secondaryDismisses.map(\.notificationIDs) == [["n-secondary"]])
+        #expect(store.pendingDismissQueue.pendingDismisses.isEmpty)
+    }
+
+    @Test func secondaryFlushDrainsOnlyThatMacsQueuedDismisses() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let secondaryRouter = RoutingHostRouter()
+        let queue = PendingNotificationDismissQueue(
+            defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: foregroundRouter,
+            pendingDismissQueue: queue
+        )
+        queue.enqueue([
+            (id: "n-secondary", macDeviceID: "mac-secondary"),
+            (id: "n-other", macDeviceID: "mac-other"),
+        ])
+        try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
+
+        await store.flushPendingNotificationDismisses(macDeviceID: "mac-secondary")
+
+        let foregroundDismisses = await foregroundRouter.recordedDismisses()
+        let secondaryDismisses = await secondaryRouter.recordedDismisses()
+        #expect(foregroundDismisses.isEmpty)
+        #expect(secondaryDismisses.map(\.notificationIDs) == [["n-secondary"]])
+        #expect(queue.pendingDismisses.map(\.id) == ["n-other"])
+        #expect(queue.pendingDismisses.map(\.macDeviceID) == ["mac-other"])
+    }
+
+    @Test func dismissForUnavailableMacStaysQueuedAndDoesNotHitForeground() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(router: foregroundRouter)
+
+        await store.dismissNotification(ids: ["n-missing"], macDeviceID: "mac-missing")
+
+        let foregroundDismisses = await foregroundRouter.recordedDismisses()
+        #expect(foregroundDismisses.isEmpty)
+        #expect(store.pendingDismissQueue.pendingDismisses.map(\.id) == ["n-missing"])
+        #expect(store.pendingDismissQueue.pendingDismisses.map(\.macDeviceID) == ["mac-missing"])
     }
 
     @Test func setsBadgeToAuthoritativeTotal() {
@@ -93,6 +147,14 @@ import UserNotifications
         store.applyAuthoritativeUnreadBadge(-3)
 
         #expect(clearer.badgeCounts == [0])
+    }
+
+    @Test func systemClearerNoOpsOutsideAppBundle() async {
+        let clearer = SystemDeliveredNotificationClearer()
+
+        await clearer.removeDelivered(ids: ["n-1"])
+        #expect(await clearer.deliveredIdentifiers() == [])
+        clearer.setBadgeCount(3)
     }
 
     @Test func reconcileClearsHandledBannersAndSetsBadge() async throws {
