@@ -48,18 +48,25 @@ public struct CustomToolbarAction: Codable, Equatable, Sendable, Identifiable {
     public var itemID: ToolbarItemID { .custom(id) }
 
     /// The bytes sent to the terminal when the button is tapped, or `nil` when
-    /// the payload resolves to nothing (empty text, or an unencodable key combo).
+    /// the payload resolves to nothing (empty text, an unencodable key combo, or
+    /// a macro whose every step resolves to nothing).
     ///
-    /// For ``ToolbarActionPayload/text(_:)`` newlines are normalized to carriage
-    /// returns, matching the terminal input pipeline's Return handling.
+    /// Each payload kind resolves through ``ToolbarMacroStep/output`` so text and
+    /// key-combo encoding live in one place; a ``ToolbarActionPayload/macro(_:)``
+    /// concatenates its steps' bytes in order into a single write (no inter-step
+    /// delays). For text, newlines are normalized to carriage returns, matching
+    /// the terminal input pipeline's Return handling.
     public var output: Data? {
         switch payload {
         case let .text(value):
-            let normalized = value.replacingOccurrences(of: "\n", with: "\r")
-            guard !normalized.isEmpty else { return nil }
-            return Data(normalized.utf8)
+            return ToolbarMacroStep.text(value).output
         case let .keyCombo(modifiers, key):
-            return TerminalKeyEncoder.encode(specialKey: key, modifiers: modifiers)
+            return ToolbarMacroStep.keyCombo(modifiers: modifiers, key: key).output
+        case let .macro(steps):
+            let bytes = steps.reduce(into: Data()) { accumulated, step in
+                if let output = step.output { accumulated.append(output) }
+            }
+            return bytes.isEmpty ? nil : bytes
         }
     }
 }
