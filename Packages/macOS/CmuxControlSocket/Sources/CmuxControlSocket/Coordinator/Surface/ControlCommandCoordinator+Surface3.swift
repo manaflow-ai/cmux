@@ -11,7 +11,8 @@ extension ControlCommandCoordinator {
 
     /// The byte-faithful twin of `v2SurfaceResumeTargetValidationError`: an
     /// `invalid_params` error when any of `window_id` / `workspace_id` /
-    /// `surface_id` / `tab_id` is present-but-non-null yet does not resolve.
+    /// `surface_id` / `terminal_id` / `tab_id` is present-but-non-null yet
+    /// does not resolve.
     private func surfaceResumeTargetValidationError(
         _ params: [String: JSONValue]
     ) -> ControlCallResult? {
