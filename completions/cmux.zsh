@@ -279,7 +279,7 @@ _cmux() {
             if [[ $prev == --focus ]]; then
                 compadd -- true false; return
             fi
-            compadd -- --focus ;;
+            compadd -- open --focus ;;
         memory)
             compadd -- --all --groups --workspace ;;
         move-surface)
@@ -401,6 +401,8 @@ _cmux() {
             compadd -- --label --window --workspace ;;
         set-status)
             compadd -- --color --icon --priority --window --workspace ;;
+        settings)
+            compadd -- docs open path ;;
         sidebar)
             compadd -- open reload select validate ;;
         sidebar-state)

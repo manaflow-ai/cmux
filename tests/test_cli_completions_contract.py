@@ -176,17 +176,22 @@ def main() -> int:
                     f"{', '.join(missing[:10])}{'...' if len(missing) > 10 else ''}"
                 )
 
-    # Regression guard: spaced pipe alternatives in a command suffix, such as
-    # `browser disable | enable | status`, must produce every alternative.
-    browser_subcommands = {"disable", "enable", "status"}
+    # Regression guard: first-level subcommands can be written as spaced pipe
+    # alternatives, optional single values, or nested optional choice groups.
+    expected_subcommands = {
+        "browser": {"disable", "enable", "status"},
+        "markdown": {"open"},
+        "settings": {"docs", "open", "path"},
+    }
     for shell, text in regenerated.items():
-        actual = command_completion_words(shell, text, "browser")
-        missing = sorted(browser_subcommands - actual)
-        if missing:
-            failures.append(
-                f"{shell}: browser completions missing spaced-pipe "
-                f"subcommand(s): {', '.join(missing)}"
-            )
+        for command, expected_words in expected_subcommands.items():
+            actual = command_completion_words(shell, text, command)
+            missing = sorted(expected_words - actual)
+            if missing:
+                failures.append(
+                    f"{shell}: {command} completions missing first-level "
+                    f"subcommand(s): {', '.join(missing)}"
+                )
 
     # Best-effort: the committed scripts must be shell-syntax valid.
     for shell, filename in SHELLS.items():

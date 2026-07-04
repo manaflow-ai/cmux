@@ -141,7 +141,7 @@ _cmux() {
             if [[ $prev == --focus ]]; then
                 __cmux_compgen "true false" "$cur"; return
             fi
-            __cmux_compgen "--focus" "$cur"; return ;;
+            __cmux_compgen "open --focus" "$cur"; return ;;
         memory)
             __cmux_compgen "--all --groups --workspace" "$cur"; return ;;
         move-surface)
@@ -263,6 +263,8 @@ _cmux() {
             __cmux_compgen "--label --window --workspace" "$cur"; return ;;
         set-status)
             __cmux_compgen "--color --icon --priority --window --workspace" "$cur"; return ;;
+        settings)
+            __cmux_compgen "docs open path" "$cur"; return ;;
         sidebar)
             __cmux_compgen "open reload select validate" "$cur"; return ;;
         sidebar-state)

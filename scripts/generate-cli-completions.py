@@ -94,6 +94,8 @@ METAVARS = {
     "points", "ms", "seconds", "count", "hex", "cmd", "command", "script",
     "selector", "css", "key", "value", "query", "email", "body", "image",
     "level", "target", "profile", "args", "opt", "host", "port", "ws", "event",
+    "agent", "destination", "method", "pane", "patch-file", "path-or-url",
+    "surface", "window", "workspace",
 }
 
 
@@ -131,6 +133,121 @@ def spaced_pipe_alternatives(tokens: list[str]) -> list[str]:
     if len(alternatives) > 1 and not expect_word:
         return alternatives
     return []
+
+
+def balanced_group_content(text: str) -> str | None:
+    """Content of a leading balanced `[...]` or `<...>` group."""
+    if not text:
+        return None
+    pairs = {"[": "]", "<": ">"}
+    opener = text[0]
+    closer = pairs.get(opener)
+    if closer is None:
+        return None
+    depth = 0
+    for index, char in enumerate(text):
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return text[1:index]
+    return None
+
+
+def split_top_level_alternatives(text: str) -> list[str]:
+    """Split `a|b [c]|<d|e>` on pipes outside nested grammar groups."""
+    alternatives: list[str] = []
+    start = 0
+    square_depth = 0
+    angle_depth = 0
+    for index, char in enumerate(text):
+        if char == "[":
+            square_depth += 1
+        elif char == "]" and square_depth > 0:
+            square_depth -= 1
+        elif char == "<":
+            angle_depth += 1
+        elif char == ">" and angle_depth > 0:
+            angle_depth -= 1
+        elif char == "|" and square_depth == 0 and angle_depth == 0:
+            alternatives.append(text[start:index].strip())
+            start = index + 1
+    alternatives.append(text[start:].strip())
+    return [alt for alt in alternatives if alt]
+
+
+def first_literal_from_argument(argument: str, allow_metavar: bool = False) -> str | None:
+    """First completable literal from one help grammar argument alternative."""
+    argument = argument.strip()
+    if not argument:
+        return None
+    group = balanced_group_content(argument)
+    if group is not None:
+        choices = split_top_level_alternatives(group)
+        if not is_real_enum(choices):
+            return None
+        group_allows_metavar = any(
+            first_literal_from_argument(choice) for choice in choices
+        )
+        for choice in choices:
+            literal = first_literal_from_argument(
+                choice,
+                allow_metavar=group_allows_metavar,
+            )
+            if literal:
+                return literal
+        return None
+    first = argument.split()[0]
+    if re.fullmatch(r"[a-z][a-z0-9-]*", first) and (
+        allow_metavar or first not in METAVARS
+    ):
+        return first
+    return None
+
+
+def first_argument_subcommands(tail: str) -> set[str]:
+    """Subcommands described by the first grammar argument after a command."""
+    tail = tail.strip()
+    if not tail:
+        return set()
+    tokens = tail.split()
+    alternatives = spaced_pipe_alternatives(tokens)
+    if alternatives:
+        return set(alternatives)
+
+    group = balanced_group_content(tail)
+    if group is not None:
+        choices = split_top_level_alternatives(group)
+        if not is_real_enum(choices):
+            return set()
+        group_allows_metavar = any(
+            first_literal_from_argument(choice) for choice in choices
+        )
+        return {
+            literal
+            for choice in choices
+            if (
+                literal := first_literal_from_argument(
+                    choice,
+                    allow_metavar=group_allows_metavar,
+                )
+            )
+        }
+
+    first = tokens[0]
+    pipe_parts = first.split("|")
+    if len(pipe_parts) > 1 and all(
+        re.fullmatch(r"[a-z][a-z0-9-]*", part) for part in pipe_parts
+    ):
+        # Unbracketed pipe group of bare words = literal subcommand
+        # alternatives (e.g. `feed tui|clear`, `browser goto|navigate`,
+        # `browser url|get-url`). Placeholders are conventionally bracketed,
+        # so the METAVARS filter does not apply here.
+        return set(pipe_parts)
+
+    literal = first_literal_from_argument(first)
+    return {literal} if literal else set()
 
 
 @dataclass
@@ -292,33 +409,13 @@ def parse_help(help_text: str, known: set[str]) -> dict[str, CommandSpec]:
             continue
 
         # Subcommand: a bare word, an unbracketed `a|b|c` group, or a bracketed
-        # choice group immediately after a single command. Only inspect the
-        # command portion before the help-description spacing, so prose does
+        # optional/choice group immediately after a single command. Only inspect
+        # the command portion before the help-description spacing, so prose does
         # not become a phantom subcommand.
         sub: set[str] = set()
-        cmd_portion = line.split("  ")[0].split()
-        if len(targets) == 1 and len(cmd_portion) > 1:
-            sub_tokens = cmd_portion[1:]
-            alternatives = spaced_pipe_alternatives(sub_tokens)
-            if alternatives:
-                sub.update(alternatives)
-            else:
-                nxt = sub_tokens[0]
-                pipe_parts = nxt.split("|")
-                if re.fullmatch(r"[a-z][a-z0-9-]*", nxt) and nxt not in METAVARS:
-                    sub.add(nxt)
-                elif len(pipe_parts) > 1 and all(
-                    re.fullmatch(r"[a-z][a-z0-9-]*", p) for p in pipe_parts
-                ):
-                    # Unbracketed pipe group of bare words = literal subcommand
-                    # alternatives (e.g. `feed tui|clear`, `browser goto|navigate`,
-                    # `browser url|get-url`). Placeholders are conventionally
-                    # bracketed, so the METAVARS filter does not apply here.
-                    sub.update(pipe_parts)
-            for grp in CHOICE_RE.findall(" ".join(cmd_portion[1:2])):
-                choices = grp.split("|")
-                if is_real_enum(choices):
-                    sub.update(choices)
+        cmd_portion = line.split("  ")[0]
+        if len(targets) == 1 and head in known:
+            sub.update(first_argument_subcommands(cmd_portion[len(head):]))
 
         flags = set(m for m in FLAG_RE.findall(line) if m.startswith("--"))
         flag_values = {

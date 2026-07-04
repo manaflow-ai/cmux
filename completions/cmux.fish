@@ -395,6 +395,7 @@ complete -c cmux -n '__cmux_command_is mark-notification-read' -l id
 complete -c cmux -n '__cmux_command_is mark-notification-read' -l surface
 complete -c cmux -n '__cmux_command_is mark-notification-read' -l window
 complete -c cmux -n '__cmux_command_is mark-notification-read' -l workspace
+complete -c cmux -n '__cmux_command_is markdown' -f -a 'open'
 complete -c cmux -n '__cmux_command_is markdown' -l focus -f -a 'true false'
 complete -c cmux -n '__cmux_command_is memory' -l all
 complete -c cmux -n '__cmux_command_is memory' -l groups
@@ -565,6 +566,9 @@ complete -c cmux -n '__cmux_command_is set-status' -l icon
 complete -c cmux -n '__cmux_command_is set-status' -l priority
 complete -c cmux -n '__cmux_command_is set-status' -l window
 complete -c cmux -n '__cmux_command_is set-status' -l workspace
+complete -c cmux -n '__cmux_command_is settings' -f -a 'docs'
+complete -c cmux -n '__cmux_command_is settings' -f -a 'open'
+complete -c cmux -n '__cmux_command_is settings' -f -a 'path'
 complete -c cmux -n '__cmux_command_is sidebar' -f -a 'open'
 complete -c cmux -n '__cmux_command_is sidebar' -f -a 'reload'
 complete -c cmux -n '__cmux_command_is sidebar' -f -a 'select'
