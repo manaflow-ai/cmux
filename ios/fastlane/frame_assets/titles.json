@@ -4,7 +4,7 @@
     "02-Notifications": "اعرف فور احتياج الوكيل لك",
     "03-Claude": "شغّل Claude Code من هاتفك",
     "04-Codex": "Codex، أينما كنت",
-    "05-Opencode": "OpenCode وpi وأي وكيل",
+    "05-Opencode": "OpenCode وأي وكيل",
     "06-Pi": "شغّل pi من هاتفك"
   },
   "ca": {
@@ -12,7 +12,7 @@
     "02-Notifications": "Saber quan un agent et necessita",
     "03-Claude": "Executa Claude Code des del mòbil",
     "04-Codex": "Codex, on siguis",
-    "05-Opencode": "OpenCode, pi, qualsevol agent",
+    "05-Opencode": "OpenCode i qualsevol agent",
     "06-Pi": "Executa pi des del mòbil"
   },
   "cs": {
@@ -20,7 +20,7 @@
     "02-Notifications": "Víš hned, když tě agent potřebuje",
     "03-Claude": "Spusť Claude Code z telefonu",
     "04-Codex": "Codex, kdekoliv jsi",
-    "05-Opencode": "OpenCode, pi, jakýkoli agent",
+    "05-Opencode": "OpenCode a jakýkoli agent",
     "06-Pi": "Spusť pi z telefonu"
   },
   "da": {
@@ -28,7 +28,7 @@
     "02-Notifications": "Vid det øjeblik en agent har brug for dig",
     "03-Claude": "Kør Claude Code fra din telefon",
     "04-Codex": "Codex, uanset hvor du er",
-    "05-Opencode": "OpenCode, pi, enhver agent",
+    "05-Opencode": "OpenCode og enhver agent",
     "06-Pi": "Kør pi fra din telefon"
   },
   "de-DE": {
@@ -36,7 +36,7 @@
     "02-Notifications": "Sofort wissen, wenn ein Agent dich braucht",
     "03-Claude": "Claude Code vom Handy ausführen",
     "04-Codex": "Codex, wo immer du bist",
-    "05-Opencode": "OpenCode, pi, jeder Agent",
+    "05-Opencode": "OpenCode und jeder Agent",
     "06-Pi": "pi vom Handy ausführen"
   },
   "el": {
@@ -44,7 +44,7 @@
     "02-Notifications": "Μάθε αμέσως όταν σε χρειάζεται ο agent",
     "03-Claude": "Τρέξε το Claude Code από το κινητό σου",
     "04-Codex": "Codex, όπου κι αν είσαι",
-    "05-Opencode": "OpenCode, pi, οποιοσδήποτε agent",
+    "05-Opencode": "OpenCode και οποιοσδήποτε agent",
     "06-Pi": "Τρέξε το pi από το κινητό σου"
   },
   "en-AU": {
@@ -52,7 +52,7 @@
     "02-Notifications": "Know the moment an agent needs you",
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
-    "05-Opencode": "OpenCode, pi, any agent",
+    "05-Opencode": "OpenCode and any agent",
     "06-Pi": "Run pi from your phone"
   },
   "en-CA": {
@@ -60,7 +60,7 @@
     "02-Notifications": "Know the moment an agent needs you",
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
-    "05-Opencode": "OpenCode, pi, any agent",
+    "05-Opencode": "OpenCode and any agent",
     "06-Pi": "Run pi from your phone"
   },
   "en-GB": {
@@ -68,7 +68,7 @@
     "02-Notifications": "Know the moment an agent needs you",
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
-    "05-Opencode": "OpenCode, pi, any agent",
+    "05-Opencode": "OpenCode and any agent",
     "06-Pi": "Run pi from your phone"
   },
   "en-US": {
@@ -76,7 +76,7 @@
     "02-Notifications": "Know the moment an agent needs you",
     "03-Claude": "Run Claude Code from your phone",
     "04-Codex": "Codex, wherever you are",
-    "05-Opencode": "OpenCode, pi, any agent",
+    "05-Opencode": "OpenCode and any agent",
     "06-Pi": "Run pi from your phone"
   },
   "es-ES": {
@@ -84,7 +84,7 @@
     "02-Notifications": "Sabe al instante cuando un agente te necesita",
     "03-Claude": "Ejecuta Claude Code desde tu móvil",
     "04-Codex": "Codex, donde estés",
-    "05-Opencode": "OpenCode, pi, cualquier agente",
+    "05-Opencode": "OpenCode y cualquier agente",
     "06-Pi": "Ejecuta pi desde tu móvil"
   },
   "es-MX": {
@@ -92,7 +92,7 @@
     "02-Notifications": "Entérate en cuanto un agente te necesite",
     "03-Claude": "Corre Claude Code desde tu celular",
     "04-Codex": "Codex, donde quiera que estés",
-    "05-Opencode": "OpenCode, pi, cualquier agente",
+    "05-Opencode": "OpenCode y cualquier agente",
     "06-Pi": "Corre pi desde tu celular"
   },
   "fi": {
@@ -100,7 +100,7 @@
     "02-Notifications": "Tiedä heti kun agentti tarvitsee sinua",
     "03-Claude": "Käynnistä Claude Code puhelimeltasi",
     "04-Codex": "Codex, missä ikinä oletkin",
-    "05-Opencode": "OpenCode, pi, mikä tahansa agentti",
+    "05-Opencode": "OpenCode ja mikä tahansa agentti",
     "06-Pi": "Käynnistä pi puhelimeltasi"
   },
   "fr-CA": {
@@ -108,7 +108,7 @@
     "02-Notifications": "Sache dès qu'un agent a besoin de toi",
     "03-Claude": "Lance Claude Code depuis ton téléphone",
     "04-Codex": "Codex, où que tu sois",
-    "05-Opencode": "OpenCode, pi, n'importe quel agent",
+    "05-Opencode": "OpenCode et n'importe quel agent",
     "06-Pi": "Lance pi depuis ton téléphone"
   },
   "fr-FR": {
@@ -116,7 +116,7 @@
     "02-Notifications": "Sachez dès qu'un agent a besoin de vous",
     "03-Claude": "Lancez Claude Code depuis votre téléphone",
     "04-Codex": "Codex, où que vous soyez",
-    "05-Opencode": "OpenCode, pi, n'importe quel agent",
+    "05-Opencode": "OpenCode et n'importe quel agent",
     "06-Pi": "Lancez pi depuis votre téléphone"
   },
   "he": {
@@ -124,7 +124,7 @@
     "02-Notifications": "דע ברגע שסוכן זקוק לך",
     "03-Claude": "הפעל את Claude Code מהטלפון שלך",
     "04-Codex": "Codex, בכל מקום שאתה נמצא",
-    "05-Opencode": "OpenCode ,pi, כל סוכן",
+    "05-Opencode": "OpenCode וכל סוכן",
     "06-Pi": "הפעל את pi מהטלפון שלך"
   },
   "hi": {
@@ -132,7 +132,7 @@
     "02-Notifications": "जब भी एजेंट को जरूरत हो, तुरंत जानें",
     "03-Claude": "अपने फोन से Claude Code चलाएं",
     "04-Codex": "Codex, जहां भी हों",
-    "05-Opencode": "OpenCode, pi, कोई भी एजेंट",
+    "05-Opencode": "OpenCode और कोई भी एजेंट",
     "06-Pi": "अपने फोन से pi चलाएं"
   },
   "hr": {
@@ -140,7 +140,7 @@
     "02-Notifications": "Znaj čim agent treba tebe",
     "03-Claude": "Pokreni Claude Code s mobitela",
     "04-Codex": "Codex, gdje god bio",
-    "05-Opencode": "OpenCode, pi, bilo koji agent",
+    "05-Opencode": "OpenCode i bilo koji agent",
     "06-Pi": "Pokreni pi s mobitela"
   },
   "hu": {
@@ -148,7 +148,7 @@
     "02-Notifications": "Tudd meg azonnal, ha egy ügynöknek szükséged van",
     "03-Claude": "Futtasd a Claude Code-ot a telefonodról",
     "04-Codex": "Codex, bárhol is vagy",
-    "05-Opencode": "OpenCode, pi, bármely ügynök",
+    "05-Opencode": "OpenCode és bármely ügynök",
     "06-Pi": "Futtasd a pi-ot a telefonodról"
   },
   "id": {
@@ -156,7 +156,7 @@
     "02-Notifications": "Tahu saat agen membutuhkanmu",
     "03-Claude": "Jalankan Claude Code dari ponselmu",
     "04-Codex": "Codex, di mana pun kamu berada",
-    "05-Opencode": "OpenCode, pi, agen apa pun",
+    "05-Opencode": "OpenCode dan agen apa pun",
     "06-Pi": "Jalankan pi dari ponselmu"
   },
   "it": {
@@ -164,7 +164,7 @@
     "02-Notifications": "Sappi subito quando un agente ti serve",
     "03-Claude": "Esegui Claude Code dal tuo telefono",
     "04-Codex": "Codex, ovunque tu sia",
-    "05-Opencode": "OpenCode, pi, qualsiasi agente",
+    "05-Opencode": "OpenCode e qualsiasi agente",
     "06-Pi": "Esegui pi dal tuo telefono"
   },
   "ja": {
@@ -172,7 +172,7 @@
     "02-Notifications": "エージェントが必要とした瞬間に通知",
     "03-Claude": "Claude Codeをスマホから実行",
     "04-Codex": "Codex、どこにいても",
-    "05-Opencode": "OpenCode、pi、どのエージェントも",
+    "05-Opencode": "OpenCode、どのエージェントも",
     "06-Pi": "piをスマホから実行"
   },
   "ko": {
@@ -180,7 +180,7 @@
     "02-Notifications": "에이전트가 필요할 때 즉시 알림",
     "03-Claude": "폰에서 Claude Code 실행",
     "04-Codex": "Codex, 어디서든",
-    "05-Opencode": "OpenCode, pi, 모든 에이전트",
+    "05-Opencode": "OpenCode와 모든 에이전트",
     "06-Pi": "폰에서 pi 실행"
   },
   "ms": {
@@ -188,7 +188,7 @@
     "02-Notifications": "Tahu serta-merta apabila ejen memerlukanmu",
     "03-Claude": "Jalankan Claude Code dari telefon kamu",
     "04-Codex": "Codex, di mana sahaja kamu berada",
-    "05-Opencode": "OpenCode, pi, mana-mana ejen",
+    "05-Opencode": "OpenCode dan mana-mana ejen",
     "06-Pi": "Jalankan pi dari telefon kamu"
   },
   "nl-NL": {
@@ -196,7 +196,7 @@
     "02-Notifications": "Weet het moment dat een agent je nodig heeft",
     "03-Claude": "Voer Claude Code uit vanaf je telefoon",
     "04-Codex": "Codex, waar je ook bent",
-    "05-Opencode": "OpenCode, pi, elke agent",
+    "05-Opencode": "OpenCode en elke agent",
     "06-Pi": "Voer pi uit vanaf je telefoon"
   },
   "no": {
@@ -204,7 +204,7 @@
     "02-Notifications": "Vit med det samme en agent trenger deg",
     "03-Claude": "Kjør Claude Code fra telefonen",
     "04-Codex": "Codex, uansett hvor du er",
-    "05-Opencode": "OpenCode, pi, hvilken som helst agent",
+    "05-Opencode": "OpenCode og hvilken som helst agent",
     "06-Pi": "Kjør pi fra telefonen"
   },
   "pl": {
@@ -212,7 +212,7 @@
     "02-Notifications": "Wiedz od razu, gdy agent cię potrzebuje",
     "03-Claude": "Uruchom Claude Code z telefonu",
     "04-Codex": "Codex, gdziekolwiek jesteś",
-    "05-Opencode": "OpenCode, pi, każdy agent",
+    "05-Opencode": "OpenCode i każdy agent",
     "06-Pi": "Uruchom pi z telefonu"
   },
   "pt-BR": {
@@ -220,7 +220,7 @@
     "02-Notifications": "Saiba na hora em que um agente precisar de você",
     "03-Claude": "Rode o Claude Code pelo celular",
     "04-Codex": "Codex, onde você estiver",
-    "05-Opencode": "OpenCode, pi, qualquer agente",
+    "05-Opencode": "OpenCode e qualquer agente",
     "06-Pi": "Rode o pi pelo celular"
   },
   "pt-PT": {
@@ -228,7 +228,7 @@
     "02-Notifications": "Saiba no momento em que um agente precisar de si",
     "03-Claude": "Execute o Claude Code a partir do seu telemóvel",
     "04-Codex": "Codex, onde quer que esteja",
-    "05-Opencode": "OpenCode, pi, qualquer agente",
+    "05-Opencode": "OpenCode e qualquer agente",
     "06-Pi": "Execute o pi a partir do seu telemóvel"
   },
   "ro": {
@@ -236,7 +236,7 @@
     "02-Notifications": "Află în clipa în care un agent are nevoie de tine",
     "03-Claude": "Rulează Claude Code de pe telefon",
     "04-Codex": "Codex, oriunde ai fi",
-    "05-Opencode": "OpenCode, pi, orice agent",
+    "05-Opencode": "OpenCode și orice agent",
     "06-Pi": "Rulează pi de pe telefon"
   },
   "ru": {
@@ -244,7 +244,7 @@
     "02-Notifications": "Узнай сразу, когда агент нуждается в тебе",
     "03-Claude": "Запускай Claude Code с телефона",
     "04-Codex": "Codex, где бы ты ни был",
-    "05-Opencode": "OpenCode, pi, любой агент",
+    "05-Opencode": "OpenCode и любой агент",
     "06-Pi": "Запускай pi с телефона"
   },
   "sk": {
@@ -252,7 +252,7 @@
     "02-Notifications": "Vedz hneď, keď ťa agent potrebuje",
     "03-Claude": "Spusti Claude Code z telefónu",
     "04-Codex": "Codex, kdekoľvek si",
-    "05-Opencode": "OpenCode, pi, akýkoľvek agent",
+    "05-Opencode": "OpenCode a akýkoľvek agent",
     "06-Pi": "Spusti pi z telefónu"
   },
   "sv": {
@@ -260,7 +260,7 @@
     "02-Notifications": "Vet direkt när en agent behöver dig",
     "03-Claude": "Kör Claude Code från din telefon",
     "04-Codex": "Codex, var du än är",
-    "05-Opencode": "OpenCode, pi, vilken agent som helst",
+    "05-Opencode": "OpenCode och vilken agent som helst",
     "06-Pi": "Kör pi från din telefon"
   },
   "th": {
@@ -268,7 +268,7 @@
     "02-Notifications": "รู้ทันทีเมื่อ agent ต้องการคุณ",
     "03-Claude": "รัน Claude Code จากโทรศัพท์ของคุณ",
     "04-Codex": "Codex ที่ไหนก็ได้",
-    "05-Opencode": "OpenCode, pi, ทุก agent",
+    "05-Opencode": "OpenCode และทุก agent",
     "06-Pi": "รัน pi จากโทรศัพท์ของคุณ"
   },
   "tr": {
@@ -276,7 +276,7 @@
     "02-Notifications": "Bir agent seni gerektirdiği an bil",
     "03-Claude": "Claude Code'u telefonundan çalıştır",
     "04-Codex": "Codex, nerede olursan ol",
-    "05-Opencode": "OpenCode, pi, herhangi bir agent",
+    "05-Opencode": "OpenCode ve herhangi bir agent",
     "06-Pi": "pi'u telefonundan çalıştır"
   },
   "uk": {
@@ -284,7 +284,7 @@
     "02-Notifications": "Дізнайся миттєво, коли агент потребує тебе",
     "03-Claude": "Запускай Claude Code з телефону",
     "04-Codex": "Codex, де б ти не був",
-    "05-Opencode": "OpenCode, pi, будь-який агент",
+    "05-Opencode": "OpenCode і будь-який агент",
     "06-Pi": "Запускай pi з телефону"
   },
   "vi": {
@@ -292,7 +292,7 @@
     "02-Notifications": "Biết ngay khi agent cần bạn",
     "03-Claude": "Chạy Claude Code từ điện thoại",
     "04-Codex": "Codex, ở bất cứ đâu",
-    "05-Opencode": "OpenCode, pi, bất kỳ agent nào",
+    "05-Opencode": "OpenCode và bất kỳ agent nào",
     "06-Pi": "Chạy pi từ điện thoại"
   },
   "zh-Hans": {
@@ -300,7 +300,7 @@
     "02-Notifications": "即时知晓 agent 何时需要你",
     "03-Claude": "在手机上运行 Claude Code",
     "04-Codex": "Codex，随时随地",
-    "05-Opencode": "OpenCode、pi，任意 agent",
+    "05-Opencode": "OpenCode 与任意 agent",
     "06-Pi": "在手机上运行 pi"
   },
   "zh-Hant": {
@@ -308,7 +308,7 @@
     "02-Notifications": "即時掌握 agent 何時需要你",
     "03-Claude": "在手機上執行 Claude Code",
     "04-Codex": "Codex，無論身在何處",
-    "05-Opencode": "OpenCode、pi，任何 agent",
+    "05-Opencode": "OpenCode 與任何 agent",
     "06-Pi": "在手機上執行 pi"
   }
 }
