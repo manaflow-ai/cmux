@@ -60,10 +60,10 @@ enum ProBadgeStyle: String, CaseIterable, Identifiable {
         switch self {
         case .crownOnly:
             return nil
+        case .textPro, .textUpgrade:
+            return String(localized: "sidebar.pro.badge", defaultValue: "Upgrade")
         case .textGetPro:
             return "Get Pro"
-        case .textUpgrade:
-            return "Upgrade"
         default:
             return "Pro"
         }
