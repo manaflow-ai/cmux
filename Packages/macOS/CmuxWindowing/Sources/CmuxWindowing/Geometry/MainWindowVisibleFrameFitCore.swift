@@ -25,8 +25,8 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
                 )
             }
             .sorted { lhs, rhs in
-                let lhsID = Self.displayIDSortValue(lhs.displayID)
-                let rhsID = Self.displayIDSortValue(rhs.displayID)
+                let lhsID = displayIDSortValue(lhs.displayID)
+                let rhsID = displayIDSortValue(rhs.displayID)
                 if lhsID != rhsID { return lhsID < rhsID }
                 if lhs.frame.minX != rhs.frame.minX { return lhs.frame.minX < rhs.frame.minX }
                 if lhs.frame.minY != rhs.frame.minY { return lhs.frame.minY < rhs.frame.minY }
@@ -75,11 +75,11 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
         minimumHeight: CGFloat
     ) -> CGRect? {
         let standardizedFrame = frame.standardized
-        guard Self.isUsableRect(standardizedFrame) else { return nil }
+        guard isUsableRect(standardizedFrame) else { return nil }
 
-        let usableDisplays = displays.filter { Self.isUsableRect($0.visibleFrame) }
+        let usableDisplays = displays.filter { isUsableRect($0.visibleFrame) }
         guard !usableDisplays.isEmpty else { return nil }
-        if usableDisplays.contains(where: { Self.contains($0.visibleFrame, standardizedFrame) }) {
+        if usableDisplays.contains(where: { contains($0.visibleFrame, standardizedFrame) }) {
             return nil
         }
 
@@ -91,7 +91,7 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             minimumWidth: minimumWidth,
             minimumHeight: minimumHeight
         )
-        return Self.rectApproximatelyEqual(fitted, standardizedFrame) ? nil : fitted
+        return rectApproximatelyEqual(fitted, standardizedFrame) ? nil : fitted
     }
 
     private func targetDisplay(
@@ -147,14 +147,14 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
         return (dx * dx) + (dy * dy)
     }
 
-    private static func contains(_ outer: CGRect, _ inner: CGRect) -> Bool {
+    private func contains(_ outer: CGRect, _ inner: CGRect) -> Bool {
         outer.minX <= inner.minX
             && outer.minY <= inner.minY
             && outer.maxX >= inner.maxX
             && outer.maxY >= inner.maxY
     }
 
-    private static func isUsableRect(_ rect: CGRect) -> Bool {
+    private func isUsableRect(_ rect: CGRect) -> Bool {
         rect.origin.x.isFinite
             && rect.origin.y.isFinite
             && rect.width.isFinite
@@ -163,7 +163,7 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             && rect.height > 0
     }
 
-    private static func rectApproximatelyEqual(
+    private func rectApproximatelyEqual(
         _ lhs: CGRect,
         _ rhs: CGRect,
         tolerance: CGFloat = 0.5
@@ -174,7 +174,7 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             && abs(lhs.height - rhs.height) <= tolerance
     }
 
-    private static func displayIDSortValue(_ displayID: UInt32?) -> UInt64 {
+    private func displayIDSortValue(_ displayID: UInt32?) -> UInt64 {
         displayID.map(UInt64.init) ?? UInt64.max
     }
 }
