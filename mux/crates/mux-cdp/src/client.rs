@@ -28,8 +28,31 @@ pub struct TargetInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetCreated {
+    pub target_id: String,
+    pub opener_id: Option<String>,
+    pub target_type: String,
+    pub title: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationEntry {
+    pub id: u64,
+    pub url: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationHistory {
+    pub current_index: usize,
+    pub entries: Vec<NavigationEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdpEvent {
     ScreencastFrame(ScreencastFrame),
+    TargetCreated(TargetCreated),
     TargetInfoChanged(TargetInfo),
     Other { method: String, params: Value, session_id: Option<String> },
     Closed(String),
@@ -192,8 +215,54 @@ impl CdpClient {
         self.call("Page.stopScreencast", json!({}), Some(session_id)).map(|_| ())
     }
 
-    pub fn navigate(&self, session_id: &str, url: &str) -> anyhow::Result<()> {
-        self.call("Page.navigate", json!({ "url": url }), Some(session_id)).map(|_| ())
+    pub fn navigate(&self, session_id: &str, url: &str) -> anyhow::Result<Option<String>> {
+        let result = self.call("Page.navigate", json!({ "url": url }), Some(session_id))?;
+        Ok(result
+            .get("errorText")
+            .and_then(|value| value.as_str())
+            .filter(|error| !error.is_empty())
+            .map(ToOwned::to_owned))
+    }
+
+    pub fn navigation_history(&self, session_id: &str) -> anyhow::Result<NavigationHistory> {
+        let result = self.call("Page.getNavigationHistory", json!({}), Some(session_id))?;
+        let current_index = result
+            .get("currentIndex")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow::anyhow!("Page.getNavigationHistory missing currentIndex"))?
+            as usize;
+        let entries = result
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow::anyhow!("Page.getNavigationHistory missing entries"))?
+            .iter()
+            .filter_map(|entry| {
+                Some(NavigationEntry {
+                    id: entry.get("id")?.as_u64()?,
+                    url: entry.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                    title: entry
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                })
+            })
+            .collect();
+        Ok(NavigationHistory { current_index, entries })
+    }
+
+    pub fn navigate_to_history_entry(&self, session_id: &str, entry_id: u64) -> anyhow::Result<()> {
+        self.call("Page.navigateToHistoryEntry", json!({ "entryId": entry_id }), Some(session_id))
+            .map(|_| ())
+    }
+
+    pub fn reload(&self, session_id: &str) -> anyhow::Result<()> {
+        self.call("Page.reload", json!({}), Some(session_id)).map(|_| ())
+    }
+
+    pub fn handle_javascript_dialog(&self, session_id: &str, accept: bool) -> anyhow::Result<()> {
+        self.call("Page.handleJavaScriptDialog", json!({ "accept": accept }), Some(session_id))
+            .map(|_| ())
     }
 
     pub fn set_device_metrics(
@@ -379,6 +448,11 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 let _ = inner.events.send(CdpEvent::ScreencastFrame(frame));
             }
         }
+        "Target.targetCreated" => {
+            if let Some(created) = target_created(&params) {
+                let _ = inner.events.send(CdpEvent::TargetCreated(created));
+            }
+        }
         "Target.targetInfoChanged" => {
             if let Some(info) = target_info(&params, session_id.as_deref()) {
                 let _ = inner.events.send(CdpEvent::TargetInfoChanged(info));
@@ -434,6 +508,17 @@ fn target_info(params: &Value, session_id: Option<&str>) -> Option<TargetInfo> {
     Some(TargetInfo {
         session_id: session_id.map(str::to_string),
         target_id: info.get("targetId")?.as_str()?.to_string(),
+        title: info.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        url: info.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+    })
+}
+
+fn target_created(params: &Value) -> Option<TargetCreated> {
+    let info = params.get("targetInfo")?;
+    Some(TargetCreated {
+        target_id: info.get("targetId")?.as_str()?.to_string(),
+        opener_id: info.get("openerId").and_then(|v| v.as_str()).map(str::to_string),
+        target_type: info.get("type").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         title: info.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
         url: info.get("url").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
     })

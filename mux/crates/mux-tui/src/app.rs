@@ -115,6 +115,11 @@ pub enum MenuAction {
     CloseWorkspace(WorkspaceId),
     RenameScreen(mux_core::ScreenId),
     CloseScreen(mux_core::ScreenId),
+    BrowserBack(PaneId),
+    BrowserForward(PaneId),
+    BrowserReload(PaneId),
+    BrowserEditUrl(PaneId),
+    BrowserCopyUrl(PaneId),
     RenameTab(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
@@ -131,6 +136,11 @@ impl MenuAction {
             MenuAction::CloseWorkspace(_) => "Close workspace",
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
+            MenuAction::BrowserBack(_) => "Back",
+            MenuAction::BrowserForward(_) => "Forward",
+            MenuAction::BrowserReload(_) => "Reload",
+            MenuAction::BrowserEditUrl(_) => "Edit URL",
+            MenuAction::BrowserCopyUrl(_) => "Copy URL",
             MenuAction::RenameTab(_) => "Rename tab",
             MenuAction::NewTab(_) => "New tab",
             MenuAction::NewBrowserTab(_) => "New browser tab",
@@ -198,6 +208,7 @@ pub enum PromptTarget {
     Screen(mux_core::ScreenId),
     Surface(SurfaceId),
     BrowserTab { pane: Option<PaneId> },
+    BrowserNavigate { surface: SurfaceId },
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
@@ -489,7 +500,7 @@ impl App {
         terminal.draw(|f| crate::ui::draw(self, f))?;
         self.emit_graphics()?;
 
-        while !self.quit {
+        while !self.quit && !crate::shutdown_requested() {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
             let timeout = if self.shake_frames > 0 {
@@ -663,6 +674,10 @@ impl App {
                 }
                 Ok(true)
             }
+            AppEvent::Mux(MuxEvent::Status(message)) => {
+                self.status_message = Some(message);
+                Ok(true)
+            }
             AppEvent::Mux(_) => Ok(true),
             AppEvent::Input(Event::Key(key)) => self.handle_key(key),
             AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
@@ -768,6 +783,20 @@ impl App {
                     }
                 }
             }
+            PromptTarget::BrowserNavigate { surface } => {
+                if !prompt.buffer.trim().is_empty() {
+                    match self.session.surface(surface) {
+                        Some(handle) => {
+                            if let Err(e) = handle.browser_navigate(&prompt.buffer) {
+                                self.status_message = Some(e.to_string());
+                            } else {
+                                self.status_message = None;
+                            }
+                        }
+                        None => self.status_message = Some("unknown browser surface".to_string()),
+                    }
+                }
+            }
         }
     }
 
@@ -836,7 +865,6 @@ impl App {
                 let action = menu.items[menu.selected];
                 self.menu = None;
                 self.activate_menu(action)?;
-                self.status_message = None;
                 Ok(true)
             }
             _ => Ok(true), // swallow while a menu is open
@@ -858,6 +886,14 @@ impl App {
         let Some(action) = self.config.keys.action_for(&key) else {
             return Ok(true); // unknown prefix command: swallow, redraw indicator
         };
+        if browser_only_action(action)
+            && !self
+                .active_surface_handle()
+                .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+        {
+            self.forward_key(&key);
+            return Ok(true);
+        }
         self.run_action(action)
     }
 
@@ -903,6 +939,25 @@ impl App {
             Action::FocusDown => self.move_focus(0, 1),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
+            Action::BrowserBack => {
+                let result = self.browser_back();
+                self.set_status_from_browser_result(result);
+                return Ok(true);
+            }
+            Action::BrowserForward => {
+                let result = self.browser_forward();
+                self.set_status_from_browser_result(result);
+                return Ok(true);
+            }
+            Action::BrowserReload => {
+                let result = self.browser_reload();
+                self.set_status_from_browser_result(result);
+                return Ok(true);
+            }
+            Action::BrowserEditUrl => {
+                self.open_browser_url_prompt();
+                return Ok(true);
+            }
             Action::Detach => {
                 // Local sessions end with the TUI; remote sessions keep
                 // running server-side (detach).
@@ -912,6 +967,10 @@ impl App {
         }
         self.status_message = None;
         Ok(true)
+    }
+
+    fn set_status_from_browser_result(&mut self, result: anyhow::Result<()>) {
+        self.status_message = result.err().map(|err| err.to_string());
     }
 
     fn open_rename_tab_prompt(&mut self, pane: Option<PaneId>) {
@@ -959,6 +1018,74 @@ impl App {
         )
     }
 
+    fn active_browser_handle(&self) -> anyhow::Result<SurfaceHandle> {
+        let Some(surface) = self.active_surface_handle() else {
+            anyhow::bail!("no active surface");
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            anyhow::bail!("active surface is not a browser");
+        }
+        Ok(surface)
+    }
+
+    fn browser_back(&mut self) -> anyhow::Result<()> {
+        self.active_browser_handle()?.browser_back()
+    }
+
+    fn browser_forward(&mut self) -> anyhow::Result<()> {
+        self.active_browser_handle()?.browser_forward()
+    }
+
+    fn browser_reload(&mut self) -> anyhow::Result<()> {
+        self.active_browser_handle()?.browser_reload()
+    }
+
+    fn open_browser_url_prompt(&mut self) {
+        let Some(pane) = self.active_pane() else { return };
+        self.open_browser_url_prompt_for_pane(pane);
+    }
+
+    fn open_browser_url_prompt_for_pane(&mut self, pane: PaneId) {
+        let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
+            return;
+        };
+        let Some(surface) = self.session.surface(surface_id) else { return };
+        if surface.kind() != SurfaceKind::Browser {
+            return;
+        }
+        let buffer = surface.browser_url().unwrap_or_else(|| "https://".to_string());
+        self.prompt = Some(Prompt::new(
+            "Edit URL",
+            buffer,
+            PromptTarget::BrowserNavigate { surface: surface_id },
+        ));
+    }
+
+    fn browser_handle_for_pane(&self, pane: PaneId) -> anyhow::Result<SurfaceHandle> {
+        let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
+            anyhow::bail!("pane has no active surface");
+        };
+        let Some(surface) = self.session.surface(surface_id) else {
+            anyhow::bail!("unknown surface {surface_id}");
+        };
+        if surface.kind() != SurfaceKind::Browser {
+            anyhow::bail!("active surface is not a browser");
+        }
+        Ok(surface)
+    }
+
+    fn browser_copy_url(&mut self, pane: PaneId) {
+        let Some(surface_id) = self.tree.pane(pane).and_then(|pane| pane.active_surface()) else {
+            return;
+        };
+        let Some(url) = self.session.surface(surface_id).and_then(|surface| surface.browser_url())
+        else {
+            return;
+        };
+        self.copy_text(&url);
+        self.status_message = Some("browser URL copied".to_string());
+    }
+
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
         match action {
             MenuAction::RenameWorkspace(id) => {
@@ -985,6 +1112,23 @@ impl App {
                 self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
+            MenuAction::BrowserBack(id) => {
+                let result =
+                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_back());
+                self.set_status_from_browser_result(result);
+            }
+            MenuAction::BrowserForward(id) => {
+                let result =
+                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_forward());
+                self.set_status_from_browser_result(result);
+            }
+            MenuAction::BrowserReload(id) => {
+                let result =
+                    self.browser_handle_for_pane(id).and_then(|handle| handle.browser_reload());
+                self.set_status_from_browser_result(result);
+            }
+            MenuAction::BrowserEditUrl(id) => self.open_browser_url_prompt_for_pane(id),
+            MenuAction::BrowserCopyUrl(id) => self.browser_copy_url(id),
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
             MenuAction::NewBrowserTab(id) => self.open_browser_tab_prompt(Some(id)),
@@ -1365,6 +1509,10 @@ impl App {
         if text.is_empty() {
             return;
         }
+        self.copy_text(&text);
+    }
+
+    fn copy_text(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
@@ -1491,19 +1639,26 @@ impl App {
             _ => {}
         }
         if let Some(area) = self.pane_area_at(x, y) {
-            self.menu = Some(ContextMenu::at(
-                x,
-                y,
-                vec![
-                    MenuAction::RenameTab(area.pane),
-                    MenuAction::NewTab(area.pane),
-                    MenuAction::NewBrowserTab(area.pane),
-                    MenuAction::SplitRight(area.pane),
-                    MenuAction::SplitDown(area.pane),
-                    MenuAction::CloseTab(area.pane),
-                    MenuAction::ClosePane(area.pane),
-                ],
-            ));
+            let mut items = Vec::new();
+            if self.surface_kind(area.surface) == SurfaceKind::Browser {
+                items.extend([
+                    MenuAction::BrowserBack(area.pane),
+                    MenuAction::BrowserForward(area.pane),
+                    MenuAction::BrowserReload(area.pane),
+                    MenuAction::BrowserEditUrl(area.pane),
+                    MenuAction::BrowserCopyUrl(area.pane),
+                ]);
+            }
+            items.extend([
+                MenuAction::RenameTab(area.pane),
+                MenuAction::NewTab(area.pane),
+                MenuAction::NewBrowserTab(area.pane),
+                MenuAction::SplitRight(area.pane),
+                MenuAction::SplitDown(area.pane),
+                MenuAction::CloseTab(area.pane),
+                MenuAction::ClosePane(area.pane),
+            ]);
+            self.menu = Some(ContextMenu::at(x, y, items));
         }
     }
 
@@ -1591,6 +1746,16 @@ fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
         out |= 8;
     }
     out
+}
+
+fn browser_only_action(action: Action) -> bool {
+    matches!(
+        action,
+        Action::BrowserBack
+            | Action::BrowserForward
+            | Action::BrowserReload
+            | Action::BrowserEditUrl
+    )
 }
 
 fn rects_intersect(a: Rect, b: Rect) -> bool {

@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use ghostty_vt::{RenderState, Terminal};
 use mux_core::{
-    BrowserFrame, DefaultColors, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface, SurfaceId,
-    SurfaceKind, WorkspaceId,
+    BrowserFrame, BrowserStatus, DefaultColors, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface,
+    SurfaceId, SurfaceKind, WorkspaceId,
 };
 use serde_json::json;
 
@@ -42,7 +42,7 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
 pub enum SurfaceHandle {
     Local(Arc<Surface>),
     Remote(Arc<RemoteSurface>, Arc<RemoteSession>),
-    RemoteBrowser,
+    RemoteBrowserUnsupported,
 }
 
 impl Session {
@@ -99,7 +99,13 @@ impl Session {
             Session::Local(mux) => mux.surface(id).map(SurfaceHandle::Local),
             Session::Remote(remote) => {
                 if remote.surface_kind(id) == SurfaceKind::Browser {
-                    Some(SurfaceHandle::RemoteBrowser)
+                    if remote.supports_browser_attach() {
+                        remote
+                            .ensure_surface(id, size)
+                            .map(|surface| SurfaceHandle::Remote(surface, remote.clone()))
+                    } else {
+                        Some(SurfaceHandle::RemoteBrowserUnsupported)
+                    }
                 } else {
                     remote
                         .ensure_surface(id, size)
@@ -126,13 +132,24 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux.new_browser_tab(url, pane, size).map(|_| ()),
-            Session::Remote(_) => anyhow::bail!("browser panes are not supported over attach yet"),
+            Session::Remote(remote) => {
+                if !remote.supports_browser_attach() {
+                    anyhow::bail!("browser panes are not supported over attach yet");
+                }
+                remote
+                    .request(with_size(
+                        json!({"cmd": "new-browser-tab", "url": url, "pane": pane}),
+                        size,
+                    ))
+                    .map(|_| ())
+            }
         }
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
-        if let Session::Local(mux) = self {
-            mux.set_cell_pixel_size(width_px, height_px);
+        match self {
+            Session::Local(mux) => mux.set_cell_pixel_size(width_px, height_px),
+            Session::Remote(remote) => remote.set_cell_pixel_size(width_px, height_px),
         }
     }
 
@@ -323,8 +340,8 @@ impl SurfaceHandle {
     pub fn kind(&self) -> SurfaceKind {
         match self {
             SurfaceHandle::Local(surface) => surface.kind(),
-            SurfaceHandle::Remote(_, _) => SurfaceKind::Pty,
-            SurfaceHandle::RemoteBrowser => SurfaceKind::Browser,
+            SurfaceHandle::Remote(surface, _) => surface.kind,
+            SurfaceHandle::RemoteBrowserUnsupported => SurfaceKind::Browser,
         }
     }
 
@@ -336,7 +353,7 @@ impl SurfaceHandle {
             SurfaceHandle::Remote(surface, session) => {
                 session.send_bytes(surface.id, bytes);
             }
-            SurfaceHandle::RemoteBrowser => {}
+            SurfaceHandle::RemoteBrowserUnsupported => {}
         }
     }
 
@@ -353,7 +370,7 @@ impl SurfaceHandle {
                     }));
                 }
             }
-            SurfaceHandle::RemoteBrowser => {}
+            SurfaceHandle::RemoteBrowserUnsupported => {}
         }
     }
 
@@ -361,15 +378,19 @@ impl SurfaceHandle {
         match self {
             SurfaceHandle::Local(surface) => surface.take_dirty(),
             SurfaceHandle::Remote(surface, _) => surface.dirty.swap(false, Ordering::AcqRel),
-            SurfaceHandle::RemoteBrowser => false,
+            SurfaceHandle::RemoteBrowserUnsupported => false,
         }
     }
 
     pub fn snapshot(&self, rs: &mut RenderState) -> ghostty_vt::Result<()> {
         match self {
             SurfaceHandle::Local(surface) => surface.snapshot(rs),
-            SurfaceHandle::Remote(surface, _) => rs.update(&mut surface.term.lock().unwrap()),
-            SurfaceHandle::RemoteBrowser => Err(ghostty_vt::Error::InvalidValue),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                rs.update(&mut surface.term.lock().unwrap())
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => {
+                Err(ghostty_vt::Error::InvalidValue)
+            }
         }
     }
 
@@ -378,29 +399,55 @@ impl SurfaceHandle {
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
         match self {
             SurfaceHandle::Local(surface) => surface.with_terminal(f),
-            SurfaceHandle::Remote(surface, _) => Some(f(&mut surface.term.lock().unwrap())),
-            SurfaceHandle::RemoteBrowser => None,
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                Some(f(&mut surface.term.lock().unwrap()))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
         match self {
             SurfaceHandle::Local(surface) => surface.browser_frame(),
-            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowser => None,
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_frame()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 
     pub fn browser_url(&self) -> Option<String> {
         match self {
             SurfaceHandle::Local(surface) => surface.browser_url(),
-            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowser => None,
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                surface.browser_url()
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn browser_status(&self) -> Option<BrowserStatus> {
+        match self {
+            SurfaceHandle::Local(surface) => surface.browser_status(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Browser => {
+                Some(surface.browser_status())
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 
     pub fn browser_insert_text(&self, text: &str) -> anyhow::Result<()> {
         match self {
             SurfaceHandle::Local(surface) => surface.browser_insert_text(text),
-            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowser => {
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                session
+                    .request(
+                        json!({"cmd": "browser-insert-text", "surface": surface.id, "text": text}),
+                    )
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
                 anyhow::bail!("browser panes are not supported over attach yet")
             }
         }
@@ -424,7 +471,27 @@ impl SurfaceHandle {
                 modifiers,
                 text,
             ),
-            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowser => {
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                let kind = match event_type {
+                    "keyDown" => "down",
+                    "keyUp" => "up",
+                    _ => anyhow::bail!("bad browser key event type {event_type:?}"),
+                };
+                session
+                    .request(json!({
+                        "cmd": "browser-key",
+                        "surface": surface.id,
+                        "kind": kind,
+                        "key": key,
+                        "code": code,
+                        "windows_virtual_key_code": windows_virtual_key_code,
+                        "modifiers": modifiers,
+                        "text": text,
+                    }))
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
                 anyhow::bail!("browser panes are not supported over attach yet")
             }
         }
@@ -442,7 +509,27 @@ impl SurfaceHandle {
             SurfaceHandle::Local(surface) => {
                 surface.browser_mouse_event(event_type, x, y, button, click_count)
             }
-            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowser => {
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                let kind = match event_type {
+                    "mousePressed" => "down",
+                    "mouseReleased" => "up",
+                    "mouseMoved" => "move",
+                    _ => anyhow::bail!("bad browser mouse event type {event_type:?}"),
+                };
+                session
+                    .request(json!({
+                        "cmd": "browser-mouse",
+                        "surface": surface.id,
+                        "kind": kind,
+                        "x_px": x,
+                        "y_px": y,
+                        "button": button,
+                        "click_count": click_count,
+                    }))
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
                 anyhow::bail!("browser panes are not supported over attach yet")
             }
         }
@@ -451,7 +538,64 @@ impl SurfaceHandle {
     pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
         match self {
             SurfaceHandle::Local(surface) => surface.browser_wheel(x, y, delta_y),
-            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowser => {
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                session
+                    .request(json!({
+                        "cmd": "browser-wheel",
+                        "surface": surface.id,
+                        "x_px": x,
+                        "y_px": y,
+                        "delta_y_px": delta_y,
+                    }))
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser panes are not supported over attach yet")
+            }
+        }
+    }
+
+    pub fn browser_navigate(&self, url: &str) -> anyhow::Result<()> {
+        match self {
+            SurfaceHandle::Local(surface) => surface.browser_navigate(url),
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                session
+                    .request(json!({"cmd": "browser-navigate", "surface": surface.id, "url": url}))
+                    .map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                anyhow::bail!("browser panes are not supported over attach yet")
+            }
+        }
+    }
+
+    pub fn browser_back(&self) -> anyhow::Result<()> {
+        self.browser_nav_command("browser-back")
+    }
+
+    pub fn browser_forward(&self) -> anyhow::Result<()> {
+        self.browser_nav_command("browser-forward")
+    }
+
+    pub fn browser_reload(&self) -> anyhow::Result<()> {
+        self.browser_nav_command("browser-reload")
+    }
+
+    fn browser_nav_command(&self, cmd: &str) -> anyhow::Result<()> {
+        match self {
+            SurfaceHandle::Local(surface) => match cmd {
+                "browser-back" => surface.browser_back(),
+                "browser-forward" => surface.browser_forward(),
+                "browser-reload" => surface.browser_reload(),
+                _ => unreachable!(),
+            },
+            SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {
+                session.request(json!({"cmd": cmd, "surface": surface.id})).map(|_| ())
+            }
+            SurfaceHandle::Remote(_, _) => anyhow::bail!("PTY surface is not a browser surface"),
+            SurfaceHandle::RemoteBrowserUnsupported => {
                 anyhow::bail!("browser panes are not supported over attach yet")
             }
         }

@@ -15,8 +15,8 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 
 use crate::{Mux, MuxEvent, SurfaceId};
 
-pub use crate::browser::{BrowserFrame, BrowserSource};
-use crate::browser::{BrowserRuntime, BrowserSurface};
+use crate::browser::BrowserSurface;
+pub use crate::browser::{BrowserAttachState, BrowserFrame, BrowserSource, BrowserStatus};
 
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
@@ -291,17 +291,6 @@ impl Surface {
         Ok(surface)
     }
 
-    pub(crate) fn spawn_browser(
-        id: SurfaceId,
-        url: String,
-        runtime: Arc<BrowserRuntime>,
-        mux: Weak<Mux>,
-        size: (u16, u16),
-        cell_pixels: (u16, u16),
-    ) -> anyhow::Result<Arc<Surface>> {
-        crate::browser::spawn(id, url, runtime, mux, size, cell_pixels)
-    }
-
     fn as_pty(&self) -> Option<&PtySurface> {
         match self {
             Surface::Pty(surface) => Some(surface),
@@ -309,7 +298,7 @@ impl Surface {
         }
     }
 
-    fn as_browser(&self) -> Option<&BrowserSurface> {
+    pub(crate) fn as_browser(&self) -> Option<&BrowserSurface> {
         match self {
             Surface::Pty(_) => None,
             Surface::Browser(surface) => Some(surface),
@@ -457,7 +446,20 @@ impl Surface {
     }
 
     pub fn browser_source(&self) -> Option<BrowserSource> {
-        self.as_browser().map(BrowserSurface::source)
+        self.as_browser().and_then(BrowserSurface::source)
+    }
+
+    pub fn browser_status(&self) -> Option<BrowserStatus> {
+        self.as_browser().map(BrowserSurface::status)
+    }
+
+    pub fn attach_frames(
+        &self,
+    ) -> anyhow::Result<(BrowserAttachState, std::sync::mpsc::Receiver<BrowserFrame>)> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        Ok(browser.attach_frames())
     }
 
     pub fn browser_insert_text(&self, text: &str) -> anyhow::Result<()> {
@@ -508,6 +510,27 @@ impl Surface {
             anyhow::bail!("PTY surface is not a browser surface");
         };
         browser.navigate(url)
+    }
+
+    pub fn browser_back(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.back()
+    }
+
+    pub fn browser_forward(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.forward()
+    }
+
+    pub fn browser_reload(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.reload()
     }
 }
 

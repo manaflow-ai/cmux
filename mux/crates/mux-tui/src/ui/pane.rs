@@ -7,7 +7,7 @@
 //! notifications will hook in later.
 
 use ghostty_vt::{Cell as VtCell, ColorSpec, RenderState, Rgb};
-use mux_core::{Rect, SurfaceKind};
+use mux_core::{BrowserStatus, Rect, SurfaceKind};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
@@ -320,7 +320,15 @@ fn draw_browser_content(
         }
     }
 
-    let message = if surface.browser_url().is_none() {
+    let message = if matches!(surface.browser_status(), Some(BrowserStatus::Failed(_))) {
+        let error = match surface.browser_status() {
+            Some(BrowserStatus::Failed(error)) => error,
+            _ => String::new(),
+        };
+        Some(format!("browser failed: {error}"))
+    } else if matches!(surface.browser_status(), Some(BrowserStatus::Starting)) {
+        Some("starting browser...".to_string())
+    } else if surface.browser_url().is_none() {
         Some("browser panes are not supported over attach yet".to_string())
     } else if !app.graphics_supported {
         Some("terminal has no kitty graphics support".to_string())

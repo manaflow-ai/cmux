@@ -125,5 +125,7 @@ try:
 finally:
     server.terminate()
     server.wait(timeout=10)
+    assert not os.path.exists(SOCK), "socket not cleaned up after SIGTERM"
+    print("SIGTERM socket cleanup ok")
 
 print("ATTACH SMOKE OK")

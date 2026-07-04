@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use crate::browser::BrowserRuntime;
+use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
@@ -21,6 +21,7 @@ pub enum MuxEvent {
     SurfaceExited(SurfaceId),
     TitleChanged(SurfaceId),
     Bell(SurfaceId),
+    Status(String),
     /// The workspace/screen/pane/tab tree changed (from any frontend or
     /// the control socket).
     TreeChanged,
@@ -100,16 +101,15 @@ impl Mux {
         self: &Arc<Self>,
         url: String,
         size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Arc<Surface>> {
+    ) -> Arc<Surface> {
         let id = self.next_id();
         let opts = self.surface_options.clone();
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
-        let runtime = self.browser_runtime()?;
-        let surface =
-            Surface::spawn_browser(id, url, runtime, Arc::downgrade(self), size, cell_pixels)?;
+        let surface = browser::new_surface(id, url.clone(), size, cell_pixels);
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
-        Ok(surface)
+        self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
+        surface
     }
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
@@ -120,6 +120,35 @@ impl Mux {
         let created = BrowserRuntime::connect(&self.surface_options)?;
         *runtime = Some(created.clone());
         Ok(created)
+    }
+
+    fn start_browser_bootstrap(
+        self: &Arc<Self>,
+        surface: Arc<Surface>,
+        bootstrap: BrowserBootstrap,
+        runtime: Option<Arc<BrowserRuntime>>,
+    ) {
+        let mux = self.clone();
+        let id = surface.id;
+        let _ = std::thread::Builder::new().name(format!("browser-surface-{id}-bootstrap")).spawn(
+            move || {
+                let result = (|| -> anyhow::Result<()> {
+                    let runtime = match runtime {
+                        Some(runtime) => runtime,
+                        None => mux.browser_runtime()?,
+                    };
+                    runtime.bootstrap_surface_sync(surface.clone(), bootstrap, Arc::downgrade(&mux))
+                })();
+                if let Err(err) = result {
+                    if let Surface::Browser(browser) = surface.as_ref() {
+                        browser.mark_failed(err.to_string());
+                    }
+                    mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
+                    mux.emit(MuxEvent::TitleChanged(id));
+                    mux.emit(MuxEvent::SurfaceOutput(id));
+                }
+            },
+        );
     }
 
     /// A fresh single-tab pane wrapping `surface`.
@@ -351,7 +380,7 @@ impl Mux {
             }
         };
         let Some(target) = target else {
-            let surface = self.spawn_browser_surface(url, size)?;
+            let surface = self.spawn_browser_surface(url, size);
             let (pane_id, pane) = self.make_pane(surface.id);
             let screen_id = self.next_id();
             let ws_id = self.next_id();
@@ -378,7 +407,7 @@ impl Mux {
         };
 
         let size = size.or_else(|| self.pane_size(target));
-        let surface = self.spawn_browser_surface(url, size)?;
+        let surface = self.spawn_browser_surface(url, size);
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
@@ -400,6 +429,54 @@ impl Mux {
         self.emit(MuxEvent::TreeChanged);
         self.reap_if_dead(&surface);
         Ok(surface)
+    }
+
+    pub fn adopt_browser_target(
+        self: &Arc<Self>,
+        opener_surface: SurfaceId,
+        target_id: String,
+        url: String,
+        runtime: Arc<BrowserRuntime>,
+    ) -> bool {
+        let (pane_id, size) = {
+            let state = self.state.lock().unwrap();
+            let Some(pane_id) = state.pane_of(opener_surface) else {
+                return false;
+            };
+            let size = state
+                .panes
+                .get(&pane_id)
+                .and_then(|pane| pane.active_surface())
+                .and_then(|surface| state.surfaces.get(&surface))
+                .map(|surface| surface.size());
+            (pane_id, size)
+        };
+        let id = self.next_id();
+        let opts = self.surface_options.clone();
+        let size = size.unwrap_or((opts.cols, opts.rows));
+        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let surface = browser::new_surface(id, url.clone(), size, cell_pixels);
+        let attached = {
+            let mut state = self.state.lock().unwrap();
+            let Some(pane) = state.panes.get_mut(&pane_id) else {
+                return false;
+            };
+            pane.tabs.push(surface.id);
+            pane.active_tab = pane.tabs.len() - 1;
+            state.surfaces.insert(surface.id, surface.clone());
+            true
+        };
+        if !attached {
+            surface.kill();
+            return false;
+        }
+        self.emit(MuxEvent::TreeChanged);
+        self.start_browser_bootstrap(
+            surface,
+            BrowserBootstrap::ExistingTarget { target_id, url },
+            Some(runtime),
+        );
+        true
     }
 
     /// Working directory of a pane's active surface, if reported.

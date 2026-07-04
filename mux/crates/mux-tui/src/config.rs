@@ -268,6 +268,10 @@ pub enum Action {
     FocusDown,
     ScrollUp,
     ScrollDown,
+    BrowserBack,
+    BrowserForward,
+    BrowserReload,
+    BrowserEditUrl,
     Detach,
 }
 
@@ -275,7 +279,7 @@ impl Action {
     fn config_key(&self) -> &'static str {
         match self {
             Action::NewTab => "new-tab",
-            Action::NewBrowserTab => "new_browser_tab",
+            Action::NewBrowserTab => "new-browser-tab",
             Action::NextTab => "next-tab",
             Action::PrevTab => "prev-tab",
             Action::SplitRight => "split-right",
@@ -294,6 +298,10 @@ impl Action {
             Action::FocusDown => "focus-down",
             Action::ScrollUp => "scroll-up",
             Action::ScrollDown => "scroll-down",
+            Action::BrowserBack => "browser-back",
+            Action::BrowserForward => "browser-forward",
+            Action::BrowserReload => "browser-reload",
+            Action::BrowserEditUrl => "browser-edit-url",
             Action::Detach => "detach",
         }
     }
@@ -357,6 +365,10 @@ impl Default for Keys {
                 bind(KeyCode::Down, Action::FocusDown),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                bind(KeyCode::Char('<'), Action::BrowserBack),
+                bind(KeyCode::Char('>'), Action::BrowserForward),
+                bind(KeyCode::Char('r'), Action::BrowserReload),
+                bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
         }
@@ -402,13 +414,19 @@ impl Keys {
                 Action::FocusDown,
                 Action::ScrollUp,
                 Action::ScrollDown,
+                Action::BrowserBack,
+                Action::BrowserForward,
+                Action::BrowserReload,
+                Action::BrowserEditUrl,
                 Action::Detach,
             ];
             match all.iter().find(|a| {
-                a.config_key() == name || (**a == Action::RenameTab && name == "rename-pane")
+                a.config_key() == name
+                    || (**a == Action::RenameTab && name == "rename-pane")
+                    || (**a == Action::NewBrowserTab && name == "new_browser_tab")
             }) {
                 Some(action) => {
-                    self.bindings.retain(|(_, a)| a != action);
+                    self.bindings.retain(|(existing, a)| a != action && *existing != chord);
                     self.bindings.push((chord, *action));
                 }
                 None => eprintln!("cmux-mux: ignoring unknown key action {name:?}"),

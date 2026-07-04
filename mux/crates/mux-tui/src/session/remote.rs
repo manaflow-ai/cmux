@@ -12,19 +12,40 @@ use std::time::Duration;
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, Terminal};
-use mux_core::{DefaultColors, MuxEvent, Rgb, SurfaceId, SurfaceKind};
+use mux_core::{BrowserFrame, BrowserStatus, DefaultColors, MuxEvent, Rgb, SurfaceId, SurfaceKind};
 use serde_json::{json, Value};
 
 use super::tree::{parse_tree, TreeView};
 
-const SUPPORTED_PROTOCOL_VERSIONS: &[u64] = &[4, 5];
+const SUPPORTED_PROTOCOL_VERSIONS: &[u64] = &[4, 5, 6];
+
+#[derive(Clone)]
+struct RemoteBrowserFrame {
+    frame: BrowserFrame,
+}
+
+#[derive(Clone)]
+struct RemoteBrowserState {
+    url: Option<String>,
+    title: Option<String>,
+    status: BrowserStatus,
+    frame: Option<RemoteBrowserFrame>,
+}
+
+impl Default for RemoteBrowserState {
+    fn default() -> Self {
+        Self { url: None, title: None, status: BrowserStatus::Starting, frame: None }
+    }
+}
 
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
     pub id: SurfaceId,
+    pub kind: SurfaceKind,
     pub term: Mutex<Terminal>,
     pub dirty: AtomicBool,
     size: Mutex<(u16, u16)>,
+    browser: Mutex<RemoteBrowserState>,
 }
 
 impl RemoteSurface {
@@ -38,6 +59,47 @@ impl RemoteSurface {
         let _ = self.term.lock().unwrap().resize(cols, rows, 8, 16);
         true
     }
+
+    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+        let browser = self.browser.lock().unwrap();
+        if matches!(browser.status, BrowserStatus::Failed(_)) {
+            None
+        } else {
+            browser.frame.as_ref().map(|frame| frame.frame.clone())
+        }
+    }
+
+    pub fn browser_url(&self) -> Option<String> {
+        self.browser.lock().unwrap().url.clone()
+    }
+
+    pub fn browser_status(&self) -> BrowserStatus {
+        self.browser.lock().unwrap().status.clone()
+    }
+
+    fn update_browser_state(&self, value: &Value) {
+        let mut browser = self.browser.lock().unwrap();
+        browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
+        browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
+        browser.status = match value.get("status").and_then(|v| v.as_str()) {
+            Some("failed") => BrowserStatus::Failed(
+                value.get("error").and_then(|v| v.as_str()).unwrap_or("browser failed").to_string(),
+            ),
+            Some("live") => BrowserStatus::Live,
+            _ => BrowserStatus::Starting,
+        };
+        if let Some(frame) = value.get("frame").and_then(parse_browser_frame) {
+            browser.frame = Some(frame);
+        }
+    }
+
+    fn update_browser_frame(&self, value: &Value) {
+        if let Some(frame) = parse_browser_frame(value) {
+            let mut browser = self.browser.lock().unwrap();
+            browser.status = BrowserStatus::Live;
+            browser.frame = Some(frame);
+        }
+    }
 }
 
 pub struct RemoteSession {
@@ -48,6 +110,7 @@ pub struct RemoteSession {
     tree: Mutex<TreeView>,
     tree_stale: AtomicBool,
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
+    protocol: AtomicU64,
 }
 
 impl RemoteSession {
@@ -64,6 +127,7 @@ impl RemoteSession {
             tree: Mutex::new(TreeView::default()),
             tree_stale: AtomicBool::new(true),
             subscribers: Mutex::new(Vec::new()),
+            protocol: AtomicU64::new(0),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -89,9 +153,10 @@ impl RemoteSession {
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
         if !SUPPORTED_PROTOCOL_VERSIONS.contains(&protocol) {
             anyhow::bail!(
-                "unsupported cmux-mux protocol {protocol}; this client supports protocols 4 and 5"
+                "unsupported cmux-mux protocol {protocol}; this client supports protocols 4, 5, and 6"
             );
         }
+        session.protocol.store(protocol, Ordering::Release);
         session.request(json!({"cmd": "subscribe"}))?;
         Ok(session)
     }
@@ -147,6 +212,32 @@ impl RemoteSession {
                     }
                 }
             }
+            Some("browser-state") => {
+                let Some(id) = surface_id() else { return };
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                    let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                    surface.set_size(cols, rows);
+                    surface.update_browser_state(&value);
+                    surface.dirty.store(true, Ordering::Release);
+                }
+                self.emit(MuxEvent::SurfaceOutput(id));
+            }
+            Some("frame") => {
+                let Some(id) = surface_id() else { return };
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.update_browser_frame(&value);
+                    if !surface.dirty.swap(true, Ordering::AcqRel) {
+                        self.emit(MuxEvent::SurfaceOutput(id));
+                    }
+                }
+            }
+            Some("detached") => {
+                if let Some(id) = surface_id() {
+                    self.surfaces.lock().unwrap().remove(&id);
+                    self.emit(MuxEvent::SurfaceOutput(id));
+                }
+            }
             Some("tree-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
@@ -166,6 +257,11 @@ impl RemoteSession {
             Some("bell") => {
                 if let Some(id) = surface_id() {
                     self.emit(MuxEvent::Bell(id));
+                }
+            }
+            Some("status") => {
+                if let Some(message) = value.get("message").and_then(|v| v.as_str()) {
+                    self.emit(MuxEvent::Status(message.to_string()));
                 }
             }
             Some("empty") => self.emit(MuxEvent::Empty),
@@ -202,6 +298,14 @@ impl RemoteSession {
         let _ = self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded}));
     }
 
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+        let _ = self.request(json!({
+            "cmd": "set-cell-pixels",
+            "width_px": width_px,
+            "height_px": height_px,
+        }));
+    }
+
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
         if colors.fg.is_none() && colors.bg.is_none() {
             return Ok(());
@@ -214,6 +318,10 @@ impl RemoteSession {
             cmd["bg"] = json!(hex_color(bg));
         }
         self.request(cmd).map(|_| ())
+    }
+
+    pub fn supports_browser_attach(&self) -> bool {
+        self.protocol.load(Ordering::Acquire) >= 6
     }
 
     /// Mirror for a surface, attaching on first use. `size` is the cell
@@ -229,6 +337,7 @@ impl RemoteSession {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Some(surface.clone());
         }
+        let kind = self.surface_kind(id);
         let (cols, rows) = size.unwrap_or((80, 24));
         if size.is_some() {
             let _ = self.request(
@@ -238,9 +347,11 @@ impl RemoteSession {
         let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
         let surface = Arc::new(RemoteSurface {
             id,
+            kind,
             term: Mutex::new(term),
             dirty: AtomicBool::new(false),
             size: Mutex::new((cols, rows)),
+            browser: Mutex::new(RemoteBrowserState::default()),
         });
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         // The vt-state event that follows fills the mirror.
@@ -279,4 +390,20 @@ impl RemoteSession {
 
 fn hex_color(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+}
+
+fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
+    let data_b64 = value.get("data")?.as_str()?.to_string();
+    let seq = value.get("seq")?.as_u64()?;
+    let width = value.get("width").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    let height = value.get("height").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+    Some(RemoteBrowserFrame {
+        frame: BrowserFrame {
+            session_id: String::new(),
+            data_b64,
+            css_width: width,
+            css_height: height,
+            seq,
+        },
+    })
 }
