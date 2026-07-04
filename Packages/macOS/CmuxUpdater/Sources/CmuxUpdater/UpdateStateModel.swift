@@ -28,6 +28,18 @@ public final class UpdateStateModel {
     public private(set) var detectedUpdateVersion: String?
     /// The appcast item for the most recently detected background update, if any.
     public private(set) var detectedUpdateItem: SUAppcastItem?
+    /// The staged-update version whose "update ready" toast the user dismissed. Compared against
+    /// the staged version so the toast stays hidden for that version but re-shows when a newer
+    /// release is staged.
+    public private(set) var dismissedUpdateReadyToastVersion: String?
+    /// Whether the user asked to defer the staged update's restart until the Mac is idle.
+    public private(set) var isRestartWhenIdleArmed = false
+    /// The deadline until which the update-ready toast is muted (any version). Persisted so a
+    /// multi-day mute survives relaunches; the pill remains the ambient affordance meanwhile.
+    public private(set) var updateReadyToastMutedUntil: Date?
+    /// Tracks an in-memory dismissal for a staged update whose version is unavailable. Known
+    /// versions use ``dismissedUpdateReadyToastVersion`` so newer versions can re-surface.
+    public private(set) var dismissedUnknownVersionUpdateReadyToast = false
     #if DEBUG
     /// A debug override for the pill's title text.
     public var debugOverrideText: String?
@@ -37,8 +49,22 @@ public final class UpdateStateModel {
     @ObservationIgnored
     private var changeObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    /// Creates an empty model in the ``UpdateState/idle`` state.
-    public init() {}
+    /// The `UserDefaults` key persisting ``updateReadyToastMutedUntil`` (epoch seconds).
+    public static let toastMuteDefaultsKey = "cmux.update.readyToastMutedUntil"
+    @ObservationIgnored
+    private let defaults: UserDefaults
+    /// Current-time source; injectable so mute-expiry behavior is testable.
+    @ObservationIgnored
+    var now: () -> Date = Date.init
+
+    /// Creates an empty model in the ``UpdateState/idle`` state, restoring any persisted
+    /// toast-mute deadline from `defaults`.
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let epoch = defaults.object(forKey: Self.toastMuteDefaultsKey) as? Double {
+            updateReadyToastMutedUntil = Date(timeIntervalSince1970: epoch)
+        }
+    }
 
     // MARK: - Change stream
 
@@ -69,13 +95,33 @@ public final class UpdateStateModel {
     /// Sets ``state`` and notifies ``stateChanges()`` subscribers.
     public func setState(_ newState: UpdateState) {
         state = newState
+        disarmRestartWhenIdleIfNotInstalling()
+        resetUnknownVersionToastDismissalIfNeeded()
         notifyStateChanged()
     }
 
     /// Sets ``overrideState`` and notifies ``stateChanges()`` subscribers.
     public func setOverrideState(_ newState: UpdateState?) {
         overrideState = newState
+        disarmRestartWhenIdleIfNotInstalling()
+        resetUnknownVersionToastDismissalIfNeeded()
         notifyStateChanged()
+    }
+
+    /// The deferred restart only makes sense while an update is staged; leaving
+    /// `.installing` (dismiss, error, new check) disarms it.
+    private func disarmRestartWhenIdleIfNotInstalling() {
+        if isRestartWhenIdleArmed, !effectiveState.isInstalling {
+            isRestartWhenIdleArmed = false
+        }
+    }
+
+    private func resetUnknownVersionToastDismissalIfNeeded() {
+        guard dismissedUnknownVersionUpdateReadyToast else { return }
+        guard case .installing(let installing) = effectiveState, installing.stagedVersion == nil else {
+            dismissedUnknownVersionUpdateReadyToast = false
+            return
+        }
     }
 
     /// Applies a state produced by the Sparkle driver, recording the detected update first
@@ -95,6 +141,8 @@ public final class UpdateStateModel {
         // (avoids two redundant stateChanges() emissions for one logical reset).
         state = .idle
         overrideState = nil
+        disarmRestartWhenIdleIfNotInstalling()
+        resetUnknownVersionToastDismissalIfNeeded()
         notifyStateChanged()
     }
 
@@ -155,6 +203,70 @@ public final class UpdateStateModel {
         }
     }
 
+    // MARK: - Update-ready toast
+
+    /// The staged install the "update ready" toast should render, or `nil` when no toast should
+    /// show. A toast shows while an automatically-downloaded update is staged for install,
+    /// until the user dismisses it for that version or defers the restart to idle time.
+    public var updateReadyToastInstalling: UpdateState.Installing? {
+        guard case .installing(let installing) = effectiveState, installing.isAutoUpdate else {
+            return nil
+        }
+        guard !isRestartWhenIdleArmed else { return nil }
+        if let mutedUntil = updateReadyToastMutedUntil, now() < mutedUntil {
+            return nil
+        }
+        if let versionKey = toastVersionKey(for: installing) {
+            guard dismissedUpdateReadyToastVersion != versionKey else {
+                return nil
+            }
+        } else if dismissedUnknownVersionUpdateReadyToast {
+            return nil
+        }
+        return installing
+    }
+
+    /// Mutes the update-ready toast (for any staged version) for `duration`, persisting the
+    /// deadline across relaunches. The pill keeps showing the staged install.
+    public func muteUpdateReadyToast(for duration: TimeInterval) {
+        let until = now().addingTimeInterval(duration)
+        updateReadyToastMutedUntil = until
+        defaults.set(until.timeIntervalSince1970, forKey: Self.toastMuteDefaultsKey)
+        notifyStateChanged()
+    }
+
+    /// Clears an expired mute deadline and emits a change so observers recompute the toast.
+    public func expireUpdateReadyToastMuteIfNeeded() {
+        guard let mutedUntil = updateReadyToastMutedUntil, now() >= mutedUntil else { return }
+        clearUpdateReadyToastMute()
+    }
+
+    /// Clears any toast mute (used by test scaffolding for deterministic launches).
+    public func clearUpdateReadyToastMute() {
+        guard updateReadyToastMutedUntil != nil else { return }
+        updateReadyToastMutedUntil = nil
+        defaults.removeObject(forKey: Self.toastMuteDefaultsKey)
+        notifyStateChanged()
+    }
+
+    /// Hides the update-ready toast for the currently staged version. It re-shows only when a
+    /// different version is staged.
+    public func dismissUpdateReadyToast() {
+        guard case .installing(let installing) = effectiveState else { return }
+        if let versionKey = toastVersionKey(for: installing) {
+            dismissedUpdateReadyToastVersion = versionKey
+        } else {
+            dismissedUnknownVersionUpdateReadyToast = true
+        }
+    }
+
+    /// Arms or disarms the deferred "restart when idle" for the staged update.
+    public func setRestartWhenIdleArmed(_ armed: Bool) {
+        guard isRestartWhenIdleArmed != armed else { return }
+        isRestartWhenIdleArmed = armed
+        notifyStateChanged()
+    }
+
     // MARK: - Derived display state
 
     /// The phase to display: the override if present, otherwise ``state``.
@@ -210,7 +322,13 @@ public final class UpdateStateModel {
             let percent = String(format: "%.0f%%", extracting.progress * 100)
             return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
         case .installing(let install):
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
+            guard install.isAutoUpdate else {
+                return String(localized: "update.installing.status", defaultValue: "Installing…")
+            }
+            if isRestartWhenIdleArmed {
+                return String(localized: "update.restartingWhenIdle", defaultValue: "Restarting When Idle…")
+            }
+            return String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update")
         case .notFound:
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
@@ -277,7 +395,13 @@ public final class UpdateStateModel {
         case .extracting:
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
         case let .installing(install):
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
+            guard install.isAutoUpdate else {
+                return String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
+            }
+            if isRestartWhenIdleArmed {
+                return String(localized: "update.restartingWhenIdle.message", defaultValue: "cmux will restart to finish updating when you step away")
+            }
+            return String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update")
         case .notFound:
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):
@@ -316,91 +440,3 @@ public final class UpdateStateModel {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
-
-#if DEBUG
-/// A synthetic update-error scenario that the debug menu can inject so every error popover
-/// variant (title, message, and whether the manual-download button shows) can be previewed
-/// without reproducing the real failure.
-///
-/// Cases map one-to-one to the branches in ``UpdateStateModel/userFacingErrorTitle(for:)`` /
-/// ``UpdateStateModel/userFacingErrorMessage(for:)`` / ``UpdateStateModel/manualDownloadURL(for:)``.
-public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
-    /// 4005 wrapping the internal IPC-timeout (the wedged-launchd case): "Couldn't Start Updater".
-    case installerAgentFailure
-    /// 4010 `SUAgentInvalidationError`: also "Couldn't Start Updater".
-    case agentInvalidation
-    /// Plain 4005 with no agent signal: "Updater Permission Error" + recovery message + download.
-    case genericInstallFailure
-    /// 4005 wrapping `SUAuthenticationFailure` (4001): must NOT be treated as an agent failure.
-    case installFailureWrappingAuth
-    /// 2001 `SUDownloadError`: "Couldn't Download Update", offers download.
-    case downloadFailure
-    /// 1003 `SURunningFromDiskImageError`: keeps "Move into Applications", no download button.
-    case diskImageTranslocation
-    /// 3001 `SUSignatureError`: signature copy, deliberately no download button.
-    case signatureError
-    /// Offline `NSURLError`: "No Internet Connection".
-    case noInternet
-
-    /// The label shown for this scenario in the debug menu.
-    public var menuTitle: String {
-        switch self {
-        case .installerAgentFailure: return "Installer Agent Failure (4005 + timeout)"
-        case .agentInvalidation: return "Agent Invalidation (4010)"
-        case .genericInstallFailure: return "Generic Install Failure (4005)"
-        case .installFailureWrappingAuth: return "Install Failure / Auth (4005→4001)"
-        case .downloadFailure: return "Download Failure (2001)"
-        case .diskImageTranslocation: return "Disk Image / Translocated (1003)"
-        case .signatureError: return "Signature Error (3001)"
-        case .noInternet: return "No Internet"
-        }
-    }
-
-    /// Builds the synthetic error for this scenario.
-    var error: NSError {
-        switch self {
-        case .installerAgentFailure:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "Timeout: agent connection was never initiated",
-            ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "An error occurred while running the updater. Please try again later.",
-                NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
-                NSUnderlyingErrorKey: underlying,
-            ])
-        case .agentInvalidation:
-            return NSError(domain: SUSparkleErrorDomain, code: 4010, userInfo: [
-                NSLocalizedDescriptionKey: "The updater agent was invalidated.",
-            ])
-        case .genericInstallFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "The installation failed.",
-            ])
-        case .installFailureWrappingAuth:
-            let underlying = NSError(domain: SUSparkleErrorDomain, code: 4001, userInfo: [
-                NSLocalizedDescriptionKey: "Authorization failed.",
-            ])
-            return NSError(domain: SUSparkleErrorDomain, code: 4005, userInfo: [
-                NSLocalizedDescriptionKey: "An error occurred while installing the update.",
-                NSUnderlyingErrorKey: underlying,
-            ])
-        case .downloadFailure:
-            return NSError(domain: SUSparkleErrorDomain, code: 2001, userInfo: [
-                NSLocalizedDescriptionKey: "The update download failed.",
-            ])
-        case .diskImageTranslocation:
-            return NSError(domain: SUSparkleErrorDomain, code: 1003, userInfo: [
-                NSLocalizedDescriptionKey: "Running from a disk image.",
-            ])
-        case .signatureError:
-            return NSError(domain: SUSparkleErrorDomain, code: 3001, userInfo: [
-                NSLocalizedDescriptionKey: "The update signature is invalid.",
-            ])
-        case .noInternet:
-            return NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [
-                NSLocalizedDescriptionKey: "The Internet connection appears to be offline.",
-            ])
-        }
-    }
-}
-#endif

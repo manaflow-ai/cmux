@@ -23,6 +23,9 @@ public struct UpdateTestSupport {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
 
+        // A persisted toast mute from a previous UI-test launch would hide the toast this run.
+        model.clearUpdateReadyToastMute()
+
         if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
            !detectedVersion.isEmpty {
             if let item = Self.makeAppcastItem(displayVersion: detectedVersion) {
@@ -48,6 +51,16 @@ public struct UpdateTestSupport {
             transition(to: .extracting(.init(progress: 0.5)))
         case "installing":
             transition(to: .installing(.init(isAutoUpdate: false, retryTerminatingApplication: {}, dismiss: {})))
+        case "installingAuto":
+            // A background-downloaded update staged for install-on-quit: drives the
+            // update-ready toast plus the "Restart to Complete Update" pill.
+            let version = env["CMUX_UI_TEST_UPDATE_VERSION"] ?? "9.9.9"
+            transition(to: .installing(.init(
+                isAutoUpdate: true,
+                stagedVersion: version,
+                retryTerminatingApplication: {},
+                dismiss: {}
+            )))
         case "error":
             let message = env["CMUX_UI_TEST_UPDATE_ERROR_MESSAGE"] ?? "Test update error"
             let error = NSError(domain: "cmux.update.uitest", code: 1, userInfo: [NSLocalizedDescriptionKey: message])

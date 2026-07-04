@@ -239,7 +239,7 @@
 		</dict>
 	</dict>
 	<key>SUAutomaticallyUpdate</key>
-	<false/>
+	<true/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>

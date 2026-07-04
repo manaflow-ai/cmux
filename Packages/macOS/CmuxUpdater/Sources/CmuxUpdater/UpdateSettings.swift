@@ -18,6 +18,8 @@ public struct UpdateSettings: Sendable {
     public static let sendProfileInfoKey = "SUSendProfileInfo"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
+    /// cmux's marker that the v3 automatic-downloads migration already ran.
+    public static let automaticDownloadsMigrationKey = "cmux.sparkle.automaticDownloadsMigration.v3"
 
     /// The previous default scheduled-check interval (24h) that the migration upgrades from.
     public let previousDefaultScheduledCheckInterval: TimeInterval
@@ -42,9 +44,11 @@ public struct UpdateSettings: Sendable {
     /// automatic checks and upgrades the legacy 24h interval to ``scheduledCheckInterval`` for
     /// installs that predate the embedded defaults.
     public func apply(to defaults: UserDefaults) {
+        runAutomaticDownloadsMigration(on: defaults)
+
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
-            Self.automaticallyUpdateKey: false,
+            Self.automaticallyUpdateKey: true,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
@@ -65,13 +69,23 @@ public struct UpdateSettings: Sendable {
             defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
         }
 
-        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
-            defaults.set(false, forKey: Self.automaticallyUpdateKey)
-        }
         if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
             defaults.set(false, forKey: Self.sendProfileInfoKey)
         }
 
         defaults.set(true, forKey: Self.migrationKey)
+    }
+
+    /// One-time v3 migration: turn automatic downloads on for installs that do not already have
+    /// a persisted Sparkle automatic-downloads preference.
+    ///
+    /// If the key already exists, preserve it: a historical forced `false` and a real user opt-out
+    /// are both stored as the same value, so silently flipping it would overwrite user intent.
+    private func runAutomaticDownloadsMigration(on defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Self.automaticDownloadsMigrationKey) else { return }
+        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
+            defaults.set(true, forKey: Self.automaticallyUpdateKey)
+        }
+        defaults.set(true, forKey: Self.automaticDownloadsMigrationKey)
     }
 }

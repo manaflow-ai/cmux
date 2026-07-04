@@ -1941,7 +1941,7 @@ final class UpdateSettingsTests: XCTestCase {
 
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
         XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings().scheduledCheckInterval)
-        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
         XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
         XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
     }

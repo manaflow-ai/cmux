@@ -14,6 +14,10 @@ public protocol UpdateActionsHost: AnyObject {
     /// "Install and Relaunch" action on the detected-update popover).
     func attemptUpdate()
 
+    /// Defer the staged update's restart until the user is idle (the update-ready toast's
+    /// "Restart When Idle" action).
+    func requestRestartWhenIdle()
+
     /// The filesystem path of the update log, shown in the error popover's details block.
     var updateLogPath: String { get }
 }

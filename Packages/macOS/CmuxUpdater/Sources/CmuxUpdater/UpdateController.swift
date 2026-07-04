@@ -17,17 +17,17 @@ public import Foundation
 /// concrete ``UpdateLogging`` and ``UpdateActionDelegate``.
 @MainActor
 public final class UpdateController {
-    private let updater: SPUUpdater
-    private let driver: UpdateDriver
-    private let log: any UpdateLogging
-    private let clock: any UpdateClock
+    let updater: SPUUpdater
+    let driver: UpdateDriver
+    let log: any UpdateLogging
+    let clock: any UpdateClock
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
     private let backgroundProbeInterval: TimeInterval
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
     /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
-    private let isDevLikeBundle: Bool
+    let isDevLikeBundle: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
@@ -42,7 +42,27 @@ public final class UpdateController {
     private var noUpdateDismissTask: Task<Void, Never>?
     private var backgroundProbeTask: Task<Void, Never>?
     private var recheckTask: Task<Void, Never>?
-
+    // One-click auto-update state (internal, not private: the flows that use it live in
+    // UpdateController+OneClick.swift).
+    var silentDownloadKickTask: Task<Void, Never>?
+    /// Set when a background probe finds an update mid-session; consumed when Sparkle reports
+    /// the session finished (`onUpdateSessionFinished`), which is when the silent download can
+    /// actually start.
+    var pendingSilentDownloadKick = false
+    /// The version the silent-download kick already ran for. The kicked session's own
+    /// `didFindValidUpdate` re-reports the same version; without this the kick would re-arm on
+    /// every failed download and hammer the feed in a loop.
+    var silentDownloadKickedVersion: String?
+    var backgroundRetryTask: Task<Void, Never>?
+    var restartWhenIdleTask: Task<Void, Never>?
+    var toastMuteExpiryTask: Task<Void, Never>?
+    /// How many silent-download retries were scheduled after transient background failures;
+    /// bounded so a persistent outage falls back to Sparkle's scheduled hourly check.
+    var backgroundRetryCount = 0
+    let backgroundRetryLimit = 3
+    let backgroundRetryDelay: Duration = .seconds(5 * 60)
+    /// How often the deferred "restart when idle" loop re-evaluates the host's idle signal.
+    let restartWhenIdlePollInterval: Duration = .seconds(30)
     // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
     // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
     // value into the change handler, and `addObserver(_:forKeyPath:)` is forbidden), so
@@ -97,7 +117,7 @@ public final class UpdateController {
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
-        let model = UpdateStateModel()
+        let model = UpdateStateModel(defaults: defaults)
         let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
         self.driver = driver
         self.updater = SPUUpdater(
@@ -106,6 +126,19 @@ public final class UpdateController {
             userDriver: driver,
             delegate: driver
         )
+        driver.onBackgroundUpdateDetected = { [weak self] in
+            guard let self else { return }
+            guard let version = self.model.detectedUpdateVersion,
+                  version != self.silentDownloadKickedVersion else { return }
+            self.pendingSilentDownloadKick = true
+            self.backgroundRetryCount = 0
+        }
+        driver.onUpdateSessionFinished = { [weak self] in
+            self?.startSilentDownloadIfKickPending()
+        }
+        driver.onBackgroundSessionError = { [weak self] error in
+            self?.scheduleBackgroundRetryIfTransient(error)
+        }
         startStateReactions()
     }
 
@@ -115,6 +148,8 @@ public final class UpdateController {
         backgroundProbeTask?.cancel()
         readyCheckTask?.cancel()
         recheckTask?.cancel()
+        silentDownloadKickTask?.cancel()
+        backgroundRetryTask?.cancel(); restartWhenIdleTask?.cancel(); toastMuteExpiryTask?.cancel()
     }
 
     // MARK: - Reaction stream
@@ -140,7 +175,18 @@ public final class UpdateController {
         if attemptCoordinator.isMonitoring {
             performAttemptAction(attemptCoordinator.handleStateChange(state))
         }
+        scheduleToastMuteExpiryIfNeeded()
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
+        if state.isIdle, overrideState == nil {
+            startSilentDownloadIfKickPending()
+        }
+
+        if case .installing = state {
+            backgroundRetryTask?.cancel(); backgroundRetryTask = nil; backgroundRetryCount = 0
+            if restartWhenIdleTask != nil, !model.isRestartWhenIdleArmed { cancelRestartWhenIdleLoop() }
+        } else if restartWhenIdleTask != nil {
+            cancelRestartWhenIdleLoop()
+        }
     }
 
     // MARK: - Attempt update

@@ -14,4 +14,9 @@ public protocol UpdateActionDelegate: AnyObject {
     /// session state, stop its terminal/runtime, and invalidate restorable state so the
     /// relaunched instance starts cleanly.
     func updaterWillRelaunchApplication()
+
+    /// Whether restarting to finish a staged update right now would not interrupt the user.
+    /// Consulted by the deferred "restart when idle" loop; the host decides what idle means
+    /// (user presence, running agent commands, …).
+    func updaterIsSafeToRestartNow() -> Bool
 }
