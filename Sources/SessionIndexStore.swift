@@ -861,13 +861,18 @@ final class SessionIndexStore: ObservableObject {
     }
 
     nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
-        // Claude encodes cwd by replacing "/" with "-" and prefixing "-"
-        // e.g. "-Users-lawrence-fun-cmuxterm-hq" -> "/Users/lawrence/fun/cmuxterm-hq".
-        // The encoding is lossy: a real path segment containing "-"
-        // (e.g. "my-cool-project") collapses to multiple segments
-        // ("/my/cool/project") on decode, which is wrong. Only return the
-        // candidate if it actually exists on disk; otherwise let the caller
-        // fall back to the JSONL `cwd` field.
+        // Claude encodes cwd by replacing both "/" and "." with "-" and
+        // prefixing "-", so "-Users-lawrence-fun-cmuxterm-hq" comes from
+        // "/Users/lawrence/fun/cmuxterm-hq" and "-Users-me--claude" comes from
+        // "/Users/me/.claude" (the "/." pair encodes to "--").
+        //
+        // The encoding is lossy in both directions: a real path segment
+        // containing "-" (e.g. "my-cool-project") collapses to multiple
+        // segments on decode, and "/" and "." map to the same character on
+        // encode. This routine only attempts the naive "-" -> "/"
+        // substitution and relies on the on-disk existence check below to
+        // discard wrong guesses; callers then fall back to the JSONL `cwd`
+        // field.
         guard !raw.isEmpty else { return nil }
         let stripped = raw.hasPrefix("-") ? String(raw.dropFirst()) : raw
         let candidate = "/" + stripped.replacingOccurrences(of: "-", with: "/")
