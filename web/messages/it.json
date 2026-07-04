@@ -828,7 +828,14 @@
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
-          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL."
+          "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
+          "proxy": {
+            "description": "Instrada i riquadri del browser integrato locale attraverso un proxy HTTP CONNECT o SOCKSv5 (WKWebsiteDataStore.proxyConfigurations). Si applica solo ai riquadri locali; i riquadri degli spazi di lavoro remoti mantengono il loro tunnel dello spazio di lavoro. Ricaricabile tramite cmux reload-config. La variabile d'ambiente CMUX_BROWSER_PROXY (ad es. socks5://127.0.0.1:1080) ha la precedenza su questo.",
+            "type": "Protocollo del proxy. off non applica alcun proxy del browser cmux (un proxy di sistema macOS attivo viene comunque rispecchiato per la correzione del loopback). socks5 usa un proxy SOCKSv5; httpConnect usa un proxy HTTP CONNECT.",
+            "host": "Nome host o IP del server proxy, ad es. 127.0.0.1.",
+            "port": "Porta del server proxy, ad es. 1080.",
+            "bypass": "Suffissi di nome host che si connettono direttamente invece che tramite il proxy, ad es. localhost, *.localhost, 127.0.0.1. Gli host loopback e link-local vengono sempre ignorati."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valore predefinito globale per dove Cmd-N dentro un gruppo, il pulsante + nell’intestazione del gruppo e le azioni di gruppo configurate inseriscono il nuovo workspace: `afterCurrent` (dopo il workspace attivo nel gruppo, con fallback a top), `top` (seconda posizione, subito dopo l’ancora) o `end` (dopo l’ultimo membro).",

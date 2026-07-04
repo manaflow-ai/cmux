@@ -828,7 +828,14 @@
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "proxy": {
+            "description": "將本機嵌入式瀏覽器窗格透過 HTTP CONNECT 或 SOCKSv5 代理（WKWebsiteDataStore.proxyConfigurations）路由。僅適用於本機窗格；遠端工作區窗格會保留其工作區通道。可透過 cmux reload-config 重新載入。CMUX_BROWSER_PROXY 環境變數（例如 socks5://127.0.0.1:1080）會覆寫此設定。",
+            "type": "代理通訊協定。off 不套用任何 cmux 瀏覽器代理（為修復 loopback，仍會鏡像處於使用中狀態的 macOS 系統代理）。socks5 使用 SOCKSv5 代理；httpConnect 使用 HTTP CONNECT 代理。",
+            "host": "代理伺服器主機名稱或 IP，例如 127.0.0.1。",
+            "port": "代理伺服器連接埠，例如 1080。",
+            "bypass": "直接連線而非透過代理的主機名稱後綴，例如 localhost、*.localhost、127.0.0.1。loopback 與連結本機主機一律會被略過。"
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",

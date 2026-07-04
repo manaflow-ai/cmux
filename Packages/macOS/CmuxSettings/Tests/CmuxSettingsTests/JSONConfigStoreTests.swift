@@ -158,6 +158,18 @@ struct JSONConfigStoreTests {
         #expect(store.snapshotValue(for: key) == "LG HDR 4K")
     }
 
+    @Test func snapshotRawValueReadsNestedObjectFromDisk() throws {
+        let (store, fileURL, _) = makeStore()
+        let payload = #"{"browser":{"proxy":{"type":"socks5","host":"127.0.0.1","port":1080}}}"#
+        try Data(payload.utf8).write(to: fileURL)
+
+        let raw = try #require(store.snapshotRawValue(at: JSONPath(dottedPath: "browser.proxy")) as? [String: Any])
+        #expect(raw["type"] as? String == "socks5")
+        #expect(raw["host"] as? String == "127.0.0.1")
+        #expect(raw["port"] as? Int == 1080)
+        #expect(store.snapshotRawValue(at: JSONPath(dottedPath: "browser.missing")) == nil)
+    }
+
     @Test func devWindowDisplayCatalogKeyRoundTripsToSharedPath() async throws {
         let (store, fileURL, catalog) = makeStore()
         try await store.set("LG HDR 4K", for: catalog.app.devWindowDisplay)

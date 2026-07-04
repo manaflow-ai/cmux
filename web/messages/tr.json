@@ -828,7 +828,14 @@
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
+          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
+          "proxy": {
+            "description": "Yerel gömülü tarayıcı bölmelerini bir HTTP CONNECT veya SOCKSv5 proxy'si (WKWebsiteDataStore.proxyConfigurations) üzerinden yönlendirir. Yalnızca yerel bölmeler için geçerlidir; uzak çalışma alanı bölmeleri kendi çalışma alanı tünelini korur. cmux reload-config ile yeniden yüklenebilir. CMUX_BROWSER_PROXY ortam değişkeni (ör. socks5://127.0.0.1:1080) bunu geçersiz kılar.",
+            "type": "Proxy protokolü. off hiçbir cmux tarayıcı proxy'si uygulamaz (loopback düzeltmesi için etkin bir macOS sistem proxy'si yine de yansıtılır). socks5 bir SOCKSv5 proxy'si kullanır; httpConnect bir HTTP CONNECT proxy'si kullanır.",
+            "host": "Proxy sunucusunun ana bilgisayar adı veya IP'si, ör. 127.0.0.1.",
+            "port": "Proxy sunucusunun bağlantı noktası, ör. 1080.",
+            "bypass": "Proxy üzerinden değil doğrudan bağlanan ana bilgisayar adı sonekleri, ör. localhost, *.localhost, 127.0.0.1. Loopback ve link-local ana bilgisayarları her zaman atlanır."
+          }
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair genel varsayılan: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra).",
