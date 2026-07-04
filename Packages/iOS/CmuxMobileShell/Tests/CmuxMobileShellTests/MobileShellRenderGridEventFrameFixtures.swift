@@ -12,7 +12,7 @@ func renderGridEventFrame(
     surfaceID: String,
     seq: UInt64,
     text: String,
-    columns: Int = 16,
+    columns: Int = 80,
     rows: Int = 4,
     activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
     full: Bool = true

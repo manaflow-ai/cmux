@@ -9738,9 +9738,7 @@ enum BrowserDataImporter {
         var skippedEncryptedCookies = 0
         let decryptor = ChromiumCookieDecryptor(browser: browser)
 
-        let databaseURLs = sourceProfiles.map {
-            $0.rootURL.appendingPathComponent("Cookies", isDirectory: false)
-        }.filter { fileManager.fileExists(atPath: $0.path) }
+        let databaseURLs = sourceProfiles.compactMap { profile -> URL? in let networkURL = profile.rootURL.appendingPathComponent("Network", isDirectory: true).appendingPathComponent("Cookies", isDirectory: false); let legacyURL = profile.rootURL.appendingPathComponent("Cookies", isDirectory: false); return fileManager.fileExists(atPath: networkURL.path) ? networkURL : (fileManager.fileExists(atPath: legacyURL.path) ? legacyURL : nil) }
 
         for databaseURL in databaseURLs {
             do {
