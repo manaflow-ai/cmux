@@ -914,7 +914,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.userBaseFontSize = fontSize
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         bridge.attach(to: self)
-        backgroundColor = .black
+        // The local view background (the area behind/around the rendered cells,
+        // and the letterbox fill) is sourced from the synced theme rather than a
+        // hardcoded color, so a fresh mount already shows the Mac's background and
+        // a later theme change can recolor it live. `applyBackgroundColorFromConfig`
+        // refines this from the runtime config once a surface exists, but the
+        // config can be stale on the process singleton across a theme change, so
+        // the theme store is the authoritative source for this view's background.
+        backgroundColor = GhosttyRuntime.currentBackgroundUIColor
         isOpaque = true
         clipsToBounds = true
         #if DEBUG
@@ -3182,21 +3189,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private(set) var configCursorColor: UIColor?
 
     private func applyBackgroundColorFromConfig(_ config: ghostty_config_t) {
+        // The view background (the area behind/around the cells and the letterbox
+        // fill) follows the synced theme store, not this config read. On the
+        // process-singleton runtime the baked `ghostty_config_t` can be stale
+        // across a theme change, so reading the background from it would leave the
+        // local background on the old theme's color (the reported bug). The theme
+        // store is updated on connect and on a live theme change, so it is the
+        // authoritative source for what color the user should see here.
+        let themeBackground = GhosttyRuntime.currentBackgroundUIColor
+        backgroundColor = themeBackground
+        snapshotFallbackView.backgroundColor = themeBackground
+        configBackgroundColor = themeBackground
+        #if DEBUG
         var bgColor = ghostty_config_color_s()
         let bgKey = "background"
         if ghostty_config_get(config, &bgColor, bgKey, UInt(bgKey.lengthOfBytes(using: .utf8))) {
-            let bg = UIColor(red: CGFloat(bgColor.r) / 255.0, green: CGFloat(bgColor.g) / 255.0, blue: CGFloat(bgColor.b) / 255.0, alpha: 1.0)
-            backgroundColor = bg
-            snapshotFallbackView.backgroundColor = bg
-            configBackgroundColor = bg
-            #if DEBUG
-            log.debug("applyBg: config r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public) -> UIColor(\(bg.debugDescription, privacy: .public)), hardcoded Monokai=#272822 r=39 g=40 b=34")
-            #endif
+            log.debug("applyBg: theme bg -> UIColor(\(themeBackground.debugDescription, privacy: .public)); config bg r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
         } else {
-            #if DEBUG
-            log.debug("applyBg: ghostty_config_get returned false, no bg color from config")
-            #endif
+            log.debug("applyBg: theme bg -> UIColor(\(themeBackground.debugDescription, privacy: .public)); config bg unavailable")
         }
+        #endif
         var fgColor = ghostty_config_color_s()
         let fgKey = "foreground"
         if ghostty_config_get(config, &fgColor, fgKey, UInt(fgKey.lengthOfBytes(using: .utf8))) {
@@ -3211,6 +3223,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 blue: CGFloat(cursorColor.b) / 255.0,
                 alpha: 1.0
             )
+        }
+    }
+
+    /// Re-applies the current theme's colors to this surface's local view: the
+    /// view/letterbox background and snapshot-fallback colors from the theme
+    /// store, and the cursor-overlay color from the (freshly rebuilt) runtime
+    /// config. Called on a live theme change so an already-mounted surface
+    /// recolors its background in place — libghostty has no API to recolor a live
+    /// surface's *view* background, and the runtime config is only re-read here.
+    @MainActor
+    func refreshThemeColors() {
+        let themeBackground = GhosttyRuntime.currentBackgroundUIColor
+        backgroundColor = themeBackground
+        snapshotFallbackView.backgroundColor = themeBackground
+        configBackgroundColor = themeBackground
+        if let config = runtime?.config {
+            applyBackgroundColorFromConfig(config)
+        }
+        inputProxy.refreshThemeColors()
+        updateCursorOverlay()
+        needsDraw = true
+    }
+
+    /// Re-applies the active theme to every registered surface's local view after
+    /// a live theme change. Pairs with ``GhosttyRuntime/rebuildConfigFromStore()``,
+    /// which feeds the new config to the renderer; this updates the surrounding
+    /// UIKit colors the renderer does not own.
+    @MainActor
+    static func refreshAllSurfacesForThemeChange() {
+        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        for view in registeredSurfaceViews.values.compactMap(\.value) {
+            view.refreshThemeColors()
         }
     }
 
