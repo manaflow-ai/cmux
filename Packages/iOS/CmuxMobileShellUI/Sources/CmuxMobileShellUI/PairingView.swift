@@ -269,9 +269,22 @@ struct PairingView: View {
     private var manualRouteWarningText: String? {
         let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAddress.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedAddress),
-              case .success(let entry) = CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort),
-              MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(entry.host) else {
+              !CmxPairingURLScheme.hasPairingScheme(trimmedAddress) else {
+            return nil
+        }
+        // The warning is about the host, so a broken port suffix (common
+        // mid-typing: the trailing colon of `10.0.0.5:`) must not blink the
+        // warning off; `.invalidPort` carries the intact host for this.
+        let host: String
+        switch CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort) {
+        case .success(let entry):
+            host = entry.host
+        case .failure(.invalidPort(let hostPart)):
+            host = hostPart
+        case .failure(.invalidHost):
+            return nil
+        }
+        guard MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(host) else {
             return nil
         }
         return L10n.string(
@@ -322,7 +335,7 @@ struct PairingView: View {
         case .failure(.invalidHost):
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
-        case .failure(.invalidPort):
+        case .failure(.invalidPort(host: _)):
             validationError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             return
         }

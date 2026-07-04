@@ -112,13 +112,14 @@ import Testing
     }
 
     @Test func parseRejectsBadPortsAsPortFailures() {
-        // A well-shaped host with a broken port suffix must blame the port,
-        // so the phone shows the port error, not the host error.
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:70000", defaultPort: 1) == .failure(.invalidPort))
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:0", defaultPort: 1) == .failure(.invalidPort))
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:", defaultPort: 1) == .failure(.invalidPort))
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:abc", defaultPort: 1) == .failure(.invalidPort))
-        #expect(CmxManualPairingEntry.parse("[fd7a::1]:99999", defaultPort: 1) == .failure(.invalidPort))
+        // A well-shaped host with a broken port suffix must blame the port
+        // (so the phone shows the port error, not the host error) and carry
+        // the intact host so host-keyed UI keeps working mid-typing.
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:70000", defaultPort: 1) == .failure(.invalidPort(host: "100.64.0.5")))
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:0", defaultPort: 1) == .failure(.invalidPort(host: "100.64.0.5")))
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:", defaultPort: 1) == .failure(.invalidPort(host: "100.64.0.5")))
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:abc", defaultPort: 1) == .failure(.invalidPort(host: "100.64.0.5")))
+        #expect(CmxManualPairingEntry.parse("[fd7a::1]:99999", defaultPort: 1) == .failure(.invalidPort(host: "fd7a::1")))
     }
 
     @Test func parseRejectsMalformedShapesAsHostFailures() {

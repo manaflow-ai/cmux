@@ -60,8 +60,10 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
         /// or junk between `]` and the port separator).
         case invalidHost
         /// An explicit port separator is present but the port is not a
-        /// number in `1...65535`.
-        case invalidPort
+        /// number in `1...65535`. Carries the intact host part so host-keyed
+        /// UI (the manual-route trust warning) keeps working while the user
+        /// is mid-typing a port, e.g. on the trailing colon of `10.0.0.5:`.
+        case invalidPort(host: String)
     }
 
     /// Splits a user-entered address into host + port, inverting
@@ -99,7 +101,7 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
                 return .failure(.invalidHost)
             }
             guard let port = validPort(remainder.dropFirst()) else {
-                return .failure(.invalidPort)
+                return .failure(.invalidPort(host: host))
             }
             return .success(CmxManualPairingEntry(host: host, port: port))
         }
@@ -115,7 +117,7 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
                 return .failure(.invalidHost)
             }
             guard let port = validPort(trimmed[trimmed.index(after: separator)...]) else {
-                return .failure(.invalidPort)
+                return .failure(.invalidPort(host: host))
             }
             return .success(CmxManualPairingEntry(host: host, port: port))
         default:
