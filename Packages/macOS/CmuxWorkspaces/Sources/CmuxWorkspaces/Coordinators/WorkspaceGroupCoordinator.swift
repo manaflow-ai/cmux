@@ -605,9 +605,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Place a freshly-created group where its first child already was.
     /// This keeps "New Group from Selection" visually stable while still
-    /// making every affected group contiguous and anchor-first. It
-    /// intentionally preserves top-level order because changing that outer
-    /// position is the jump this creation path is avoiding.
+    /// making every affected group contiguous and anchor-first.
+    /// Preserves top-level order to avoid outer sidebar jumps.
     private func placeNewWorkspaceGroupAtCreationPosition(
         groupId: UUID,
         anchorId: UUID,
@@ -618,7 +617,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let orderedChildIds = originalTabOrder.filter { childIdSet.contains($0) }
         guard let insertionIndex = originalTabOrder.firstIndex(where: { childIdSet.contains($0) }),
               !orderedChildIds.isEmpty else {
-            model.normalizeWorkspaceGroupContiguity()
+            let originalTopLevelIds = model.topLevelWorkspaceIdsPreservingOrder(originalTabOrder)
+            model.normalizeWorkspaceGroupContiguity(preservingTopLevelIds: originalTopLevelIds)
             return
         }
 

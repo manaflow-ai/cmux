@@ -97,6 +97,14 @@ import Testing
         #expect(items == [.workspace(workspace("a", group: "missing"), indented: false)])
     }
 
+    @Test func missingAnchorGroupDegradesMembersToUngroupedRows() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [workspace("member", group: "g")],
+            groups: [group("g", anchor: "missing-anchor", collapsed: true)]
+        )
+        #expect(items == [.workspace(workspace("member", group: "g"), indented: false)])
+    }
+
     @Test func anchorOnlyGroupRendersHeaderWithNoMembers() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [workspace("a", group: "g")],
@@ -238,6 +246,26 @@ import Testing
         #expect(items == [
             .groupHeader(group("hotels", anchor: "hotels-anchor", collapsed: true), hasUnread: true),
             .workspace(workspace("outside"), indented: false),
+        ])
+    }
+
+    @Test func childGroupWithMissingParentAnchorPromotesToTopLevel() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("parent-member", group: "parent"),
+                workspace("child-anchor", group: "child"),
+                workspace("child-member", group: "child"),
+            ],
+            groups: [
+                group("parent", anchor: "missing-parent-anchor", collapsed: true),
+                group("child", anchor: "child-anchor", parent: "parent"),
+            ]
+        )
+
+        #expect(items == [
+            .workspace(workspace("parent-member", group: "parent"), indented: false),
+            .groupHeader(group("child", anchor: "child-anchor", parent: "parent"), hasUnread: false),
+            .workspace(workspace("child-member", group: "child"), indented: true),
         ])
     }
 

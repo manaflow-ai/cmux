@@ -48,9 +48,9 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// - When a group is collapsed, its descendants are skipped (header kept).
     /// - Ungrouped workspaces interleave inline by position.
     ///
-    /// A `groupID` referencing a group not present in `groups` (e.g. a transient
-    /// payload skew) degrades gracefully: the workspace renders as an ungrouped
-    /// row rather than vanishing.
+    /// A `groupID` referencing a group not present in `groups`, or a group whose
+    /// anchor is absent, degrades gracefully: the workspace renders as an
+    /// ungrouped row rather than vanishing.
     ///
     /// Non-contiguous members of an already-emitted expanded group stay at
     /// their own spatial position, still indented to mark membership. A
@@ -67,17 +67,20 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     ) -> [MobileWorkspaceListItem] {
         guard !workspaces.isEmpty else { return [] }
         let groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let workspaceIDs = Set(workspaces.map(\.id))
+        let renderableGroupIDs = Set(groupsByID.values.compactMap {
+            workspaceIDs.contains($0.anchorWorkspaceID) ? $0.id : nil
+        })
         var anchorGroupByWorkspaceID: [MobileWorkspacePreview.ID: MobileWorkspaceGroupPreview] = [:]
-        for group in groups where anchorGroupByWorkspaceID[group.anchorWorkspaceID] == nil {
+        for group in groups where renderableGroupIDs.contains(group.id) && anchorGroupByWorkspaceID[group.anchorWorkspaceID] == nil {
             anchorGroupByWorkspaceID[group.anchorWorkspaceID] = group
         }
-        let knownGroupIDs = Set(groupsByID.keys)
         var parentGroupIDByGroupID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview.ID?] = [:]
         for group in groups {
             let parentID: MobileWorkspaceGroupPreview.ID? = {
                 guard let parentGroupID = group.parentGroupID,
                       parentGroupID != group.id,
-                      knownGroupIDs.contains(parentGroupID) else {
+                      renderableGroupIDs.contains(parentGroupID) else {
                     return nil
                 }
                 return parentGroupID
@@ -93,13 +96,15 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         var directUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
         var childGroupsByParentID: [MobileWorkspaceGroupPreview.ID?: [MobileWorkspaceGroupPreview]] = [:]
         for workspace in workspaces {
-            guard let groupID = workspace.groupID, let group = groupsByID[groupID] else { continue }
+            guard let groupID = workspace.groupID,
+                  let group = groupsByID[groupID],
+                  renderableGroupIDs.contains(groupID) else { continue }
             directUnreadByGroupID[groupID, default: false] = directUnreadByGroupID[groupID, default: false] || workspace.hasUnread
             if group.anchorWorkspaceID == workspace.id {
                 anchorUnreadByGroupID[groupID] = workspace.hasUnread
             }
         }
-        for group in groups {
+        for group in groups where renderableGroupIDs.contains(group.id) {
             childGroupsByParentID[parentGroupIDByGroupID[group.id] ?? nil, default: []].append(group)
         }
 
@@ -172,7 +177,8 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
 
         for workspace in workspaces {
             guard let groupID = workspace.groupID,
-                  groupsByID[groupID] != nil else {
+                  groupsByID[groupID] != nil,
+                  renderableGroupIDs.contains(groupID) else {
                 items.append(.workspace(workspace, indented: false))
                 continue
             }
