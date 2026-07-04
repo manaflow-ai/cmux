@@ -4,6 +4,22 @@ Global app preferences live in `~/.config/cmux/cmux.json`.
 
 Project-scoped action wiring can also live in `.cmux/cmux.json` inside a project directory. For pane tab bar customization, the nearest project config overrides the global button list for workspaces under that directory, while actions and commands can still fall back to global definitions.
 
+## `paneBorderColor` and `activePaneBorderColor`
+
+Customize split-workspace pane boundaries controlled by cmux.
+
+```json
+{
+  "paneBorderColor": "#6B7280",
+  "activePaneBorderColor": "#3B82F6"
+}
+```
+
+- `paneBorderColor`: overrides the divider color between cmux panes in split workspaces.
+- `activePaneBorderColor`: draws a border around the focused cmux pane in split workspaces.
+
+Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to keep the built-in appearance. These settings apply to cmux's multi-surface pane layout, not Ghostty's internal splits; Ghostty settings such as `split-divider-color` still only affect splits inside one Ghostty instance.
+
 ## `ui.surfaceTabBar.buttons`
 
 Controls the buttons shown at the end of each pane tab bar. cmux appends the built-in More button unless `ui.surfaceTabBar.hideMoreButton` is `true`.

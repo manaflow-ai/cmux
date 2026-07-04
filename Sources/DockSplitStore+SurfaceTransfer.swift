@@ -1,7 +1,9 @@
 import AppKit
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
+import Darwin
 
 /// Cross-container surface transfer for the Dock.
 ///
@@ -12,6 +14,53 @@ import CmuxTerminalCore
 /// own panel registry (`panels`/`surfaceIdToPanelId`), so these methods manage
 /// that registry directly rather than going through the workspace pane tree.
 extension DockSplitStore {
+    static func dockAgentPIDProbeIndicatesExited(result: Int32, errnoCode: Int32) -> Bool {
+        result != 0 && errnoCode == ESRCH
+    }
+
+    /// Computes the resume-cwd rescue value to carry out of the Dock. A nil
+    /// preserved value means cwd tracking was intentionally suppressed.
+    static func dockRestoredResumeSessionWorkingDirectory(
+        preservedSessionDirectory: String?,
+        detachedDirectory: String?,
+        detachedDirectoryWasReadFromLiveForegroundProcess: Bool,
+        agentProvenExited: Bool
+    ) -> String? {
+        guard !agentProvenExited else { return nil }
+        guard preservedSessionDirectory != nil else { return nil }
+        return detachedDirectoryWasReadFromLiveForegroundProcess
+            ? detachedDirectory
+            : preservedSessionDirectory
+    }
+
+    static func dockResumeBinding(
+        preservedBinding: SurfaceResumeBindingSnapshot?,
+        preservedSessionDirectory: String?,
+        restoredResumeSessionWorkingDirectory: String?,
+        detachedDirectoryWasReadFromLiveForegroundProcess: Bool,
+        agentProvenExited: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard !agentProvenExited, let preservedBinding else { return nil }
+        guard detachedDirectoryWasReadFromLiveForegroundProcess,
+              let preservedSessionDirectory,
+              let restoredResumeSessionWorkingDirectory else {
+            return preservedBinding
+        }
+        let resolvedWorkingDirectory = AgentResumeWorkingDirectory().resolve(
+            kind: preservedBinding.kind ?? "",
+            runtimeCwd: restoredResumeSessionWorkingDirectory,
+            launchWorkingDirectory: preservedSessionDirectory
+        )
+        guard resolvedWorkingDirectory != preservedBinding.cwd else { return preservedBinding }
+        return preservedBinding.retargetingWorkingDirectory(resolvedWorkingDirectory)
+    }
+
+    private static func dockAgentPIDHasExited(_ pid: pid_t) -> Bool {
+        errno = 0
+        let result = Darwin.kill(pid, 0)
+        return dockAgentPIDProbeIndicatesExited(result: result, errnoCode: errno)
+    }
+
     /// Detaches a live panel from this Dock *without closing it*, packaging it
     /// into a `Workspace.DetachedSurfaceTransfer` for re-attachment elsewhere.
     ///
@@ -20,11 +69,73 @@ extension DockSplitStore {
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
+        let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
         let kind = (panel.panelType == .browser) ? "browser" : "terminal"
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
         let isLoading = browser?.isLoading ?? false
+        // The Dock has no cwd-report routing, so a preserved transfer's
+        // directory is frozen at Dock-entry time and goes stale if the
+        // terminal cds while docked. Prefer the live foreground process's
+        // actual cwd at detach time. Local panes only: a remote pane's
+        // foreground process is the local relay, not the remote shell.
+        let liveTerminalDirectory: String?
+        if preservedTransfer?.isRemoteTerminal != true,
+           let terminal = panel as? TerminalPanel,
+           let pid = terminal.surface.foregroundProcessID() {
+            liveTerminalDirectory = Workspace.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
+        } else {
+            liveTerminalDirectory = nil
+        }
+        let detachedDirectory: String?
+        var liveTerminalDirectoryIsDirectory: ObjCBool = false
+        if let liveTerminalDirectory,
+           FileManager.default.fileExists(atPath: liveTerminalDirectory, isDirectory: &liveTerminalDirectoryIsDirectory),
+           liveTerminalDirectoryIsDirectory.boolValue {
+            detachedDirectory = liveTerminalDirectory
+        } else {
+            detachedDirectory = preservedTransfer?.directory
+        }
+        let detachedDirectoryWasReadFromLiveForegroundProcess =
+            liveTerminalDirectory != nil && detachedDirectory == liveTerminalDirectory
+        // Agent resume metadata can likewise go stale while docked (the Dock
+        // receives no shell-activity or agent lifecycle updates), so re-emit
+        // it only while the agent is not proven dead: recorded agent pids
+        // exist and none is still running. Where the transfer recorded a
+        // process start-time identity, compare it so a reused pid does not
+        // masquerade as the exited agent (same contract as
+        // `isRecordedAgentPIDLive`); without one, fall back to the ESRCH
+        // probe. The workspace lifecycle clears the same metadata when an
+        // agent exits at a prompt, so this mirrors it. An empty pid set stays
+        // preserved — a restored-but-unscanned agent has no pids yet, and
+        // dropping it would reintroduce the Dock round-trip metadata loss
+        // #7155 fixes.
+        let cachedRuntime = preservedTransfer?.agentRuntime
+        let cachedAgentPIDs = (cachedRuntime?.agentPIDs ?? [:]).filter { $0.value > 0 }
+        let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { key, pid in
+            if let recordedIdentity = cachedRuntime?.agentPIDProcessIdentities[key] {
+                return Workspace.agentPIDProcessIdentity(pid: pid) != recordedIdentity
+            }
+            return Self.dockAgentPIDHasExited(pid)
+        }
+        let restoredResumeSessionWorkingDirectory = Self.dockRestoredResumeSessionWorkingDirectory(
+            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            detachedDirectory: detachedDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
+            agentProvenExited: agentProvenExited
+        )
+        let resumeBinding = Self.dockResumeBinding(
+            preservedBinding: preservedTransfer?.resumeBinding,
+            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+            detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
+            agentProvenExited: agentProvenExited
+        )
+        let trimmedCustomTitle = preservedTransfer?.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let transferTitle = trimmedCustomTitle?.isEmpty == false
+            ? preservedTransfer?.customTitle
+            : panel.displayTitle
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -39,6 +150,9 @@ extension DockSplitStore {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
             surfaceIdToPanelId[tabId] = panelId
+            if let preservedTransfer {
+                detachedSurfaceTransfersByPanelId[panelId] = preservedTransfer
+            }
             installSubscription(for: panel, tracksTerminalTitle: true)
             return nil
         }
@@ -47,29 +161,32 @@ extension DockSplitStore {
             sourceWorkspaceId: workspaceId,
             panelId: panelId,
             panel: panel,
-            title: panel.displayTitle,
+            title: transferTitle ?? panel.displayTitle,
             icon: icon,
             iconImageData: iconImageData,
             kind: kind,
             isLoading: isLoading,
             isPinned: false,
-            directory: nil,
-            directoryDisplayLabel: nil,
-            ttyName: nil,
-            cachedTitle: nil,
-            customTitle: nil,
-            customTitleSource: nil,
-            manuallyUnread: false,
-            restoredUnreadIndicator: nil,
-            restorableAgent: nil,
-            restorableAgentResumeState: nil,
-            resumeBinding: nil,
-            noteAnchorId: nil,
-            agentRuntime: nil,
-            isRemoteTerminal: false,
-            remoteRelayPort: nil,
-            remotePTYSessionID: nil,
-            remoteCleanupConfiguration: nil
+            directory: detachedDirectory,
+            directoryDisplayLabel: detachedDirectory == preservedTransfer?.directory
+                ? preservedTransfer?.directoryDisplayLabel
+                : nil,
+            ttyName: preservedTransfer?.ttyName,
+            cachedTitle: panel.displayTitle,
+            customTitle: preservedTransfer?.customTitle,
+            customTitleSource: preservedTransfer?.customTitleSource,
+            manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
+            restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
+            restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
+            restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+            resumeBinding: resumeBinding,
+            noteAnchorId: preservedTransfer?.noteAnchorId,
+            agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
+            isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
+            remoteRelayPort: preservedTransfer?.remoteRelayPort,
+            remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
+            remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
     }
 
@@ -95,6 +212,13 @@ extension DockSplitStore {
         }
 
         panels[detached.panelId] = panel
+        // Cache the transfer as-is, transient resume state included: while the
+        // agent is alive that state (and the #7155 rescue directory) is still
+        // current, and `detachSurface` drops all agent metadata once the
+        // recorded processes are proven dead. Stripping here instead would
+        // lose the rescue for live agents whenever the detach-time live cwd
+        // read is unavailable.
+        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
@@ -108,6 +232,7 @@ extension DockSplitStore {
             inPane: paneId
         ) else {
             panels.removeValue(forKey: detached.panelId)
+            detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId

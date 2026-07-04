@@ -282,17 +282,21 @@ extension ShortcutAction {
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
-             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
-             .browserZoomIn, .browserZoomOut, .browserZoomReset, .toggleBrowserFocusMode,
+             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
              .diffViewerScrollToTop, .diffViewerOpenFileSearch:
             return .atom(.browserFocus)
+        case .browserZoomIn, .browserZoomOut, .browserZoomReset:
+            return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
         case .canvasZoomReset:
             return .and(
                 .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
-                .and(.not(.atom(.browserFocus)), .not(.atom(.markdownFocus)))
+                .and(
+                    .not(.atom(.browserFocus)),
+                    .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                )
             )
         case .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasTidy,

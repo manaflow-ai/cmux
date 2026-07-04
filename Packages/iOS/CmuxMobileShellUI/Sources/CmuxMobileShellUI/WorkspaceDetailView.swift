@@ -61,6 +61,9 @@ struct WorkspaceDetailView: View {
     @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session.
     @State var cachedChatToggleTerminalID: String?
+    @State var ignoredChatSessionRefreshKey: String?
+    @State var ignoredChatSessionRefreshID: UUID?
+    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
     /// Per-session chat stores kept warm while the workspace detail is visible.
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
@@ -89,22 +92,8 @@ struct WorkspaceDetailView: View {
                 await runWarmChatConversation()
             }
             .onChange(of: selectedTerminalID) { _, _ in
-                #if DEBUG
-                MobileDebugLog.anchormux("toolbar.detail.selectedTerminal \(debugToolbarSignature)")
-                #endif
                 refreshCachedChatToggleAnchor()
             }
-            #if DEBUG
-            .onChange(of: debugToolbarSignature) { _, signature in
-                MobileDebugLog.anchormux("toolbar.detail.change \(signature)")
-            }
-            .onAppear {
-                MobileDebugLog.anchormux("toolbar.detail.appear \(debugToolbarSignature)")
-            }
-            .onDisappear {
-                MobileDebugLog.anchormux("toolbar.detail.disappear \(debugToolbarSignature)")
-            }
-            #endif
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
@@ -135,17 +124,17 @@ struct WorkspaceDetailView: View {
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
         if backButtonConfiguration != nil {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
                 workspaceBackToolbarButton
             }
             if #available(iOS 26.0, *) {
                 ToolbarSpacer(.fixed, placement: .topBarLeading)
             }
         }
-        ToolbarItem(placement: .topBarLeading) {
+        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
             toolbarTrailingCluster
         }
     }
@@ -162,22 +151,6 @@ struct WorkspaceDetailView: View {
             toolbarTitleLabel
         }
     }
-
-    #if DEBUG
-    private var debugToolbarSignature: String {
-        [
-            "workspace=\(workspace.id.rawValue)",
-            "selected=\(store.selectedWorkspaceID?.rawValue ?? "nil")",
-            "selectedTerminal=\(selectedTerminalID ?? "nil")",
-            "terminals=\(workspace.terminals.map(\.id.rawValue).joined(separator: ","))",
-            "back=\(backButtonConfiguration != nil)",
-            "titleActions=\(hasTitleMenuActions)",
-            "chatToggle=\(shouldShowChatToggle)",
-            "browser=\(activeBrowser?.id.rawValue ?? "nil")",
-            "width=\(Int(contentWidth))",
-        ].joined(separator: " ")
-    }
-    #endif
 
     @ViewBuilder
     private var toolbarTitleLabel: some View {
