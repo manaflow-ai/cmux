@@ -2021,7 +2021,7 @@ enum TerminalWindowPortalRegistry {
         expectedGeneration: UInt64? = nil,
         deferLayoutSynchronization: Bool = false,
         deferredBindStillCurrent: (() -> Bool)? = nil
-    ) {
+    ) -> Bool {
         // A bind issued while a terminal host is mid `viewDidMoveToWindow` (AppKit's
         // `_setWindow:` enumeration) would reparent the surface and corrupt the in-flight
         // view-tree walk. Defer the structural bind to the next MainActor turn instead.
