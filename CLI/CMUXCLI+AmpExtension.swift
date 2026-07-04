@@ -114,7 +114,7 @@ function sendHook(
   extra: Record<string, unknown> = {}
 ): void {
   if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!(process.env.CMUX_SOCKET_PATH || process.env.CMUX_SOCKET) || !["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return;
   if (!sessionId) return;
 
   const payload: Record<string, unknown> = {

@@ -284,6 +284,116 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, notificationFailureCtx);
 """
+        # cmux no-surface hibernation coverage (PR #6991): a plugin agent launched
+        # without a surface env must still register session hooks once a socket and a
+        # scoped identity (here, a workspace) are present, must stay silent when no
+        # socket is available, and must skip surface-scoped resume bindings.
+        #
+        # Regression (CodeRabbit + autoreview, PR #6991): when a surface id is present
+        # but no socket is available, the extension must stay completely silent. A
+        # skipped session_start must not run ensureResumeBinding ("surface resume set"),
+        # and session_shutdown must not run clearResumeBinding ("surface resume clear");
+        # either would otherwise route to the default/wrong cmux socket without a socket.
+        no_socket_args_log = root / "fake-cmux-args-surface-no-socket.log"
+        no_socket_stdin_log = root / "fake-cmux-stdin-surface-no-socket.log"
+        no_socket_env_log = root / "fake-cmux-env-surface-no-socket.log"
+        no_socket_binding = root / "fake-surface-binding-surface-no-socket.json"
+        surface_no_socket_env = check_env.copy()  # surface + workspace present, no socket yet
+        surface_no_socket_env.pop("CMUX_SOCKET_PATH", None)
+        surface_no_socket_env.pop("CMUX_SOCKET", None)
+        surface_no_socket_env["CMUX_TEST_PI_ARGS_LOG"] = str(no_socket_args_log)
+        surface_no_socket_env["CMUX_TEST_PI_STDIN_LOG"] = str(no_socket_stdin_log)
+        surface_no_socket_env["CMUX_TEST_PI_ENV_LOG"] = str(no_socket_env_log)
+        surface_no_socket_env["CMUX_TEST_PI_BINDING_FILE"] = str(no_socket_binding)
+        surface_no_socket_check = subprocess.run(
+            [bun, "--eval", check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=surface_no_socket_env,
+            timeout=20,
+        )
+        if surface_no_socket_check.returncode != 0:
+            print("FAIL: generated Pi extension failed with a surface but no socket")
+            print(f"exit={surface_no_socket_check.returncode}")
+            print(f"stdout={surface_no_socket_check.stdout.strip()}")
+            print(f"stderr={surface_no_socket_check.stderr.strip()}")
+            return 1
+        surface_no_socket_args = (
+            no_socket_args_log.read_text(encoding="utf-8") if no_socket_args_log.exists() else ""
+        )
+        if surface_no_socket_args.strip():
+            print(
+                "FAIL: Pi extension invoked cmux without a socket; with a surface id but no "
+                "CMUX_SOCKET_PATH it must route no session hook and no surface resume "
+                f"set/clear: {surface_no_socket_args!r}"
+            )
+            return 1
+
+        no_surface_args_log = root / "fake-cmux-args-no-surface.log"
+        no_surface_stdin_log = root / "fake-cmux-stdin-no-surface.log"
+        no_surface_env_log = root / "fake-cmux-env-no-surface.log"
+        no_surface_binding = root / "fake-surface-binding-no-surface.json"
+        no_surface_env = check_env.copy()
+        no_surface_env.pop("CMUX_SOCKET_PATH", None)
+        no_surface_env.pop("CMUX_SOCKET", None)
+        no_surface_env.pop("CMUX_SURFACE_ID", None)
+        no_surface_env.pop("CMUX_PANEL_ID", None)
+        no_surface_env["CMUX_WORKSPACE_ID"] = "workspace-pi-test"
+        no_surface_env["CMUX_TEST_PI_ARGS_LOG"] = str(no_surface_args_log)
+        no_surface_env["CMUX_TEST_PI_STDIN_LOG"] = str(no_surface_stdin_log)
+        no_surface_env["CMUX_TEST_PI_ENV_LOG"] = str(no_surface_env_log)
+        no_surface_env["CMUX_TEST_PI_BINDING_FILE"] = str(no_surface_binding)
+
+        no_socket_check = subprocess.run(
+            [bun, "--eval", check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=no_surface_env,
+            timeout=20,
+        )
+        if no_socket_check.returncode != 0:
+            print("FAIL: generated Pi extension failed without socket context")
+            print(f"exit={no_socket_check.returncode}")
+            print(f"stdout={no_socket_check.stdout.strip()}")
+            print(f"stderr={no_socket_check.stderr.strip()}")
+            return 1
+        if no_surface_args_log.exists() and no_surface_args_log.read_text(encoding="utf-8").strip():
+            print("FAIL: extension invoked cmux without CMUX_SOCKET_PATH")
+            print(no_surface_args_log.read_text(encoding="utf-8"))
+            return 1
+
+        no_surface_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test-no-surface.sock")
+        no_surface_check = subprocess.run(
+            [bun, "--eval", check_source],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=no_surface_env,
+            timeout=20,
+        )
+        if no_surface_check.returncode != 0:
+            print("FAIL: generated Pi extension failed without surface context")
+            print(f"exit={no_surface_check.returncode}")
+            print(f"stdout={no_surface_check.stdout.strip()}")
+            print(f"stderr={no_surface_check.stderr.strip()}")
+            return 1
+        no_surface_args = wait_for_text(no_surface_args_log, 1, timeout=20.0)
+        if "hooks pi session-start" not in no_surface_args:
+            print(f"FAIL: Pi extension did not register session hooks without a surface, got {no_surface_args!r}")
+            return 1
+        if "surface resume" in no_surface_args:
+            print(f"FAIL: Pi extension attempted a surface-scoped resume binding without a surface, got {no_surface_args!r}")
+            return 1
+        if "hooks feed" in no_surface_args:
+            print(f"FAIL: Pi extension emitted surface-scoped feed telemetry without a surface, got {no_surface_args!r}")
+            return 1
+
+        check_env["CMUX_SOCKET_PATH"] = str(root / "cmux-test.sock")
         check = subprocess.run(
             [bun, "--eval", check_source],
             cwd=root,

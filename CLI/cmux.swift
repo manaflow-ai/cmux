@@ -27393,7 +27393,7 @@ function hookEnvironment(cwd) {
 
 function sendHook(subcommand, ctx, event, extra = {}) {
   if (process.env.CMUX_OPENCODE_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID) return;
+  if (!(process.env.CMUX_SOCKET_PATH || process.env.CMUX_SOCKET) || !["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID"].some((key) => process.env[key])) return;
 
   const sessionId = sessionIdFor(event);
   if (!sessionId) return;
