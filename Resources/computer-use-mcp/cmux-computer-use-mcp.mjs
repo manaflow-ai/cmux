@@ -430,10 +430,8 @@ async function callEngineReadOnly(s, tool, args) {
       return await s.callTool(tool, args);
     } catch (retryError) {
       if (isColdStartError(retryError) && s.computerUseStatus) {
-        const { status, error: statusError } = s.computerUseStatus;
-        throw new Error(
-          `${retryError.message} (computer-use server status: ${status}${statusError ? `, error: ${statusError}` : ""})`
-        );
+        const { status } = s.computerUseStatus;
+        throw new Error(`${retryError.message} (computer-use server status: ${status})`);
       }
       throw retryError;
     }

@@ -84,6 +84,26 @@ if (!shotDeclined.isError || !shotDeclined.text.includes("not approved")) {
   process.exit(1);
 }
 
+const windowsAccepted = await run({ withElicitation: true, tool: "computer_windows", args: {} });
+console.log(`computer_windows with accepted elicitation -> isError=${windowsAccepted.isError}`);
+if (windowsAccepted.text.includes("not approved")) {
+  console.error("FAIL: accepted elicitation should clear the window-list gate");
+  process.exit(1);
+}
+
+const shotAccepted = await run({
+  withElicitation: true,
+  tool: "computer_screenshot",
+  // Use an invalid display so the smoke proves the approval gate opens without
+  // requiring a real full-desktop capture or Screen Recording permission.
+  args: { display: -999 },
+});
+console.log(`desktop screenshot with accepted elicitation -> isError=${shotAccepted.isError}`);
+if (shotAccepted.text.includes("not approved")) {
+  console.error("FAIL: accepted elicitation should clear the desktop-capture gate");
+  process.exit(1);
+}
+
 const openDeclined = await run({ withElicitation: false, tool: "computer_open", args: { app: "TestApp" } });
 console.log(`computer_open without elicitation support -> isError=${openDeclined.isError}`);
 if (!openDeclined.isError || !openDeclined.text.includes("not approved")) {
@@ -106,4 +126,4 @@ if (!openAccepted.isError || openAccepted.text.includes("not approved")) {
   process.exit(1);
 }
 
-console.log("PASS: elicitation forwarding + fail-closed decline (engine and local capabilities)");
+console.log("PASS: elicitation forwarding + fail-closed/accepted gates (engine and local capabilities)");
