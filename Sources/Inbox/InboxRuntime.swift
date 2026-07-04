@@ -174,18 +174,22 @@ final class InboxRuntime {
         }
     }
 
+    /// Keeps draft edits local while typing. Persisting per keystroke spawned
+    /// unordered hub writes whose stale echoes could revert newer editor text,
+    /// and each write triggered a full change-driven refresh; the body is
+    /// flushed to the store once, inside `sendApprovedDraft()`.
     func updateDraftBody(_ body: String) {
-        guard let draftID = currentDraft?.draftID else { return }
-        Task {
-            currentDraft = try? await hub.updateDraftBody(draftID: draftID, body: body)
-        }
+        guard currentDraft != nil, currentDraft?.body != body else { return }
+        currentDraft?.body = body
+        currentDraft?.status = .editing
     }
 
     func sendApprovedDraft() {
-        guard let draftID = currentDraft?.draftID else { return }
+        guard let draft = currentDraft else { return }
         Task {
             do {
-                currentDraft = try await hub.sendApprovedReply(draftID: draftID)
+                _ = try await hub.updateDraftBody(draftID: draft.draftID, body: draft.body)
+                currentDraft = try await hub.sendApprovedReply(draftID: draft.draftID)
                 if let threadID = currentDraft?.threadID {
                     try await refreshThread(threadID: threadID)
                 }

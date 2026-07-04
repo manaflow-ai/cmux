@@ -59,6 +59,7 @@ actor StubConnector: InboxConnector {
     nonisolated let capabilities: Set<InboxConnectorCapability>
     private let statusValue: InboxConnectorStatus
     private var sentDraftIDs: [String] = []
+    private var sentBodies: [String] = []
 
     init(source: InboxSource, capabilities: Set<InboxConnectorCapability>) {
         self.source = source
@@ -87,10 +88,15 @@ actor StubConnector: InboxConnector {
 
     func sendApprovedReply(draft: InboxDraft, thread: InboxThread) async throws {
         sentDraftIDs.append(draft.draftID)
+        sentBodies.append(draft.body)
     }
 
     func sentCount() -> Int {
         sentDraftIDs.count
+    }
+
+    func sentBodyList() -> [String] {
+        sentBodies
     }
 }
 

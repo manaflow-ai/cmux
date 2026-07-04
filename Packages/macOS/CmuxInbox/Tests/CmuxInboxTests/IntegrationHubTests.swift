@@ -64,6 +64,26 @@ import CmuxInbox
         #expect(String(data: databaseBytes, encoding: .utf8)?.contains("super-secret-token") != true)
     }
 
+    @Test func approvedSendDeliversLatestPersistedDraftBody() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let connector = StubConnector(source: .generic, capabilities: [.backfill, .sendReply])
+        let hub = IntegrationHub(store: store, connectors: [connector])
+        let thread = fixtures.thread(source: .generic)
+        let item = fixtures.item(source: .generic, threadID: thread.threadID)
+        try await hub.push(account: fixtures.account(source: .generic), thread: thread, item: item)
+
+        // The app keeps editor keystrokes local and flushes once before the
+        // approved send; the hub contract is update-then-send delivering the
+        // flushed body, never the original generated draft.
+        let draft = try await hub.draftReply(threadID: thread.threadID, instruction: "Generated draft")
+        _ = try await hub.updateDraftBody(draftID: draft.draftID, body: "Edited final body")
+        let sent = try await hub.sendApprovedReply(draftID: draft.draftID)
+
+        #expect(sent.status == .sent)
+        #expect(sent.body == "Edited final body")
+        #expect(await connector.sentBodyList() == ["Edited final body"])
+    }
+
     @Test func syncStatusUpsertPreservesNotificationsOptOut() async throws {
         let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
         let tokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
