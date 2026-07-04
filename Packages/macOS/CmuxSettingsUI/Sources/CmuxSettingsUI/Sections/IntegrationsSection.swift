@@ -185,7 +185,7 @@ public struct IntegrationsSection: View {
         case .imessage:
             return String(localized: "settings.integrations.source.imessage.subtitle", defaultValue: "Uses the cmux-imsg helper for status, recent sync, history, dedupe, and approved sends.")
         case .notifications:
-            return String(localized: "settings.integrations.source.notifications.subtitle", defaultValue: "Surfaces every app's delivered macOS notifications locally — Slack, Mail, calendars, anything — with one Full Disk Access grant and no per-app credentials.")
+            return String(localized: "settings.integrations.source.notifications.subtitle", defaultValue: "Surfaces every app's delivered macOS notifications locally with one Full Disk Access grant and no per-app credentials. Requires a macOS version that keeps a readable notification store (unavailable on macOS 26).")
         case .generic:
             return String(localized: "settings.integrations.source.generic.subtitle", defaultValue: "Accepts normalized events from CLI, Shortcuts, webhooks, Zapier, or internal tools.")
         }

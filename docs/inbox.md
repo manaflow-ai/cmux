@@ -90,7 +90,17 @@ through the `cmux-notif` helper, so every delivered notification — Slack,
 Mail, Discord, calendars, anything — lands in the Inbox with no per-app
 setup. Nothing leaves your Mac, and cmux's own notifications are excluded to
 prevent feedback loops. It needs the same one-time **Full Disk Access** grant
-as iMessage. Build alongside the iMessage helper:
+as iMessage.
+
+**macOS version support:** this works on macOS releases that persist
+notifications to the `usernoted`/`NotificationCenter` `db2` SQLite store.
+**macOS 26 removed that readable store**, so on macOS 26 the source reports
+"App Notifications cannot be surfaced here" and stays inactive — there is no
+supported API to read other apps' delivered notifications on that version.
+The helper probes both the modern `DARWIN_USER_DIR` location and the legacy
+group-container path.
+
+Build alongside the iMessage helper:
 
 ```bash
 cd tools/cmux-imsg && swift build -c release

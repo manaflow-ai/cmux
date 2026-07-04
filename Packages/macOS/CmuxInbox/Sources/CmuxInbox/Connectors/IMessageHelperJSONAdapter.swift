@@ -14,7 +14,8 @@ public struct IMessageHelperJSONAdapter: Sendable {
             message: object["message"] as? String,
             lastSyncAt: (object["last_sync_at"] as? Double).map { Date(timeIntervalSince1970: $0) },
             permissionDenied: (object["permission_denied"] as? Bool) ?? false,
-            helperInstalled: (object["helper_installed"] as? Bool) ?? true
+            helperInstalled: (object["helper_installed"] as? Bool) ?? true,
+            unsupported: (object["unsupported"] as? Bool) ?? false
         )
     }
 

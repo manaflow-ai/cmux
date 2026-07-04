@@ -13,6 +13,10 @@ public struct IMessageHelperStatus: Codable, Equatable, Sendable {
     /// Whether the helper binary is installed and executable. Drives the
     /// missing-helper UI state through a typed field instead of message text.
     public var helperInstalled: Bool
+    /// Whether the data source is unavailable on this OS version (e.g. macOS 26
+    /// no longer keeps a readable notification database). Distinct from a
+    /// permission problem: no user action can resolve it.
+    public var unsupported: Bool
 
     /// Creates a helper status.
     public init(
@@ -20,12 +24,14 @@ public struct IMessageHelperStatus: Codable, Equatable, Sendable {
         message: String? = nil,
         lastSyncAt: Date? = nil,
         permissionDenied: Bool = false,
-        helperInstalled: Bool = true
+        helperInstalled: Bool = true,
+        unsupported: Bool = false
     ) {
         self.ok = ok
         self.message = message
         self.lastSyncAt = lastSyncAt
         self.permissionDenied = permissionDenied
         self.helperInstalled = helperInstalled
+        self.unsupported = unsupported
     }
 }

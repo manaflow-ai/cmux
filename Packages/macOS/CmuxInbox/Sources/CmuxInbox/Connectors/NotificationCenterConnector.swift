@@ -26,6 +26,9 @@ public actor NotificationCenterConnector: InboxConnector {
         let accountStatus: InboxAccountStatus
         if status.ok {
             accountStatus = .connected
+        } else if status.unsupported {
+            // No user action resolves this — the OS dropped the readable store.
+            accountStatus = .degraded
         } else if status.permissionDenied {
             accountStatus = .permissionDenied
         } else if !status.helperInstalled {
@@ -47,6 +50,22 @@ public actor NotificationCenterConnector: InboxConnector {
 
     /// Syncs recently delivered notifications from the helper.
     public func sync(cursor: String?) async throws -> InboxConnectorSyncResult {
+        // Short-circuit when the OS has no readable store: report the honest
+        // status instead of attempting (and failing) a query. Persist the
+        // matching account so a stale row from an earlier state is corrected.
+        let probe = await helper.status()
+        if probe.unsupported || (!probe.ok && !probe.helperInstalled) || (!probe.ok && probe.permissionDenied) {
+            let honest = await status()
+            let account = InboxAccount(
+                source: .notifications,
+                accountID: "local",
+                displayName: "App Notifications",
+                status: honest.status,
+                statusMessage: honest.message,
+                capabilities: capabilities
+            )
+            return InboxConnectorSyncResult(accounts: [account], threads: [], items: [], nextCursor: cursor, status: honest)
+        }
         var result = try await helper.recent(cursor: cursor)
         // The shared helper JSON adapter emits .imessage records; rebrand the
         // payload for this source so identities and filters stay correct.
