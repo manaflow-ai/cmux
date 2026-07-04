@@ -49,7 +49,15 @@ fi
 [ -n "$TMUX_BIN" ] || { echo "tmux not installed on remote" >&2; exit 1; }
 T() { "$TMUX_BIN" "$@"; }
 
-T kill-session -t "$SESSION" 2>/dev/null || true
+# Refuse to clobber an existing session of this name: it may be real work,
+# and a partial build left by a prior interrupted run must not be silently
+# reused. Fail loudly with the fix instead of guessing.
+if T has-session -t "$SESSION" 2>/dev/null; then
+  echo "session '$SESSION' already exists on the remote." >&2
+  echo "kill it first ('$TMUX_BIN kill-session -t $SESSION' on the host) or run with a different name:" >&2
+  echo "  remote-tmux-shape-zoo.sh <host> <other-name>" >&2
+  exit 2
+fi
 
 # The same shapes, in the same order, as the e2e suite's buildShapeZoo.
 T new-session -d -s "$SESSION" -x 180 -y 45 -n even3
@@ -89,24 +97,46 @@ T new-window -t "$SESSION" -n plain
 
 T select-window -t "$SESSION:0"
 
-# Let the pane shells finish starting before typing into them.
-sleep 2
-for pane in $(T list-panes -s -t "$SESSION" -F '#{pane_id}'); do
-  T send-keys -t "$pane" "PROBE_TICK=$TICK bash $PROBE" Enter
-done
-# Slow shell init (dotfiles, motd) can swallow the Enter: re-nudge any pane
-# whose foreground command isn't the probe yet.
-for _ in 1 2 3 4 5; do
-  pending=0
-  while read -r pane cmd; do
-    if [ "$cmd" != bash ]; then
-      pending=1
-      T send-keys -t "$pane" "" Enter
-    fi
+# Wait for each pane's shell to be at a prompt before typing the probe
+# command, then confirm the probe took — polling the real readiness signal
+# (#{pane_current_command}) instead of a fixed grace period. Interactive
+# shells report as one of these; the probe reports as bash.
+is_shell() { # $1 = pane_current_command; a login/interactive shell?
+  [ "$1" = bash ] || [ "$1" = zsh ] || [ "$1" = sh ] || [ "$1" = fish ] \
+    || [ "$1" = -bash ] || [ "$1" = -zsh ] || [ "$1" = dash ] || [ "$1" = ash ]
+}
+shell_ready() {
+  local p c
+  while read -r p c; do
+    is_shell "$c" || return 1
   done < <(T list-panes -s -t "$SESSION" -F '#{pane_id} #{pane_current_command}')
-  [ "$pending" = 0 ] && break
-  sleep 2
-done
+  return 0
+}
+for _ in $(seq 1 30); do shell_ready && break; sleep 0.5; done
+
+PANES="$(T list-panes -s -t "$SESSION" -F '#{pane_id}')"
+launch_and_confirm() {
+  for pane in $PANES; do
+    T send-keys -t "$pane" "PROBE_TICK=$TICK bash $PROBE" Enter
+  done
+  # The probe replaces bash as the foreground command once it starts. Poll
+  # until every pane is running it (slow dotfiles/motd can swallow an Enter).
+  for _ in $(seq 1 20); do
+    pending=0
+    while read -r pane cmd; do
+      [ "$cmd" = bash ] || pending=1
+    done < <(T list-panes -s -t "$SESSION" -F '#{pane_id} #{pane_current_command}')
+    [ "$pending" = 0 ] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+# One re-launch pass covers a pane that never left its prompt on the first try.
+launch_and_confirm || launch_and_confirm || {
+  echo "warning: some panes never started the probe:" >&2
+  T list-panes -s -t "$SESSION" -F '  #{window_name}.#{pane_id} -> #{pane_current_command}' \
+    | grep -v ' -> bash$' >&2 || true
+}
 
 echo "session '$SESSION' ready: $(T list-windows -t "$SESSION" -F '#{window_name}' | tr '\n' ' ')"
 REMOTE

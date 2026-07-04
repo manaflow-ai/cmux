@@ -48,9 +48,12 @@ import Testing
     }
 
     /// Mirror + retained connection (the mirror holds it weakly). `makePanel`
-    /// returns nil, so sizing runs through `geometryOverrideForTesting`.
+    /// returns nil (no live surfaces exist here), so the measured render
+    /// constants are injected through the mirror's `geometrySource` init
+    /// parameter — dependency injection, not a debug seam.
     private func makeMirror(
-        layout: RemoteTmuxLayoutNode
+        layout: RemoteTmuxLayoutNode,
+        geometry: RemoteTmuxMirrorGeometry? = nil
     ) -> (RemoteTmuxWindowMirror, RemoteTmuxControlConnection) {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
@@ -60,16 +63,26 @@ import Testing
             panelId: UUID(),
             connection: connection,
             layout: layout,
+            geometrySource: geometry.map { g in { g } },
             makePanel: { _ in nil }
         )
         return (mirror, connection)
     }
 
-    /// Fully readies a mirror for sizing: calibrated constants + an 800×620pt
-    /// container at 2× (px 1600×1240 → f = 98×35 for the 3-pane row).
-    private func readyForSizing(_ mirror: RemoteTmuxWindowMirror) {
-        mirror.geometryOverrideForTesting = calibratedGeometry
-        mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
+    /// A mirror fully readied for sizing: calibrated constants injected + an
+    /// 800×620pt container at 2× (px 1600×1240 → f = 98×35 for the 3-pane row).
+    private func readyMirror(
+        layout: RemoteTmuxLayoutNode
+    ) -> (RemoteTmuxWindowMirror, RemoteTmuxControlConnection) {
+        let pair = makeMirror(layout: layout, geometry: calibratedGeometry)
+        pair.0.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
+        return pair
+    }
+
+    /// The size the mirror pushed to the connection for window 0, read the
+    /// same way tests read any connection state (via `@testable import`).
+    private func pushed(_ connection: RemoteTmuxControlConnection) -> (cols: Int, rows: Int)? {
+        connection.lastWindowSizes[0].map { (cols: $0.0, rows: $0.1) }
     }
 
     // MARK: structure signature
@@ -129,30 +142,33 @@ import Testing
     // MARK: feed-forward push contract
 
     @Test func updateClientSizeWaitsForConstantsAndContainer() {
-        let (mirror, connection) = makeMirror(layout: reflow123)
-        // No geometry, no container: not ready (caller retries), nothing sent.
+        // No constants: not ready (caller retries), nothing sent.
+        let (noGeo, noGeoConn) = makeMirror(layout: reflow123)
+        noGeo.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
+        #expect(noGeo.updateClientSize() == false)
+        #expect(pushed(noGeoConn) == nil)
+        // Constants present, no container yet: still not ready.
+        let (mirror, connection) = makeMirror(layout: reflow123, geometry: calibratedGeometry)
         #expect(mirror.updateClientSize() == false)
-        #expect(mirror.lastWindowSizeForTesting == nil)
-        mirror.geometryOverrideForTesting = calibratedGeometry
-        #expect(mirror.updateClientSize() == false) // container still unknown
+        #expect(pushed(connection) == nil)
+        // Both present: ready, and it lands per-window.
         mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         #expect(mirror.updateClientSize())
-        #expect(mirror.lastWindowSizeForTesting?.cols == 98) // (1600-3·8)/16
-        #expect(mirror.lastWindowSizeForTesting?.rows == 35) // (1240-48)/34
-        #expect(connection.lastWindowSizes[0] != nil) // and it landed per-window
+        #expect(pushed(connection)?.cols == 98) // (1600-3·8)/16
+        #expect(pushed(connection)?.rows == 35) // (1240-48)/34
+        #expect(connection.lastWindowSizes[0] != nil)
     }
 
     @Test func pushIsAPureFunctionOfPixelsAndStructureNotTheAssignment() {
         // The SAME pixels with a re-dividet (geometry-only) tree push the SAME
         // size — the mechanical form of the no-feedback-loop theorem: tmux's
         // echo of our own push can never change what we push next.
-        let (mirror, _) = makeMirror(layout: reflow123)
-        readyForSizing(mirror)
+        let (mirror, connection) = readyMirror(layout: reflow123)
         #expect(mirror.updateClientSize())
-        let first = mirror.lastWindowSizeForTesting
+        let first = pushed(connection)
         mirror.reconcile(layout: reflow122) // echo-shaped: geometry only
         #expect(mirror.updateClientSize())
-        let second = mirror.lastWindowSizeForTesting
+        let second = pushed(connection)
         #expect(first?.cols == second?.cols)
         #expect(first?.rows == second?.rows)
     }
@@ -161,13 +177,12 @@ import Testing
         // Pushing from the reconcile path would react to tmux's own layout
         // events — the direction feed-forward forbids. Only the view's local
         // triggers call updateClientSize().
-        let (mirror, _) = makeMirror(layout: reflow123)
-        readyForSizing(mirror)
+        let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.reconcile(layout: reflow122)
         mirror.reconcile(layout: node(.horizontal([
             node(.pane(1), w: 61, h: 35), node(.pane(2), w: 61, h: 35),
         ]), w: 123, h: 35))
-        #expect(mirror.lastWindowSizeForTesting == nil)
+        #expect(pushed(connection) == nil)
     }
 
     @Test func hiddenMirrorWritesOnlyTheInitialClaim() {
@@ -175,36 +190,33 @@ import Testing
         // window to tmux's 80×24 default, so a hidden mirror claims its size
         // once at attach — and then never writes again while hidden (its
         // geometry callbacks report collapsed sizes).
-        let (mirror, connection) = makeMirror(layout: reflow123)
-        readyForSizing(mirror)
+        let (mirror, connection) = readyMirror(layout: reflow123)
         mirror.isVisibleForSizing = false
         #expect(mirror.updateClientSize())
-        let claim = mirror.lastWindowSizeForTesting
+        let claim = pushed(connection)
         #expect(claim != nil) // the initial claim goes through
         mirror.noteContainerSize(pointSize: CGSize(width: 40, height: 30), scale: 2)
         #expect(mirror.updateClientSize()) // collapsed hidden geometry arrives
-        #expect(mirror.lastWindowSizeForTesting?.cols == claim?.cols) // no re-write
-        #expect(mirror.lastWindowSizeForTesting?.rows == claim?.rows)
+        #expect(pushed(connection)?.cols == claim?.cols) // no re-write
+        #expect(pushed(connection)?.rows == claim?.rows)
         #expect(connection.lastWindowSizes.count == 1)
     }
 
     @Test func degeneratePixelsClampToWorkableFloors() {
-        let (mirror, connection) = makeMirror(layout: reflow123)
-        mirror.geometryOverrideForTesting = calibratedGeometry
+        let (mirror, connection) = makeMirror(layout: reflow123, geometry: calibratedGeometry)
         mirror.noteContainerSize(pointSize: CGSize(width: 30, height: 20), scale: 2)
         #expect(mirror.updateClientSize())
-        #expect(mirror.lastWindowSizeForTesting?.cols == RemoteTmuxMirrorGeometry.minCols)
-        #expect(mirror.lastWindowSizeForTesting?.rows == RemoteTmuxMirrorGeometry.minRows)
+        #expect(pushed(connection)?.cols == RemoteTmuxMirrorGeometry.minCols)
+        #expect(pushed(connection)?.rows == RemoteTmuxMirrorGeometry.minRows)
         #expect(connection.lastWindowSizes[0] != nil)
     }
 
     // MARK: zoom (dual tree)
 
     @Test func zoomNeverTouchesPanelLifecycleOrThePushedSize() {
-        let (mirror, _) = makeMirror(layout: reflow123)
-        readyForSizing(mirror)
+        let (mirror, connection) = readyMirror(layout: reflow123)
         #expect(mirror.updateClientSize())
-        let before = mirror.lastWindowSizeForTesting
+        let before = pushed(connection)
         let zoomedWindow = RemoteTmuxWindow(
             id: 0, name: "w", width: 123, height: 35,
             layout: reflow123,
@@ -217,8 +229,8 @@ import Testing
         #expect(mirror.visibleLayout?.paneIDsInOrder == [2])
         #expect(mirror.paneIDsInOrder == [1, 2, 3]) // base tree still owns panes
         #expect(mirror.updateClientSize())
-        #expect(mirror.lastWindowSizeForTesting?.cols == before?.cols) // f zoom-invariant
-        #expect(mirror.lastWindowSizeForTesting?.rows == before?.rows)
+        #expect(pushed(connection)?.cols == before?.cols) // f zoom-invariant
+        #expect(pushed(connection)?.rows == before?.rows)
         // Unzoom arrives as a fresh event (never latched).
         mirror.apply(window: RemoteTmuxWindow(
             id: 0, name: "w", width: 123, height: 35,
@@ -231,8 +243,7 @@ import Testing
     // MARK: render-mode selection
 
     @Test func framesImposeOnlyWhenTheAssignmentMatchesF() {
-        let (mirror, _) = makeMirror(layout: reflow123)
-        readyForSizing(mirror)
+        let (mirror, _) = readyMirror(layout: reflow123)
         // Assigned size (123×35) ≠ f for these pixels (98×35): transient mode (nil).
         #expect(mirror.framesForRender(containerPt: CGSize(width: 800, height: 620)) == nil)
         // A tmux layout matching f imposes.

@@ -163,47 +163,55 @@ struct RemoteTmuxProportionalSplit: View {
     @ViewBuilder
     private func splitStack(children: [RemoteTmuxLayoutNode], axis: Axis) -> some View {
         let weights = children.map { CGFloat(axis == .horizontal ? $0.width : $0.height) }
-        let total = max(1, weights.reduce(0, +))
-        GeometryReader { geo in
-            let span = axis == .horizontal ? geo.size.width : geo.size.height
-            let usable = max(1, span - dividerThickness * CGFloat(max(0, children.count - 1)))
-            if axis == .horizontal {
-                HStack(spacing: dividerThickness) {
-                    childViews(children, weights: weights, total: total, usable: usable, axis: axis)
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
-            } else {
-                VStack(spacing: dividerThickness) {
-                    childViews(children, weights: weights, total: total, usable: usable, axis: axis)
-                }
-                .frame(width: geo.size.width, height: geo.size.height)
+        RemoteTmuxWeightedSplitLayout(axis: axis, weights: weights, spacing: dividerThickness) {
+            ForEach(children.indices, id: \.self) { index in
+                RemoteTmuxProportionalSplit(
+                    node: children[index],
+                    mirror: mirror,
+                    appearance: appearance,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onClosePane: onClosePane
+                )
             }
         }
         .background(appearance.dividerColor)
     }
+}
 
-    @ViewBuilder
-    private func childViews(
-        _ children: [RemoteTmuxLayoutNode],
-        weights: [CGFloat],
-        total: CGFloat,
-        usable: CGFloat,
-        axis: Axis
-    ) -> some View {
-        ForEach(children.indices, id: \.self) { index in
-            let dimension = usable * weights[index] / total
-            RemoteTmuxProportionalSplit(
-                node: children[index],
-                mirror: mirror,
-                appearance: appearance,
-                isVisibleInUI: isVisibleInUI,
-                portalPriority: portalPriority,
-                onClosePane: onClosePane
+/// Divides the container along one axis proportionally to tmux's assigned
+/// cells, with a fixed divider gap between children — the transient
+/// fallback's split arithmetic as a proper `Layout` (single pass, no
+/// geometry read-back into view state).
+struct RemoteTmuxWeightedSplitLayout: Layout {
+    let axis: Axis
+    let weights: [CGFloat]
+    let spacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
+        let total = max(1, weights.reduce(0, +))
+        let span = axis == .horizontal ? bounds.width : bounds.height
+        let usable = max(1, span - spacing * CGFloat(max(0, subviews.count - 1)))
+        var cursor = axis == .horizontal ? bounds.minX : bounds.minY
+        for (index, subview) in subviews.enumerated() {
+            let weight = index < weights.count ? weights[index] : 1
+            let dimension = usable * weight / total
+            let frame: CGRect = axis == .horizontal
+                ? CGRect(x: cursor, y: bounds.minY, width: dimension, height: bounds.height)
+                : CGRect(x: bounds.minX, y: cursor, width: bounds.width, height: dimension)
+            subview.place(
+                at: frame.origin, anchor: .topLeading,
+                proposal: ProposedViewSize(width: frame.width, height: frame.height)
             )
-            .frame(
-                width: axis == .horizontal ? dimension : nil,
-                height: axis == .vertical ? dimension : nil
-            )
+            cursor += dimension + spacing
         }
     }
 }

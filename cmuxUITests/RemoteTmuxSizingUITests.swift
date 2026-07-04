@@ -389,7 +389,15 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             .deletingLastPathComponent() // repo root
             .appendingPathComponent("scripts/remote-tmux-width-probe.sh").path
         guard FileManager.default.isExecutableFile(atPath: probe) else { return }
-        Thread.sleep(forTimeInterval: 0.8) // let the pane shells finish starting
+        // Wait on the real readiness signal — every pane's foreground command
+        // is an interactive shell — instead of a fixed grace period.
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            guard let commands = tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{pane_current_command}"]) else { break }
+            let shells: Set<Substring> = ["zsh", "bash", "sh", "fish", "-zsh", "-bash"]
+            if commands.split(separator: "\n").allSatisfy({ shells.contains($0) }) { break }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
         guard let panes = tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{pane_id}"]) else { return }
         for pane in panes.split(separator: "\n") {
             // Slow tick: the probes exist for churn and human-readable CI

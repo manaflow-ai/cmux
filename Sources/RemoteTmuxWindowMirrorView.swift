@@ -14,80 +14,65 @@ struct RemoteTmuxWindowMirrorView: View {
     /// be gated on a close confirmation (the view stays dialog-free).
     let onClosePane: (Int) -> Void
     @Environment(\.displayScale) private var displayScale
-    @State private var sizingRetryTask: Task<Void, Never>?
+    /// The container size, fed by `onGeometryChange` (an event, not a layout
+    /// read) — the render derives frames from it, and every change re-runs
+    /// the deduped client-size push.
+    @State private var containerSize: CGSize = .zero
 
     var body: some View {
-        GeometryReader { geo in
-            RemoteTmuxLayoutContainer(
-                node: mirror.visibleLayout ?? mirror.layout,
-                frames: mirror.framesForRender(containerPt: geo.size),
-                mirror: mirror,
-                appearance: appearance,
-                isVisibleInUI: isVisibleInUI,
-                portalPriority: portalPriority,
-                onClosePane: onClosePane
-            )
-            .frame(width: geo.size.width, height: geo.size.height)
-            // Sizing is feed-forward: the pushed size is a pure function of
-            // these pixels + the base tree's structure + measured constants,
-            // so the ONLY events that can change it are the ones below. tmux
-            // layout events (geometry echoes, foreign resize-panes) never
-            // re-push — f would recompute the identical value, and the
-            // per-window dedup on the connection makes even a redundant call
-            // free. The view always calls; the MIRROR's gate decides who may write
-            // (visible mirrors push; hidden mirrors only their one initial
-            // claim — see updateClientSize()). Single-source gating: guarding
-            // here too once left hidden windows unclaimed at tmux's 80×24
-            // default because the claim path was never reached.
-            .onAppear {
-                mirror.isVisibleForSizing = isVisibleInUI
-                pushClientSize(pointSize: geo.size)
-            }
-            .onChange(of: geo.size) { _, newSize in
-                pushClientSize(pointSize: newSize)
-            }
-            .onChange(of: isVisibleInUI) { _, visible in
-                mirror.isVisibleForSizing = visible
-                if visible {
-                    // Becoming visible is the re-own point: the remote window
-                    // may have been resized (another client, a crash-frozen
-                    // pin) while this tab was hidden.
-                    pushClientSize(pointSize: geo.size)
-                } else {
-                    sizingRetryTask?.cancel()
-                }
-            }
-            // Splits/closes change the structure fold's output; geometry-only
-            // reflows do not (and never re-arm — see the mirror's invariant).
-            .onChange(of: mirror.layoutStructureVersion) { _, _ in
-                pushClientSize(pointSize: geo.size)
-            }
-            .onDisappear { sizingRetryTask?.cancel() }
-        }
+        RemoteTmuxLayoutContainer(
+            node: mirror.visibleLayout ?? mirror.layout,
+            frames: containerSize == .zero ? nil : mirror.framesForRender(containerPt: containerSize),
+            mirror: mirror,
+            appearance: appearance,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: portalPriority,
+            onClosePane: onClosePane
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Match the terminal background so the area never shows through as black.
         .background(Color(nsColor: appearance.backgroundColor))
-    }
-
-    /// Records the container size and pushes f's output, then keeps re-running
-    /// the (deduped, cheap) push for a short window. The revalidation exists
-    /// because f's measured constants REFINE after the first push: the surface
-    /// pads are min-tracked from live samples, and early samples — taken while
-    /// frames are still proportional, not cell-aligned — over-report the pad.
-    /// A push made with coarse constants computes one column/row short, and
-    /// without this loop nothing re-triggers when the constants settle (tmux
-    /// events must never be push triggers — see the mirror's invariant). Each
-    /// tick recomputes f from purely local inputs and the per-window dedup
-    /// makes converged ticks free, so this stays feed-forward and bounded.
-    private func pushClientSize(pointSize: CGSize) {
-        mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
-        sizingRetryTask?.cancel()
-        _ = mirror.updateClientSize()
-        sizingRetryTask = Task { @MainActor in
-            for _ in 0..<20 {
-                do { try await ContinuousClock().sleep(for: .milliseconds(150)) } catch { return }
-                _ = mirror.updateClientSize()
+        // Sizing is feed-forward: the pushed size is a pure function of these
+        // pixels + the base tree's structure + measured constants, so the
+        // only push triggers are the events below plus each surface's
+        // grid-resize report (see reconcile) — the moment measured constants
+        // can change. tmux layout events never re-push: f would recompute
+        // the identical value, and per-window dedup makes a redundant call
+        // free. The view always calls; the MIRROR's gate decides who may
+        // write (visible mirrors push; hidden mirrors only their one initial
+        // claim — see updateClientSize()).
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { newSize in
+            containerSize = newSize
+            pushClientSize(pointSize: newSize)
+        }
+        .onAppear {
+            mirror.isVisibleForSizing = isVisibleInUI
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            mirror.isVisibleForSizing = visible
+            if visible {
+                // Becoming visible is the re-own point: the remote window
+                // may have been resized (another client, a crash-frozen
+                // pin) while this tab was hidden.
+                pushClientSize(pointSize: containerSize)
             }
         }
+        // Splits/closes change the structure fold's output; geometry-only
+        // reflows do not (and never re-arm — see the mirror's invariant).
+        .onChange(of: mirror.layoutStructureVersion) { _, _ in
+            pushClientSize(pointSize: containerSize)
+        }
+    }
+
+    /// Records the container size and runs the deduped push. No retry loop:
+    /// while the render constants are still unknown the push is a no-op, and
+    /// the surface's first grid-resize report (wired in the mirror's
+    /// reconcile) re-runs it the moment constants exist.
+    private func pushClientSize(pointSize: CGSize) {
+        guard pointSize.width > 0, pointSize.height > 0 else { return }
+        mirror.noteContainerSize(pointSize: pointSize, scale: displayScale)
+        _ = mirror.updateClientSize()
     }
 }

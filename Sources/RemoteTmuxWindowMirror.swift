@@ -91,17 +91,23 @@ final class RemoteTmuxWindowMirror {
     @ObservationIgnored private var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
     @ObservationIgnored private var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
 
+    /// Injected source of render constants; `nil` measures live surfaces.
+    /// Unit tests inject fixed constants here (no live surfaces exist there).
+    @ObservationIgnored private let geometrySource: (() -> RemoteTmuxMirrorGeometry?)?
+
     init(
         windowId: Int,
         panelId: UUID,
         connection: RemoteTmuxControlConnection,
         layout: RemoteTmuxLayoutNode,
+        geometrySource: (() -> RemoteTmuxMirrorGeometry?)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
         self.panelId = panelId
         self.connection = connection
         self.makePanel = makePanel
+        self.geometrySource = geometrySource
         self.layout = layout
         reconcile(layout: layout)
     }
@@ -142,6 +148,14 @@ final class RemoteTmuxWindowMirror {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
+            // The surface reports every applied grid resize — the one moment
+            // the measured constants (cell size, padding) can change. Re-run
+            // the deduped push then, so sizing converges on a real signal
+            // instead of timers. Feed-forward safe: the push reads only local
+            // state, so an echo of our own imposition dedups to silence.
+            panel.surface.onManualGridResize = { [weak self] _, _ in
+                self?.updateClientSize()
+            }
             // Canonical seed (reflow classification → capture → cwd). The session
             // mirror's cwd observer maps the pane back to this window's tab.
             connection?.seedPane(paneId: paneId)
@@ -209,9 +223,7 @@ final class RemoteTmuxWindowMirror {
     /// (`framesForRender`). ``refreshGeometryConstants()`` is what advances
     /// the minimums, on event paths.
     func currentGeometry() -> RemoteTmuxMirrorGeometry? {
-        #if DEBUG
-        if let geometryOverrideForTesting { return geometryOverrideForTesting }
-        #endif
+        if let geometrySource { return geometrySource() }
         for panel in panelsByPaneId.values {
             guard let sample = panel.surface.rawSizingSample(),
                   sample.cellWidthPx > 0, sample.cellHeightPx > 0,
@@ -412,20 +424,6 @@ final class RemoteTmuxWindowMirror {
             currentFRows: fCells?.rows
         )
     }
-
-    #if DEBUG
-    /// Stubs the measured render constants so sizing behavior is testable
-    /// without live surfaces: `updateClientSize()`'s readiness/feed-forward
-    /// contract and — critically — that ``reconcile(layout:)`` never pushes a
-    /// size by itself (pushing from the reconcile path would react to tmux's
-    /// own layout events, the direction the feed-forward design forbids).
-    @ObservationIgnored var geometryOverrideForTesting: RemoteTmuxMirrorGeometry?
-    /// The last per-window size any writer requested for THIS window on the
-    /// shared connection — what dedup compares against and a send updates.
-    var lastWindowSizeForTesting: (cols: Int, rows: Int)? {
-        connection?.lastWindowSizes[windowId].map { (cols: $0.0, rows: $0.1) }
-    }
-    #endif
 
     /// Tears down every pane panel (called when the window-tab is removed).
     func teardown() {

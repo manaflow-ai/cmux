@@ -1297,6 +1297,12 @@ final class RemoteTmuxControlConnection {
             record("window-add @\(id)")
             requestWindows()
         case let .windowClose(id):
+            // Release the closed window's per-window sizing state: a stale
+            // entry would be replayed by the reconnect reseed, and a pending
+            // debounce could still fire at a dead @id target.
+            lastWindowSizes[id] = nil
+            windowSizeDebounceTasks[id]?.cancel()
+            windowSizeDebounceTasks[id] = nil
             // Release the closed window's per-pane/per-window diagnostic state so
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
@@ -1414,10 +1420,17 @@ final class RemoteTmuxControlConnection {
                let completion = activityQueryCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
-            // A rejected per-window size means the server predates the
-            // '@id:WxH' form: degrade to session-wide sizing, visibly.
-            if case .perWindowSize = kind {
-                notePerWindowSizeRejected()
+            // A rejected per-window size normally means the server predates
+            // the '@id:WxH' form: degrade to session-wide sizing, visibly.
+            // But a "can't find window" error is about ONE dead window (it
+            // raced a close) — drop that entry instead of downgrading the
+            // whole connection.
+            if case let .perWindowSize(windowId) = kind {
+                if lines.joined(separator: " ").localizedCaseInsensitiveContains("find window") {
+                    lastWindowSizes[windowId] = nil
+                } else {
+                    notePerWindowSizeRejected()
+                }
             }
             // Errors are dropped by design (results correlate positionally), but
             // an invisible %error has already hidden one real bug — an unquoted
