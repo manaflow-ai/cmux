@@ -36,6 +36,7 @@ export default async function AppPricingPage({
   const params = await searchParams;
   const banner = appPricingBanner(params);
   const appearance = appPricingAppearance(params);
+  const stickyBackground = appPricingStickyBackground(params, appearance);
   const proFeatures = visibleProFeatures({
     base: pricing.pro.features,
     vault: pricing.pro.vaultFeatures,
@@ -49,7 +50,7 @@ export default async function AppPricingPage({
     <main
       className="min-h-screen w-full overflow-x-hidden px-6 py-10 text-foreground sm:py-12"
       data-app-pricing-appearance={appearance}
-      style={appPricingStyle(appearance)}
+      style={appPricingStyle(appearance, stickyBackground)}
     >
       <div className="mx-auto w-full max-w-6xl">
         {banner ? <BillingBanner banner={banner} /> : null}
@@ -288,14 +289,29 @@ function appPricingAppearance(
   return firstParam(params.appearance) === "dark" ? "dark" : "light";
 }
 
-function appPricingStyle(appearance: "light" | "dark"): CSSProperties {
+function appPricingStickyBackground(
+  params: Record<string, string | string[] | undefined>,
+  appearance: "light" | "dark",
+): string {
+  const background = firstParam(params.background);
+  if (background && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(background)) {
+    return background;
+  }
+  return appearance === "dark" ? "rgba(24, 24, 24, 0.96)" : "rgba(245, 245, 245, 0.96)";
+}
+
+function appPricingStyle(
+  appearance: "light" | "dark",
+  stickyBackground: string,
+): CSSProperties {
   if (appearance === "dark") {
     return {
       "--foreground": "#ededed",
       "--muted": "#a3a3a3",
       "--border": "rgba(255, 255, 255, 0.18)",
       "--code-bg": "rgba(24, 24, 24, 0.72)",
-      "--background": "rgba(0, 0, 0, 0.92)",
+      "--background": "transparent",
+      "--pricing-sticky-bg": stickyBackground,
       "--button-foreground": "#0a0a0a",
     } as CSSProperties;
   }
@@ -304,7 +320,8 @@ function appPricingStyle(appearance: "light" | "dark"): CSSProperties {
     "--muted": "#5f6368",
     "--border": "rgba(0, 0, 0, 0.14)",
     "--code-bg": "rgba(245, 245, 245, 0.78)",
-    "--background": "rgba(255, 255, 255, 0.92)",
+    "--background": "transparent",
+    "--pricing-sticky-bg": stickyBackground,
     "--button-foreground": "#ffffff",
   } as CSSProperties;
 }

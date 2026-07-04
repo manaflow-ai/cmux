@@ -60,10 +60,13 @@ enum ProUpgradePresenter {
         var components = URLComponents(url: AuthEnvironment.appPricingURL, resolvingAgainstBaseURL: false)
         var queryItems = components?.queryItems ?? []
         queryItems.removeAll { $0.name == "appearance" }
-        let appearance = cmuxReadableColorScheme(for: GhosttyBackgroundTheme.currentColor()) == .dark
+        queryItems.removeAll { $0.name == "background" }
+        let backgroundColor = GhosttyBackgroundTheme.currentColor()
+        let appearance = cmuxReadableColorScheme(for: backgroundColor) == .dark
             ? "dark"
             : "light"
         queryItems.append(URLQueryItem(name: "appearance", value: appearance))
+        queryItems.append(URLQueryItem(name: "background", value: backgroundColor.hexString()))
         components?.queryItems = queryItems
         return components?.url ?? AuthEnvironment.appPricingURL
     }
