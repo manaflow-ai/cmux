@@ -68,8 +68,9 @@ struct PanelContentView: View {
                     paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    isSplit: isSplit,
                     portalPriority: portalPriority,
-                    activePaneBoundaryColor: appearance.dividerNSColor,
+                    activePaneBoundaryColor: appearance.activePaneBoundaryNSColor,
                     paneOwnershipOverride: paneOwnershipOverride,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
@@ -155,13 +156,13 @@ struct PanelContentView: View {
     private var activePaneBoundaryOverlay: some View {
         if shouldShowSwiftUIActivePaneBoundary {
             Rectangle()
-                .strokeBorder(appearance.dividerColor, lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth))
+                .strokeBorder(appearance.activePaneBoundaryColor, lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth))
                 .allowsHitTesting(false)
         }
     }
 
     private var shouldShowSwiftUIActivePaneBoundary: Bool {
-        guard isFocused && isVisibleInUI else { return false }
+        guard isSplit && isFocused && isVisibleInUI else { return false }
         switch panel.panelType {
         case .terminal, .browser:
             return false

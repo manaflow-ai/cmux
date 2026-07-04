@@ -377,13 +377,11 @@ struct BrowserPanelView: View {
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let isSplit: Bool
     let portalPriority: Int
     let activePaneBoundaryColor: NSColor
     let onRequestPanelFocus: () -> Void
-    /// Explicit pane-ownership signal for hosts whose panels are not registered
-    /// in the main `Workspace` tree (e.g. the right-sidebar Dock, which owns its
-    /// panels in `DockSplitStore`). When set, it overrides the workspace lookup
-    /// in `isCurrentPaneOwner`; `nil` preserves the main-area behavior.
+    /// Overrides workspace pane ownership for hosts outside the main `Workspace` tree.
     let paneOwnershipOverride: Bool?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
@@ -477,6 +475,7 @@ struct BrowserPanelView: View {
         paneId: PaneID,
         isFocused: Bool,
         isVisibleInUI: Bool,
+        isSplit: Bool,
         portalPriority: Int,
         activePaneBoundaryColor: NSColor,
         paneOwnershipOverride: Bool? = nil,
@@ -486,6 +485,7 @@ struct BrowserPanelView: View {
         self.paneId = paneId
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
+        self.isSplit = isSplit
         self.portalPriority = portalPriority
         self.activePaneBoundaryColor = activePaneBoundaryColor
         self.paneOwnershipOverride = paneOwnershipOverride
@@ -1155,7 +1155,7 @@ struct BrowserPanelView: View {
 
     @ViewBuilder
     private var browserSwiftUIActivePaneBoundaryOverlay: some View {
-        if isFocused && isVisibleInUI && !panel.shouldRenderWebView {
+        if isSplit && isFocused && isVisibleInUI && !panel.shouldRenderWebView {
             Rectangle()
                 .strokeBorder(
                     Color(nsColor: activePaneBoundaryColor),
@@ -1176,7 +1176,7 @@ struct BrowserPanelView: View {
     }
 
     private var shouldShowBrowserChromeActivePaneBoundary: Bool {
-        isFocused &&
+        isSplit && isFocused &&
             isVisibleInUI &&
             panel.shouldRenderWebView &&
             panel.isOmnibarVisible &&
@@ -1853,7 +1853,7 @@ struct BrowserPanelView: View {
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
-                    showsActivePaneBoundary: isFocused && isVisibleInUI,
+                    showsActivePaneBoundary: isSplit && isFocused && isVisibleInUI,
                     activePaneBoundaryColor: activePaneBoundaryColor,
                     paneDropZone: paneDropZone,
                     paneOwnershipOverride: paneOwnershipOverride,
