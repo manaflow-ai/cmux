@@ -23048,14 +23048,14 @@ struct CMUXCLI {
             ]
         )
         var didSendFeedTelemetry = false
-        func sendClaudeFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
+        func sendClaudeFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil, defaultToWorkspaceArg: Bool = true) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg, surfaceId: surfaceId,
+                workspaceId: workspaceId ?? (defaultToWorkspaceArg ? workspaceArg : nil), surfaceId: surfaceId,
                 socketPassword: socketPassword
             )
         }
@@ -23227,7 +23227,7 @@ struct CMUXCLI {
                 ) || callerTTYBindingProvider?()?.workspaceId == workspaceId
                 sendClaudeFeedTelemetry(
                     workspaceId: hasAuthoritativeWorkspace ? workspaceId : nil,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil, defaultToWorkspaceArg: false
                 )
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
