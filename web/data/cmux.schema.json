@@ -1009,6 +1009,12 @@
           "maximum": 1,
           "default": 0.03,
           "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
+        },
+        "side": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "left",
+          "description": "Which side of the window the workspace tab sidebar appears on."
         }
       }
     },

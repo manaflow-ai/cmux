@@ -68,5 +68,11 @@ public struct SidebarAppearanceCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarState"
     )
 
+    public let side = DefaultsKey<SidebarSideOption>(
+        id: "sidebarAppearance.side",
+        defaultValue: .left,
+        userDefaultsKey: "sidebarSide"
+    )
+
     public init() {}
 }
