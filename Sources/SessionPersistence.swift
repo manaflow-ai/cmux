@@ -1888,6 +1888,19 @@ extension SessionWindowSnapshot {
     var hasRestorablePanels: Bool {
         tabManager.workspaces.contains { $0.hasRestorablePanels }
     }
+
+    /// Whether this window carries anything to restore. A window with no
+    /// workspaces (tabs) is a "phantom"/"empty shell": it renders no content,
+    /// yet restore still creates a real NSWindow + GPU surface for it. Such
+    /// windows are persisted across an unclean shutdown and replaying them on
+    /// launch can wedge the WindowServer and freeze the desktop (issue #6646).
+    /// A window with at least one workspace is restorable even when that
+    /// workspace has no panels yet — the workspace may be a pinned/titled tab
+    /// the user wants to keep — so the phantom test is "no tabs", matching the
+    /// existing empty-workspace skip for dedicated remote windows.
+    var hasRestorableTabs: Bool {
+        !tabManager.workspaces.isEmpty
+    }
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {
@@ -1911,11 +1924,22 @@ struct AppSessionSnapshot: Codable, Sendable {
 }
 
 extension AppSessionSnapshot: SessionSnapshotRepresenting {
-    /// Whether the snapshot carries at least one window. The `CmuxSession`
-    /// repository treats an empty-window snapshot as unusable (empty states
-    /// remove the file instead of writing it), matching the legacy
-    /// `!snapshot.windows.isEmpty` usability check.
-    var hasWindows: Bool { !windows.isEmpty }
+    /// A copy of the snapshot with phantom ("empty shell") windows removed, or
+    /// `nil` when no restorable window remains. A phantom window has no tabs
+    /// (`hasRestorableTabs == false`). The `SessionSnapshotRepository` discards
+    /// these on load and treats an all-phantom snapshot as unusable — empty
+    /// states remove the file instead of writing it — so a session corrupted by
+    /// an unclean shutdown never replays its phantoms into a WindowServer hang
+    /// (issue #6646). An all-restorable snapshot returns `self` unchanged so the
+    /// on-disk bytes are byte-for-byte stable.
+    var discardingNonRestorableWindows: AppSessionSnapshot? {
+        let restorableWindows = windows.filter { $0.hasRestorableTabs }
+        guard !restorableWindows.isEmpty else { return nil }
+        guard restorableWindows.count != windows.count else { return self }
+        var copy = self
+        copy.windows = restorableWindows
+        return copy
+    }
 }
 
 enum SessionScrollbackReplayStore {
