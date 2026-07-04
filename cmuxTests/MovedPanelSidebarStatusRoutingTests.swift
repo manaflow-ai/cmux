@@ -145,6 +145,60 @@ struct MovedPanelSidebarStatusRoutingTests {
         }
     }
 
+    @Test func panelScopedStatusClearDoesNotRemoveSameKeyOwnedByAnotherPanel() throws {
+        try withMovedPanelTestContext { moved in
+            let otherPanelID = try #require(moved.destination.panels.keys.first { $0 != moved.panelID })
+            let staleTab = moved.source.id.uuidString
+            let movedPanel = moved.panelID.uuidString
+            let otherPanel = otherPanelID.uuidString
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status build Other --tab=\(moved.destination.id.uuidString) --panel=\(otherPanel) --pid=333"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["build"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["build"].map(Int.init) == 333)
+            #expect(moved.destination.agentPIDPanelIdsByKey["build"] == otherPanelID)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status opencode Other --tab=\(moved.destination.id.uuidString) --panel=\(otherPanel)"
+                ) == "OK"
+            )
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_pid opencode.session 444 --tab=\(moved.destination.id.uuidString) --panel=\(otherPanel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["opencode"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["opencode.session"].map(Int.init) == 444)
+            #expect(moved.destination.agentPIDPanelIdsByKey["opencode.session"] == otherPanelID)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_status build --tab=\(staleTab) --panel=\(movedPanel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["build"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["build"].map(Int.init) == 333)
+            #expect(moved.destination.agentPIDPanelIdsByKey["build"] == otherPanelID)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_status opencode --tab=\(staleTab) --panel=\(movedPanel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["opencode"]?.value == "Other")
+            #expect(moved.destination.agentPIDs["opencode.session"].map(Int.init) == 444)
+            #expect(moved.destination.agentPIDPanelIdsByKey["opencode.session"] == otherPanelID)
+        }
+    }
+
     private struct MovedPanelTestContext {
         let manager: TabManager
         let source: Workspace
