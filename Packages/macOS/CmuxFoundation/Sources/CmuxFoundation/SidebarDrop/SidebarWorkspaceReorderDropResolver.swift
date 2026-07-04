@@ -141,8 +141,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
         if let draggedGroup = groupByAnchorId[draggedWorkspace.id] {
-            guard draggedGroup.parentGroupId != nil,
-                  candidate.groupId != draggedGroup.id else {
+            guard candidate.groupId == draggedGroup.parentGroupId else {
                 return nil
             }
         }
