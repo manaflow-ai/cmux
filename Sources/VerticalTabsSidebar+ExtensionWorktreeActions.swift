@@ -216,7 +216,7 @@ extension VerticalTabsSidebar {
     }
 
     private func extensionWorktreeRemovalTabManagers() -> [TabManager] {
-        var managers = AppDelegate.shared?.allMainWindowTabManagersForDebug() ?? []
+        var managers = AppDelegate.shared?.allMainWindowTabManagers() ?? []
         if !managers.contains(where: { $0 === tabManager }) {
             managers.append(tabManager)
         }
