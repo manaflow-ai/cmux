@@ -210,8 +210,10 @@ func runSend() {
     process.standardError = stderrPipe
     do {
         try process.run()
-        process.waitUntilExit()
+        // Drain stderr before waiting: reading after exit deadlocks once the
+        // pipe buffer fills (same class as the app-side helper runner fix).
         let errorOutput = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             emit(["ok": false, "message": "Messages send failed: \(errorOutput.trimmingCharacters(in: .whitespacesAndNewlines))"])
             Foundation.exit(1)
