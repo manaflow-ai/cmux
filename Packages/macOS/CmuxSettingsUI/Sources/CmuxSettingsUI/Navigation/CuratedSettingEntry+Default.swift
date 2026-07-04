@@ -197,6 +197,48 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 
+            // Inline VS Code
+            .init(
+                section: .inlineVSCode,
+                id: "persist-state",
+                title: String(localized: "settings.inlineVSCode.persistState", defaultValue: "Persist serve-web State"),
+                paths: ["inlineVSCode.persistServeWebState"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.persist-state",
+                    defaultValue: "inlineVSCode.persistServeWebState vscode vs code serve web serve-web inline persist state sign in auth settings sync session ephemeral throwaway"
+                )
+            ),
+            .init(
+                section: .inlineVSCode,
+                id: "port",
+                title: String(localized: "settings.inlineVSCode.port", defaultValue: "Port"),
+                paths: ["inlineVSCode.port"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.port",
+                    defaultValue: "inlineVSCode.port vscode vs code serve web serve-web inline port localhost 127.0.0.1 pin random free"
+                )
+            ),
+            .init(
+                section: .inlineVSCode,
+                id: "server-data-dir",
+                title: String(localized: "settings.inlineVSCode.serverDataDir", defaultValue: "Server Data Directory"),
+                paths: ["inlineVSCode.serverDataDir"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.server-data-dir",
+                    defaultValue: "inlineVSCode.serverDataDir vscode vs code serve web serve-web inline server data dir directory location path storage"
+                )
+            ),
+            .init(
+                section: .inlineVSCode,
+                id: "extra-args",
+                title: String(localized: "settings.inlineVSCode.extraArgs", defaultValue: "Extra serve-web Arguments"),
+                paths: ["inlineVSCode.extraArgs"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.inlineVSCode.extra-args",
+                    defaultValue: "inlineVSCode.extraArgs vscode vs code serve web serve-web inline extra arguments args flags upstream advanced code-tunnel"
+                )
+            ),
+
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),

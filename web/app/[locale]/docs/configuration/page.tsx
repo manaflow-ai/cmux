@@ -45,6 +45,7 @@ const sectionOrder = [
   "workspaceColors",
   "sidebarAppearance",
   "automation",
+  "inlineVSCode",
   "actions",
   "ui",
   "commands",
@@ -118,6 +119,13 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
 
   // "automation": {
   //   "suppressSubagentNotifications": true
+  // },
+
+  // "inlineVSCode": {
+  //   "persistServeWebState": true,
+  //   "port": 0,
+  //   "serverDataDir": "~/Library/Application Support/cmux/vscode-serve-web",
+  //   "extraArgs": []
   // },
 
   // "workspaceColors": {

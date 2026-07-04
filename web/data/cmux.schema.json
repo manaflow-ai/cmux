@@ -1124,6 +1124,41 @@
         }
       }
     },
+    "inlineVSCode": {
+      "title": "inlineVSCode",
+      "description": "Inline VS Code serve-web launch options for the \"Open Current Directory in VS Code (Inline)\" command. Settings > Inline VS Code edits these.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "persistServeWebState": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether serve-web keeps its state (sign-in, Settings Sync) across launches. When false (and no serverDataDir is set), a throwaway data directory is used so nothing persists.",
+          "descriptionKey": "schemaDescriptions.inlineVSCode.persistServeWebState"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 0,
+          "description": "Local port serve-web binds. 0 selects a random free port.",
+          "descriptionKey": "schemaDescriptions.inlineVSCode.port"
+        },
+        "serverDataDir": {
+          "type": "string",
+          "default": "",
+          "description": "serve-web --server-data-dir. Empty uses the upstream VS Code default location. A leading ~ expands to the home directory.",
+          "descriptionKey": "schemaDescriptions.inlineVSCode.serverDataDir"
+        },
+        "extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Advanced upstream VS Code serve-web flags appended after the cmux-managed arguments. cmux-owned flags (--host, --port, --connection-token, --connection-token-file, --server-data-dir, --without-connection-token, --accept-server-license-terms) are stripped so the loopback + connection-token invariants always hold. Unsupported; use at your own risk.",
+          "descriptionKey": "schemaDescriptions.inlineVSCode.extraArgs"
+        }
+      }
+    },
     "browser": {
       "title": "browser",
       "description": "Embedded browser settings from Settings > Browser.",

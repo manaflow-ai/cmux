@@ -23,6 +23,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case customSidebars
     case betaFeatures
     case automation
+    /// Inline VS Code `serve-web` launch options.
+    case inlineVSCode
     case browser
     case browserImport
     case globalHotkey
@@ -46,6 +48,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
+        case .inlineVSCode: return String(localized: "settings.section.inlineVSCode", defaultValue: "Inline VS Code")
         case .browser: return "Browser"
         case .browserImport: return "Import Browser Data"
         case .globalHotkey: return "Global Hotkey"
@@ -69,6 +72,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
+        case .inlineVSCode: return "chevron.left.forwardslash.chevron.right"
         case .browser: return "globe"
         case .browserImport: return "square.and.arrow.down"
         case .globalHotkey: return "keyboard.badge.ellipsis"
@@ -94,6 +98,11 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
+        case .inlineVSCode:
+            return String(
+                localized: "settings.search.alias.section.inlineVSCode",
+                defaultValue: "vscode vs code serve web serve-web inline editor port server data directory persist state extra args code-tunnel"
+            )
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"
