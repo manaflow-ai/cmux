@@ -814,7 +814,8 @@
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
           "forkConversationDefaultDestination": "Destino padrão da ação principal Fork Conversation no menu de contexto da aba. O submenu ainda mostra todos os destinos.",
-          "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
+          "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído.",
+          "reorderPinnedOnNotification": "Quando a reordenação por notificação está ativada, também move espaços de trabalho fixados para o topo da seção de fixados."
         },
         "terminal": {
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",

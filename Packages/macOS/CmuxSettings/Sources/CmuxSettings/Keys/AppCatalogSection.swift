@@ -111,6 +111,15 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceAutoReorderOnNotification"
     )
 
+    /// When notification reordering is enabled, also moves pinned workspaces
+    /// to the top of the pinned section on a notification. Pinned rows never
+    /// cross into the unpinned tier. Defaults to `false`.
+    public let reorderPinnedOnNotification = DefaultsKey<Bool>(
+        id: "app.reorderPinnedOnNotification",
+        defaultValue: false,
+        userDefaultsKey: "workspaceAutoReorderPinnedOnNotification"
+    )
+
     public let sendAnonymousTelemetry = DefaultsKey<Bool>(
         id: "app.sendAnonymousTelemetry",
         defaultValue: true,

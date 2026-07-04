@@ -386,6 +386,14 @@ extension AppDelegate {
         if let manager = contextContainingTabId(tabId)?.tabManager {
             return manager
         }
+        // Resolution mirrors `tabTitle(for:)` / `tabTitlesByTabId()`: window
+        // contexts win, then the active `tabManager` covers any tab not yet
+        // present in a context. Without this step a notification-driven
+        // reorder silently no-ops for tabs that only the active manager
+        // knows about.
+        if let manager = tabManager, manager.tabs.contains(where: { $0.id == tabId }) {
+            return manager
+        }
         return recoverableMainWindowRoutes()
             .compactMap(\.tabManager)
             .first { manager in

@@ -139,6 +139,112 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func notificationReorderDefaultDoesNotMovePinnedWorkspaceFlat() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plain = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plain]
+
+        reorder.moveTabToTopForNotification(pinnedB.id)
+
+        #expect(model.tabs.map(\.id) == [pinnedA.id, pinnedB.id, plain.id])
+        #expect(host.orderChanges.isEmpty)
+    }
+
+    @Test
+    func notificationReorderMovesPinnedWorkspaceToPinnedTopWhenEnabledFlat() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plain1, plain2]
+
+        reorder.moveTabToTopForNotification(pinnedB.id, reorderPinned: true)
+
+        #expect(model.tabs.map(\.id) == [pinnedB.id, pinnedA.id, plain1.id, plain2.id])
+        #expect(model.tabs.prefix(2).allSatisfy { $0.isPinned })
+        #expect(model.tabs.suffix(2).allSatisfy { !$0.isPinned })
+        #expect(host.orderChanges.last == [pinnedB.id])
+    }
+
+    @Test
+    func notificationReorderPinnedWorkspaceAlreadyAtTopDoesNotPublishFlat() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plain = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plain]
+
+        reorder.moveTabToTopForNotification(pinnedA.id, reorderPinned: true)
+
+        #expect(model.tabs.map(\.id) == [pinnedA.id, pinnedB.id, plain.id])
+        #expect(host.orderChanges.isEmpty)
+    }
+
+    @Test
+    func notificationReorderUnpinnedWorkspaceStaysBelowPinnedBoundaryWhenPinnedReorderEnabledFlat() {
+        let (model, host, _, reorder) = makeWorld()
+        let pinnedA = CoordinatorStubTab(isPinned: true)
+        let pinnedB = CoordinatorStubTab(isPinned: true)
+        let plain1 = CoordinatorStubTab()
+        let plain2 = CoordinatorStubTab()
+        model.tabs = [pinnedA, pinnedB, plain1, plain2]
+
+        reorder.moveTabToTopForNotification(plain2.id, reorderPinned: true)
+
+        #expect(model.tabs.map(\.id) == [pinnedA.id, pinnedB.id, plain2.id, plain1.id])
+        #expect(model.tabs.prefix(2).allSatisfy { $0.isPinned })
+        #expect(model.tabs.suffix(2).allSatisfy { !$0.isPinned })
+        #expect(host.orderChanges.last == [plain2.id])
+    }
+
+    @Test
+    func notificationReorderPinnedGroupHoistsWithinPinnedRunOnlyWhenEnabled() {
+        let (model, host, _, reorder) = makeWorld()
+        let groupAId = UUID()
+        let groupBId = UUID()
+        let anchorA = CoordinatorStubTab(groupId: groupAId)
+        let memberA = CoordinatorStubTab(groupId: groupAId)
+        let anchorB = CoordinatorStubTab(groupId: groupBId)
+        let memberB = CoordinatorStubTab(groupId: groupBId)
+        let plain = CoordinatorStubTab()
+        model.tabs = [anchorA, memberA, anchorB, memberB, plain]
+        model.workspaceGroups = [
+            WorkspaceGroup(
+                id: groupAId,
+                name: "A",
+                isCollapsed: false,
+                isPinned: true,
+                anchorWorkspaceId: anchorA.id,
+                customColor: nil,
+                iconSymbol: nil
+            ),
+            WorkspaceGroup(
+                id: groupBId,
+                name: "B",
+                isCollapsed: false,
+                isPinned: true,
+                anchorWorkspaceId: anchorB.id,
+                customColor: nil,
+                iconSymbol: nil
+            ),
+        ]
+
+        reorder.moveTabToTopForNotification(memberB.id)
+
+        #expect(model.tabs.map(\.id) == [anchorA.id, memberA.id, anchorB.id, memberB.id, plain.id])
+        #expect(host.orderChanges.isEmpty)
+
+        reorder.moveTabToTopForNotification(memberB.id, reorderPinned: true)
+
+        #expect(model.tabs.map(\.id) == [anchorB.id, memberB.id, anchorA.id, memberA.id, plain.id])
+        #expect(model.workspaceGroups.map(\.id) == [groupBId, groupAId])
+        #expect(host.orderChanges.last == [memberB.id])
+    }
+
+    @Test
     func reorderWorkspaceClampsUnpinnedAbovePinnedBoundary() {
         let (model, host, _, reorder) = makeWorld()
         _ = host
