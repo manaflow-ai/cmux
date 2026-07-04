@@ -137,7 +137,12 @@ struct CanvasShortcutRoutingFeedbackTests {
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             let workspace = try #require(manager.selectedWorkspace)
             let firstPanelId = try #require(workspace.focusedPanelId)
-            let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))
+            KeyboardShortcutSettings.clearShortcut(for: .selectWorkspaceByNumber)
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
+                for: .selectSurfaceByNumber
+            )
+            let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, modifiers: [.control], windowNumber: window.windowNumber))
 
             window.makeKeyAndOrderFront(nil)
             workspace.setLayoutMode(.canvas)
@@ -157,7 +162,7 @@ struct CanvasShortcutRoutingFeedbackTests {
             #expect(workspace.focusedPanelId == firstPanelId)
             #expect(
                 fileExplorerState.mode == .sessions,
-                "Ctrl+1 should select the first Canvas surface instead of switching the right sidebar to Files in canvas mode"
+                "Custom Ctrl+1 should select the first Canvas surface instead of switching the right sidebar to Files in canvas mode"
             )
         }
     }

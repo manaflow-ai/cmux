@@ -76,7 +76,7 @@ export default function ConceptsPage() {
         <strong>
           {t("workspaceShortcuts", {
             new: "⌘N",
-            jump: "⌘1–⌘9",
+            jump: "⌃1–⌃9",
             close: "⌘⇧W",
             prevNext: "⌃⌘[ / ⌃⌘]",
           })}
@@ -99,7 +99,7 @@ export default function ConceptsPage() {
           new: "⌘T",
           prev: "⌘[",
           next: "⌘]",
-          jump: "⌃1–⌃9",
+          jump: "⌘1–⌘9",
         })}
       </p>
       <p>{t("surfaceNote")}</p>

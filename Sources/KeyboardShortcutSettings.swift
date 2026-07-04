@@ -470,7 +470,7 @@ enum KeyboardShortcutSettings {
             case .prevSurface:
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .selectSurfaceByNumber:
-                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+                return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
@@ -492,7 +492,7 @@ enum KeyboardShortcutSettings {
                 // chord. Rebindable in Settings → Keyboard Shortcuts.
                 return StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
-                return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .toggleRightSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .fileExplorerOpenSelection:
@@ -642,7 +642,7 @@ enum KeyboardShortcutSettings {
             // state activates both AND router priority cannot decide the overlap.
             // A `shortcuts.when` override (or the built-in context default) can
             // make them non-overlapping (issue #5189), and a pre-routed action
-            // wins its context outright, so factory Select Surface ⌃1…9 coexists
+            // wins its context outright, so factory Select Workspace ⌃1…9 coexists
             // with the sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),

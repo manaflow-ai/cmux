@@ -216,11 +216,11 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertTrue(nonBrowser.overlaps(markdown))
     }
 
-    func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
-        let surfaceDigits = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
+    func testWorkspaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
+        let workspaceDigits = KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut
         let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut
 
-        // Re-recording the factory default ⌃1 for Select Surface 1…9 must not be
+        // Re-recording the factory default ⌃1 for Select Workspace 1…9 must not be
         // rejected against Show Sidebar Files (⌃1): the key router consumes the
         // sidebar-mode shortcuts before general shortcut matching whenever the
         // right sidebar is focused, so the pair is resolved by priority — the
@@ -228,18 +228,18 @@ final class KeyboardShortcutContextTests: XCTestCase {
         // context. The shipped defaults rely on exactly this coexistence.
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.switchRightSidebarToFiles.conflicts(
-                with: surfaceDigits,
-                proposedAction: .selectSurfaceByNumber,
+                with: workspaceDigits,
+                proposedAction: .selectWorkspaceByNumber,
                 configuredShortcut: sidebarFiles
             )
         )
         // Symmetric direction: recording the prioritized sidebar action onto a
         // stroke inside the digit family coexists the same way.
         XCTAssertFalse(
-            KeyboardShortcutSettings.Action.selectSurfaceByNumber.conflicts(
+            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.conflicts(
                 with: sidebarFiles,
                 proposedAction: .switchRightSidebarToFiles,
-                configuredShortcut: surfaceDigits
+                configuredShortcut: workspaceDigits
             )
         )
         // Two sidebar-mode shortcuts on the same stroke remain a real conflict:

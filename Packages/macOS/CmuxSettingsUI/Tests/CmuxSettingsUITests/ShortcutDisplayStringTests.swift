@@ -30,8 +30,8 @@ struct ShortcutDisplayStringTests {
     }
 
     @Test func numberedCommandDigitRendersAsRange() {
-        let defaultWorkspace = shortcut(key: "1", command: true)
-        #expect(shortcutDisplayString(defaultWorkspace, numbered: true) == "⌘1…9")
+        let commandDigit = shortcut(key: "1", command: true)
+        #expect(shortcutDisplayString(commandDigit, numbered: true) == "⌘1…9")
     }
 
     @Test func numberedRangeIgnoresWhichDigitWasRecorded() {

@@ -42,6 +42,9 @@ extension KeyboardShortcutSettings {
 
         let shortcut = shortcut(for: action)
         switch action {
+        case .selectWorkspaceByNumber
+            where !shortcut.isUnbound && !shortcut.hasChord && !shortcut.command && !shortcut.shift && !shortcut.option && shortcut.control:
+            return .unbound
         case .browserBack
             where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryBack):
             return .unbound

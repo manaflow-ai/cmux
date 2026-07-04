@@ -13,6 +13,19 @@ struct ShortcutActionNumberedDigitTests {
         }
     }
 
+    @Test func workspaceAndSurfaceNumberedDefaultsUseSeparateModifierLanes() {
+        #expect(
+            ShortcutAction.selectWorkspaceByNumber.defaultShortcut == StoredShortcut(
+                first: ShortcutStroke(key: "1", control: true)
+            )
+        )
+        #expect(
+            ShortcutAction.selectSurfaceByNumber.defaultShortcut == StoredShortcut(
+                first: ShortcutStroke(key: "1", command: true)
+            )
+        )
+    }
+
     @Test func diffViewerScrollToTopDefaultIsChord() {
         #expect(
             ShortcutAction.diffViewerScrollToTop.defaultShortcut == StoredShortcut(

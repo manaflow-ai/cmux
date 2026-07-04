@@ -138,7 +138,7 @@ public indirect enum ShortcutWhenClause: Equatable, Sendable {
     /// (`canCoexist(loser, !winner)`): the winner owns every overlapping state
     /// and the loser owns the rest — the same most-specific-wins resolution VS
     /// Code applies to `when` clauses. The shipped defaults rely on this:
-    /// Select Surface `⌃1…9` coexists with the sidebar's `⌃1…5`, which win only
+    /// Select Workspace `⌃1…9` coexists with the sidebar's `⌃1…5`, which win only
     /// while the sidebar is focused.
     ///
     /// A loser with no states of its own (its clause implies the winner's) would

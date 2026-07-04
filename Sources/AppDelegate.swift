@@ -15340,7 +15340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func shouldSuppressStaleCmuxMenuShortcut(event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         // While a Settings recorder is armed, every keystroke must reach it to be
-        // captured — including a remapped-away default like the old ⌘1 the user is
+        // captured — including a remapped-away default like an old numbered shortcut the user is
         // trying to record. Suppressing the stale menu shortcut here would consume
         // that keystroke before `RecorderHostButton.performKeyEquivalent` sees it,
         // so stand down for both recorders (issue #5189).
@@ -15351,16 +15351,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if event.window is NSPanel || keyWindow is NSPanel || NSApp.modalWindow != nil || keyWindow?.attachedSheet != nil {
             return false
         }
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard flags.contains(.command) else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
 
         let staleDefaultActions = KeyboardShortcutSettings.Action.allCases.filter { action in
             isMenuBackedShortcutAction(action) &&
                 matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut)
         }
         guard !staleDefaultActions.isEmpty else { return false }
+        guard flags.contains(.command) || staleDefaultActions.contains(.selectWorkspaceByNumber) else { return false }
 
         for action in staleDefaultActions {
             if currentShortcutMatchesKeyboardShortcutEvent(event, action: action) {
