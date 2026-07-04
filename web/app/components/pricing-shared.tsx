@@ -25,6 +25,9 @@ export type FaqItem = {
   vault?: boolean;
 };
 
+type PlanColumn = "free" | "pro" | "team" | "enterprise";
+export type PricingActionSize = "default" | "compact";
+
 export function visibleProFeatures({
   base,
   vault,
@@ -111,14 +114,16 @@ export function FeatureList({
 export function PrimaryLink({
   href,
   children,
+  size = "default",
 }: {
   href: string;
   children: ReactNode;
+  size?: PricingActionSize;
 }) {
   return (
     <a
       href={href}
-      className="inline-flex w-full items-center justify-center whitespace-nowrap bg-foreground px-5 py-2.5 text-[15px] font-medium transition-opacity hover:opacity-85"
+      className={pricingActionClassName("primary", size)}
       style={{
         color: "var(--button-foreground, var(--background))",
         textDecoration: "none",
@@ -132,24 +137,32 @@ export function PrimaryLink({
 export function SecondaryLink({
   href,
   children,
+  size = "default",
 }: {
   href: string;
   children: ReactNode;
+  size?: PricingActionSize;
 }) {
   return (
     <a
       href={href}
-      className="inline-flex w-full items-center justify-center whitespace-nowrap border border-border px-5 py-2.5 text-[15px] font-medium text-foreground transition-colors hover:bg-code-bg"
+      className={pricingActionClassName("secondary", size)}
     >
       {children}
     </a>
   );
 }
 
-export function DisabledButton({ children }: { children: ReactNode }) {
+export function DisabledButton({
+  children,
+  size = "default",
+}: {
+  children: ReactNode;
+  size?: PricingActionSize;
+}) {
   return (
     <button
-      className="inline-flex w-full items-center justify-center whitespace-nowrap border border-border px-5 py-2.5 text-[15px] font-medium text-muted"
+      className={pricingActionClassName("disabled", size)}
       disabled
     >
       {children}
@@ -169,21 +182,13 @@ export function PricingCompareTable({
   rows,
   names,
   prices,
+  actions,
   stickyTopClassName = "top-12",
 }: {
   rows: CompareRow[];
-  names: {
-    free: string;
-    pro: string;
-    team: string;
-    enterprise: string;
-  };
-  prices: {
-    free: string;
-    pro: string;
-    team: string;
-    enterprise: string;
-  };
+  names: Record<PlanColumn, string>;
+  prices: Record<PlanColumn, string>;
+  actions?: Partial<Record<PlanColumn, ReactNode>>;
   stickyTopClassName?: string;
 }) {
   const gridTemplateColumns = "minmax(12rem,2fr) repeat(4,minmax(8rem,1fr))";
@@ -195,10 +200,14 @@ export function PricingCompareTable({
         style={{ gridTemplateColumns }}
       >
         <div className="pr-4" />
-        <ColumnHead name={names.free} price={prices.free} />
-        <ColumnHead name={names.pro} price={prices.pro} />
-        <ColumnHead name={names.team} price={prices.team} />
-        <ColumnHead name={names.enterprise} price={prices.enterprise} />
+        <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
+        <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
+        <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
+        <ColumnHead
+          name={names.enterprise}
+          price={prices.enterprise}
+          action={actions?.enterprise}
+        />
       </div>
       <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
         <colgroup>
@@ -292,16 +301,38 @@ export function PricingSizeTable({
 function ColumnHead({
   name,
   price,
+  action,
 }: {
   name: string;
   price: string;
+  action?: ReactNode;
 }) {
   return (
     <div className="px-4 text-left align-bottom font-medium">
       {name}
       <span className="block text-xs font-normal text-muted">{price}</span>
+      {action ? <div className="mt-2 max-w-32">{action}</div> : null}
     </div>
   );
+}
+
+export function pricingActionClassName(
+  variant: "primary" | "secondary" | "disabled",
+  size: PricingActionSize = "default",
+): string {
+  const base =
+    "inline-flex w-full items-center justify-center whitespace-nowrap font-medium";
+  const sizeClass =
+    size === "compact"
+      ? "px-3 py-1.5 text-xs"
+      : "px-5 py-2.5 text-[15px]";
+  if (variant === "primary") {
+    return `${base} ${sizeClass} bg-foreground transition-opacity hover:opacity-85`;
+  }
+  if (variant === "secondary") {
+    return `${base} ${sizeClass} border border-border text-foreground transition-colors hover:bg-code-bg`;
+  }
+  return `${base} ${sizeClass} border border-border text-muted`;
 }
 
 function CompareCell({ value }: { value: string }) {

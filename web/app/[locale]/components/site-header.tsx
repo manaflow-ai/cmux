@@ -12,6 +12,7 @@ import {
   MobileDrawerToggle,
 } from "./mobile-drawer";
 import { BrandLogoLink } from "./brand-logo-link";
+import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 
 export function SiteHeader({
   section,
@@ -137,13 +138,15 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
-          <Link
-            href="/pricing"
-            onClick={close}
-            className="hover:text-foreground transition-colors py-1"
-          >
-            {t("pricing")}
-          </Link>
+          <ProUpgradeVisibility>
+            <Link
+              href="/pricing"
+              onClick={close}
+              className="hover:text-foreground transition-colors py-1"
+            >
+              {t("pricing")}
+            </Link>
+          </ProUpgradeVisibility>
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />

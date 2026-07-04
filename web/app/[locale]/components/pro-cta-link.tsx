@@ -2,6 +2,10 @@
 
 import posthog from "posthog-js";
 import { useFeatureFlagEnabled } from "posthog-js/react";
+import {
+  pricingActionClassName,
+  type PricingActionSize,
+} from "../../components/pricing-shared";
 import { FEATURE_FLAGS } from "../../lib/feature-flags";
 
 // Single evaluation site for the pro-checkout flag (lint-enforced).
@@ -16,10 +20,14 @@ export function ProCtaLink({
   checkoutHref,
   fallbackHref,
   children,
+  size = "default",
+  location = "pricing_page",
 }: {
   checkoutHref: string;
   fallbackHref: string;
   children: React.ReactNode;
+  size?: PricingActionSize;
+  location?: string;
 }) {
   const flagEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.proCheckout.key);
   const checkout =
@@ -31,11 +39,11 @@ export function ProCtaLink({
       href={checkout ? checkoutHref : fallbackHref}
       onClick={() =>
         posthog.capture("cmuxterm_pro_cta_clicked", {
-          location: "pricing_page",
+          location,
           checkout,
         })
       }
-      className="inline-flex w-full items-center justify-center whitespace-nowrap bg-foreground px-5 py-2.5 text-[15px] font-medium hover:opacity-85 transition-opacity"
+      className={pricingActionClassName("primary", size)}
       style={{ color: "var(--background)", textDecoration: "none" }}
     >
       {children}

@@ -11,8 +11,8 @@ import PostHog
 /// - Until a payload arrives — including forever, when the SDK never starts
 ///   because telemetry is off or a DEBUG build lacks CMUX_POSTHOG_ENABLE=1 —
 ///   every flag keeps its safe default.
-/// - Once a payload has arrived, an absent or false flag reads as off, so
-///   the dashboard toggle is an effective kill switch.
+/// - Once a payload has arrived, a false flag reads as off. An absent flag
+///   still uses the explicit per-flag fallback below.
 ///
 /// Registry contract (enforced by scripts/lint-feature-flags.py in CI): each
 /// flag declares key / owner / reviewBy / defaultWhenUnavailable in the FLAG
@@ -23,22 +23,28 @@ final class CmuxFeatureFlags {
     static let shared = CmuxFeatureFlags()
 
     // FLAG(key: pro-upgrade-ui-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
     // Shows the Pro upgrade entrypoints (sidebar badge, Settings Account
-    // card, palette command, Help menu item). The default keeps them visible
-    // when flags are unavailable: they only open the public pricing page.
-    private(set) var isProUpgradeUIEnabled = true
+    // card, palette command, Help menu item). Release builds hide them until
+    // the PostHog flag is enabled; DEBUG keeps them visible for dogfood.
+    private(set) var isProUpgradeUIEnabled = Self.proUpgradeUIDefault
 
     private static let proUpgradeUIKey = "pro-upgrade-ui-enabled-release"
+    #if DEBUG
+    private static let proUpgradeUIDefault = true
+    #else
+    private static let proUpgradeUIDefault = false
+    #endif
 
     // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
     // Shows the top-right iPhone button that opens the Mobile Connect
     // (phone pairing) window. Default keeps it visible when flags are
     // unavailable; the window it opens ships in every build.
-    private(set) var isMobileConnectButtonEnabled = true
+    private(set) var isMobileConnectButtonEnabled = Self.mobileConnectButtonDefault
 
     private static let mobileConnectButtonKey = "mobile-connect-button-enabled-release"
+    private static let mobileConnectButtonDefault = true
 
     private var flagsObserver: (any NSObjectProtocol)?
 
@@ -59,9 +65,17 @@ final class CmuxFeatureFlags {
     }
 
     private func applyLoadedFlags() {
-        isProUpgradeUIEnabled =
-            PostHogSDK.shared.getFeatureFlag(Self.proUpgradeUIKey) as? Bool ?? false
-        isMobileConnectButtonEnabled =
-            PostHogSDK.shared.getFeatureFlag(Self.mobileConnectButtonKey) as? Bool ?? false
+        isProUpgradeUIEnabled = Self.boolFlag(
+            Self.proUpgradeUIKey,
+            default: Self.proUpgradeUIDefault
+        )
+        isMobileConnectButtonEnabled = Self.boolFlag(
+            Self.mobileConnectButtonKey,
+            default: Self.mobileConnectButtonDefault
+        )
+    }
+
+    private static func boolFlag(_ key: String, default fallback: Bool) -> Bool {
+        PostHogSDK.shared.getFeatureFlag(key) as? Bool ?? fallback
     }
 }

@@ -2673,5 +2673,63 @@
     "successBody": "We'll email you when the {platform} build is ready.",
     "successBodyAny": "We'll email you when cmux is ready on your platform.",
     "done": "Done"
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "Talk with cmux about Enterprise deployment, SSO, self-hosted Cloud VMs, audit logs, and committed usage.",
+    "section": "Enterprise",
+    "title": "Bring cmux Cloud VMs, SSO, and audit controls to your team.",
+    "body": "Tell us what you need to deploy cmux across your organization. We route Enterprise requests to the founders so security reviews, procurement, and self-hosted requirements get handled directly.",
+    "points": [
+      "Self-hosted Cloud execution and networking for code that must stay inside your environment.",
+      "SSO, SAML, audit logs, centralized admin, and shared team rules.",
+      "Committed usage, volume pricing, and support for security or procurement reviews."
+    ],
+    "formAriaLabel": "Enterprise contact form",
+    "form": {
+      "firstName": "First name",
+      "lastName": "Last name",
+      "companyName": "Company name",
+      "jobFunction": "Job function",
+      "jobTitle": "Job title",
+      "businessEmail": "Business email address",
+      "phoneNumber": "Phone number",
+      "country": "Country",
+      "companySize": "Company size",
+      "deploymentNeeds": "Deployment needs",
+      "comments": "Comments",
+      "selectPlaceholder": "Select one",
+      "jobFunctionOptions": [
+        "Engineering",
+        "Platform",
+        "Security",
+        "IT",
+        "Procurement",
+        "Executive",
+        "Other"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO or SAML",
+        "Self-hosted Cloud VMs",
+        "Self-hosted model gateway",
+        "Audit logs and compliance",
+        "Committed Cloud VM usage",
+        "Security or procurement review",
+        "Other"
+      ],
+      "privacy": "We use this information to respond to your Enterprise request and route it to the right founder. We do not sell contact information.",
+      "submit": "Submit",
+      "submitting": "Submitting...",
+      "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
+      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
   }
 }

@@ -22,7 +22,7 @@ import {
 } from "../components/pricing-shared";
 
 const TEAM_CTA_URL = DOWNLOAD_CONFIRMATION_HREF;
-const SALES_EMAIL = "founders@manaflow.com";
+const ENTERPRISE_CTA_URL = "/enterprise";
 const pricing = enMessages.pricing;
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -125,7 +125,7 @@ export default async function AppPricingPage({
               name={pricing.enterprise.name}
               price={pricing.enterprise.price}
             >
-              <SecondaryLink href={`mailto:${SALES_EMAIL}`}>
+              <SecondaryLink href={ENTERPRISE_CTA_URL}>
                 {pricing.enterprise.cta}
               </SecondaryLink>
               <p className="mt-5 text-sm font-medium">
@@ -150,6 +150,33 @@ export default async function AppPricingPage({
                 pro: `${pricing.pro.price}${pricing.perMonth}`,
                 team: `${pricing.team.price}${pricing.perUserMonth}`,
                 enterprise: pricing.enterprise.price,
+              }}
+              actions={{
+                free:
+                  snapshot.planId === FREE_PLAN_ID ? (
+                    <DisabledButton size="compact">Current plan</DisabledButton>
+                  ) : (
+                    <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
+                      {pricing.free.cta}
+                    </PrimaryLink>
+                  ),
+                pro: snapshot.isPro ? (
+                  <DisabledButton size="compact">Current plan</DisabledButton>
+                ) : (
+                  <PrimaryLink href={APP_PRICING_CHECKOUT_URL} size="compact">
+                    {pricing.pro.cta}
+                  </PrimaryLink>
+                ),
+                team: (
+                  <PrimaryLink href={TEAM_CTA_URL} size="compact">
+                    {pricing.team.cta}
+                  </PrimaryLink>
+                ),
+                enterprise: (
+                  <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
+                    {pricing.enterprise.cta}
+                  </SecondaryLink>
+                ),
               }}
             />
           </section>

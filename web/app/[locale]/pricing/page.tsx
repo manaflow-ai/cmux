@@ -30,7 +30,7 @@ import {
 // Team CTA points at the download today; swap for the team checkout URL once
 // the billing flow is public.
 const TEAM_CTA_URL = DOWNLOAD_CONFIRMATION_HREF;
-const SALES_EMAIL = "founders@manaflow.com";
+const ENTERPRISE_CTA_URL = "/enterprise";
 
 export async function generateMetadata({
   params,
@@ -124,7 +124,7 @@ export default function PricingPage() {
             name={t("enterprise.name")}
             price={t("enterprise.price")}
           >
-            <SecondaryLink href={`mailto:${SALES_EMAIL}`}>
+            <SecondaryLink href={ENTERPRISE_CTA_URL}>
               {t("enterprise.cta")}
             </SecondaryLink>
             <p className="mt-5 text-sm font-medium">
@@ -152,6 +152,33 @@ export default function PricingPage() {
               pro: `${t("pro.price")}${t("perMonth")}`,
               team: `${t("team.price")}${t("perUserMonth")}`,
               enterprise: t("enterprise.price"),
+            }}
+            actions={{
+              free: (
+                <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
+                  {t("free.cta")}
+                </PrimaryLink>
+              ),
+              pro: (
+                <ProCtaLink
+                  checkoutHref={PRO_CHECKOUT_URL}
+                  fallbackHref={DOWNLOAD_CONFIRMATION_HREF}
+                  size="compact"
+                  location="pricing_compare_header"
+                >
+                  {t("pro.cta")}
+                </ProCtaLink>
+              ),
+              team: (
+                <PrimaryLink href={TEAM_CTA_URL} size="compact">
+                  {t("team.cta")}
+                </PrimaryLink>
+              ),
+              enterprise: (
+                <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
+                  {t("enterprise.cta")}
+                </SecondaryLink>
+              ),
             }}
           />
         </section>

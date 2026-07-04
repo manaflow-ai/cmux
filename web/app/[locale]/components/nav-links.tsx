@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
 import posthog from "posthog-js";
+import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 
 export function NavLinks() {
   const t = useTranslations("nav");
@@ -32,15 +33,17 @@ export function NavLinks() {
       >
         {t("community")}
       </Link>
-      <Link
-        href="/pricing"
-        onClick={() =>
-          posthog.capture("cmuxterm_pricing_nav_clicked", { location: "nav" })
-        }
-        className="hover:text-foreground transition-colors"
-      >
-        {t("pricing")}
-      </Link>
+      <ProUpgradeVisibility>
+        <Link
+          href="/pricing"
+          onClick={() =>
+            posthog.capture("cmuxterm_pricing_nav_clicked", { location: "nav" })
+          }
+          className="hover:text-foreground transition-colors"
+        >
+          {t("pricing")}
+        </Link>
+      </ProUpgradeVisibility>
       <a
         href="https://github.com/manaflow-ai/cmux"
         target="_blank"

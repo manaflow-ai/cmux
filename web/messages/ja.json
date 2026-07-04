@@ -2630,5 +2630,63 @@
     "successBody": "{platform}版が利用可能になりましたらメールでお知らせします。",
     "successBodyAny": "cmux がお使いのプラットフォームで利用可能になりましたらメールでお知らせします。",
     "done": "完了"
+  },
+  "enterprise": {
+    "metaTitle": "Enterprise | cmux",
+    "metaDescription": "cmux Enterprise の導入、SSO、セルフホスト Cloud VM、監査ログ、コミット利用について相談できます。",
+    "section": "Enterprise",
+    "title": "cmux Cloud VM、SSO、監査管理をチームに導入できます。",
+    "body": "組織で cmux を展開するために必要な内容をお知らせください。Enterprise の問い合わせは創業者に直接届くため、セキュリティレビュー、購買、セルフホスト要件をすぐに確認できます。",
+    "points": [
+      "コードを自社環境内に残すためのセルフホスト Cloud 実行とネットワーク。",
+      "SSO、SAML、監査ログ、一元管理、共有チームルール。",
+      "コミット利用、ボリューム価格、セキュリティや購買レビューのサポート。"
+    ],
+    "formAriaLabel": "Enterprise 問い合わせフォーム",
+    "form": {
+      "firstName": "名",
+      "lastName": "姓",
+      "companyName": "会社名",
+      "jobFunction": "職種",
+      "jobTitle": "役職",
+      "businessEmail": "勤務先メールアドレス",
+      "phoneNumber": "電話番号",
+      "country": "国",
+      "companySize": "会社規模",
+      "deploymentNeeds": "導入要件",
+      "comments": "コメント",
+      "selectPlaceholder": "選択してください",
+      "jobFunctionOptions": [
+        "エンジニアリング",
+        "プラットフォーム",
+        "セキュリティ",
+        "IT",
+        "購買",
+        "経営層",
+        "その他"
+      ],
+      "companySizeOptions": [
+        "1-10",
+        "11-50",
+        "51-200",
+        "201-1,000",
+        "1,001-5,000",
+        "5,001+"
+      ],
+      "deploymentNeedsOptions": [
+        "SSO または SAML",
+        "セルフホスト Cloud VM",
+        "セルフホスト モデルゲートウェイ",
+        "監査ログとコンプライアンス",
+        "Cloud VM のコミット利用",
+        "セキュリティまたは購買レビュー",
+        "その他"
+      ],
+      "privacy": "この情報は Enterprise のご相談への返信と、適切な創業者への共有に使用します。連絡先情報を販売することはありません。",
+      "submit": "送信",
+      "submitting": "送信中...",
+      "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
   }
 }
