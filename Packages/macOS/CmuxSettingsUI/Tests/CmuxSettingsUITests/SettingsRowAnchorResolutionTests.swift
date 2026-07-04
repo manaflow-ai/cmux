@@ -141,6 +141,8 @@ struct SettingsRowAnchorResolutionTests {
         "setting:app:terminal-config",
         "setting:app:desktop-notifications",
         "setting:account:account",
+        "setting:integrations:integrations",
+        "setting:integrations:integration-privacy",
         "setting:mobile:pairDevice",
         "setting:mobile:iOSPairingHost",
         "setting:mobile:iOSPairingPort",

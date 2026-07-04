@@ -40,6 +40,7 @@ public struct IntegrationsSection: View {
                     sourceBlock(source)
                 }
             }
+            .settingsSearchAnchors(["setting:integrations:integrations"])
         }
         .task { observeUpdates() }
     }
@@ -56,6 +57,7 @@ public struct IntegrationsSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsSearchAnchors(["setting:integrations:integration-privacy"])
     }
 
     private func sourceBlock(_ source: IntegrationSettingsSource) -> some View {
