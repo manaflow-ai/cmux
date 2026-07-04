@@ -81,7 +81,7 @@ final class FileExplorerHeaderView: NSView {
     private func applyHeaderState() {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-        if let quickSearchQuery, !quickSearchQuery.isEmpty {
+        if let quickSearchQuery {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
             pathLabel.stringValue = "/" + quickSearchQuery
