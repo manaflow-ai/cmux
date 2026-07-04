@@ -361,7 +361,7 @@ final class RemoteTmuxSessionMirror {
         // single-pane display surface's resize hook so both paths don't drive the
         // same connection with differently-computed sizes.
         if let panel = workspace.panels[panelId] as? TerminalPanel {
-            panel.surface.onManualGridResize = nil
+            panel.surface.onManualSizeApplied = nil
         }
     }
 

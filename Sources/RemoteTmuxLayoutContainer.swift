@@ -48,34 +48,71 @@ struct RemoteTmuxLayoutContainer: View {
         .clipped()
     }
 
-    @ViewBuilder
     private func imposed(_ frames: RemoteTmuxMirrorFrames) -> some View {
-        ZStack(alignment: .topLeading) {
-            // Divider strips first (below the panes), one tmux separator cell
-            // wide/tall, drawn in the divider color.
-            ForEach(Array(frames.dividersPt.enumerated()), id: \.offset) { _, rect in
-                Rectangle()
-                    .fill(appearance.dividerColor)
-                    .frame(width: rect.width, height: rect.height)
-                    .offset(x: rect.minX, y: rect.minY)
+        // Panes without a computed frame (mid-teardown) are omitted from both
+        // lists, keeping subview order aligned with the frame list the layout
+        // places: dividers first (below the panes), then panes in tree order.
+        let paneIds = node.paneIDsInOrder.filter { frames.paneFramesPt[$0] != nil }
+        let orderedFrames = frames.dividersPt + paneIds.compactMap { frames.paneFramesPt[$0] }
+        return RemoteTmuxImposedFrameLayout(frames: orderedFrames) {
+            ForEach(Array(frames.dividersPt.enumerated()), id: \.offset) { _, _ in
+                Rectangle().fill(appearance.dividerColor)
             }
-            ForEach(node.paneIDsInOrder, id: \.self) { paneId in
-                if let rect = frames.paneFramesPt[paneId] {
-                    RemoteTmuxPaneLeaf(
-                        paneId: paneId,
-                        mirror: mirror,
-                        appearance: appearance,
-                        isVisibleInUI: isVisibleInUI,
-                        portalPriority: portalPriority,
-                        onClosePane: onClosePane
-                    )
-                    .frame(width: rect.width, height: rect.height)
-                    .offset(x: rect.minX, y: rect.minY)
-                }
+            ForEach(paneIds, id: \.self) { paneId in
+                RemoteTmuxPaneLeaf(
+                    paneId: paneId,
+                    mirror: mirror,
+                    appearance: appearance,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onClosePane: onClosePane
+                )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: appearance.backgroundColor))
+    }
+}
+
+/// Places every subview at a precomputed absolute frame (tmux's pane sizes in
+/// points).
+///
+/// The layout's own size is always exactly the size its parent gives it —
+/// never a size computed from the pane frames. That rule is load-bearing:
+/// pane frames grow with the container, so if this view told its parent "I
+/// am as big as my panes", any parent that listens (the workspace layout,
+/// the window) would resize to fit the panes, the panes would grow to fit
+/// the new size, and so on forever. It also has to stay shrinkable for the
+/// same reason: a view that refuses to go below its pane widths stops
+/// receiving size changes at all once the window gets narrow. When the panes
+/// are momentarily bigger than the space (tmux hasn't applied our latest
+/// size yet), the extra clips at the right/bottom edge, matching tmux's
+/// top-left coordinate system.
+private struct RemoteTmuxImposedFrameLayout: Layout {
+    let frames: [CGRect]
+
+    func sizeThatFits(
+        proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
+        for (index, subview) in subviews.enumerated() {
+            // Count mismatch would mean the body's subview list drifted from
+            // `frames`; hide the orphan rather than guessing a position.
+            guard index < frames.count else {
+                subview.place(at: bounds.origin, anchor: .topLeading, proposal: .zero)
+                continue
+            }
+            let frame = frames[index]
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: frame.width, height: frame.height)
+            )
+        }
     }
 }
 

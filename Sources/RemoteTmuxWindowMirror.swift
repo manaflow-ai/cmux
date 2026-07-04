@@ -90,6 +90,13 @@ final class RemoteTmuxWindowMirror {
     /// minimum permanently below truth and overshoot f by a column.
     @ObservationIgnored private var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
     @ObservationIgnored private var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
+    /// The render constants the view actually uses, updated ONLY on event
+    /// paths (applied-resize reports, client-size pushes) and read by the
+    /// render projection. Keeping the render on a stored snapshot — instead
+    /// of querying live surfaces during body evaluation — means view updates
+    /// can never observe half-applied surface state, and a snapshot change is
+    /// itself the (observable, equality-guarded) signal to re-derive frames.
+    private(set) var geometrySnapshot: RemoteTmuxMirrorGeometry?
 
     /// Injected source of render constants; `nil` measures live surfaces.
     /// Unit tests inject fixed constants here (no live surfaces exist there).
@@ -148,12 +155,14 @@ final class RemoteTmuxWindowMirror {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
-            // The surface reports every applied grid resize — the one moment
-            // the measured constants (cell size, padding) can change. Re-run
-            // the deduped push then, so sizing converges on a real signal
-            // instead of timers. Feed-forward safe: the push reads only local
-            // state, so an echo of our own imposition dedups to silence.
-            panel.surface.onManualGridResize = { [weak self] _, _ in
+            // The surface reports every applied resize — the one moment the
+            // measured constants (cell size, padding) can change. Ingest the
+            // applied sample into the calibration minimums, then re-run the
+            // deduped push, so sizing converges on a real signal instead of
+            // timers. Feed-forward safe: the push reads only local state, so
+            // an echo of our own imposition dedups to silence.
+            panel.surface.onManualSizeApplied = { [weak self] sample in
+                self?.ingest(sample: sample)
                 self?.updateClientSize()
             }
             // Canonical seed (reflow classification → capture → cwd). The session
@@ -193,55 +202,54 @@ final class RemoteTmuxWindowMirror {
         containerScale = scale
     }
 
-    /// The measured render constants, derived from any live pane surface.
-    /// Returns `nil` until a surface reports real metrics (the view retries).
-    /// Ingests the panes' current sizing samples into the min-tracked pad
-    /// constants. Called from EVENT paths only (client-size pushes, sizing
-    /// snapshots) — never from render projection, which must stay pure
-    /// (``currentGeometry()`` only reads).
+    /// Ingests one sizing sample into the min-tracked pad constants and
+    /// refreshes the stored ``geometrySnapshot``. EVENT paths only: the
+    /// applied-resize report delivers the sample it was called with, and the
+    /// push path sweeps live panes via ``refreshGeometryConstants()``. The
+    /// snapshot write is equality-guarded, so re-ingesting settled geometry
+    /// never invalidates the view.
+    private func ingest(sample: TerminalSurfaceRawSizingSample) {
+        guard sample.cellWidthPx > 0, sample.cellHeightPx > 0,
+              sample.columns > 1, sample.rows > 1,
+              let scale = sample.backingScale ?? containerScale, scale > 0
+        else { return }
+        let nonGridW = sample.surfaceWidthPx - sample.columns * sample.cellWidthPx
+        let nonGridH = sample.surfaceHeightPx - sample.rows * sample.cellHeightPx
+        if nonGridW >= 0 {
+            minNonGridWidthPxByScale[scale] = min(minNonGridWidthPxByScale[scale] ?? nonGridW, nonGridW)
+        }
+        if nonGridH >= 0 {
+            minNonGridHeightPxByScale[scale] = min(minNonGridHeightPxByScale[scale] ?? nonGridH, nonGridH)
+        }
+        let geometry = RemoteTmuxMirrorGeometry(
+            cellWidthPx: sample.cellWidthPx,
+            cellHeightPx: sample.cellHeightPx,
+            surfacePadWidthPx: minNonGridWidthPxByScale[scale] ?? max(0, nonGridW),
+            surfacePadHeightPx: minNonGridHeightPxByScale[scale] ?? max(0, nonGridH),
+            headerHeightPt: RemoteTmuxPaneHeader.totalHeightPt,
+            scale: scale
+        )
+        if geometrySnapshot != geometry { geometrySnapshot = geometry }
+    }
+
+    /// Sweeps every pane's current sizing sample through ``ingest(sample:)``
+    /// — the push path's calibration refresh for triggers that don't carry a
+    /// sample of their own (container changes, structure changes).
     private func refreshGeometryConstants() {
         for panel in panelsByPaneId.values {
-            guard let sample = panel.surface.rawSizingSample(),
-                  sample.cellWidthPx > 0, sample.cellHeightPx > 0,
-                  sample.columns > 1, sample.rows > 1,
-                  let scale = sample.backingScale ?? containerScale, scale > 0
-            else { continue }
-            let nonGridW = sample.surfaceWidthPx - sample.columns * sample.cellWidthPx
-            let nonGridH = sample.surfaceHeightPx - sample.rows * sample.cellHeightPx
-            if nonGridW >= 0 {
-                minNonGridWidthPxByScale[scale] = min(minNonGridWidthPxByScale[scale] ?? nonGridW, nonGridW)
-            }
-            if nonGridH >= 0 {
-                minNonGridHeightPxByScale[scale] = min(minNonGridHeightPxByScale[scale] ?? nonGridH, nonGridH)
-            }
+            guard let sample = panel.surface.rawSizingSample() else { continue }
+            ingest(sample: sample)
         }
     }
 
-    /// The measured render constants, or nil while no pane surface has real
-    /// metrics yet. PURE — reads samples and the stored pad minimums without
-    /// updating them, so it is safe to call from view-body projection
-    /// (`framesForRender`). ``refreshGeometryConstants()`` is what advances
-    /// the minimums, on event paths.
+    /// The measured render constants, or nil while no sample has arrived
+    /// yet. A pure read of the stored snapshot (or the injected test
+    /// source), safe from view-body projection (`framesForRender`): the
+    /// render never touches live surfaces, so it can't observe half-applied
+    /// resize state.
     func currentGeometry() -> RemoteTmuxMirrorGeometry? {
         if let geometrySource { return geometrySource() }
-        for panel in panelsByPaneId.values {
-            guard let sample = panel.surface.rawSizingSample(),
-                  sample.cellWidthPx > 0, sample.cellHeightPx > 0,
-                  sample.columns > 1, sample.rows > 1,
-                  let scale = sample.backingScale ?? containerScale, scale > 0
-            else { continue }
-            let nonGridW = sample.surfaceWidthPx - sample.columns * sample.cellWidthPx
-            let nonGridH = sample.surfaceHeightPx - sample.rows * sample.cellHeightPx
-            return RemoteTmuxMirrorGeometry(
-                cellWidthPx: sample.cellWidthPx,
-                cellHeightPx: sample.cellHeightPx,
-                surfacePadWidthPx: minNonGridWidthPxByScale[scale] ?? max(0, nonGridW),
-                surfacePadHeightPx: minNonGridHeightPxByScale[scale] ?? max(0, nonGridH),
-                headerHeightPt: RemoteTmuxPaneHeader.totalHeightPt,
-                scale: scale
-            )
-        }
-        return nil
+        return geometrySnapshot
     }
 
     /// Pushes this window's client size to tmux: f(container pixels, base
@@ -400,7 +408,10 @@ final class RemoteTmuxWindowMirror {
         }
         walk(layout, exactCols: false, exactRows: false)
         let pushed = connection?.lastWindowSizes[windowId]
-        refreshGeometryConstants()
+        // Diagnostics are READ-ONLY: report f from the constants sizing is
+        // actually using right now. Recalibrating here would let a socket
+        // inspection alter future pushes — an observer that changes the
+        // system it observes.
         var fCells: (cols: Int, rows: Int)?
         if let containerSizePt, let containerScale, let geometry = currentGeometry() {
             fCells = geometry.clientCells(

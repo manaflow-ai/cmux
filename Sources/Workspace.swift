@@ -7746,7 +7746,14 @@ final class Workspace: Identifiable, ObservableObject {
             manualIO: true,
             manualInputHandler: onInput
         )
-        surface.onManualGridResize = onResize
+        if let onResize {
+            // This single-pane path sizes the remote window from the applied
+            // grid; the sample's extra fields (pixel sizes, pads) are the
+            // multi-pane mirror's calibration inputs and are unused here.
+            surface.onManualSizeApplied = { sample in
+                onResize(sample.columns, sample.rows)
+            }
+        }
         let newPanel = TerminalPanel(workspaceId: id, surface: surface)
         configureNewTerminalPanel(
             newPanel,

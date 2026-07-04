@@ -29,7 +29,11 @@ struct RemoteTmuxWindowMirrorView: View {
             portalPriority: portalPriority,
             onClosePane: onClosePane
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // topLeading, not the default center: if the pane tree is mid-transition
+        // and briefly bigger than this frame, overflow must clip at the trailing
+        // edge (tmux coordinates are absolute from the top-left), not shift
+        // every pane by half the difference.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Match the terminal background so the area never shows through as black.
         .background(Color(nsColor: appearance.backgroundColor))
         // Sizing is feed-forward: the pushed size is a pure function of these

@@ -242,18 +242,30 @@ extension TerminalSurface {
             lastYScale = yScale
         }
 
-        // Remote tmux display surfaces: report the grid after every APPLIED
-        // resize while on screen — including same-grid re-applies. A resize
-        // that lands on new pixels without changing cols×rows still refines
-        // the measured padding constants (surface_px − cols·cell_px), and
-        // listeners recalibrate on this signal; their pushes dedup, so a
-        // same-grid report costs nothing.
-        if manualIO, let report = onManualGridResize, attachedView?.window != nil {
-            let grid = ghostty_surface_size(surface)
-            let cols = Int(grid.columns)
-            let rows = Int(grid.rows)
+        // Remote tmux display surfaces: report every APPLIED resize —
+        // including same-grid re-applies, since a resize that lands on new
+        // pixels without changing cols×rows still refines the measured
+        // padding constants (surface_px − cols·cell_px). Window attachment is
+        // deliberately the ONLY visibility gate: surfaces on unselected tabs
+        // must still report, because a hidden mirror's one-time size claim
+        // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
+        // surfaces' first applied resize — the LISTENER owns the policy of
+        // what a hidden report may do.
+        if manualIO, let report = onManualSizeApplied,
+           let attachedView, attachedView.window != nil {
+            let applied = ghostty_surface_size(surface)
+            let cols = Int(applied.columns)
+            let rows = Int(applied.rows)
             if cols > 1, rows > 1 {
-                report(cols, rows)
+                report(TerminalSurfaceRawSizingSample(
+                    columns: cols, rows: rows,
+                    cellWidthPx: Int(applied.cell_width_px),
+                    cellHeightPx: Int(applied.cell_height_px),
+                    surfaceWidthPx: Int(applied.width_px),
+                    surfaceHeightPx: Int(applied.height_px),
+                    viewBoundsPt: attachedView.bounds.size,
+                    backingScale: attachedView.window?.backingScaleFactor
+                ))
             }
         }
 

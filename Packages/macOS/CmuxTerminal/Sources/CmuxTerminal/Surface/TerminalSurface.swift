@@ -173,9 +173,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let manualInputHandler: (@Sendable (Data) -> Void)?
 
     /// For MANUAL-I/O remote tmux display surfaces: invoked on the main actor
-    /// whenever the rendered grid changes so the owner can size the remote tmux
-    /// client to match.
-    @MainActor public var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
+    /// after every APPLIED resize while the surface's portal is visible —
+    /// same-grid re-applies included, because a resize that lands on new
+    /// pixels without changing cols×rows still refines the owner's measured
+    /// padding constants. Carries the raw sizing sample of the applied
+    /// geometry so listeners calibrate from exactly what was applied instead
+    /// of re-querying the live surface later.
+    @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
     var manualIONoReflow = true
