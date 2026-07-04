@@ -1086,7 +1086,11 @@ final class RemoteTmuxController {
         if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
     }
 
-    /// User-initiated mirrored workspace close detaches locally and kills the remote session.
+    /// Detaches locally and KILLS the remote session. No longer wired to any
+    /// workspace/tab/window close path (those now detach via
+    /// `detachMirrorWorkspaceKeptOpenLocally` / `handleRemoteWindowClosed`, PR #7264);
+    /// retained for a future explicit "disconnect host" action that genuinely intends
+    /// to end the remote session.
     func handleWorkspaceClosed(workspaceId: UUID) {
         guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId })
         else { return }

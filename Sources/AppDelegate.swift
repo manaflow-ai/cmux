@@ -8566,10 +8566,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
             let manager = self.tabManagerFor(windowId: windowId)
-            // An explicit close of the window's LAST remote workspace (a tab/session
-            // close) kills its remote session(s) — synced with tmux — even though it
-            // also closes the app window. A plain window/quit close leaves the marker
-            // unset and falls through to detach below (server stays alive for resume).
+            // Closing a remote-tmux window always DETACHES its sessions (kept alive on
+            // the server for resume); killing is only ever an explicit disconnect
+            // action, never a close side effect (PR #7264). The kill-on-close marker is
+            // never set (markRemoteTmuxKillOnWindowCloseIfNeeded is a retained no-op),
+            // so this consume returns false and the detach handlers below run. The
+            // marker machinery is kept for a future explicit "disconnect host" action.
             if self.remoteTmuxController.consumeKillSessionsOnWindowClose(windowId: windowId),
                let manager {
                 for workspace in manager.tabs where workspace.isRemoteTmuxMirror {
