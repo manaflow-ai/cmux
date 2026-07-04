@@ -799,6 +799,8 @@
       "exampleConfig": "範例設定",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "paneBorderColor": "覆寫分割工作區中的 cmux 窗格分隔線顏色。此設定影響 cmux 窗格邊界，而不是 Ghostty 的內部分割。",
+        "activePaneBorderColor": "在分割工作區中圍繞目前聚焦的 cmux 窗格繪製的選用邊框顏色。",
         "automation": {
           "ampIntegration": "啟用 cmux 與 Amp 的整合鉤子。停用時，隨附的外掛程式會保持非啟用狀態，無需移除。",
           "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。",
@@ -850,7 +852,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
+          "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
           "showCommandHoldHints": "按住 Cmd 時顯示快捷鍵提示標籤。也必須啟用 shortcuts.showModifierHoldHints。",
           "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。"
         }
@@ -1618,9 +1620,9 @@
       "kittyBuiltFor": "快速、可指令稿化、功能豐富",
       "weztermBuiltFor": "帶內建多工器的 GPU 終端",
       "tmuxBuiltFor": "在任意終端內做多工",
-      "cmuxBody": "基於 libghostty 構建的原生 macOS 終端，為三件事而生：多工處理、組織和可程式化。垂直側邊欄將工作分組為工作區，每個工作區都顯示其 git 分支、目錄、連接埠以及 agent 輸出的最新一行，讓你同時執行許多工作而不會迷失。當 agent 需要關注時，面板會響鈴。每個操作都可透過 CLI 和 Unix socket 指令稿化，還有一個可程式化驅動的內建瀏覽器。甚至有一個 iOS 伴侶應用程式，讓你在手機上查看終端。如果你要同時處理多個工作或 AI 編程 agent，並希望它們井然有序、可自動化，又不想設定多工器，cmux 是最佳選擇。",
+      "cmuxBody": "cmux 是一款建構在 Ghostty 終端機引擎 libghostty 上的原生 macOS 終端機。這表示終端機格線繼承了 Ghostty 的優勢：快速 GPU 繪製、出色的字型與色彩呈現、現代終端機相容性，以及你現有的 Ghostty 主題、字型、色彩和游標設定。cmux 加上的是 Ghostty 刻意不處理的那一層：垂直工作區、分割窗格、通知環、側邊欄中的 git/連接埠/代理脈絡、可腳本化的 CLI 與 Unix socket、可程式控制的瀏覽器，以及 iOS 伴侶 app。當你想要 Ghostty 品質的終端機繪製，又需要為大量任務或 AI 程式代理提供整理與自動化時，選擇 cmux。",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "快速、GPU 加速的終端，其引擎 libghostty 驅動著 cmux。如果你想要一個渲染出色的簡潔單終端視窗，而不需要工作區或自動化層，Ghostty 本身就很出色。",
+      "ghosttyBody": "Ghostty 是快速的原生終端機，其引擎 libghostty 也支撐 cmux。相較於較舊的 CPU 繪製終端機和較重的 Electron 風格終端機，Ghostty 的優勢是低延遲 GPU 繪製、清晰的字型與色彩處理、強大的終端機相容性、簡單的檔案式設定，以及不需要雲端帳號。如果你只想要一個乾淨的終端機視窗，保留這些繪製優勢，而且不需要工作區或自動化層，Ghostty 本身就很好。如果你想要同樣的 Ghostty 繪製優勢，再加上工作區、通知、腳本化和代理編排，請使用 cmux。",
       "iterm2Title": "iTerm2",
       "iterm2Body": "成熟、可無止境設定的 macOS 終端。深度的設定檔、觸發器和 tmux 整合。如果你想要極致功能且不需要同時編排許多工作，它是穩妥的預設選擇。",
       "warpTitle": "Warp",

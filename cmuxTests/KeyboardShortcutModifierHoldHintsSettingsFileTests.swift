@@ -75,6 +75,44 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
         }
     }
 
+    @Test
+    func settingsFileStoreAppliesPaneChromeColorSettings() throws {
+        let defaults = UserDefaults.standard
+        let paneBorderKey = PaneChromeSettings.paneBorderColorKey
+        let activePaneBorderKey = PaneChromeSettings.activePaneBorderColorKey
+        #expect(paneBorderKey == "paneBorderColor")
+        #expect(activePaneBorderKey == "activePaneBorderColor")
+        try preservingDefaults(keys: [
+            paneBorderKey,
+            activePaneBorderKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("#112233", forKey: activePaneBorderKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "paneBorderColor": "33aaff",
+              "activePaneBorderColor": null
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: paneBorderKey) == "#33AAFF")
+            #expect(defaults.object(forKey: activePaneBorderKey) == nil)
+        }
+    }
+
     @Test @MainActor
     func focusControllerSeedsBonsplitHintEligibilityFromDisabledSetting() throws {
         let defaults = UserDefaults.standard
