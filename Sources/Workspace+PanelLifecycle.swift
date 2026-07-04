@@ -198,6 +198,20 @@ extension Workspace {
         return currentIdentity == recordedIdentity
     }
 
+    /// True when a live agent is still registered in this workspace, other than
+    /// one whose pid equals `excludingPid`. Liveness is identity-verified against
+    /// the recorded process identity (start time), so a stale pid that has been
+    /// reused by an unrelated process does not count. The auto-title
+    /// persist/clear paths use this shared check to avoid clobbering a workspace
+    /// title that a live sibling session still owns.
+    func hasLiveRegisteredAgent(excludingPid: Int? = nil) -> Bool {
+        for (key, pid) in agentPIDs where pid > 0 {
+            if let excludingPid, Int(pid) == excludingPid { continue }
+            if isRecordedAgentPIDLive(key: key, pid: pid) { return true }
+        }
+        return false
+    }
+
     static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
         guard pid > 0 else { return nil }
         var info = proc_bsdinfo()

@@ -3259,11 +3259,20 @@ class TerminalController {
 
     /// `workspace.set_auto_title`: applies an AI-generated title to a workspace
     /// (and optionally one of its panels/tabs) with `.auto` provenance, so a
-    /// user-set title is never overwritten. Gated on the opt-in
-    /// `workspaceAutoNamingEnabled` setting; `{"probe": true}` reads the live
-    /// setting state without writing, which lets hook processes honor
-    /// mid-session toggles. `panel_id` accepts either a panel UUID or a
-    /// surface UUID.
+    /// user-set title is never overwritten. Normal auto-naming writes are
+    /// gated on the opt-in `workspaceAutoNamingEnabled` setting; `{"probe":
+    /// true}` reads the live setting state without writing, which lets hook
+    /// processes honor mid-session toggles. Agent lifecycle writes use
+    /// `persist_after_exit` / `clear_auto` to preserve or remove only
+    /// auto-owned titles independently of that setting — except a
+    /// `persist_after_exit` write also tagged `auto_derived` (a title newly
+    /// derived from the agent transcript rather than one cmux already applied),
+    /// which still honors the opt-in. A `persist_after_exit` write may pass
+    /// `excluding_pid` (the exiting agent's pid); it is rejected when a
+    /// *different* live agent still owns the workspace, and `clear_auto` is
+    /// likewise skipped while a live agent owns the workspace so it only drops a
+    /// title a fully-exited session left persisted. `panel_id` accepts either a
+    /// panel UUID or a surface UUID.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
@@ -3286,7 +3295,60 @@ class TerminalController {
             }
             return .ok(result)
         }
-        guard enabled else {
+        let clearAuto = v2Bool(params, "clear_auto") == true
+        let persistAfterExit = v2Bool(params, "persist_after_exit") == true
+        // A `persist_after_exit` write derived from the agent transcript (rather
+        // than a title cmux already applied) is a new auto-naming action, so it
+        // must still honor the opt-in even though the persist path otherwise
+        // bypasses the setting to preserve already-applied titles.
+        let autoDerived = v2Bool(params, "auto_derived") == true
+        // The lifecycle hook's own pid, so `clear_auto` / `persist_after_exit`
+        // can ignore the current process while still rejecting writes when a
+        // different live agent owns the shared workspace title. The CLI-side
+        // guard only sees the current agent's own sessions; this covers the
+        // cross-agent split case. Sent as a string to avoid JSON number ambiguity.
+        let lifecycleExcludingPid = v2String(params, "excluding_pid").flatMap { Int($0) }
+        if clearAuto {
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            }
+            guard let workspaceId = v2UUID(params, "workspace_id") else {
+                return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            }
+            var found = false
+            var workspaceCleared = false
+            var skippedForLiveAgent = false
+            v2MainSync {
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+                found = true
+                // Only clear a title a session left persisted after exit. If a live
+                // agent still owns the workspace (a live sibling's active auto
+                // title), leave it. Exclude the starting process's own already-
+                // registered PID so same-process /clear can remove the old
+                // persisted title before re-registering its PID.
+                if workspace.hasLiveRegisteredAgent(excludingPid: lifecycleExcludingPid) {
+                    skippedForLiveAgent = true
+                    return
+                }
+                if workspace.effectiveCustomTitleSource == .auto {
+                    workspaceCleared = tabManager.setCustomTitle(tabId: workspaceId, title: nil)
+                }
+            }
+            guard found else {
+                return .err(code: "not_found", message: "Workspace not found", data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                ])
+            }
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "workspace_cleared": workspaceCleared,
+                "workspace_owned_by_live_agent": skippedForLiveAgent,
+                "enabled": enabled
+            ])
+        }
+        guard enabled || (persistAfterExit && !autoDerived) else {
             return .err(code: "disabled", message: "Workspace auto-naming is disabled in Settings", data: ["enabled": false])
         }
         // A naming pass reporting a problem (rate limit / out of tokens / signed
@@ -3317,9 +3379,23 @@ class TerminalController {
         var found = false
         var workspaceApplied = false
         var panelApplied: Bool?
+        var skippedForLiveAgent = false
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
+            // Don't let an exiting agent stamp its title over the shared workspace
+            // while a *different* agent is still live in it. The exiting agent's own
+            // pid is excluded (its process can still be briefly alive while the
+            // SessionEnd hook runs); same-agent siblings are already guarded
+            // CLI-side. When `excluding_pid` is absent (the hook couldn't infer its
+            // own pid) the guard still runs excluding nothing: an unknown pid was
+            // never registered here either, so any live registered agent is a
+            // different session that owns the title. Only for persist-after-exit.
+            if persistAfterExit,
+               workspace.hasLiveRegisteredAgent(excludingPid: lifecycleExcludingPid) {
+                skippedForLiveAgent = true
+                return
+            }
             workspaceApplied = tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
             if let panelId {
                 // Hook payloads carry surface ids; accept either a panel id
@@ -3343,7 +3419,7 @@ class TerminalController {
 
         // A title landed, so the naming agent is working again: clear any stale
         // failure the Settings status line may be showing.
-        if workspaceApplied {
+        if workspaceApplied, !persistAfterExit {
             AutoNamingStatusStore.clear()
         }
 
@@ -3352,8 +3428,10 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "title": title,
             "workspace_applied": workspaceApplied,
+            "workspace_owned_by_live_agent": skippedForLiveAgent,
             "panel_applied": v2OrNull(panelApplied),
-            "enabled": true
+            "persist_after_exit": persistAfterExit,
+            "enabled": enabled
         ])
     }
 

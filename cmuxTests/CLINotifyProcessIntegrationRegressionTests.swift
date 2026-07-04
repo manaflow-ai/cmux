@@ -11,10 +11,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
 
+        let currentPid = String(ProcessInfo.processInfo.processIdentifier)
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: ["CMUX_CLAUDE_PID": currentPid]
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -31,6 +33,70 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
+        let clearTitleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            clearTitleRequests.contains {
+                $0["workspace_id"] as? String == context.workspaceId
+                    && $0["clear_auto"] as? Bool == true
+                    && $0["excluding_pid"] as? String == currentPid
+            },
+            "Expected SessionStart to clear an auto-owned persisted title, saw \(context.state.commands)"
+        )
+    }
+
+    func testClaudeClearSessionStartSkipsAutoTitleClearWhenSiblingSessionIsLive() throws {
+        let context = try makeClaudeHookContext(name: "claude-clear-live-sibling")
+        defer { context.cleanup() }
+
+        let startingSessionId = "clear-starting-session"
+        let siblingSessionId = "clear-live-sibling-session"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                siblingSessionId: [
+                    "sessionId": siblingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": "\(context.surfaceId)-sibling",
+                    "cwd": context.root.path,
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(startingSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let clearTitleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            clearTitleRequests.contains {
+                $0["workspace_id"] as? String == context.workspaceId
+                    && $0["clear_auto"] as? Bool == true
+            },
+            "Expected SessionStart to keep a live sibling's auto title, saw \(context.state.commands)"
+        )
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
@@ -45,6 +111,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
+        let clearTitleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            clearTitleRequests.contains { $0["clear_auto"] as? Bool == true },
+            "Expected non-clear SessionStart to keep the active auto title, saw \(context.state.commands)"
+        )
 
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertEqual(
@@ -750,6 +827,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
         case "surface.resume.clear":
             return v2Response(id: id, ok: true, result: ["cleared": true])
+        case "workspace.set_auto_title":
+            return v2Response(id: id, ok: true, result: ["workspace_applied": true, "workspace_cleared": true])
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
@@ -814,6 +893,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "workspace.set_auto_title":
+                return self.v2Response(id: id, ok: true, result: ["workspace_applied": true, "workspace_cleared": true])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -1692,6 +1773,188 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
+    }
+
+    func testClaudeSessionEndPersistsLatestTranscriptTitle() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-end-title")
+        defer { context.cleanup() }
+
+        let sessionId = "ending-title-session"
+        let transcriptURL = context.root.appendingPathComponent("ending-title-session.jsonl")
+        try [
+            #"{"type":"ai-title","aiTitle":"Investigate auth bug","sessionId":"ending-title-session"}"#,
+            #"{"type":"user","message":{"role":"user","content":"please fix oauth"},"sessionId":"ending-title-session"}"#,
+            #"{"type":"ai-title","aiTitle":"Review OAuth Flow","sessionId":"ending-title-session"}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let titleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(titleRequests.first { $0["persist_after_exit"] as? Bool == true })
+        XCTAssertEqual(request["workspace_id"] as? String, context.workspaceId)
+        XCTAssertEqual(request["title"] as? String, "Review OAuth Flow")
+    }
+
+    func testClaudeSessionEndSkipsPersistWhenSiblingSessionIsRunning() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-end-title-sibling")
+        defer { context.cleanup() }
+
+        // `isCurrent()` / SessionEnd is per-surface (issue #5908), so the exiting
+        // split below is still "current" for its own surface even though a sibling
+        // Claude session is live in another surface of the SAME workspace. The
+        // exit-title write must not stamp its stale title over the workspace while
+        // that sibling still owns the auto title.
+        let endingSessionId = "ending-title-session-sibling"
+        let siblingSessionId = "sibling-running-session"
+        let transcriptURL = context.root.appendingPathComponent("ending-title-session-sibling.jsonl")
+        try [
+            #"{"type":"ai-title","aiTitle":"Exiting split title","sessionId":"ending-title-session-sibling"}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                endingSessionId: [
+                    "sessionId": endingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                siblingSessionId: [
+                    "sessionId": siblingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": "\(context.surfaceId)-sibling",
+                    "cwd": context.root.path,
+                    "runtimeStatus": "running",
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(endingSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let titleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            titleRequests.contains { $0["persist_after_exit"] as? Bool == true },
+            "Expected SessionEnd to skip persisting a title while a sibling session is still running, saw \(context.state.commands)"
+        )
+    }
+
+    func testClaudeSessionEndSkipsPersistWhenIdleSiblingSessionIsLive() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-end-title-idle-sibling")
+        defer { context.cleanup() }
+
+        // The common case: the sibling split is alive but *idle* (its record
+        // never carries a runtime-running marker), not actively running. It still
+        // owns the workspace auto title, so the exiting split must not persist
+        // over it. Guarding only on `.running` sessions would miss this.
+        let endingSessionId = "ending-title-session-idle-sibling"
+        let siblingSessionId = "idle-live-sibling-session"
+        let transcriptURL = context.root.appendingPathComponent("ending-title-session-idle-sibling.jsonl")
+        try [
+            #"{"type":"ai-title","aiTitle":"Exiting split title","sessionId":"ending-title-session-idle-sibling"}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                endingSessionId: [
+                    "sessionId": endingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+                // Live process, but no runtime-running status (idle / status-less).
+                siblingSessionId: [
+                    "sessionId": siblingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": "\(context.surfaceId)-idle-sibling",
+                    "cwd": context.root.path,
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(endingSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let titleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            titleRequests.contains { $0["persist_after_exit"] as? Bool == true },
+            "Expected SessionEnd to skip persisting a title while an idle-but-live sibling session still owns the workspace, saw \(context.state.commands)"
+        )
     }
 
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
@@ -8820,6 +9083,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.v2Response(id: id, ok: true, result: [:])
             case "surface.resume.clear":
                 return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "workspace.set_auto_title":
+                return self.v2Response(id: id, ok: true, result: ["workspace_applied": true, "workspace_cleared": true])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }

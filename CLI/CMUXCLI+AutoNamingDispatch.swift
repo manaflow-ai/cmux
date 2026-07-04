@@ -99,6 +99,154 @@ extension CMUXCLI {
         ])
     }
 
+    func clearPersistedAgentSessionTitle(
+        workspaceId: String,
+        excludingSessionId: String,
+        excludingPid: Int?,
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        let workspaceStillOwned = (try? sessionStore.hasOtherLiveSession(
+            workspaceId: workspaceId,
+            excludingSessionId: excludingSessionId
+        )) != false
+        guard !workspaceStillOwned else {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.other-session-live")
+            return
+        }
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "clear_auto": true
+        ]
+        if let excludingPid {
+            params["excluding_pid"] = String(excludingPid)
+        }
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: params) else {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.socket-failed")
+            return
+        }
+        if payload["workspace_cleared"] as? Bool == true {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.cleared")
+        } else {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.no-op")
+        }
+    }
+
+    /// Persists an exited agent session's last auto title onto its workspace,
+    /// but only when no other live session still owns that workspace.
+    ///
+    /// The live-session guard lives here, not at the call sites, so every
+    /// lifecycle entrypoint (Claude and the generic/PI hooks) gets it: exit
+    /// ordering across sibling panes is nondeterministic and `SessionEnd` /
+    /// `isCurrent()` are per-surface (see issue #5908), so an exiting split can
+    /// otherwise stamp its stale title over the workspace while a sibling
+    /// session in another surface is still alive and owns the auto title. The
+    /// guard treats any sibling with a live process as owning the workspace,
+    /// not only actively-running ones — an idle / needs-input split is the
+    /// common case and still owns the title.
+    ///
+    /// The guard fails closed: if the session store can't be read we cannot rule
+    /// out a live sibling, so the persist is skipped rather than risk clobbering
+    /// its title. A transcript-derived title is a *new* auto-naming action, so it
+    /// is tagged `auto_derived` and the app rejects it when auto-naming is
+    /// disabled; a title cmux already applied is only preserved and persists
+    /// regardless of the setting.
+    ///
+    /// This CLI store only tracks the exiting agent's own sessions, so it cannot
+    /// see a live session from a *different* agent (each agent keeps its own hook
+    /// store) sharing the workspace. `excludingPid` carries the exiting agent's
+    /// process id so the app can additionally reject the persist when another
+    /// agent's process still owns the shared workspace title.
+    func persistAgentSessionTitleAfterExit(
+        _ exitTitle: (title: String, derivedFromTranscript: Bool)?,
+        workspaceId: String,
+        excludingSessionId: String,
+        excludingPid: Int?,
+        sessionStore: ClaudeHookSessionStore,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let exitTitle else { return }
+        let workspaceStillOwned = (try? sessionStore.hasOtherLiveSession(
+            workspaceId: workspaceId,
+            excludingSessionId: excludingSessionId
+        )) != false
+        guard !workspaceStillOwned else {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.other-session-live")
+            return
+        }
+        var params: [String: Any] = [
+            "workspace_id": workspaceId,
+            "title": exitTitle.title,
+            "persist_after_exit": true
+        ]
+        if exitTitle.derivedFromTranscript {
+            params["auto_derived"] = true
+        }
+        if let excludingPid {
+            params["excluding_pid"] = String(excludingPid)
+        }
+        guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: params) else {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.socket-failed")
+            return
+        }
+        if payload["workspace_applied"] as? Bool == true {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.applied")
+        } else {
+            telemetry.breadcrumb("\(telemetryKey).persist-title.rejected")
+        }
+    }
+
+    /// Returns the title to re-apply to a workspace when an agent session exits,
+    /// plus whether it was newly derived from the transcript or already applied.
+    func agentSessionExitTitle(
+        agent: String,
+        record: ClaudeHookSessionRecord
+    ) -> (title: String, derivedFromTranscript: Bool)? {
+        if let applied = normalizedAgentSessionExitTitle(record.autoNameLastTitle) {
+            return (title: applied, derivedFromTranscript: false)
+        }
+        guard agent == "claude",
+              let derived = latestClaudeTranscriptTitle(path: record.transcriptPath) else {
+            return nil
+        }
+        return (title: derived, derivedFromTranscript: true)
+    }
+
+    private func latestClaudeTranscriptTitle(path: String?) -> String? {
+        guard let path = normalizedHookValue(path),
+              let lines = readRecentTextFileLines(path: path, maxBytes: 512 * 1024) else {
+            return nil
+        }
+        for line in lines.reversed() {
+            if let title = claudeTranscriptTitle(in: line) {
+                return title
+            }
+        }
+        return nil
+    }
+
+    private func claudeTranscriptTitle(in line: String) -> String? {
+        guard line.contains(#""ai-title""#),
+              let data = line.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object["type"] as? String == "ai-title" else {
+            return nil
+        }
+        return normalizedAgentSessionExitTitle(object["aiTitle"] as? String)
+    }
+
+    private func normalizedAgentSessionExitTitle(_ title: String?) -> String? {
+        let collapsed = title?
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !collapsed.isEmpty else { return nil }
+        return String(collapsed.prefix(120))
+    }
+
     // MARK: - Per-agent summarizer invocations (moved verbatim from the hooks)
 
     private func summarizeWithClaude(
