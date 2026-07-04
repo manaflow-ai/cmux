@@ -39,6 +39,11 @@ import Testing
         #expect(condition(), "timed out waiting for \(what)", sourceLocation: sourceLocation)
     }
 
+    private func errorCode(for state: UpdateState) -> Int? {
+        guard case .error(let failure) = state else { return nil }
+        return (failure.error as NSError).code
+    }
+
     // MARK: - Replays
 
     /// The production bug, replayed end to end from the user's `cmux-update.log`: Install is
@@ -114,6 +119,64 @@ import Testing
 
         await waitUntil("fresh prompt to be confirmed") { freshPrompt.choice == .install }
         #expect(!harness.controller.attemptCoordinator.isMonitoring)
+    }
+
+    /// If Sparkle never becomes ready during an install attempt, the readiness timeout is the
+    /// accurate user-facing failure. It must end the attempt and disarm the watchdog so the later
+    /// 25s install-stall deadline cannot replace it with "Update Didn't Start".
+    @Test func installAttemptReadinessTimeoutSurfacesNotReadyAndDisarmsWatchdog() async throws {
+        let harness = Harness()
+
+        harness.updater.canCheckForUpdates = false
+        harness.controller.attemptUpdate()
+
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.installWatchdog.isArmed)
+        #expect(harness.model.state.isIdle)
+
+        await waitUntil("not-ready error") {
+            errorCode(for: harness.model.state) == UpdateStateModel.updaterNotReadyCode
+        }
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(!harness.controller.installWatchdog.isArmed)
+
+        await harness.clock.fireDeadlines()
+        #expect(errorCode(for: harness.model.state) == UpdateStateModel.updaterNotReadyCode)
+
+        guard case .error(let failure) = harness.model.state else {
+            Issue.record("readiness timeout should surface an error")
+            return
+        }
+        harness.updater.canCheckForUpdates = true
+        failure.retry()
+
+        await waitUntil("retry to start a fresh install check") {
+            harness.updater.checkForUpdatesCallCount == 1
+        }
+        #expect(harness.controller.attemptCoordinator.isMonitoring)
+        #expect(harness.controller.installWatchdog.isArmed)
+    }
+
+    /// A plain manual check still uses the checking placeholder while it waits for Sparkle
+    /// readiness, and still surfaces the same not-ready error if readiness never arrives.
+    @Test func manualCheckReadinessTimeoutStillSurfacesNotReady() async {
+        let harness = Harness()
+
+        harness.updater.canCheckForUpdates = false
+        harness.controller.checkForUpdates()
+
+        guard case .checking = harness.model.state else {
+            Issue.record("manual readiness wait should show checking, got \(harness.model.state)")
+            return
+        }
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+
+        await waitUntil("manual not-ready error") {
+            errorCode(for: harness.model.state) == UpdateStateModel.updaterNotReadyCode
+        }
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+        #expect(!harness.controller.installWatchdog.isArmed)
     }
 
     /// If the fresh check never restarts (no `.checking` ever arrives), the watchdog must turn
