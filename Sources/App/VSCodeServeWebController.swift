@@ -17,6 +17,12 @@ final class VSCodeServeWebController {
         var deadlineTimer: DispatchSourceTimer?
     }
 
+    private enum LaunchAttemptResult {
+        case started(process: Process, url: URL)
+        case portUnavailable
+        case failed
+    }
+
     private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
     private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
@@ -243,11 +249,16 @@ final class VSCodeServeWebController {
                 location: location,
                 port: port
             )
-            if let result = runServeWebProcess(options: options, expectedGeneration: expectedGeneration) {
+            switch runServeWebProcess(options: options, expectedGeneration: expectedGeneration) {
+            case .started(let process, let url):
                 if port != 0 {
                     Self.persistPort(port)
                 }
-                return result
+                return (process, url)
+            case .portUnavailable:
+                break
+            case .failed:
+                return nil
             }
             // Stop retrying if this launch generation was superseded mid-attempt.
             let stillCurrent = queue.sync {
@@ -260,13 +271,14 @@ final class VSCodeServeWebController {
         return nil
     }
 
-    /// Runs a single serve-web launch attempt for the given options, returning the
-    /// process + resolved Web UI URL on success. The persisted connection-token
-    /// file is intentionally never deleted here — it must survive process exits.
+    /// Runs a single serve-web launch attempt for the given options. Only explicit
+    /// port-bind failures are retryable; other startup failures stop the launch loop.
+    /// The persisted connection-token file is intentionally never deleted here — it
+    /// must survive process exits.
     private func runServeWebProcess(
         options: VSCodeServeWebLaunchOptions,
         expectedGeneration: UInt64
-    ) -> (process: Process, url: URL)? {
+    ) -> LaunchAttemptResult {
         let process = Process()
         process.executableURL = options.executableURL
         process.arguments = options.arguments
@@ -328,13 +340,14 @@ final class VSCodeServeWebController {
         guard didStart else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
-            return nil
+            return .failed
         }
 
         guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
               let serveWebURL = collector.webUIURL else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            let attemptResult: LaunchAttemptResult = collector.sawPortCollision ? .portUnavailable : .failed
             if process.isRunning {
                 process.terminate()
             } else {
@@ -348,10 +361,10 @@ final class VSCodeServeWebController {
                     }
                 }
             }
-            return nil
+            return attemptResult
         }
 
-        return (process, serveWebURL)
+        return .started(process: process, url: serveWebURL)
     }
 
     /// Resolves the stable serve-web paths + preferred port and ensures the data

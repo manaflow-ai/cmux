@@ -5,6 +5,7 @@ final class ServeWebOutputCollector {
     private let semaphore = DispatchSemaphore(value: 0)
     private var outputBuffer = ""
     private var resolvedURL: URL?
+    private var portCollisionDetected = false
     private var didSignal = false
 
     var webUIURL: URL? {
@@ -13,12 +14,24 @@ final class ServeWebOutputCollector {
         return resolvedURL
     }
 
+    var sawPortCollision: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return portCollisionDetected
+    }
+
     func append(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
+        if Self.textIndicatesPortCollision(text) {
+            portCollisionDetected = true
+        }
         guard resolvedURL == nil else { return }
         outputBuffer.append(text)
+        if !portCollisionDetected, Self.textIndicatesPortCollision(outputBuffer) {
+            portCollisionDetected = true
+        }
         while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
             let line = String(outputBuffer[..<newlineIndex])
             outputBuffer.removeSubrange(...newlineIndex)
@@ -52,5 +65,12 @@ final class ServeWebOutputCollector {
         if webUIURL != nil { return true }
         _ = semaphore.wait(timeout: .now() + timeoutSeconds)
         return webUIURL != nil
+    }
+
+    private static func textIndicatesPortCollision(_ text: String) -> Bool {
+        let lowercasedText = text.lowercased()
+        return lowercasedText.contains("eaddrinuse")
+            || lowercasedText.contains("address already in use")
+            || lowercasedText.contains("port is already in use")
     }
 }

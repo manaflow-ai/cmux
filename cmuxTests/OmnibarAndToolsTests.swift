@@ -685,6 +685,33 @@ final class ServeWebOutputCollectorTests: XCTestCase {
         XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
     }
+
+    func testDetectsPortCollisionOutput() {
+        let collector = ServeWebOutputCollector()
+
+        collector.append(Data("Error: listen EADDRINUSE: address already in use 127.0.0.1:50080\n".utf8))
+
+        XCTAssertTrue(collector.sawPortCollision)
+    }
+
+    func testDetectsPortCollisionOutputAcrossChunks() {
+        let collector = ServeWebOutputCollector()
+
+        collector.append(Data("Error: listen EADDR".utf8))
+        collector.append(Data("INUSE on 127.0.0.1:50080\n".utf8))
+
+        XCTAssertTrue(collector.sawPortCollision)
+    }
+
+    func testUnrelatedStartupFailureDoesNotLookLikePortCollision() {
+        let collector = ServeWebOutputCollector()
+
+        collector.append(Data("Error: failed to initialize extension host\n".utf8))
+        collector.markProcessExited()
+
+        XCTAssertFalse(collector.sawPortCollision)
+        XCTAssertFalse(collector.waitForURL(timeoutSeconds: 0.1))
+    }
 }
 
 
