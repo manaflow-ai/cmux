@@ -53,9 +53,7 @@ struct WorkspaceDetailView: View {
     @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
-    /// The session chat mode was entered on, pinned so a newer session
-    /// sorting first cannot swap the conversation out from under the user
-    /// mid-read. Cleared when chat mode turns off.
+    /// Session pinned on chat entry so newer sessions do not swap mid-read.
     @State var pinnedChatSessionID: String?
     @State var chatSessions: [ChatSessionDescriptor] = []
     @State var chatSessionsWorkspaceID: String?
@@ -64,9 +62,7 @@ struct WorkspaceDetailView: View {
     @State var ignoredChatSessionRefreshKey: String?
     @State var ignoredChatSessionRefreshID: UUID?
     @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
-    /// Per-session chat stores kept warm while the workspace detail is visible.
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
-    /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
