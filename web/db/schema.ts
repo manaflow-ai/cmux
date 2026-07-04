@@ -145,6 +145,21 @@ export const notificationSendEvents = pgTable(
   ],
 );
 
+export const subrouterTenants = pgTable(
+  "subrouter_tenants",
+  {
+    teamId: text("team_id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    tenantName: text("tenant_name").notNull(),
+    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
+  ],
+);
+
 export const cloudVmBillingGrants = pgTable(
   "cloud_vm_billing_grants",
   {
