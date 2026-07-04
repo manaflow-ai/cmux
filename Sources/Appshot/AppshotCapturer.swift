@@ -15,6 +15,10 @@ enum AppshotCapturer {
     private static let maxInlineAccessibilityStringChars = 2048
     /// Maximum characters expected in an AX role string.
     private static let maxAccessibilityRoleChars = 64
+    /// Maximum width or height requested from ScreenCaptureKit for one appshot.
+    private static let maxScreenshotDimension = 4096
+    /// Maximum total pixels requested from ScreenCaptureKit for one appshot.
+    private static let maxScreenshotPixels = 12_000_000
     /// Wall-clock budget for the whole Accessibility walk, so slow AX IPC (or a
     /// hostile app) can't keep the capture — and `isCapturing` — pending.
     private static let maxAccessibilityDuration: TimeInterval = 2.0
@@ -139,15 +143,37 @@ enum AppshotCapturer {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else { return nil }
+            guard let dimensions = boundedScreenshotDimensions(frame: window.frame, scale: scale) else { return nil }
             let filter = SCContentFilter(desktopIndependentWindow: window)
             let configuration = SCStreamConfiguration()
-            configuration.width = max(1, Int((window.frame.width * scale).rounded()))
-            configuration.height = max(1, Int((window.frame.height * scale).rounded()))
+            configuration.width = dimensions.width
+            configuration.height = dimensions.height
             configuration.showsCursor = false
             return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
         } catch {
             return nil
         }
+    }
+
+    private static func boundedScreenshotDimensions(frame: CGRect, scale: CGFloat) -> (width: Int, height: Int)? {
+        let rawWidth = Double(frame.width * scale)
+        let rawHeight = Double(frame.height * scale)
+        guard rawWidth.isFinite, rawHeight.isFinite, rawWidth > 0, rawHeight > 0 else { return nil }
+
+        let maxDimension = Double(maxScreenshotDimension)
+        let maxPixels = Double(maxScreenshotPixels)
+        let pixelCount = rawWidth * rawHeight
+        guard pixelCount.isFinite, pixelCount > 0 else { return nil }
+
+        var ratio = min(1, maxDimension / rawWidth, maxDimension / rawHeight)
+        if pixelCount * ratio * ratio > maxPixels {
+            ratio = min(ratio, sqrt(maxPixels / pixelCount))
+        }
+
+        return (
+            width: max(1, Int((rawWidth * ratio).rounded(.down))),
+            height: max(1, Int((rawHeight * ratio).rounded(.down)))
+        )
     }
 
     // MARK: Accessibility text
@@ -170,7 +196,7 @@ enum AppshotCapturer {
         // the worst-case overshoot is one in-flight call past the deadline.
         let deadline = Date().addingTimeInterval(maxAccessibilityDuration)
         let app = AXUIElementCreateApplication(pid)
-        let root = resolveTargetWindow(app: app, matching: targetBounds, deadline: deadline) ?? app
+        guard let root = resolveTargetWindow(app: app, matching: targetBounds, deadline: deadline) else { return "" }
 
         var pieces: [String] = []
         var seen = Set<String>()
@@ -195,13 +221,12 @@ enum AppshotCapturer {
     /// apart by frame alone, and AX window order need not match the captured
     /// front-to-back order — so a non-unique match must not guess a window.
     ///
-    /// Falls back to the prior focused-window / first-window heuristic when the
-    /// frame match is absent or ambiguous (bounds unavailable, window
-    /// resized/closed mid-capture, a coordinate-space mismatch, or identical
-    /// frames). The focused window is the most likely frontmost/captured window,
-    /// so behavior never degrades below the previous version. If the shared
-    /// deadline expires before the focused-window read, use only the already
-    /// materialized first-window fallback rather than starting another AX call.
+    /// Falls back to the focused-window heuristic when the frame match is absent
+    /// or ambiguous (bounds unavailable, window resized/closed mid-capture, a
+    /// coordinate-space mismatch, or identical frames). The focused window is the
+    /// most likely frontmost/captured window. If the shared deadline expires, or
+    /// the focused window cannot be read, text capture is omitted rather than
+    /// walking the whole app Accessibility tree.
     private static func resolveTargetWindow(app: AXUIElement, matching targetBounds: CGRect?, deadline: Date) -> AXUIElement? {
         // Cap the window array at the IPC boundary (see ``copyElements``): a
         // buggy or hostile frontmost app can report arbitrarily many windows, so
@@ -223,9 +248,8 @@ enum AppshotCapturer {
                 return windows[index]
             }
         }
-        guard Date() < deadline else { return windows?.first }
-        if let focused = copyElement(app, kAXFocusedWindowAttribute) { return focused }
-        return windows?.first
+        guard Date() < deadline else { return nil }
+        return copyElement(app, kAXFocusedWindowAttribute)
     }
 
     /// Index of the window whose frame *uniquely* matches `target` within
