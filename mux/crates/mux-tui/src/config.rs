@@ -8,11 +8,15 @@
 //!     "selection_background": "#3a3a3a",
 //!     "selection_foreground": null,
 //!     "sidebar_rail": "#87afd7",
+//!     "sidebar_active_bg": 236,
+//!     "tab_rail": "#87afd7",
+//!     "tab_bg": 236,
+//!     "tab_active_bg": null,
 //!     "border_active": "#87afd7",
 //!     "border_inactive": "#444444"
 //!   },
 //!   "tabs": {
-//!     "min_width": 5,
+//!     "min_width": 7,
 //!     "solid_background": true,
 //!     "show_titles": false,
 //!     "agents": ["claude", "codex", "opencode", "pi"]
@@ -27,6 +31,9 @@
 //!     "discover_ports": [9222],
 //!     "user_data_dir": "/Users/me/Library/Application Support/cmux-mux/chrome-profile",
 //!     "ephemeral": false
+//!   },
+//!   "scrollbar": {
+//!     "position": "column"
 //!   }
 //! }
 //! ```
@@ -55,6 +62,8 @@ struct RawConfig {
     sidebar: RawSidebar,
     #[serde(default)]
     browser: RawBrowser,
+    #[serde(default)]
+    scrollbar: RawScrollbar,
     /// Key bindings: `"prefix"` plus one entry per action, e.g.
     /// `{"prefix": "ctrl+b", "new-tab": "c", "split-right": "%"}`.
     #[serde(default)]
@@ -67,6 +76,10 @@ struct RawTheme {
     selection_background: Option<ColorValue>,
     selection_foreground: Option<ColorValue>,
     sidebar_rail: Option<ColorValue>,
+    sidebar_active_bg: Option<ColorValue>,
+    tab_rail: Option<ColorValue>,
+    tab_bg: Option<ColorValue>,
+    tab_active_bg: Option<ColorValue>,
     border_active: Option<ColorValue>,
     border_inactive: Option<ColorValue>,
 }
@@ -97,6 +110,30 @@ struct RawBrowser {
     ephemeral: Option<bool>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawScrollbar {
+    position: Option<ScrollbarPosition>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScrollbarPosition {
+    Column,
+    Border,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Scrollbar {
+    pub position: ScrollbarPosition,
+}
+
+impl Default for Scrollbar {
+    fn default() -> Self {
+        Scrollbar { position: ScrollbarPosition::Column }
+    }
+}
+
 /// A color in the config file: "#rrggbb", "#rgb", or an xterm-256 index.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
@@ -121,6 +158,11 @@ pub struct Theme {
     /// None keeps each cell's own foreground under the selection.
     pub selection_fg: Option<Color>,
     pub sidebar_rail: Color,
+    pub sidebar_active_bg: Color,
+    pub tab_rail: Color,
+    pub tab_bg: Color,
+    /// None keeps the focused/unfocused active-tab two-tone default.
+    pub tab_active_bg: Option<Color>,
     pub border_active: Color,
     pub border_inactive: Color,
 }
@@ -132,6 +174,10 @@ impl Default for Theme {
             selection_bg: Color::Rgb(0x3a, 0x3a, 0x3a),
             selection_fg: None,
             sidebar_rail: Color::Indexed(110),
+            sidebar_active_bg: Color::Indexed(236),
+            tab_rail: Color::Indexed(110),
+            tab_bg: Color::Indexed(236),
+            tab_active_bg: None,
             border_active: Color::Indexed(110),
             border_inactive: Color::Indexed(238),
         }
@@ -156,7 +202,7 @@ pub struct Tabs {
 impl Default for Tabs {
     fn default() -> Self {
         Tabs {
-            min_width: 5,
+            min_width: 7,
             solid_background: true,
             show_titles: false,
             agents: ["claude", "codex", "opencode", "pi"].map(String::from).to_vec(),
@@ -209,7 +255,7 @@ pub enum Action {
     SplitRight,
     SplitDown,
     CloseTab,
-    RenamePane,
+    RenameTab,
     RenameWorkspace,
     NextScreen,
     NewScreen,
@@ -235,7 +281,7 @@ impl Action {
             Action::SplitRight => "split-right",
             Action::SplitDown => "split-down",
             Action::CloseTab => "close-tab",
-            Action::RenamePane => "rename-pane",
+            Action::RenameTab => "rename-tab",
             Action::RenameWorkspace => "rename-workspace",
             Action::NextScreen => "next-screen",
             Action::NewScreen => "new-screen",
@@ -294,7 +340,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
                 bind(KeyCode::Char('x'), Action::CloseTab),
-                bind(KeyCode::Char(','), Action::RenamePane),
+                bind(KeyCode::Char(','), Action::RenameTab),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Tab, Action::NextScreen),
                 bind(KeyCode::Char('S'), Action::NewScreen),
@@ -343,7 +389,7 @@ impl Keys {
                 Action::SplitRight,
                 Action::SplitDown,
                 Action::CloseTab,
-                Action::RenamePane,
+                Action::RenameTab,
                 Action::RenameWorkspace,
                 Action::NextScreen,
                 Action::NewScreen,
@@ -358,7 +404,9 @@ impl Keys {
                 Action::ScrollDown,
                 Action::Detach,
             ];
-            match all.iter().find(|a| a.config_key() == name) {
+            match all.iter().find(|a| {
+                a.config_key() == name || (**a == Action::RenameTab && name == "rename-pane")
+            }) {
                 Some(action) => {
                     self.bindings.retain(|(_, a)| a != action);
                     self.bindings.push((chord, *action));
@@ -412,6 +460,7 @@ pub struct Config {
     pub tabs: Tabs,
     pub sidebar: Sidebar,
     pub browser: Browser,
+    pub scrollbar: Scrollbar,
     pub keys: Keys,
 }
 
@@ -437,6 +486,18 @@ pub fn load() -> Config {
     }
     if let Some(c) = t.sidebar_rail.as_ref().and_then(ColorValue::to_color) {
         config.theme.sidebar_rail = c;
+    }
+    if let Some(c) = t.sidebar_active_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_active_bg = c;
+    }
+    if let Some(c) = t.tab_rail.as_ref().and_then(ColorValue::to_color) {
+        config.theme.tab_rail = c;
+    }
+    if let Some(c) = t.tab_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.tab_bg = c;
+    }
+    if let Some(c) = t.tab_active_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.tab_active_bg = Some(c);
     }
     if let Some(c) = t.border_active.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_active = c;
@@ -471,13 +532,22 @@ pub fn load() -> Config {
     if let Some(ephemeral) = raw.browser.ephemeral {
         config.browser.ephemeral = ephemeral;
     }
+    if let Some(position) = raw.scrollbar.position {
+        config.scrollbar.position = position;
+    }
     config.keys.apply(&raw.keys);
     config
 }
 
-/// The label for a tab: its 1-based number, plus a recognized agent
-/// program name (or the full title when `show_titles` is on).
-pub fn tab_label(tabs: &Tabs, index: usize, title: &str) -> String {
+/// The label for a tab: user name if set, otherwise its 1-based number
+/// plus a recognized agent program name (or the full title when
+/// `show_titles` is on).
+pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
+    if let Some(name) = name {
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
     let number = index + 1;
     let suffix = if tabs.show_titles {
         (!title.is_empty()).then(|| title.to_string())
@@ -580,19 +650,20 @@ mod tests {
     #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
-        assert_eq!(tab_label(&tabs, 0, ""), "1");
-        assert_eq!(tab_label(&tabs, 1, "zsh"), "2");
-        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs"), "3");
+        assert_eq!(tab_label(&tabs, 0, "", None), "1");
+        assert_eq!(tab_label(&tabs, 1, "zsh", None), "2");
+        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "3");
         // Recognized agent programs surface in the label.
-        assert_eq!(tab_label(&tabs, 0, "claude"), "1 claude");
-        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI"), "4 codex");
-        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug"), "5 opencode");
+        assert_eq!(tab_label(&tabs, 0, "claude", None), "1 claude");
+        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "4 codex");
+        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "5 opencode");
         // "pi" matches only as a word, not inside other words.
-        assert_eq!(tab_label(&tabs, 5, "pick a file"), "6");
-        assert_eq!(tab_label(&tabs, 5, "pi chat"), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "6");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", Some("api")), "api");
 
         let titled = Tabs { show_titles: true, ..Tabs::default() };
-        assert_eq!(tab_label(&titled, 1, "zsh"), "2 zsh");
+        assert_eq!(tab_label(&titled, 1, "zsh", None), "2 zsh");
     }
 
     #[test]
@@ -603,9 +674,16 @@ mod tests {
         std::fs::write(
             &path,
             r##"{
-                "theme": {"selection_background": "#101010", "sidebar_rail": 42},
+                "theme": {
+                    "selection_background": "#101010",
+                    "sidebar_rail": 42,
+                    "sidebar_active_bg": "#202020",
+                    "tab_bg": 44
+                },
                 "tabs": {"min_width": 9, "solid_background": false},
-                "sidebar": {"width": 30}
+                "sidebar": {"width": 30},
+                "scrollbar": {"position": "border"},
+                "keys": {"rename-pane": "r"}
             }"##,
         )
         .unwrap();
@@ -615,9 +693,16 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert_eq!(config.theme.sidebar_active_bg, Color::Rgb(0x20, 0x20, 0x20));
+        assert_eq!(config.theme.tab_bg, Color::Indexed(44));
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
+        assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+            Some(Action::RenameTab)
+        );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
     }

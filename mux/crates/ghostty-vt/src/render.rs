@@ -32,16 +32,26 @@ pub struct CursorInfo {
     pub blinking: bool,
 }
 
+/// A terminal color as authored by the application, before palette resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorSpec {
+    #[default]
+    Default,
+    Palette(u8),
+    Rgb(Rgb),
+}
+
 /// One rendered cell.
 ///
 /// `text` is empty for blank cells (draw a space with `bg`). Wide
 /// graphemes occupy the head cell; the following spacer cell also has
-/// empty text.
+/// empty text. Colors preserve palette indices unless the application
+/// authored direct RGB.
 #[derive(Debug, Clone, Default)]
 pub struct Cell {
     pub text: String,
-    pub fg: Option<Rgb>,
-    pub bg: Option<Rgb>,
+    pub fg: ColorSpec,
+    pub bg: ColorSpec,
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
@@ -63,6 +73,8 @@ pub struct RenderState {
     cells: sys::GhosttyRenderStateRowCells,
     row_buf: Vec<Cell>,
     grapheme_buf: Vec<u32>,
+    palette: [Rgb; 256],
+    default_palette: [Rgb; 256],
 }
 
 unsafe impl Send for RenderState {}
@@ -88,12 +100,24 @@ impl RenderState {
             }
             return Err(e);
         }
-        Ok(RenderState { raw, rows, cells, row_buf: Vec::new(), grapheme_buf: Vec::new() })
+        Ok(RenderState {
+            raw,
+            rows,
+            cells,
+            row_buf: Vec::new(),
+            grapheme_buf: Vec::new(),
+            palette: [Rgb::default(); 256],
+            default_palette: [Rgb::default(); 256],
+        })
     }
 
     /// Snapshot the terminal's viewport into this render state.
     pub fn update(&mut self, terminal: &mut Terminal) -> Result<()> {
-        check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })
+        check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })?;
+        self.palette = terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
+        self.default_palette =
+            terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT)?;
+        Ok(())
     }
 
     fn get<T: Default>(&self, data: sys::GhosttyRenderStateData) -> Result<T> {
@@ -142,6 +166,17 @@ impl RenderState {
             .map(Rgb::from)
             .unwrap_or(Rgb { r: 255, g: 255, b: 255 });
         (bg, fg)
+    }
+
+    /// Current palette entry for this frame, including OSC 4 overrides.
+    pub fn palette_color(&self, idx: u8) -> Rgb {
+        self.palette[idx as usize]
+    }
+
+    /// Whether this frame's palette entry differs from the terminal default.
+    pub fn palette_overridden(&self, idx: u8) -> bool {
+        let idx = idx as usize;
+        self.palette[idx] != self.default_palette[idx]
     }
 
     /// Cursor state, or `None` when the cursor is invisible or outside the
@@ -296,6 +331,8 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
         cell.inverse = style.inverse;
         cell.blink = style.blink;
         cell.invisible = style.invisible;
+        cell.fg = style_color_spec(style.fg_color);
+        cell.bg = raw_cell_bg_spec(cells).unwrap_or_else(|| style_color_spec(style.bg_color));
     } else {
         cell.bold = false;
         cell.faint = false;
@@ -305,27 +342,80 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
         cell.inverse = false;
         cell.blink = false;
         cell.invisible = false;
+        cell.fg = ColorSpec::Default;
+        cell.bg = ColorSpec::Default;
+    }
+}
+
+fn terminal_palette(
+    terminal: sys::GhosttyTerminal,
+    data: sys::GhosttyTerminalData,
+) -> Result<[Rgb; 256]> {
+    let mut palette = [sys::GhosttyColorRgb::default(); 256];
+    check(unsafe {
+        sys::ghostty_terminal_get(terminal, data, palette.as_mut_ptr() as *mut c_void)
+    })?;
+    Ok(palette.map(Rgb::from))
+}
+
+fn style_color_spec(color: sys::GhosttyStyleColor) -> ColorSpec {
+    match color.tag {
+        sys::GHOSTTY_STYLE_COLOR_PALETTE => ColorSpec::Palette(unsafe { color.value.palette }),
+        sys::GHOSTTY_STYLE_COLOR_RGB => ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb })),
+        _ => ColorSpec::Default,
+    }
+}
+
+fn raw_cell_bg_spec(cells: sys::GhosttyRenderStateRowCells) -> Option<ColorSpec> {
+    let mut raw = sys::GhosttyCell::default();
+    let raw_ok = unsafe {
+        sys::ghostty_render_state_row_cells_get(
+            cells,
+            sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW,
+            &mut raw as *mut _ as *mut c_void,
+        )
+    } == sys::GHOSTTY_SUCCESS;
+    if !raw_ok {
+        return None;
     }
 
-    let mut fg = sys::GhosttyColorRgb::default();
-    cell.fg = (unsafe {
-        sys::ghostty_render_state_row_cells_get(
-            cells,
-            sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR,
-            &mut fg as *mut _ as *mut c_void,
+    let mut tag = sys::GHOSTTY_CELL_CONTENT_CODEPOINT;
+    let tag_ok = unsafe {
+        sys::ghostty_cell_get(
+            raw,
+            sys::GHOSTTY_CELL_DATA_CONTENT_TAG,
+            &mut tag as *mut _ as *mut c_void,
         )
-    } == sys::GHOSTTY_SUCCESS)
-        .then(|| Rgb::from(fg));
+    } == sys::GHOSTTY_SUCCESS;
+    if !tag_ok {
+        return None;
+    }
 
-    let mut bg = sys::GhosttyColorRgb::default();
-    cell.bg = (unsafe {
-        sys::ghostty_render_state_row_cells_get(
-            cells,
-            sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR,
-            &mut bg as *mut _ as *mut c_void,
-        )
-    } == sys::GHOSTTY_SUCCESS)
-        .then(|| Rgb::from(bg));
+    match tag {
+        sys::GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE => {
+            let mut idx = 0;
+            let color_ok = unsafe {
+                sys::ghostty_cell_get(
+                    raw,
+                    sys::GHOSTTY_CELL_DATA_COLOR_PALETTE,
+                    &mut idx as *mut _ as *mut c_void,
+                )
+            } == sys::GHOSTTY_SUCCESS;
+            color_ok.then_some(ColorSpec::Palette(idx))
+        }
+        sys::GHOSTTY_CELL_CONTENT_BG_COLOR_RGB => {
+            let mut rgb = sys::GhosttyColorRgb::default();
+            let color_ok = unsafe {
+                sys::ghostty_cell_get(
+                    raw,
+                    sys::GHOSTTY_CELL_DATA_COLOR_RGB,
+                    &mut rgb as *mut _ as *mut c_void,
+                )
+            } == sys::GHOSTTY_SUCCESS;
+            color_ok.then_some(ColorSpec::Rgb(Rgb::from(rgb)))
+        }
+        _ => None,
+    }
 }
 
 impl Drop for RenderState {

@@ -2,7 +2,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
-use mux_core::{Mux, MuxEvent, SurfaceOptions};
+use ghostty_vt::RenderState;
+use mux_core::{DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
     let start = Instant::now();
@@ -112,6 +113,7 @@ fn control_socket_round_trip() {
     let ws_id = v["data"]["workspaces"][0]["id"].as_u64().unwrap();
     let screen_id = screen["id"].as_u64().unwrap();
     let pane_id = screen["panes"][0]["id"].as_u64().unwrap();
+    let surface_id = screen["panes"][0]["tabs"][0]["surface"].as_u64().unwrap();
     for (id, cmd) in [
         (
             3,
@@ -126,6 +128,12 @@ fn control_socket_round_trip() {
                 r#"{{"id":5,"cmd":"rename-screen","screen":{screen_id},"name":"renamed-screen"}}"#
             ),
         ),
+        (
+            6,
+            format!(
+                r#"{{"id":6,"cmd":"rename-surface","surface":{surface_id},"name":"renamed-tab"}}"#
+            ),
+        ),
     ] {
         line.clear();
         writeln!(writer, "{cmd}").unwrap();
@@ -134,36 +142,53 @@ fn control_socket_round_trip() {
         assert_eq!(v["ok"], true, "request {id} failed: {line}");
     }
     line.clear();
-    writeln!(writer, r#"{{"id":6,"cmd":"list-workspaces"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":7,"cmd":"list-workspaces"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["data"]["workspaces"][0]["name"], "renamed-ws");
     let screen = &v["data"]["workspaces"][0]["screens"][0];
     assert_eq!(screen["name"], "renamed-screen");
     assert_eq!(screen["panes"][0]["name"], "renamed-pane");
+    assert_eq!(screen["panes"][0]["tabs"][0]["name"], "renamed-tab");
 
     // New tab in the pane: two tabs, second active.
     line.clear();
-    writeln!(writer, r#"{{"id":7,"cmd":"new-tab","pane":{pane_id}}}"#).unwrap();
+    writeln!(writer, r#"{{"id":8,"cmd":"new-tab","pane":{pane_id}}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-tab failed: {line}");
 
+    // Split and resize the split ratio over the socket.
+    line.clear();
+    writeln!(writer, r#"{{"id":9,"cmd":"split","pane":{pane_id},"dir":"right"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "split failed: {line}");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":10,"cmd":"set-ratio","pane":{pane_id},"dir":"right","ratio":0.7}}"#)
+        .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "set-ratio failed: {line}");
+
     // New screen in the workspace: two screens, second active.
     line.clear();
-    writeln!(writer, r#"{{"id":8,"cmd":"new-screen"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":11,"cmd":"new-screen"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-screen failed: {line}");
 
     line.clear();
-    writeln!(writer, r#"{{"id":9,"cmd":"list-workspaces"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":11,"cmd":"list-workspaces"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     let ws = &v["data"]["workspaces"][0];
     let pane = &ws["screens"][0]["panes"][0];
     assert_eq!(pane["tabs"].as_array().unwrap().len(), 2);
     assert_eq!(pane["active_tab"], 1);
+    let ratio = ws["screens"][0]["layout"]["ratio"].as_f64().unwrap();
+    assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
     assert_eq!(ws["screens"].as_array().unwrap().len(), 2);
     assert_eq!(ws["screens"][1]["active"], true);
 
@@ -171,7 +196,7 @@ fn control_socket_round_trip() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         line.clear();
-        writeln!(writer, r#"{{"id":10,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
+        writeln!(writer, r#"{{"id":12,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
         reader.read_line(&mut line).unwrap();
         let v: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(v["ok"], true, "read-screen failed: {line}");
@@ -184,6 +209,78 @@ fn control_socket_round_trip() {
 
     mux.close_workspace(ws_id);
     mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_set_default_colors_merges_fields() {
+    let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
+    let mux = Mux::new(format!("test-colors-{}", std::process::id()), opts);
+    let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
+    let stream = UnixStream::connect(&sock_path).unwrap();
+    let mut writer = stream.try_clone().unwrap();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+
+    writeln!(writer, r##"{{"id":1,"cmd":"set-default-colors","fg":"#010203"}}"##).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "set-default-colors failed: {line}");
+    assert_eq!(
+        mux.default_colors(),
+        DefaultColors { fg: Some(Rgb { r: 1, g: 2, b: 3 }), bg: None }
+    );
+
+    line.clear();
+    writeln!(writer, r##"{{"id":2,"cmd":"set-default-colors","bg":"#131415"}}"##).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "set-default-colors failed: {line}");
+    assert_eq!(
+        mux.default_colors(),
+        DefaultColors {
+            fg: Some(Rgb { r: 1, g: 2, b: 3 }),
+            bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+        }
+    );
+
+    line.clear();
+    writeln!(writer, r##"{{"id":3,"cmd":"set-default-colors","bg":"#bad"}}"##).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], false, "bad color unexpectedly accepted: {line}");
+
+    mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn default_colors_apply_to_existing_and_future_surfaces() {
+    let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
+    let mux = Mux::new("test-default-colors", opts);
+    let first = mux.new_workspace(None, None).unwrap();
+
+    let colors = DefaultColors {
+        fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+        bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+    };
+    mux.set_default_colors(colors);
+
+    let mut first_state = RenderState::new().unwrap();
+    first.snapshot(&mut first_state).unwrap();
+    assert_eq!(
+        first_state.default_colors(),
+        (Rgb { r: 0x13, g: 0x14, b: 0x15 }, Rgb { r: 0x01, g: 0x02, b: 0x03 })
+    );
+
+    let second = mux.new_tab(None, None, None).unwrap();
+    let mut second_state = RenderState::new().unwrap();
+    second.snapshot(&mut second_state).unwrap();
+    assert_eq!(
+        second_state.default_colors(),
+        (Rgb { r: 0x13, g: 0x14, b: 0x15 }, Rgb { r: 0x01, g: 0x02, b: 0x03 })
+    );
+
+    mux.close_surface(first.id);
+    mux.close_surface(second.id);
 }
 
 #[test]

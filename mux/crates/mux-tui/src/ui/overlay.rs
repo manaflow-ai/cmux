@@ -1,7 +1,7 @@
 //! Overlays drawn on top of the frame: the right-click context menu and
 //! the centered rename dialog. Menu items get a one-cell padding column
-//! each side (no extra rows), and the selected row (arrow keys or mouse
-//! hover) highlights across the menu's full width, padding included.
+//! each side inside a border (no extra rows), and the selected row (arrow
+//! keys or mouse hover) highlights across the inner row, padding included.
 
 use mux_core::Rect;
 use ratatui::layout::Position;
@@ -10,24 +10,36 @@ use ratatui::Frame;
 
 use crate::app::{App, ContextMenu};
 
-/// Centered rename dialog: title row, input row, and clickable
-/// [ OK ] / [ Cancel ] buttons. Writes the dialog and button rects back
-/// into the prompt so mouse handling matches the drawn geometry.
+/// Centered rename dialog: bordered box with title, input row, and
+/// clickable [ OK ] / [ Cancel ] buttons. Writes the dialog and button
+/// rects back into the prompt so mouse handling matches the drawn
+/// geometry.
 pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
-    let Some(prompt) = app.prompt.as_mut() else { return };
     let hover = app.hover;
+    let shake = app.shake_frames;
+    if app.shake_frames > 0 {
+        app.shake_frames -= 1;
+    }
 
     let width: u16 = 40.min(screen.width.saturating_sub(2)).max(20);
-    let height: u16 = 5;
+    let height: u16 = 9;
     if screen.width < width || screen.height < height {
         return;
     }
-    let x = (screen.width - width) / 2;
+    let base_x = (screen.width - width) / 2;
+    let x = if shake <= 1 {
+        base_x
+    } else {
+        let offset = if shake.is_multiple_of(2) { 1 } else { -1 };
+        (base_x as i32 + offset).clamp(0, screen.width.saturating_sub(width) as i32) as u16
+    };
     let y = (screen.height - height) / 2;
+    let Some(prompt) = app.prompt.as_mut() else { return };
     prompt.rect = Rect { x, y, width, height };
 
     let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(252));
+    let border = base.fg(Color::Indexed(244));
     let title_style = base.fg(Color::Indexed(255)).add_modifier(Modifier::BOLD);
     let input_style = Style::default().bg(Color::Indexed(233)).fg(Color::Indexed(255));
     let buf = frame.buffer_mut();
@@ -37,7 +49,8 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
             buf[(x + dx, y + dy)].set_symbol(" ").set_style(base);
         }
     }
-    buf.set_stringn(x + 2, y, prompt.label, (width - 4) as usize, title_style);
+    draw_border(buf, prompt.rect, border);
+    buf.set_stringn(x + 2, y + 2, prompt.label, (width - 4) as usize, title_style);
 
     // Input row: the buffer tail, with a visible text cursor.
     let input_w = (width - 4) as usize;
@@ -47,11 +60,11 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         chars[skip..].iter().collect()
     };
     for dx in 0..input_w as u16 {
-        buf[(x + 2 + dx, y + 2)].set_symbol(" ").set_style(input_style);
+        buf[(x + 2 + dx, y + 4)].set_symbol(" ").set_style(input_style);
     }
-    buf.set_stringn(x + 2, y + 2, &shown, input_w, input_style);
+    buf.set_stringn(x + 2, y + 4, &shown, input_w, input_style);
     let cursor_x = x + 2 + (shown.chars().count() as u16).min(input_w as u16 - 1);
-    frame.set_cursor_position(Position::new(cursor_x, y + 2));
+    frame.set_cursor_position(Position::new(cursor_x, y + 4));
 
     // Buttons, right-aligned: [ Cancel ]  [ OK ]
     let ok_label = "[ OK ]";
@@ -60,7 +73,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     let cancel_w = cancel_label.len() as u16;
     let ok_x = x + width - 2 - ok_w;
     let cancel_x = ok_x.saturating_sub(cancel_w + 2);
-    let button_y = y + height - 1;
+    let button_y = y + 6;
     prompt.ok = Rect { x: ok_x, y: button_y, width: ok_w, height: 1 };
     prompt.cancel = Rect { x: cancel_x, y: button_y, width: cancel_w, height: 1 };
     let button_style = |rect: Rect, accent: bool| {
@@ -93,31 +106,68 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     let x = menu.rect.x.min(screen.width.saturating_sub(width));
     let y = menu.rect.y.min(screen.height.saturating_sub(height));
     menu.rect = Rect { x, y, width, height };
+    if width < 2 || height < 2 {
+        return;
+    }
 
     let base = Style::default().bg(Color::Indexed(237)).fg(Color::Indexed(252));
+    let border = base.fg(Color::Indexed(244));
     let selected = Style::default()
         .bg(Color::Indexed(242))
         .fg(Color::Indexed(255))
         .add_modifier(Modifier::BOLD);
     let buf = frame.buffer_mut();
 
+    for dy in 0..height {
+        for dx in 0..width {
+            buf[(x + dx, y + dy)].set_symbol(" ").set_style(base);
+        }
+    }
+    draw_border(buf, menu.rect, border);
+
     let pad = ContextMenu::PAD;
+    let inner_x = x + 1;
+    let inner_y = y + 1;
+    let inner_w = width.saturating_sub(2);
+    let inner_h = height.saturating_sub(2);
     for (i, item) in menu.items.iter().enumerate() {
-        let row_y = y + i as u16;
-        if row_y >= y + height {
+        let row_y = inner_y + i as u16;
+        if i as u16 >= inner_h {
             break;
         }
         let style = if i == menu.selected { selected } else { base };
-        // The highlight spans the full row, side padding included.
-        for dx in 0..width {
-            buf[(x + dx, row_y)].set_symbol(" ").set_style(style);
+        // The highlight spans the full inner row, side padding included.
+        for dx in 0..inner_w {
+            buf[(inner_x + dx, row_y)].set_symbol(" ").set_style(style);
         }
         buf.set_stringn(
-            x + pad + 1,
+            inner_x + pad + 1,
             row_y,
             item.label(),
-            width.saturating_sub(pad * 2) as usize,
+            inner_w.saturating_sub(pad * 2) as usize,
             style,
         );
     }
+}
+
+fn draw_border(buf: &mut ratatui::buffer::Buffer, rect: Rect, style: Style) {
+    if rect.width < 2 || rect.height < 2 {
+        return;
+    }
+    let x0 = rect.x;
+    let y0 = rect.y;
+    let x1 = rect.x + rect.width - 1;
+    let y1 = rect.y + rect.height - 1;
+    for x in x0 + 1..x1 {
+        buf[(x, y0)].set_symbol("─").set_style(style);
+        buf[(x, y1)].set_symbol("─").set_style(style);
+    }
+    for y in y0 + 1..y1 {
+        buf[(x0, y)].set_symbol("│").set_style(style);
+        buf[(x1, y)].set_symbol("│").set_style(style);
+    }
+    buf[(x0, y0)].set_symbol("┌").set_style(style);
+    buf[(x1, y0)].set_symbol("┐").set_style(style);
+    buf[(x0, y1)].set_symbol("└").set_style(style);
+    buf[(x1, y1)].set_symbol("┘").set_style(style);
 }

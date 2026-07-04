@@ -43,6 +43,16 @@ The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-541e5e89db0448d5cd85a7b348d8f6a64618c900-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
+### 0a) lib-vt OSC color query replies
+
+- Files:
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Adds OSC 4/10/11/12 query replies to the non-termio `TerminalStream` path used by libghostty-vt consumers.
+  - Reports known palette/default/override colors through the existing `write_pty` effect in 16-bit `rgb:xxxx/xxxx/xxxx` form, preserving the query's BEL or ST terminator.
+  - Leaves unknown dynamic colors unanswered so embedders that have not supplied host defaults preserve the previous silent behavior.
+  - Upstreamability: mirrors the existing termio stream handler behavior, but scoped to lib-vt's callback-based reply mechanism.
+
 The previous cmux pinned fork head was `1b454eb99`, which retained the
 Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives

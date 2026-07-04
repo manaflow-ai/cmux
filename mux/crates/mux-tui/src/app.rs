@@ -22,16 +22,17 @@ use crossterm::terminal::{
 use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
 use mux_core::{
-    layout_screen, split_sides, MuxEvent, PaneId, Rect, SplitDir, SurfaceId, SurfaceKind,
-    WorkspaceId,
+    layout_screen, split_for_pane_edge, split_sides, MuxEvent, PaneId, Rect, SplitDir, SplitEdge,
+    SurfaceId, SurfaceKind, WorkspaceId,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
 
-use crate::config::{Action, Config};
+use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::{GraphicPlacement, GraphicsState};
+use crate::ui::thumb_geometry;
 
 pub enum AppEvent {
     Mux(MuxEvent),
@@ -69,6 +70,13 @@ pub enum Hit {
         surface: SurfaceId,
         track: Rect,
     },
+    /// Sidebar right border.
+    SidebarResize,
+    /// Pane border resize handle.
+    PaneResize {
+        horizontal: Option<(PaneId, PaneEdge)>,
+        vertical: Option<(PaneId, PaneEdge)>,
+    },
     /// Scroll a pane's tab bar left/right (overflow arrows, wheel).
     TabScroll {
         pane: PaneId,
@@ -76,11 +84,19 @@ pub enum Hit {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
 /// One pane's screen real estate for the current frame. Every pane draws
 /// a border box in its rect; the top border row doubles as the tab bar
-/// and the right border column doubles as the scrollbar track. `content`
-/// is the terminal area inside the box. Rects too small for a box get
-/// `bar: None` and content = rect.
+/// and the scrollbar is either inside the box or on the right border.
+/// `content` is the terminal area inside the box. Rects too small for a
+/// box get `bar: None` and content = rect.
 #[derive(Debug, Clone, Copy)]
 pub struct PaneArea {
     pub pane: PaneId,
@@ -88,7 +104,7 @@ pub struct PaneArea {
     pub rect: Rect,
     pub bar: Option<Rect>,
     pub content: Rect,
-    /// Scrollbar track (the right border between the corners).
+    /// Scrollbar track (inside the box or on the right border).
     pub track: Option<Rect>,
 }
 
@@ -99,11 +115,12 @@ pub enum MenuAction {
     CloseWorkspace(WorkspaceId),
     RenameScreen(mux_core::ScreenId),
     CloseScreen(mux_core::ScreenId),
-    RenamePane(PaneId),
+    RenameTab(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
     SplitRight(PaneId),
     SplitDown(PaneId),
+    CloseTab(PaneId),
     ClosePane(PaneId),
 }
 
@@ -114,22 +131,26 @@ impl MenuAction {
             MenuAction::CloseWorkspace(_) => "Close workspace",
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
-            MenuAction::RenamePane(_) => "Rename pane",
+            MenuAction::RenameTab(_) => "Rename tab",
             MenuAction::NewTab(_) => "New tab",
             MenuAction::NewBrowserTab(_) => "New browser tab",
             MenuAction::SplitRight(_) => "Split right",
             MenuAction::SplitDown(_) => "Split down",
+            MenuAction::CloseTab(_) => "Close tab",
             MenuAction::ClosePane(_) => "Close pane",
         }
     }
 }
 
-/// Right-click context menu overlay. Items get a one-cell padding column
-/// on each side (no extra rows above/below); the hover/selection
-/// highlight spans the full row including those padding cells.
+/// Right-click context menu overlay. The rect includes the border chrome;
+/// items get a one-cell padding column on each side inside that border
+/// (no extra rows above/below), and the hover/selection highlight spans
+/// the full inner row including those padding cells.
 pub struct ContextMenu {
     pub items: Vec<MenuAction>,
     pub selected: usize,
+    right_press: (u16, u16),
+    right_drag_moved: bool,
     /// Where the menu is drawn (clamped to the screen by the renderer,
     /// which writes the final rect back for hit-testing).
     pub rect: Rect,
@@ -142,19 +163,30 @@ impl ContextMenu {
     fn at(x: u16, y: u16, items: Vec<MenuAction>) -> Self {
         let label_w = items.iter().map(|i| i.label().len()).max().unwrap_or(0) as u16;
         // One space of inner padding either side of the label, plus the
-        // one-cell padding column on each side.
-        let width = label_w + 2 + Self::PAD * 2;
-        let height = items.len() as u16;
-        ContextMenu { items, selected: 0, rect: Rect { x, y, width, height } }
+        // one-cell padding column on each side, plus the border.
+        let width = label_w + 2 + Self::PAD * 2 + 2;
+        let height = items.len() as u16 + 2;
+        ContextMenu {
+            items,
+            selected: 0,
+            right_press: (x, y),
+            right_drag_moved: false,
+            rect: Rect { x: x.saturating_sub(1), y: y.saturating_sub(1), width, height },
+        }
     }
 
-    /// The item row at a screen cell. Rows span the menu's full width,
-    /// side padding included.
+    /// The item row at a screen cell. Border cells are dead chrome and
+    /// never activate an item.
     pub fn item_at(&self, x: u16, y: u16) -> Option<usize> {
         if !self.rect.contains(x, y) {
             return None;
         }
-        let row = (y - self.rect.y) as usize;
+        let right = self.rect.x + self.rect.width.saturating_sub(1);
+        let bottom = self.rect.y + self.rect.height.saturating_sub(1);
+        if x == self.rect.x || y == self.rect.y || x == right || y == bottom {
+            return None;
+        }
+        let row = (y - self.rect.y - 1) as usize;
         (row < self.items.len()).then_some(row)
     }
 }
@@ -164,7 +196,7 @@ impl ContextMenu {
 pub enum PromptTarget {
     Workspace(WorkspaceId),
     Screen(mux_core::ScreenId),
-    Pane(PaneId),
+    Surface(SurfaceId),
     BrowserTab { pane: Option<PaneId> },
 }
 
@@ -244,7 +276,11 @@ enum Drag {
     /// Browser mouse drag inside a pane's content rect.
     Browser { surface: SurfaceId, content: Rect },
     /// Scrollbar thumb drag.
-    Scrollbar { surface: SurfaceId, track: Rect },
+    Scrollbar { surface: SurfaceId, track: Rect, anchor_y: u16, anchor_offset: u64 },
+    /// Sidebar width override drag.
+    SidebarResize,
+    /// Pane split resize drag.
+    ResizeSplit { horizontal: Option<(PaneId, PaneEdge)>, vertical: Option<(PaneId, PaneEdge)> },
 }
 
 pub struct App {
@@ -260,6 +296,7 @@ pub struct App {
     pub sidebar_visible: bool,
     /// Width of the sidebar in the current frame (0 when hidden).
     pub sidebar_width: u16,
+    sidebar_width_override: Option<u16>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
@@ -272,6 +309,7 @@ pub struct App {
     pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
+    pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     pub status_message: Option<String>,
     pub cell_pixels: (u16, u16),
@@ -286,12 +324,29 @@ pub struct App {
 
 /// Sidebar width for a terminal width: the configured width, hidden on
 /// terminals too narrow to give panes room next to it.
-fn sidebar_width_for(config: &Config, visible: bool, width: u16) -> u16 {
-    let w = config.sidebar.width;
+fn sidebar_width_for(
+    config: &Config,
+    visible: bool,
+    width: u16,
+    override_width: Option<u16>,
+) -> u16 {
+    let w = override_width.unwrap_or(config.sidebar.width);
     if !visible || width < w.saturating_add(48) {
         0
     } else {
         w
+    }
+}
+
+fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
+    if rect.width > 2 && rect.height > 2 {
+        let reserved_cols = match scrollbar {
+            ScrollbarPosition::Column => 3,
+            ScrollbarPosition::Border => 2,
+        };
+        Some((rect.width.saturating_sub(reserved_cols).max(1), rect.height - 2))
+    } else {
+        (rect.width > 0 && rect.height > 0).then_some((rect.width, rect.height))
     }
 }
 
@@ -303,10 +358,14 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     // repaint their prompt, leaving a reverse-video % artifact). The
     // pane's border box eats one cell on every side.
     let initial_size = crossterm::terminal::size().ok().map(|(w, h)| {
-        let sidebar = sidebar_width_for(&config, true, w);
-        let pane_w = w.saturating_sub(sidebar);
-        let pane_h = h.saturating_sub(1); // status bar
-        (pane_w.saturating_sub(2).max(1), pane_h.saturating_sub(2).max(1))
+        let sidebar = sidebar_width_for(&config, true, w, None);
+        let pane = Rect {
+            x: sidebar,
+            y: 0,
+            width: w.saturating_sub(sidebar),
+            height: h.saturating_sub(1), // status bar
+        };
+        content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
     });
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
@@ -383,12 +442,14 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         session_label,
         sidebar_visible: true,
         sidebar_width: 0,
+        sidebar_width_override: None,
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
         hover: None,
         menu: None,
         prompt: None,
+        shake_frames: 0,
         selection: None,
         status_message: None,
         cell_pixels,
@@ -431,12 +492,20 @@ impl App {
         while !self.quit {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
-            let first = match rx.recv_timeout(Duration::from_millis(250)) {
-                Ok(event) => Some(event),
-                Err(RecvTimeoutError::Timeout) => None,
-                Err(RecvTimeoutError::Disconnected) => break,
+            let timeout = if self.shake_frames > 0 {
+                Duration::from_millis(30)
+            } else {
+                Duration::from_millis(250)
             };
             let mut needs_draw = false;
+            let first = match rx.recv_timeout(timeout) {
+                Ok(event) => Some(event),
+                Err(RecvTimeoutError::Timeout) => {
+                    needs_draw = self.shake_frames > 0;
+                    None
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            };
             if let Some(event) = first {
                 needs_draw |= self.handle(event)?;
             }
@@ -507,7 +576,12 @@ impl App {
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
-        self.sidebar_width = sidebar_width_for(&self.config, self.sidebar_visible, width);
+        self.sidebar_width = sidebar_width_for(
+            &self.config,
+            self.sidebar_visible,
+            width,
+            self.sidebar_width_override,
+        );
         let area = Rect {
             x: self.sidebar_width,
             y: 0,
@@ -528,22 +602,24 @@ impl App {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             let (bar, content, track) = if rect.width >= 3 && rect.height >= 3 {
-                // The border box: top row is the tab bar, right column
-                // between the corners is the scrollbar track.
+                // The border box: top row is the tab bar. The scrollbar
+                // either overlays the right border or gets a dedicated
+                // column just inside it.
+                let inner_height = rect.height - 2;
+                let track_y = rect.y + 1;
+                let right_border_x = rect.x + rect.width - 1;
+                let content_w = match self.config.scrollbar.position {
+                    ScrollbarPosition::Column => rect.width.saturating_sub(3),
+                    ScrollbarPosition::Border => rect.width - 2,
+                };
+                let track_x = match self.config.scrollbar.position {
+                    ScrollbarPosition::Column => right_border_x.saturating_sub(1),
+                    ScrollbarPosition::Border => right_border_x,
+                };
                 (
                     Some(Rect { height: 1, ..rect }),
-                    Rect {
-                        x: rect.x + 1,
-                        y: rect.y + 1,
-                        width: rect.width - 2,
-                        height: rect.height - 2,
-                    },
-                    Some(Rect {
-                        x: rect.x + rect.width - 1,
-                        y: rect.y + 1,
-                        width: 1,
-                        height: rect.height - 2,
-                    }),
+                    Rect { x: rect.x + 1, y: rect.y + 1, width: content_w, height: inner_height },
+                    Some(Rect { x: track_x, y: track_y, width: 1, height: inner_height }),
                 )
             } else {
                 // Degenerate rect: no box, content fills it.
@@ -614,21 +690,23 @@ impl App {
         self.active_surface().and_then(|id| self.session.surface(id))
     }
 
-    /// Content size for a pane filling `rect` (its border box eats one
-    /// cell on every side).
-    fn size_of_rect(rect: Rect) -> Option<(u16, u16)> {
-        (rect.width > 2 && rect.height > 2).then_some((rect.width - 2, rect.height - 2)).or((rect
-            .width
-            > 0
-            && rect.height > 0)
-            .then_some((rect.width, rect.height)))
+    pub fn dragging_scrollbar(&self) -> Option<SurfaceId> {
+        match self.drag {
+            Some(Drag::Scrollbar { surface, .. }) => Some(surface),
+            _ => None,
+        }
+    }
+
+    /// Content size for a pane filling `rect`.
+    fn size_of_rect(&self, rect: Rect) -> Option<(u16, u16)> {
+        content_size_for_rect(rect, self.config.scrollbar.position)
     }
 
     /// Size hint for splitting `pane`: the second side of its rect.
     fn split_size_hint(&self, pane: PaneId, dir: SplitDir) -> Option<(u16, u16)> {
         let area = self.pane_areas.iter().find(|a| a.pane == pane)?;
         let (_, b) = split_sides(area.rect, dir, 0.5);
-        Self::size_of_rect(b)
+        self.size_of_rect(b)
     }
 
     fn split_pane(&mut self, pane: PaneId, dir: SplitDir) -> anyhow::Result<()> {
@@ -637,11 +715,11 @@ impl App {
     }
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
-        self.session.new_workspace(Self::size_of_rect(self.content_area))
+        self.session.new_workspace(self.size_of_rect(self.content_area))
     }
 
     fn new_screen(&mut self) -> anyhow::Result<()> {
-        self.session.new_screen(Self::size_of_rect(self.content_area))
+        self.session.new_screen(self.size_of_rect(self.content_area))
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
@@ -671,16 +749,16 @@ impl App {
 
     /// Commit the open rename dialog (Enter or the OK button).
     fn commit_prompt(&mut self) {
-        let Some(prompt) = self.prompt.take() else { return };
+        let Some(prompt) = self.take_prompt() else { return };
         match prompt.target {
             PromptTarget::Workspace(id) => {
                 if !prompt.buffer.is_empty() {
                     self.session.rename_workspace(id, prompt.buffer);
                 }
             }
-            // Empty screen/pane names clear back to the default.
+            // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
-            PromptTarget::Pane(id) => self.session.rename_pane(id, prompt.buffer),
+            PromptTarget::Surface(id) => self.session.rename_surface(id, prompt.buffer),
             PromptTarget::BrowserTab { pane } => {
                 if !prompt.buffer.trim().is_empty() {
                     if let Err(e) = self.create_browser_tab(pane, &prompt.buffer) {
@@ -693,18 +771,34 @@ impl App {
         }
     }
 
+    fn take_prompt(&mut self) -> Option<Prompt> {
+        self.shake_frames = 0;
+        self.prompt.take()
+    }
+
+    fn close_prompt(&mut self) {
+        self.shake_frames = 0;
+        self.prompt = None;
+    }
+
     fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        let Some(prompt) = self.prompt.as_mut() else { return Ok(false) };
+        if self.prompt.is_none() {
+            return Ok(false);
+        }
         match key.code {
             KeyCode::Esc => {
-                self.prompt = None;
+                self.close_prompt();
             }
             KeyCode::Enter => self.commit_prompt(),
             KeyCode::Backspace => {
-                prompt.buffer.pop();
+                if let Some(prompt) = self.prompt.as_mut() {
+                    prompt.buffer.pop();
+                }
             }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                prompt.buffer.push(c);
+                if let Some(prompt) = self.prompt.as_mut() {
+                    prompt.buffer.push(c);
+                }
             }
             _ => {}
         }
@@ -718,7 +812,7 @@ impl App {
         if prompt.ok.contains(x, y) {
             self.commit_prompt();
         } else if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
-            self.prompt = None;
+            self.close_prompt();
         }
         Ok(true)
     }
@@ -796,7 +890,7 @@ impl App {
                     self.session.close_surface(surface);
                 }
             }
-            Action::RenamePane => self.open_rename_pane_prompt(pane),
+            Action::RenameTab => self.open_rename_tab_prompt(pane),
             Action::RenameWorkspace => self.open_rename_workspace_prompt(),
             Action::NextScreen => self.session.select_screen(None, Some(1)),
             Action::NewScreen => self.new_screen()?,
@@ -820,10 +914,13 @@ impl App {
         Ok(true)
     }
 
-    fn open_rename_pane_prompt(&mut self, pane: Option<PaneId>) {
+    fn open_rename_tab_prompt(&mut self, pane: Option<PaneId>) {
         let Some(pane) = pane else { return };
-        let buffer = self.tree.pane(pane).and_then(|p| p.name.clone()).unwrap_or_default();
-        self.prompt = Some(Prompt::new("Rename pane", buffer, PromptTarget::Pane(pane)));
+        let Some(tab) = self.tree.pane(pane).and_then(|p| p.tabs.get(p.active_tab)) else {
+            return;
+        };
+        let buffer = tab.name.clone().unwrap_or_default();
+        self.prompt = Some(Prompt::new("Rename tab", buffer, PromptTarget::Surface(tab.surface)));
     }
 
     fn open_rename_workspace_prompt(&mut self) {
@@ -850,7 +947,7 @@ impl App {
             None => self
                 .active_pane()
                 .and_then(|pane| self.browser_tab_size_hint(Some(pane)))
-                .or_else(|| Self::size_of_rect(self.content_area)),
+                .or_else(|| self.size_of_rect(self.content_area)),
         }
     }
 
@@ -888,11 +985,17 @@ impl App {
                 self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
-            MenuAction::RenamePane(id) => self.open_rename_pane_prompt(Some(id)),
+            MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
             MenuAction::NewBrowserTab(id) => self.open_browser_tab_prompt(Some(id)),
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
             MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
+            MenuAction::CloseTab(id) => {
+                if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
+                    self.render_states.remove(&surface);
+                    self.session.close_surface(surface);
+                }
+            }
             MenuAction::ClosePane(id) => self.session.close_pane(id),
         }
         Ok(())
@@ -1004,9 +1107,17 @@ impl App {
             }
             MouseEventKind::Up(MouseButton::Left) => self.handle_left_up(mouse.column, mouse.row),
             MouseEventKind::Down(MouseButton::Right) => {
+                if self.prompt.is_some() {
+                    self.shake_frames = 6;
+                    return Ok(true);
+                }
                 self.open_context_menu(mouse.column, mouse.row);
                 Ok(true)
             }
+            MouseEventKind::Drag(MouseButton::Right) => {
+                self.handle_right_drag(mouse.column, mouse.row)
+            }
+            MouseEventKind::Up(MouseButton::Right) => self.handle_right_up(mouse.column, mouse.row),
             MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row),
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
@@ -1023,8 +1134,11 @@ impl App {
             return prompt.ok.contains(x, y) || prompt.cancel.contains(x, y);
         }
         if let Some(menu) = &self.menu {
-            if menu.item_at(x, y).is_some() {
-                return true;
+            // Everything inside the menu rect is menu territory: only item
+            // rows are clickable; border cells never inherit clickability
+            // from hits underneath.
+            if menu.rect.contains(x, y) {
+                return menu.item_at(x, y).is_some();
             }
         }
         self.hit_at(x, y).is_some()
@@ -1071,6 +1185,35 @@ impl App {
         Ok(before != after)
     }
 
+    fn handle_right_drag(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        self.hover = Some((x, y));
+        let Some(menu) = self.menu.as_mut() else { return Ok(false) };
+        if (x, y) != menu.right_press {
+            menu.right_drag_moved = true;
+        }
+        if let Some(item) = menu.item_at(x, y) {
+            if item != menu.selected {
+                menu.selected = item;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn handle_right_up(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        let Some(menu) = self.menu.take() else { return Ok(false) };
+        let plain_open_click = !menu.right_drag_moved && (x, y) == menu.right_press;
+        if plain_open_click {
+            self.menu = Some(menu);
+        } else if let Some(item) = menu.item_at(x, y) {
+            let action = menu.items[item];
+            self.activate_menu(action)?;
+        } else {
+            self.menu = Some(menu);
+        }
+        Ok(true)
+    }
+
     fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
         self.selection = None;
         self.drag = None;
@@ -1081,7 +1224,7 @@ impl App {
         }
 
         // An open menu captures the click: activate or dismiss. Clicks on
-        // the padding border dismiss without activating.
+        // the border chrome keep it open without activating.
         if let Some(menu) = self.menu.take() {
             if let Some(item) = menu.item_at(x, y) {
                 self.activate_menu(menu.items[item])?;
@@ -1110,8 +1253,11 @@ impl App {
                     self.session.new_tab(Some(pane), None)?;
                 }
                 Hit::Scrollbar { surface, track } => {
-                    self.scroll_to_track_pos(surface, track, y);
-                    self.drag = Some(Drag::Scrollbar { surface, track });
+                    self.start_scrollbar_drag(surface, track, y);
+                }
+                Hit::SidebarResize => self.drag = Some(Drag::SidebarResize),
+                Hit::PaneResize { horizontal, vertical } => {
+                    self.drag = Some(Drag::ResizeSplit { horizontal, vertical });
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
             }
@@ -1157,9 +1303,24 @@ impl App {
                 self.send_browser_mouse(surface, content, cx, cy, "mouseMoved")?;
                 Ok(true)
             }
-            Some(Drag::Scrollbar { surface, track }) => {
-                let (surface, track) = (*surface, *track);
-                self.scroll_to_track_pos(surface, track, y);
+            Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset }) => {
+                let (surface, track, anchor_y, anchor_offset) =
+                    (*surface, *track, *anchor_y, *anchor_offset);
+                self.drag_scrollbar(surface, track, anchor_y, anchor_offset, y);
+                Ok(true)
+            }
+            Some(Drag::SidebarResize) => {
+                self.sidebar_width_override = Some(x.saturating_add(1).clamp(10, 60));
+                Ok(true)
+            }
+            Some(Drag::ResizeSplit { horizontal, vertical }) => {
+                let (horizontal, vertical) = (*horizontal, *vertical);
+                if let Some((pane, edge)) = horizontal {
+                    self.resize_split(pane, edge, x, y);
+                }
+                if let Some((pane, edge)) = vertical {
+                    self.resize_split(pane, edge, x, y);
+                }
                 Ok(true)
             }
             None => Ok(false),
@@ -1175,9 +1336,10 @@ impl App {
             return Ok(true);
         }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
+        let was_drag = self.drag.is_some();
         self.drag = None;
         if !was_select {
-            return Ok(false);
+            return Ok(was_drag);
         }
         match self.selection {
             Some(sel) if sel.anchor != sel.head => {
@@ -1216,22 +1378,95 @@ impl App {
         *entry = entry.saturating_add_signed(delta);
     }
 
-    /// Map a click/drag on a scrollbar track to a viewport position.
-    fn scroll_to_track_pos(&mut self, surface: SurfaceId, track: Rect, y: u16) {
+    /// Start a scrollbar drag. Clicking the thumb only anchors; clicking
+    /// outside it jumps first, then anchors at the clicked position.
+    fn start_scrollbar_drag(&mut self, surface: SurfaceId, track: Rect, y: u16) {
         let Some(handle) = self.session.surface(surface) else { return };
+        let mut anchor_offset = None;
+        let mut moved = false;
         let _ = handle.with_terminal(|t| {
             let Some(sb) = t.scrollbar() else { return };
-            let denom = track.height.saturating_sub(1).max(1) as f64;
-            let frac = (y.saturating_sub(track.y) as f64 / denom).clamp(0.0, 1.0);
-            let target = ((sb.total - sb.len) as f64 * frac).round() as i64;
-            let delta = target - sb.offset as i64;
-            if delta != 0 {
-                t.scroll_delta(delta as isize);
+            let rel_y = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+            let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
+            let on_thumb = rel_y >= thumb_y && rel_y < thumb_y + thumb_len;
+            if !on_thumb {
+                let denom = track.height.saturating_sub(1).max(1) as f64;
+                let frac = (rel_y as f64 / denom).clamp(0.0, 1.0);
+                let target = ((sb.total - sb.len) as f64 * frac).round() as i64;
+                let delta = target - sb.offset as i64;
+                if delta != 0 {
+                    t.scroll_delta(delta as isize);
+                    moved = true;
+                }
             }
+            anchor_offset = t.scrollbar().map(|after| after.offset);
         });
-        if self.selection.is_some_and(|s| s.surface == surface) {
+        if moved && self.selection.is_some_and(|s| s.surface == surface) {
             self.selection = None;
         }
+        if let Some(anchor_offset) = anchor_offset {
+            self.drag = Some(Drag::Scrollbar { surface, track, anchor_y: y, anchor_offset });
+        }
+    }
+
+    /// Map an anchored scrollbar drag delta to a viewport offset.
+    fn drag_scrollbar(
+        &mut self,
+        surface: SurfaceId,
+        track: Rect,
+        anchor_y: u16,
+        anchor_offset: u64,
+        y: u16,
+    ) {
+        let Some(handle) = self.session.surface(surface) else { return };
+        let mut moved = false;
+        handle.with_terminal(|t| {
+            let Some(sb) = t.scrollbar() else { return };
+            let (_, thumb_len) = thumb_geometry(&sb, track.height);
+            let range = sb.total.saturating_sub(sb.len);
+            let travel = track.height.saturating_sub(thumb_len).max(1) as i128;
+            let dy = y as i128 - anchor_y as i128;
+            let delta = dy * range as i128 / travel;
+            let target = (anchor_offset as i128 + delta).clamp(0, range as i128) as i64;
+            let current = sb.offset as i64;
+            let scroll_delta = target - current;
+            if scroll_delta != 0 {
+                t.scroll_delta(scroll_delta as isize);
+                moved = true;
+            }
+        });
+        if moved && self.selection.is_some_and(|s| s.surface == surface) {
+            self.selection = None;
+        }
+    }
+
+    fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {
+        let Some(screen) = self.tree.active_screen() else { return };
+        let split_edge = match edge {
+            PaneEdge::Left => SplitEdge::Left,
+            PaneEdge::Right => SplitEdge::Right,
+            PaneEdge::Top => SplitEdge::Top,
+            PaneEdge::Bottom => SplitEdge::Bottom,
+        };
+        let Some(target) = split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+        else {
+            return;
+        };
+        let (coord, start, extent, dir) = match edge {
+            PaneEdge::Left => (x, target.area.x, target.area.width, SplitDir::Right),
+            PaneEdge::Right => {
+                (x.saturating_add(1), target.area.x, target.area.width, SplitDir::Right)
+            }
+            PaneEdge::Top => (y, target.area.y, target.area.height, SplitDir::Down),
+            PaneEdge::Bottom => {
+                (y.saturating_add(1), target.area.y, target.area.height, SplitDir::Down)
+            }
+        };
+        if extent == 0 {
+            return;
+        }
+        let ratio = (coord.saturating_sub(start) as f32 / extent as f32).clamp(0.05, 0.95);
+        self.session.set_ratio(target.set_pane, dir, ratio);
     }
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
@@ -1260,11 +1495,12 @@ impl App {
                 x,
                 y,
                 vec![
-                    MenuAction::RenamePane(area.pane),
+                    MenuAction::RenameTab(area.pane),
                     MenuAction::NewTab(area.pane),
                     MenuAction::NewBrowserTab(area.pane),
                     MenuAction::SplitRight(area.pane),
                     MenuAction::SplitDown(area.pane),
+                    MenuAction::CloseTab(area.pane),
                     MenuAction::ClosePane(area.pane),
                 ],
             ));
@@ -1272,7 +1508,10 @@ impl App {
     }
 
     fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<bool> {
-        let Some(area) = self.pane_area_at(x, y) else { return Ok(false) };
+        let Some(area) = self.pane_area_at(x, y).copied() else { return Ok(false) };
+        if self.active_pane() != Some(area.pane) {
+            self.session.focus_pane(area.pane);
+        }
         // Wheel over the tab bar scrolls the tabs, not the terminal.
         if area.bar.is_some_and(|bar| bar.contains(x, y)) {
             self.scroll_tabs(area.pane, if down { 1 } else { -1 });

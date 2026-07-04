@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use ghostty_vt::{RenderState, Terminal};
 use mux_core::{
-    BrowserFrame, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface, SurfaceId, SurfaceKind,
-    WorkspaceId,
+    BrowserFrame, DefaultColors, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface, SurfaceId,
+    SurfaceKind, WorkspaceId,
 };
 use serde_json::json;
 
@@ -67,6 +67,16 @@ impl Session {
         match self {
             Session::Local(mux) => mux.subscribe(),
             Session::Remote(remote) => remote.subscribe(),
+        }
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.set_default_colors(colors);
+                Ok(())
+            }
+            Session::Remote(remote) => remote.set_default_colors(colors),
         }
     }
 
@@ -198,6 +208,22 @@ impl Session {
         }
     }
 
+    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
+        match self {
+            Session::Local(mux) => {
+                mux.set_ratio(pane, dir, ratio);
+            }
+            Session::Remote(remote) => {
+                let dir = match dir {
+                    SplitDir::Right => "right",
+                    SplitDir::Down => "down",
+                };
+                let _ = remote
+                    .request(json!({"cmd": "set-ratio", "pane": pane, "dir": dir, "ratio": ratio}));
+            }
+        }
+    }
+
     pub fn close_surface(&self, surface: SurfaceId) {
         match self {
             Session::Local(mux) => mux.close_surface(surface),
@@ -227,13 +253,14 @@ impl Session {
         }
     }
 
-    pub fn rename_pane(&self, pane: PaneId, name: String) {
+    pub fn rename_surface(&self, surface: SurfaceId, name: String) {
         match self {
             Session::Local(mux) => {
-                mux.rename_pane(pane, name);
+                mux.rename_surface(surface, name);
             }
             Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "rename-pane", "pane": pane, "name": name}));
+                let _ = remote
+                    .request(json!({"cmd": "rename-surface", "surface": surface, "name": name}));
             }
         }
     }

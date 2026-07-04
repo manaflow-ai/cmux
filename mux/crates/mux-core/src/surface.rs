@@ -10,7 +10,7 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
-use ghostty_vt::{Callbacks, RenderState, Terminal};
+use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -66,6 +66,12 @@ impl Default for SurfaceOptions {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DefaultColors {
+    pub fg: Option<Rgb>,
+    pub bg: Option<Rgb>,
+}
+
 /// Everything an attaching frontend needs to adopt a PTY surface: its
 /// size, a VT replay of the current state, and a live stream of every pty
 /// byte applied after the replay snapshot.
@@ -93,6 +99,8 @@ impl SurfaceKind {
 
 pub struct SurfaceMeta {
     pub id: SurfaceId,
+    /// User-assigned tab name (rename tab); shared by every surface kind.
+    pub(crate) name: Mutex<Option<String>>,
 }
 
 /// A pane tab runtime.
@@ -205,9 +213,13 @@ impl Surface {
             })),
         };
 
-        let term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        if let Some(mux) = mux.upgrade() {
+            let colors = mux.default_colors();
+            term.set_default_colors(colors.fg, colors.bg);
+        }
         let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta { id },
+            meta: SurfaceMeta { id, name: Mutex::new(None) },
             term: Mutex::new(term),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
@@ -338,6 +350,21 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         Ok(f(&mut pty.term.lock().unwrap()))
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) {
+        if let Some(pty) = self.as_pty() {
+            pty.term.lock().unwrap().set_default_colors(colors.fg, colors.bg);
+            pty.dirty.store(true, Ordering::Release);
+        }
+    }
+
+    pub fn set_name(&self, name: Option<String>) {
+        *self.name.lock().unwrap() = name;
+    }
+
+    pub fn name(&self) -> Option<String> {
+        self.name.lock().unwrap().clone()
     }
 
     /// Snapshot the terminal into `rs` (holds the terminal lock only for

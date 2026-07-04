@@ -16,12 +16,16 @@ mod surface;
 pub mod layout;
 pub mod server;
 
-pub use layout::{layout_screen, split_sides, LayoutResult, Rect};
+pub use layout::{
+    layout_screen, split_for_pane_edge, split_sides, LayoutResult, Rect, SplitEdge, SplitResize,
+};
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{Mux, MuxEvent};
 pub use surface::{
-    AttachStream, BrowserFrame, BrowserSource, Surface, SurfaceKind, SurfaceOptions,
+    AttachStream, BrowserFrame, BrowserSource, DefaultColors, Surface, SurfaceKind, SurfaceOptions,
 };
+
+pub use ghostty_vt::Rgb;
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

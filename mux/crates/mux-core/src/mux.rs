@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::browser::BrowserRuntime;
 use crate::model::{Node, Pane, Screen, State, Workspace};
-use crate::surface::{Surface, SurfaceOptions};
+use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 
 /// Events pushed to subscribed frontends.
@@ -36,6 +36,7 @@ pub struct Mux {
     surface_options: SurfaceOptions,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
+    default_colors: Mutex<DefaultColors>,
     pub session: String,
 }
 
@@ -53,6 +54,7 @@ impl Mux {
             surface_options,
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
+            default_colors: Mutex::new(DefaultColors::default()),
             session: session.into(),
         })
     }
@@ -164,6 +166,19 @@ impl Mux {
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.set_cell_pixel_size(next.0, next.1);
+        }
+    }
+
+    pub fn default_colors(&self) -> DefaultColors {
+        *self.default_colors.lock().unwrap()
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) {
+        *self.default_colors.lock().unwrap() = colors;
+        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        for surface in surfaces {
+            surface.set_default_colors(colors);
+            self.emit(MuxEvent::SurfaceOutput(surface.id));
         }
     }
 
@@ -570,6 +585,16 @@ impl Mux {
         renamed
     }
 
+    /// Set a tab's user-visible name. An empty name clears it (the tab
+    /// falls back to its process title/number label).
+    pub fn rename_surface(&self, target: SurfaceId, name: String) -> bool {
+        let surface = self.state.lock().unwrap().surfaces.get(&target).cloned();
+        let Some(surface) = surface else { return false };
+        surface.set_name((!name.is_empty()).then_some(name));
+        self.emit(MuxEvent::TreeChanged);
+        true
+    }
+
     /// Set a screen's user-visible name. An empty name clears it (the
     /// screen falls back to its number).
     pub fn rename_screen(&self, target: ScreenId, name: String) -> bool {
@@ -627,6 +652,23 @@ impl Mux {
                 }
                 None => false,
             }
+        };
+        if found {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        found
+    }
+
+    /// Set the deepest split ratio in `dir` on the path to `pane`.
+    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
+        let ratio = ratio.clamp(0.05, 0.95);
+        let found = {
+            let mut state = self.state.lock().unwrap();
+            state
+                .workspaces
+                .iter_mut()
+                .flat_map(|ws| ws.screens.iter_mut())
+                .any(|screen| screen.root.set_deepest_ratio(pane, dir, ratio))
         };
         if found {
             self.emit(MuxEvent::TreeChanged);
@@ -833,6 +875,55 @@ mod tests {
     }
 
     #[test]
+    fn set_ratio_updates_deepest_split_and_clamps() {
+        let mux = test_mux();
+        let s1 = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+        let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+        let s3 = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
+
+        assert!(mux.set_ratio(p1, SplitDir::Right, 0.8));
+        mux.with_state(|s| {
+            let root = &s.workspaces[0].screens[0].root;
+            let Node::Split { ratio: root_ratio, a, .. } = root else {
+                panic!("root should be split");
+            };
+            assert_eq!(*root_ratio, 0.5);
+            let Node::Split { ratio: inner_ratio, .. } = a.as_ref() else {
+                panic!("first child should be split");
+            };
+            assert_eq!(*inner_ratio, 0.8);
+        });
+
+        assert!(mux.set_ratio(p2, SplitDir::Right, -1.0));
+        mux.with_state(|s| {
+            let Node::Split { ratio, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should be split");
+            };
+            assert_eq!(*ratio, 0.05);
+        });
+
+        assert!(mux.set_ratio(p3, SplitDir::Right, 2.0));
+        mux.with_state(|s| {
+            let Node::Split { a, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should be split");
+            };
+            let Node::Split { ratio, .. } = a.as_ref() else {
+                panic!("first child should be split");
+            };
+            assert_eq!(*ratio, 0.95);
+        });
+
+        assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
+
+        mux.close_pane(p1);
+        mux.close_pane(p2);
+        mux.close_pane(p3);
+    }
+
+    #[test]
     fn screens_within_workspace() {
         let mux = test_mux();
         mux.new_workspace(None, None).unwrap();
@@ -877,22 +968,30 @@ mod tests {
         mux.new_workspace(None, None).unwrap();
         mux.new_workspace(Some("dev".into()), None).unwrap();
 
-        let (ws0, ws1, pane1) = mux.with_state(|s| {
+        let (ws0, ws1, pane1, surface1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
-            (s.workspaces[0].id, s.workspaces[1].id, s.workspaces[1].screens[0].active_pane)
+            let pane = s.workspaces[1].screens[0].active_pane;
+            let surface = s.panes[&pane].tabs[0];
+            (s.workspaces[0].id, s.workspaces[1].id, pane, surface)
         });
 
         assert!(mux.rename_workspace(ws0, "ops".into()));
         assert!(mux.rename_pane(pane1, "logs".into()));
+        assert!(mux.rename_surface(surface1, "api".into()));
         mux.with_state(|s| {
             assert_eq!(s.workspaces[0].name, "ops");
             assert_eq!(s.panes[&pane1].name.as_deref(), Some("logs"));
+            assert_eq!(s.surfaces[&surface1].name().as_deref(), Some("api"));
         });
-        // Clearing the name falls back to the tab title.
+        // Clearing the names falls back to the generated labels.
         assert!(mux.rename_pane(pane1, String::new()));
-        mux.with_state(|s| assert_eq!(s.panes[&pane1].name, None));
+        assert!(mux.rename_surface(surface1, String::new()));
+        mux.with_state(|s| {
+            assert_eq!(s.panes[&pane1].name, None);
+            assert_eq!(s.surfaces[&surface1].name(), None);
+        });
 
         assert!(mux.close_workspace(ws1));
         mux.with_state(|s| {

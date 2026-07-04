@@ -149,6 +149,30 @@ impl Terminal {
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) }
     }
 
+    /// Set host-provided default foreground/background colors.
+    ///
+    /// `None` leaves that channel unchanged.
+    pub fn set_default_colors(&mut self, fg: Option<Rgb>, bg: Option<Rgb>) {
+        unsafe {
+            if let Some(fg) = fg {
+                let color = sys::GhosttyColorRgb { r: fg.r, g: fg.g, b: fg.b };
+                sys::ghostty_terminal_set(
+                    self.raw,
+                    sys::GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
+                    &color as *const sys::GhosttyColorRgb as *const c_void,
+                );
+            }
+            if let Some(bg) = bg {
+                let color = sys::GhosttyColorRgb { r: bg.r, g: bg.g, b: bg.b };
+                sys::ghostty_terminal_set(
+                    self.raw,
+                    sys::GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
+                    &color as *const sys::GhosttyColorRgb as *const c_void,
+                );
+            }
+        }
+    }
+
     pub fn resize(
         &mut self,
         cols: u16,

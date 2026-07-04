@@ -1,6 +1,14 @@
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, Dirty, RenderState, Terminal};
+use ghostty_vt::{Callbacks, Cell, ColorSpec, Dirty, RenderState, Rgb, Terminal};
+
+fn snapshot_cells(term: &mut Terminal) -> Vec<Vec<Cell>> {
+    let mut rs = RenderState::new().unwrap();
+    rs.update(term).unwrap();
+    let mut rows = Vec::new();
+    rs.walk_rows(|_, _, cells| rows.push(cells.to_vec())).unwrap();
+    rows
+}
 
 #[test]
 fn writes_and_renders_text() {
@@ -61,6 +69,36 @@ fn title_and_pty_callbacks() {
     // DSR cursor position query must produce a pty response.
     term.vt_write(b"\x1b[6n");
     assert!(!pty_out.lock().unwrap().is_empty());
+}
+
+#[test]
+fn default_colors_answer_osc_queries() {
+    let pty_out: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let po = pty_out.clone();
+    let callbacks = Callbacks {
+        on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
+        on_title_changed: None,
+        on_bell: None,
+    };
+    let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
+
+    term.vt_write(b"\x1b]11;?\x07");
+    assert!(pty_out.lock().unwrap().is_empty());
+
+    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+    term.vt_write(b"\x1b]11;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:1313/1414/1515\x07");
+
+    pty_out.lock().unwrap().clear();
+    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None);
+    term.vt_write(b"\x1b]10;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]10;rgb:0101/0202/0303\x07");
+
+    pty_out.lock().unwrap().clear();
+    term.vt_write(b"\x1b]11;rgb:20/40/60\x07");
+    term.vt_write(b"\x1b]11;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:2020/4040/6060\x07");
 }
 
 #[test]
@@ -127,4 +165,54 @@ fn wide_chars_have_spacer_cells() {
         }
     })
     .unwrap();
+}
+
+#[test]
+fn cell_colors_preserve_palette_specs() {
+    let mut term = Terminal::new(10, 2, 0, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b[31mA\x1b[38;5;196mB\x1b[48;5;236m \x1b[38;2;1;2;3mC\x1b[0m");
+
+    let rows = snapshot_cells(&mut term);
+    let row = &rows[0];
+    assert_eq!(row[0].text, "A");
+    assert_eq!(row[0].fg, ColorSpec::Palette(1));
+    assert_eq!(row[0].bg, ColorSpec::Default);
+    assert_eq!(row[1].text, "B");
+    assert_eq!(row[1].fg, ColorSpec::Palette(196));
+    assert_eq!(row[1].bg, ColorSpec::Default);
+    assert_eq!(row[2].text, " ");
+    assert_eq!(row[2].fg, ColorSpec::Palette(196));
+    assert_eq!(row[2].bg, ColorSpec::Palette(236));
+    assert_eq!(row[3].text, "C");
+    assert_eq!(row[3].fg, ColorSpec::Rgb(Rgb { r: 1, g: 2, b: 3 }));
+    assert_eq!(row[3].bg, ColorSpec::Palette(236));
+    assert_eq!(row[4].fg, ColorSpec::Default);
+    assert_eq!(row[4].bg, ColorSpec::Default);
+}
+
+#[test]
+fn erased_cells_preserve_indexed_and_rgb_background_specs() {
+    let mut indexed = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    indexed.vt_write(b"\x1b[48;5;100m\x1b[K");
+    let rows = snapshot_cells(&mut indexed);
+    assert!(rows[0].iter().all(|cell| cell.text.is_empty()));
+    assert!(rows[0].iter().all(|cell| cell.bg == ColorSpec::Palette(100)));
+
+    let mut rgb = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    rgb.vt_write(b"\x1b[48;2;1;2;3m\x1b[K");
+    let rows = snapshot_cells(&mut rgb);
+    assert!(rows[0].iter().all(|cell| cell.text.is_empty()));
+    assert!(rows[0].iter().all(|cell| cell.bg == ColorSpec::Rgb(Rgb { r: 1, g: 2, b: 3 })));
+}
+
+#[test]
+fn render_state_reports_palette_overrides() {
+    let mut term = Terminal::new(5, 1, 0, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]4;1;#010203\x07");
+
+    let mut rs = RenderState::new().unwrap();
+    rs.update(&mut term).unwrap();
+    assert!(rs.palette_overridden(1));
+    assert_eq!(rs.palette_color(1), Rgb { r: 1, g: 2, b: 3 });
+    assert!(!rs.palette_overridden(2));
 }

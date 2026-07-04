@@ -129,7 +129,7 @@ impl BrowserRuntime {
         let pixel_w = cols as u32 * cell_w as u32;
         let pixel_h = rows as u32 * cell_h as u32;
         let surface = Arc::new(Surface::Browser(BrowserSurface {
-            meta: SurfaceMeta { id },
+            meta: SurfaceMeta { id, name: Mutex::new(None) },
             runtime: self.clone(),
             target_id,
             session_id,

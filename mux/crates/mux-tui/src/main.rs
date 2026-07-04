@@ -8,6 +8,7 @@
 
 mod app;
 mod config;
+mod host_colors;
 mod keys;
 mod session;
 mod ui;
@@ -106,7 +107,7 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
     let socket_path =
         args.socket.unwrap_or_else(|| mux_core::server::default_socket_path(&args.session));
     let remote = RemoteSession::connect(&socket_path)?;
-    app::run(Session::Remote(remote), args.session)
+    run_tui(Session::Remote(remote), args.session)
 }
 
 fn run_server(args: Args) -> anyhow::Result<()> {
@@ -132,11 +133,23 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     let result = if args.headless {
         run_headless(&mux, &socket_path)
     } else {
-        app::run(Session::Local(mux.clone()), args.session)
+        run_tui(Session::Local(mux.clone()), args.session)
     };
     mux.shutdown();
     mux_core::server::cleanup(&socket_path);
     result
+}
+
+fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
+    crossterm::terminal::enable_raw_mode()?;
+    let colors = host_colors::probe_default_colors();
+    let color_result = session.set_default_colors(colors);
+    let raw_result = crossterm::terminal::disable_raw_mode();
+    if let Err(err) = color_result {
+        eprintln!("cmux-mux: failed to set default colors: {err}");
+    }
+    raw_result?;
+    app::run(session, session_label)
 }
 
 fn run_headless(mux: &Arc<Mux>, socket_path: &std::path::Path) -> anyhow::Result<()> {

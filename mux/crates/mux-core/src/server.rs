@@ -30,7 +30,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
-use crate::{Mux, MuxEvent, Node, PaneId, ScreenId, SplitDir, SurfaceId, SurfaceKind, WorkspaceId};
+use crate::{
+    DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId, SplitDir, SurfaceId, SurfaceKind,
+    WorkspaceId,
+};
 
 pub const PROTOCOL_VERSION: u32 = 5;
 
@@ -116,6 +119,18 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    SetRatio {
+        pane: PaneId,
+        /// "right" or "down"
+        dir: String,
+        ratio: f32,
+    },
+    SetDefaultColors {
+        #[serde(default)]
+        fg: Option<String>,
+        #[serde(default)]
+        bg: Option<String>,
+    },
     /// Close one tab.
     CloseSurface {
         surface: SurfaceId,
@@ -133,6 +148,11 @@ enum Command {
     RenamePane {
         pane: PaneId,
         /// Empty clears the name (falls back to the tab title).
+        name: String,
+    },
+    RenameSurface {
+        surface: SurfaceId,
+        /// Empty clears the name (falls back to the generated tab label).
         name: String,
     },
     RenameScreen {
@@ -302,6 +322,7 @@ fn pane_json(state: &State, id: PaneId) -> Value {
                 "surface": sid,
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
+                "name": surface.and_then(|s| s.name()),
                 "title": surface.map(|s| s.title()).unwrap_or_default(),
                 "size": surface.map(|s| {
                     let (c, r) = s.size();
@@ -351,6 +372,25 @@ fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
     } else {
         anyhow::bail!("browser surface does not support PTY/VT socket commands")
     }
+}
+
+fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' {
+        anyhow::bail!("bad color {value:?} (want \"#rrggbb\")");
+    }
+    let nibble = |b: u8| -> anyhow::Result<u8> {
+        match b {
+            b'0'..=b'9' => Ok(b - b'0'),
+            b'a'..=b'f' => Ok(b - b'a' + 10),
+            b'A'..=b'F' => Ok(b - b'A' + 10),
+            _ => anyhow::bail!("bad color {value:?} (want \"#rrggbb\")"),
+        }
+    };
+    let hex = |idx: usize| -> anyhow::Result<u8> {
+        Ok((nibble(bytes[idx])? << 4) | nibble(bytes[idx + 1])?)
+    };
+    Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
 }
 
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
@@ -418,6 +458,32 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             let surface = mux.split(pane, dir, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
         }
+        Command::SetRatio { pane, dir, ratio } => {
+            let dir = match dir.as_str() {
+                "right" => SplitDir::Right,
+                "down" => SplitDir::Down,
+                other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
+            };
+            if !mux.set_ratio(pane, dir, ratio) {
+                anyhow::bail!("unknown pane/split {pane}");
+            }
+            Ok(json!({}))
+        }
+        Command::SetDefaultColors { fg, bg } => {
+            let current = mux.default_colors();
+            let colors = DefaultColors {
+                fg: match fg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => current.fg,
+                },
+                bg: match bg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => current.bg,
+                },
+            };
+            mux.set_default_colors(colors);
+            Ok(json!({}))
+        }
         Command::CloseSurface { surface } => {
             get_surface(mux, surface)?;
             mux.close_surface(surface);
@@ -445,6 +511,12 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
                 anyhow::bail!("unknown pane {pane}");
+            }
+            Ok(json!({}))
+        }
+        Command::RenameSurface { surface, name } => {
+            if !mux.rename_surface(surface, name) {
+                anyhow::bail!("unknown surface {surface}");
             }
             Ok(json!({}))
         }

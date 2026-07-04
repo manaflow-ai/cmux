@@ -41,6 +41,7 @@ pub struct PaneView {
 #[derive(Clone)]
 pub struct TabView {
     pub surface: SurfaceId,
+    pub name: Option<String>,
     pub title: String,
     pub kind: SurfaceKind,
 }
@@ -133,6 +134,7 @@ pub fn tree_from_state(state: &State) -> TreeView {
                 .iter()
                 .map(|sid| TabView {
                     surface: *sid,
+                    name: state.surfaces.get(sid).and_then(|s| s.name()),
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
                 })
@@ -201,6 +203,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .filter_map(|tab| {
                         Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
+                            name: tab.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
                             title: tab
                                 .get("title")
                                 .and_then(|v| v.as_str())
