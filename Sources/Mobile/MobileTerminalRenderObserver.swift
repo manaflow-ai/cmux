@@ -280,6 +280,11 @@ final class MobileTerminalRenderObserver {
                 }
             }
             pendingSurfaceIDs.formUnion(deferredHybridByteSurfaceIDs)
+            if !deferredHybridByteSurfaceIDs.isEmpty {
+                // Keep byte-backed hybrid surfaces moving after an early flush
+                // races ahead of Ghostty's VT parser.
+                GhosttyApp.shared.scheduleTick()
+            }
             if !orderedEvents.isEmpty {
                 MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
             }
