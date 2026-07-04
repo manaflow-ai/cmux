@@ -144,13 +144,17 @@ extension CMUXCLI {
             confirmedTitle = applyResult.confirmedTitle
             countFailure = applyResult.countsTowardBackoff
         } else {
-            confirmedTitle = confirmAutoNamingSuccess(
+            let noOpResult = confirmAutoNamingNoOpTitle(
+                action.title,
                 workspaceId: workspaceId,
+                surfaceId: surfaceId,
                 agent: resolution.agent,
                 client: client,
                 telemetryKey: telemetryKey,
                 telemetry: telemetry
-            ) ? action.title : nil
+            )
+            confirmedTitle = noOpResult.confirmed ? action.title : nil
+            countFailure = noOpResult.countsTowardBackoff
         }
         // Re-report a missing override only after the fallback pass succeeds,
         // so clear-on-apply does not immediately wipe the Settings note.

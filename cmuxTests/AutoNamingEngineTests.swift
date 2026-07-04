@@ -237,6 +237,32 @@ import Testing
         #expect(repeated.messages == first.messages)
     }
 
+    @Test func hookMessageBatchKeyRequiresStableTurnOrEventIdentity() throws {
+        let cli = CMUXCLI(args: [])
+        let def = try #require(CMUXCLI.agentDefs.first { $0.name == "opencode" })
+        let base = ClaudeHookParsedInput(
+            rawObject: ["hook_event_name": "stop", "prompt": "continue"],
+            object: nil,
+            rawFallback: nil,
+            sessionId: "session-1",
+            turnId: nil,
+            cwd: nil,
+            transcriptPath: nil
+        )
+        #expect(cli.autoNamingMessageBatchKey(for: def, parsedInput: base) == nil)
+
+        let withEventID = ClaudeHookParsedInput(
+            rawObject: ["hook_event_name": "stop", "request_id": "request-1", "prompt": "continue"],
+            object: nil,
+            rawFallback: nil,
+            sessionId: "session-1",
+            turnId: nil,
+            cwd: nil,
+            transcriptPath: nil
+        )
+        #expect(cli.autoNamingMessageBatchKey(for: def, parsedInput: withEventID) != nil)
+    }
+
     @Test func extractionDiagnosticsExposeMalformedOrUnknownFormats() throws {
         let extraction = engine.extractClaudeTranscript(fromTranscriptLines: [
             "not json",
@@ -337,13 +363,13 @@ import Testing
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 
-    @Test func unchangedTitleActionAllowsIdempotentApply() throws {
+    @Test func unchangedTitleActionUsesVerifiedNoOpConfirmation() throws {
         let action = try #require(
             engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug").sanitizedAction
         )
 
         #expect(action.title == "Fix auth bug")
-        #expect(action.shouldApply)
+        #expect(!action.shouldApply)
     }
 
     // MARK: - Environment policy

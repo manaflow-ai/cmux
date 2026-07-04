@@ -55,12 +55,23 @@ extension CMUXCLI {
         guard !messages.isEmpty else { return nil }
         let sessionId = normalizedHookValue(parsedInput.sessionId) ?? ""
         let turnId = normalizedHookValue(parsedInput.turnId) ?? ""
+        let stableEventIdentity = autoNamingStableBatchEventIdentity(in: object)
+        guard !turnId.isEmpty || !stableEventIdentity.isEmpty else { return nil }
         let eventIdentity = autoNamingBatchEventIdentity(in: object)
         let messageIdentity = messages.prefix(8).map { message in
             "\(message.role)\u{1E}\(String(message.text.prefix(1_000)))"
         }.joined(separator: "\u{1F}")
         let seed = "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(eventIdentity)\u{1F}\(messageIdentity)"
         return "\(def.name)\u{1F}\(sessionId)\u{1F}\(turnId)\u{1F}\(autoNamingBatchFingerprint(Data(seed.utf8)))"
+    }
+
+    private func autoNamingStableBatchEventIdentity(in object: [String: Any]) -> String {
+        [
+            "turn_id", "turnId", "message_id", "messageId", "event_id", "eventId",
+            "request_id", "requestId", "id"
+        ].compactMap { key in
+            normalizedHookValue(firstString(in: object, keys: [key])).map { "\(key)=\($0)" }
+        }.joined(separator: "\u{1E}")
     }
 
     private func autoNamingBatchEventIdentity(in object: [String: Any]) -> String {
@@ -355,13 +366,17 @@ extension CMUXCLI {
             confirmedTitle = applyResult.confirmedTitle
             countFailure = applyResult.countsTowardBackoff
         } else {
-            confirmedTitle = confirmAutoNamingSuccess(
+            let noOpResult = confirmAutoNamingNoOpTitle(
+                action.title,
                 workspaceId: workspaceId,
+                surfaceId: surfaceId,
                 agent: summarizerAgent,
                 client: client,
                 telemetryKey: telemetryKey,
                 telemetry: telemetry
-            ) ? action.title : nil
+            )
+            confirmedTitle = noOpResult.confirmed ? action.title : nil
+            countFailure = noOpResult.countsTowardBackoff
         }
         // Re-report a missing override only after the fallback pass succeeds,
         // so clear-on-apply does not immediately wipe the Settings note.
@@ -407,6 +422,41 @@ extension CMUXCLI {
             reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
             return false
         }
+    }
+
+    func confirmAutoNamingNoOpTitle(
+        _ title: String,
+        workspaceId: String,
+        surfaceId: String,
+        agent: String,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> (confirmed: Bool, countsTowardBackoff: Bool) {
+        let probe: [String: Any]
+        do {
+            probe = try client.sendV2(
+                method: "workspace.set_auto_title",
+                params: autoNamingProbeParams(workspaceId: workspaceId, surfaceId: surfaceId)
+            )
+        } catch {
+            telemetry.breadcrumb("\(telemetryKey).noop-confirm-probe-failed")
+            reportAutoNamingProblem("apply_failed", agent: agent, workspaceId: workspaceId, client: client)
+            return (false, true)
+        }
+        guard autoNamingProbeHasWritableTarget(probe),
+              autoNamingCurrentTitle(probe: probe) == title else {
+            telemetry.breadcrumb("\(telemetryKey).noop-confirm-rejected")
+            return (false, false)
+        }
+        let confirmed = confirmAutoNamingSuccess(
+            workspaceId: workspaceId,
+            agent: agent,
+            client: client,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        )
+        return (confirmed, !confirmed)
     }
 
     func applyAutoNamingTitle(

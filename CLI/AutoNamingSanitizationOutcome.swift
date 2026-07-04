@@ -15,7 +15,7 @@ extension AutoNamingSanitizationOutcome {
         case .title(let title):
             return (title, true)
         case .unchanged(let title):
-            return (title, true)
+            return (title, false)
         case .unusable:
             return nil
         }
