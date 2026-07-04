@@ -24,3 +24,23 @@ export function buildAlternates(
 
   return { canonical, languages };
 }
+
+export function buildAlternateLinkHeader(
+  origin: string,
+  path: string,
+  availableLocales: readonly string[] = locales,
+) {
+  const entries = availableLocales.map((locale) => {
+    const url = localizedUrl(origin, locale, path);
+    return `<${url}>; rel="alternate"; hreflang="${locale}"`;
+  });
+  entries.push(
+    `<${localizedUrl(origin, "en", path)}>; rel="alternate"; hreflang="x-default"`,
+  );
+  return entries.join(", ");
+}
+
+function localizedUrl(origin: string, locale: string, path: string) {
+  const pathname = locale === "en" ? path : `/${locale}${path}`;
+  return new URL(pathname, origin).toString();
+}

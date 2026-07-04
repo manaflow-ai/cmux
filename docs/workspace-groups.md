@@ -26,7 +26,9 @@ The sidebar layout, top to bottom:
 
 ## Creating a group
 
-### From the keyboard (`⌘⇧G`)
+### From the keyboard (`⌃⌘G` or `⌘⇧G`)
+
+Press `⌃⌘G` to create a new empty workspace group. cmux inserts a fresh anchor workspace as the group header and auto-names it `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
 Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` is also the default for Find Previous; the group handler only consumes the chord when the workspace sidebar is focused with an explicit multi-selection of at least two workspaces, so terminal search still works outside that sidebar-focused grouping context. Rebind it in Settings → Keyboard if you'd rather the grouping and search actions not share a key.
 
@@ -34,7 +36,7 @@ Single-tab groups are not created from the shortcut. Use the workspace context m
 
 ### From a workspace context menu
 
-Right-click any workspace in the sidebar, choose **New Group from Workspace** (or **New Group from Selection** when multiple workspaces are selected). Same auto-naming behavior as the shortcut.
+Right-click any workspace in the sidebar, choose **New Empty Workspace Group** for an anchor-only group, **New Group from Workspace** for a group containing that workspace, or **New Group from Selection** when multiple workspaces are selected. The blank area below the sidebar list also offers **New Empty Workspace Group**. Same auto-naming behavior as the shortcuts.
 
 ### From the group header context menu
 

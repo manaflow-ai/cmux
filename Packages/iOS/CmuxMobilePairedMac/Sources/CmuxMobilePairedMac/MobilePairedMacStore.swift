@@ -14,7 +14,7 @@ private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: 
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 1
+    public static let currentSchemaVersion: Int32 = 4
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -96,16 +96,57 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     private func runMigrations() throws {
         let version = try userVersion()
+        // Each case applies its schema changes AND bumps `user_version` inside one
+        // transaction, so a kill / disk-full / SQLite error mid-migration rolls the
+        // whole step back (SQLite DDL and `PRAGMA user_version` are both
+        // transactional). The store then reopens at the prior version and retries
+        // the step cleanly instead of being stranded with a partially-applied
+        // schema whose `user_version` never advanced.
         switch version {
         case 0:
-            try migrateToV1()
-            try setUserVersion(1)
-            fallthrough
+            try transaction {
+                try migrateToV1()
+                try migrateToV2()
+                try migrateToV3()
+                try migrateToV4()
+                try setUserVersion(4)
+            }
         case 1:
+            try transaction {
+                try migrateToV2()
+                try migrateToV3()
+                try migrateToV4()
+                try setUserVersion(4)
+            }
+        case 2:
+            try transaction {
+                try migrateToV3()
+                try migrateToV4()
+                try setUserVersion(4)
+            }
+        case 3:
+            try transaction {
+                try migrateToV4()
+                try setUserVersion(4)
+            }
+        case 4:
             break
         default:
-            // Future schema; fail closed so we don't corrupt on downgrade.
-            throw MobilePairedMacStoreError.unknownSchemaVersion(Int(version))
+            // A newer build wrote a higher schema version. Schema migrations are
+            // additive by contract — older builds keep reading the columns and
+            // tables they already know (see
+            // plans/feat-ios-paired-mac-backup/DESIGN.md §4 and the same
+            // discipline in docs/presence-service.md). Throwing here would make
+            // `ensureReady` fail and every read surface as a TOTAL loss of the
+            // user's paired Macs across an upgrade-then-older-build open, even
+            // though the v1 rows are intact on disk. Degrade gracefully instead:
+            // leave `user_version` untouched (never write a destructive downgrade
+            // marker) and read what this build understands. The DO backup is the
+            // safety net if a future non-additive change ever makes the local
+            // read genuinely fail.
+            pairedMacStoreLog.warning(
+                "paired-mac store schema v\(version) is newer than this build (v\(Self.currentSchemaVersion)); reading known columns only"
+            )
         }
     }
 
@@ -135,45 +176,196 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("CREATE INDEX IF NOT EXISTS idx_routes_device ON mac_routes(mac_device_id);")
     }
 
+    /// v2: user-editable, per-user-synced customizations (additive columns, all
+    /// nullable so older rows and older builds are unaffected).
+    ///
+    /// Idempotent: only adds columns that are missing. The transactional
+    /// `runMigrations` step already makes this restart-safe for new devices, but
+    /// the column check also recovers any device that ran an earlier,
+    /// non-transactional build of this migration and was left partially applied
+    /// (some columns added, `user_version` still 1) — re-running here just adds
+    /// the remaining columns instead of failing on a duplicate-column error.
+    private func migrateToV2() throws {
+        let existing = try tableColumns("paired_macs")
+        for column in ["custom_name", "custom_color", "custom_icon"]
+        where !existing.contains(column) {
+            try exec("ALTER TABLE paired_macs ADD COLUMN \(column) TEXT;")
+        }
+    }
+
+    /// v3: per-Stack-team scoping. The backup Durable Object is per-(account, team),
+    /// so a row needs the team it belongs to. Additive + nullable: pre-v3 rows have
+    /// `team_id = NULL` and stay visible under every team (a non-nil team filter is
+    /// `team_id IS ? OR team_id IS NULL`) so an upgrade never hides existing hosts;
+    /// they get stamped with the active team on the next upsert/route refresh.
+    /// Idempotent, like ``migrateToV2``.
+    private func migrateToV3() throws {
+        let existing = try tableColumns("paired_macs")
+        if !existing.contains("team_id") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN team_id TEXT;")
+        }
+        try exec("CREATE INDEX IF NOT EXISTS idx_macs_team ON paired_macs(stack_user_id, team_id);")
+    }
+
+    /// v4: make `(mac_device_id, stack_user_id, team_id)` the durable identity by
+    /// adding a non-null normalized `owner_key` and carrying it into `mac_routes`.
+    ///
+    /// SQLite UNIQUE/PRIMARY KEY constraints treat NULL values as distinct, so a
+    /// literal nullable composite key would still allow duplicate anonymous or
+    /// team-less rows. `owner_key` is the normalized scope discriminator used only
+    /// for constraints and foreign keys; the readable columns remain
+    /// `stack_user_id` and `team_id`.
+    private func migrateToV4() throws {
+        let existing = try tableColumns("paired_macs")
+        guard !existing.contains("owner_key") else { return }
+
+        try exec("""
+            CREATE TABLE paired_macs_v4 (
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                display_name TEXT,
+                stack_user_id TEXT,
+                team_id TEXT,
+                created_at REAL NOT NULL,
+                last_seen_at REAL NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                custom_name TEXT,
+                custom_color TEXT,
+                custom_icon TEXT,
+                PRIMARY KEY (mac_device_id, owner_key)
+            );
+        """)
+        try exec("""
+            INSERT INTO paired_macs_v4 (
+                mac_device_id, owner_key, display_name, stack_user_id, team_id,
+                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon
+            )
+            SELECT
+                mac_device_id,
+                IFNULL(stack_user_id, '') || char(31) || IFNULL(team_id, ''),
+                display_name,
+                stack_user_id,
+                team_id,
+                created_at,
+                last_seen_at,
+                is_active,
+                custom_name,
+                custom_color,
+                custom_icon
+            FROM paired_macs;
+        """)
+        try exec("""
+            CREATE TABLE mac_routes_v4 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac_device_id TEXT NOT NULL,
+                owner_key TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                endpoint_json TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (mac_device_id, owner_key)
+                    REFERENCES paired_macs_v4(mac_device_id, owner_key)
+                    ON DELETE CASCADE
+            );
+        """)
+        try exec("""
+            INSERT INTO mac_routes_v4 (mac_device_id, owner_key, route_id, kind, endpoint_json, priority)
+            SELECT
+                routes.mac_device_id,
+                IFNULL(macs.stack_user_id, '') || char(31) || IFNULL(macs.team_id, ''),
+                routes.route_id,
+                routes.kind,
+                routes.endpoint_json,
+                routes.priority
+            FROM mac_routes routes
+            JOIN paired_macs macs ON macs.mac_device_id = routes.mac_device_id;
+        """)
+        try exec("DROP TABLE mac_routes;")
+        try exec("DROP TABLE paired_macs;")
+        try exec("ALTER TABLE paired_macs_v4 RENAME TO paired_macs;")
+        try exec("ALTER TABLE mac_routes_v4 RENAME TO mac_routes;")
+        try exec("CREATE INDEX IF NOT EXISTS idx_macs_stack_user ON paired_macs(stack_user_id);")
+        try exec("CREATE INDEX IF NOT EXISTS idx_macs_team ON paired_macs(stack_user_id, team_id);")
+        try exec("CREATE INDEX IF NOT EXISTS idx_routes_device ON mac_routes(mac_device_id, owner_key);")
+    }
+
+    /// Column names defined on `table` (via `PRAGMA table_info`), used to make
+    /// additive column migrations idempotent.
+    private func tableColumns(_ table: String) throws -> Set<String> {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let rc = sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        var columns: Set<String> = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            // table_info columns: cid(0), name(1), type(2), notnull(3),
+            // dflt_value(4), pk(5).
+            if let name = sqlite3_column_text(statement, 1) {
+                columns.insert(String(cString: name))
+            }
+        }
+        return columns
+    }
+
     // MARK: - Public API
 
+    /// Insert or update one paired Mac within the explicit account/team owner scope.
     public func upsert(
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
         markActive: Bool,
         stackUserID: String?,
+        teamID: String? = nil,
         now: Date = Date()
     ) throws {
         try ensureReady()
         try transaction {
             if markActive {
-                let scope = stackUserID.map(BindValue.text) ?? .null
-                if stackUserID != nil {
-                    try exec("UPDATE paired_macs SET is_active = 0 WHERE stack_user_id IS ?;",
-                             binding: [scope])
-                } else {
-                    try exec("UPDATE paired_macs SET is_active = 0;")
-                }
+                try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
             }
-            let existing = try fetchMacRow(macDeviceID: macDeviceID)
-            let createdAt = existing?.createdAt ?? now
+            let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+            let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey)
+            var claimedLegacy: MacRow?
+            if existing == nil,
+               teamID != nil,
+               let legacy = try fetchMacRow(
+                    macDeviceID: macDeviceID,
+                    ownerKey: "\(stackUserID ?? "")\u{1F}"
+               ) {
+                try moveMacRowScope(
+                    macDeviceID: macDeviceID,
+                    fromOwnerKey: legacy.ownerKey,
+                    toOwnerKey: ownerKey,
+                    teamID: teamID
+                )
+                claimedLegacy = legacy
+            }
+            let createdAt = existing?.createdAt ?? claimedLegacy?.createdAt ?? now
             try upsertMacRow(
                 macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
                 displayName: displayName,
                 stackUserID: stackUserID,
+                teamID: teamID,
                 createdAt: createdAt,
                 lastSeenAt: now,
                 isActive: markActive
             )
-            try exec("DELETE FROM mac_routes WHERE mac_device_id = ?;", binding: [.text(macDeviceID)])
+            try exec(
+                "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(macDeviceID), .text(ownerKey)]
+            )
             for route in routes {
                 let encoded = try Self.encodeRoute(route)
                 try exec("""
-                    INSERT INTO mac_routes (mac_device_id, route_id, kind, endpoint_json, priority)
-                    VALUES (?, ?, ?, ?, ?);
+                    INSERT INTO mac_routes (mac_device_id, owner_key, route_id, kind, endpoint_json, priority)
+                    VALUES (?, ?, ?, ?, ?, ?);
                 """, binding: [
                     .text(macDeviceID),
+                    .text(ownerKey),
                     .text(route.id),
                     .text(route.kind.rawValue),
                     .text(encoded),
@@ -183,44 +375,78 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         }
     }
 
-    public func loadAll(stackUserID: String? = nil) throws -> [MobilePairedMac] {
+    /// Load every paired Mac visible to the optional Stack user and team scope.
+    public func loadAll(stackUserID: String? = nil, teamID: String? = nil) throws -> [MobilePairedMac] {
         try ensureReady()
-        return try fetchAllMacs(stackUserID: stackUserID)
+        return try fetchAllMacs(stackUserID: stackUserID, teamID: teamID)
     }
 
-    public func activeMac(stackUserID: String? = nil) throws -> MobilePairedMac? {
+    /// Load the active paired Mac in the optional Stack user and team scope.
+    public func activeMac(stackUserID: String? = nil, teamID: String? = nil) throws -> MobilePairedMac? {
         try ensureReady()
-        return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID).first
+        return try fetchAllMacs(activeOnly: true, stackUserID: stackUserID, teamID: teamID).first
     }
 
-    public func setActive(macDeviceID: String) throws {
+    /// Mark one paired Mac active within its explicit account/team owner scope.
+    public func setActive(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
         try ensureReady()
+        let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
         try transaction {
-            // Clear the active flag only within the target Mac's own Stack-user
-            // scope, mirroring the scoped clear in `upsert`. On a shared device
-            // (more than one Stack user has pairings), switching hosts for one
-            // signed-in user must not wipe another user's active Mac, or that
-            // user fails to auto-reconnect after signing back in. `IS` is
-            // SQLite's null-safe equality, so a NULL-scoped target clears only
-            // other NULL-scoped rows.
-            try exec("""
-                UPDATE paired_macs SET is_active = 0
-                WHERE stack_user_id IS (
-                    SELECT stack_user_id FROM paired_macs WHERE mac_device_id = ?
-                );
-                """,
-                binding: [.text(macDeviceID)])
-            try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ?;",
-                     binding: [.text(macDeviceID)])
+            try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
+            try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ? AND owner_key = ?;",
+                     binding: [.text(macDeviceID), .text(ownerKey)])
         }
     }
 
-    public func remove(macDeviceID: String) throws {
+    /// Clear the active paired Mac in the optional Stack user and team scope.
+    public func clearActive(stackUserID: String? = nil, teamID: String? = nil) throws {
         try ensureReady()
-        try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
-                 binding: [.text(macDeviceID)])
+        try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
     }
 
+    /// Persist user-facing customizations for one paired Mac.
+    public func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String? = nil,
+        teamID: String? = nil,
+        now: Date = Date()
+    ) throws {
+        try ensureReady()
+        // Bump last_seen_at so the change is the freshest write for this record and
+        // the LWW backup/restore propagates it to the user's other devices. Leaves
+        // display_name / routes / is_active untouched (the Mac owns those).
+        try exec("""
+            UPDATE paired_macs
+            SET custom_name = ?, custom_color = ?, custom_icon = ?, last_seen_at = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            customName.map(BindValue.text) ?? .null,
+            customColor.map(BindValue.text) ?? .null,
+            customIcon.map(BindValue.text) ?? .null,
+            .real(now.timeIntervalSince1970),
+            .text(macDeviceID),
+            .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")"),
+        ])
+    }
+
+    /// Remove one paired Mac in a specific owner scope, or all matching legacy rows when unscoped.
+    public func remove(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
+        try ensureReady()
+        if stackUserID == nil && teamID == nil {
+            try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
+                     binding: [.text(macDeviceID)])
+        } else {
+            try exec(
+                "DELETE FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(macDeviceID), .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")")]
+            )
+        }
+    }
+
+    /// Remove every locally stored paired Mac and route.
     public func removeAll() throws {
         try ensureReady()
         try exec("DELETE FROM paired_macs;")
@@ -248,25 +474,30 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     private struct MacRow {
         let macDeviceID: String
+        let ownerKey: String
         let displayName: String?
         let stackUserID: String?
+        var teamID: String? = nil
         let createdAt: Date
         let lastSeenAt: Date
         let isActive: Bool
+        var customName: String? = nil
+        var customColor: String? = nil
+        var customIcon: String? = nil
     }
 
-    private func fetchMacRow(macDeviceID: String) throws -> MacRow? {
+    private func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MacRow? {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
-            SELECT display_name, stack_user_id, created_at, last_seen_at, is_active
-            FROM paired_macs WHERE mac_device_id = ?;
+            SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id
+            FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;
         """
         let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
         guard rc == SQLITE_OK else {
             throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
         }
-        try bind(statement: statement, parameters: [.text(macDeviceID)])
+        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
         let step = sqlite3_step(statement)
         if step == SQLITE_DONE { return nil }
         guard step == SQLITE_ROW else {
@@ -277,10 +508,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
         let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
         let isActive = sqlite3_column_int(statement, 4) != 0
+        let teamID = Self.readNullableText(statement, column: 5)
         return MacRow(
             macDeviceID: macDeviceID,
+            ownerKey: ownerKey,
             displayName: displayName,
             stackUserID: stackUserID,
+            teamID: teamID,
             createdAt: createdAt,
             lastSeenAt: lastSeenAt,
             isActive: isActive
@@ -289,31 +523,96 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
 
     private func upsertMacRow(
         macDeviceID: String,
+        ownerKey: String,
         displayName: String?,
         stackUserID: String?,
+        teamID: String?,
         createdAt: Date,
         lastSeenAt: Date,
         isActive: Bool
     ) throws {
         try exec("""
-            INSERT INTO paired_macs (mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(mac_device_id) DO UPDATE SET
+            INSERT INTO paired_macs (mac_device_id, owner_key, display_name, stack_user_id, team_id, created_at, last_seen_at, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(mac_device_id, owner_key) DO UPDATE SET
                 display_name = excluded.display_name,
                 stack_user_id = excluded.stack_user_id,
+                team_id = excluded.team_id,
                 last_seen_at = excluded.last_seen_at,
                 is_active = excluded.is_active;
         """, binding: [
             .text(macDeviceID),
+            .text(ownerKey),
             displayName.map(BindValue.text) ?? .null,
             stackUserID.map(BindValue.text) ?? .null,
+            teamID.map(BindValue.text) ?? .null,
             .real(createdAt.timeIntervalSince1970),
             .real(lastSeenAt.timeIntervalSince1970),
             .int(isActive ? 1 : 0),
         ])
     }
 
-    private func fetchAllMacs(activeOnly: Bool = false, stackUserID: String? = nil) throws -> [MobilePairedMac] {
+    private func clearActiveMacs(stackUserID: String?, teamID: String?) throws {
+        let stackBinding = stackUserID.map(BindValue.text) ?? .null
+        if let teamID {
+            // The visible team scope includes legacy NULL-team rows until their
+            // next upsert claims them, so they must share the same active-row
+            // invariant as explicit team rows.
+            try exec("""
+                UPDATE paired_macs SET is_active = 0
+                WHERE stack_user_id IS ? AND (team_id IS ? OR team_id IS NULL);
+            """, binding: [stackBinding, .text(teamID)])
+        } else {
+            try exec("""
+                UPDATE paired_macs SET is_active = 0
+                WHERE stack_user_id IS ? AND team_id IS NULL;
+            """, binding: [stackBinding])
+        }
+    }
+
+    private func moveMacRowScope(
+        macDeviceID: String,
+        fromOwnerKey: String,
+        toOwnerKey: String,
+        teamID: String?
+    ) throws {
+        try exec("""
+            INSERT INTO paired_macs (
+                mac_device_id, owner_key, display_name, stack_user_id, team_id,
+                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon
+            )
+            SELECT
+                mac_device_id, ?, display_name, stack_user_id, ?, created_at,
+                last_seen_at, is_active, custom_name, custom_color, custom_icon
+            FROM paired_macs
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(toOwnerKey),
+            teamID.map(BindValue.text) ?? .null,
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+        try exec("""
+            UPDATE mac_routes
+            SET owner_key = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(toOwnerKey),
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+        try exec("""
+            DELETE FROM paired_macs
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+    }
+
+    private func fetchAllMacs(
+        activeOnly: Bool = false, stackUserID: String? = nil, teamID: String? = nil
+    ) throws -> [MobilePairedMac] {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         var clauses: [String] = []
@@ -325,9 +624,17 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             clauses.append("stack_user_id IS ?")
             bindings.append(.text(stackUserID))
         }
+        if let teamID {
+            // Legacy-visibility: a NULL-team row (pre-v3 upgrade, or anonymous
+            // pairing) is visible under EVERY team so an upgrade never hides an
+            // existing host; it is stamped with the active team on the next upsert.
+            clauses.append("(team_id IS ? OR team_id IS NULL)")
+            bindings.append(.text(teamID))
+        }
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
-            SELECT mac_device_id, display_name, stack_user_id, created_at, last_seen_at, is_active
+            SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
+                   custom_name, custom_color, custom_icon, team_id
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -341,23 +648,30 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let cString = sqlite3_column_text(statement, 0) else { continue }
             let macDeviceID = String(cString: cString)
-            let displayName = Self.readNullableText(statement, column: 1)
-            let storedStackUserID = Self.readNullableText(statement, column: 2)
-            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
-            let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 4))
-            let isActive = sqlite3_column_int(statement, 5) != 0
+            guard let ownerCString = sqlite3_column_text(statement, 1) else { continue }
+            let ownerKey = String(cString: ownerCString)
+            let displayName = Self.readNullableText(statement, column: 2)
+            let storedStackUserID = Self.readNullableText(statement, column: 3)
+            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 4))
+            let lastSeenAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
+            let isActive = sqlite3_column_int(statement, 6) != 0
             rows.append(MacRow(
                 macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
                 displayName: displayName,
                 stackUserID: storedStackUserID,
+                teamID: Self.readNullableText(statement, column: 10),
                 createdAt: createdAt,
                 lastSeenAt: lastSeenAt,
-                isActive: isActive
+                isActive: isActive,
+                customName: Self.readNullableText(statement, column: 7),
+                customColor: Self.readNullableText(statement, column: 8),
+                customIcon: Self.readNullableText(statement, column: 9)
             ))
         }
 
         return try rows.map { row in
-            let routes = try fetchRoutes(macDeviceID: row.macDeviceID)
+            let routes = try fetchRoutes(macDeviceID: row.macDeviceID, ownerKey: row.ownerKey)
             return MobilePairedMac(
                 macDeviceID: row.macDeviceID,
                 displayName: row.displayName,
@@ -365,25 +679,29 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 createdAt: row.createdAt,
                 lastSeenAt: row.lastSeenAt,
                 isActive: row.isActive,
-                stackUserID: row.stackUserID
+                stackUserID: row.stackUserID,
+                teamID: row.teamID,
+                customName: row.customName,
+                customColor: row.customColor,
+                customIcon: row.customIcon
             )
         }
     }
 
-    private func fetchRoutes(macDeviceID: String) throws -> [CmxAttachRoute] {
+    private func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
         let sql = """
             SELECT endpoint_json
             FROM mac_routes
-            WHERE mac_device_id = ?
+            WHERE mac_device_id = ? AND owner_key = ?
             ORDER BY priority ASC, id ASC;
         """
         let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
         guard rc == SQLITE_OK else {
             throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
         }
-        try bind(statement: statement, parameters: [.text(macDeviceID)])
+        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
 
         var routes: [CmxAttachRoute] = []
         let decoder = JSONDecoder()

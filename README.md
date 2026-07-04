@@ -86,10 +86,12 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 
 - **Browser import** — Import cookies, history, and sessions from Chrome, Firefox, Arc, and 20+ browsers so browser panes start authenticated
 - **Custom commands** — Define project-specific actions in [`cmux.json`](https://cmux.com/docs/custom-commands) that launch from the command palette
-- **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+- **Programmable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
+- **Keyboard shortcuts** — [Extensive shortcuts](https://cmux.com/docs/keyboard-shortcuts) for workspaces, splits, browser, and more
+- **Open source** — Free and GPL-licensed
 
 ## Install
 
@@ -317,6 +319,76 @@ supported agent's native resume command when automatic agent resume is enabled.
 
 Read the full guide at <https://cmux.com/docs/session-restore>.
 
+## FAQ
+
+### How does cmux relate to Ghostty?
+
+cmux is not a fork of Ghostty. It uses [libghostty](https://github.com/ghostty-org/ghostty) as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.
+
+### What platforms does it support?
+
+macOS only, for now. cmux is a native Swift + AppKit app.
+
+### Is there an iOS app?
+
+Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition). See the [iOS docs](https://cmux.com/docs/ios).
+
+### What coding agents does cmux work with?
+
+All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.
+
+### Can cmux orchestrate multiple agents and subagents?
+
+Yes. When an agent spawns subagents or teammates, cmux turns them into native panes and splits instead of hidden background processes. It supports [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams) and [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode) multi-model orchestration, so every agent in a run is visible and controllable.
+
+### Can I use cmux with remote machines?
+
+Yes. Open workspaces over SSH and attach to remote tmux sessions, so agents can run on a remote host while you drive them from cmux. See [SSH and remote](https://cmux.com/docs/ssh).
+
+### How do notifications work?
+
+When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the [cmux CLI](https://cmux.com/docs/notifications#cli-usage) and [agent hooks](https://cmux.com/docs/notifications#integration-examples). Any agent that supports hooks or OSC works, including Claude Code, Codex, OpenCode, and pi.
+
+### Is cmux programmable?
+
+Yes. Every action is available through the cmux CLI and a Unix socket: create workspaces, open split panes, send input, read screen contents, take screenshots, and drive the in-app browser. See the [CLI reference](https://cmux.com/docs/api) and [browser automation](https://cmux.com/docs/browser-automation) docs.
+
+### What can the built-in browser do?
+
+cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See [browser automation](https://cmux.com/docs/browser-automation).
+
+### Does cmux have skills?
+
+Yes. Skills are reusable workflows you can give any agent running in cmux, for things like CLI control, workspace automation, settings, and browser surfaces. Browse the open collection at [cmux-skills](https://github.com/manaflow-ai/cmux-skills), or read the [skills docs](https://cmux.com/docs/skills).
+
+### Can I customize keyboard shortcuts?
+
+Terminal keybindings are read from your Ghostty config file (`~/.config/ghostty/config`). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the [default shortcuts](https://cmux.com/docs/keyboard-shortcuts) for a full list.
+
+### Can I customize cmux?
+
+Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and cursor carry over directly. cmux's own settings in `~/.config/cmux/cmux.json` control the sidebar, tab bar, split panes, and behavior, and every [keyboard shortcut](https://cmux.com/docs/keyboard-shortcuts) is editable. See [configuration](https://cmux.com/docs/configuration).
+
+### Are my sessions saved?
+
+Yes. cmux restores your windows, workspaces, panes, working directories, and scrollback when you relaunch, and the state survives a full computer restart, not just quitting the app. Agent sessions like Claude Code, Codex, and OpenCode come back too. See [session restore](https://cmux.com/docs/session-restore).
+
+### How does it compare to tmux?
+
+tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API, all built in, no config files or prefix keys needed. That said, lots of people happily run cmux with SSH and tmux together, and cmux can attach to your remote tmux sessions natively ([beta](https://cmux.com/docs/remote-tmux)).
+
+### Is cmux free?
+
+Yes, cmux is free to use. The source code is available on [GitHub](https://github.com/manaflow-ai/cmux).
+
+### How can I support cmux?
+
+cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+
+### I have a feature request or found a bug?
+
+We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) or [pull request](https://github.com/manaflow-ai/cmux/pulls) on GitHub, or [email us](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+
 ## Star History
 
 <a href="https://star-history.com/#manaflow-ai/cmux&Date">
@@ -344,6 +416,11 @@ Ways to get involved:
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> Scan the QR code to join the community.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
+</p>
 
 ## Founder's Edition
 

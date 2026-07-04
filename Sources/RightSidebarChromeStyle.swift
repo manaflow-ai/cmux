@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxAppKitSupportUI
 import CmuxSettings
 import SwiftUI
@@ -24,8 +25,11 @@ enum HeaderChromeIconStyle {
     }
 
     static func symbol(_ systemName: String) -> some View {
-        Image(systemName: systemName)
-            .cmuxSymbolRasterSize(RightSidebarChromeMetrics.headerIconSize, weight: weight)
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: RightSidebarChromeMetrics.headerIconSize,
+            weight: weight
+        )
     }
 
     static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
@@ -97,13 +101,19 @@ struct RightSidebarChromeBarModifier: ViewModifier {
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
     var height: CGFloat
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
             .padding(.leading, leadingPadding)
             .padding(.trailing, trailingPadding)
             .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
-            .frame(height: height)
+            .frame(height: resolvedHeight)
+    }
+
+    private var resolvedHeight: CGFloat {
+        _ = globalFontPercent
+        return max(height, RightSidebarChromeMetrics.secondaryBarHeight)
     }
 }
 
@@ -112,6 +122,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
@@ -119,7 +130,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 RightSidebarChromeControlStyle.foregroundColor.opacity(foregroundOpacity)
             )
             .padding(.horizontal, horizontalPadding)
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .frame(height: controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
@@ -131,6 +142,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
             .contentShape(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
             )
+    }
+
+    private var controlHeight: CGFloat {
+        _ = globalFontPercent
+        return RightSidebarChromeMetrics.controlHeight
     }
 
     private var foregroundOpacity: Double {
@@ -332,24 +348,20 @@ struct ModeBarButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: item.symbolName)
-                    .symbolRenderingMode(.monochrome)
-                    .font(
-                        .system(
-                            size: RightSidebarChromeControlStyle.modeIconSize,
-                            weight: RightSidebarChromeControlStyle.iconWeight
-                        )
-                    )
+                CmuxSystemSymbolImage(
+                    systemName: item.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.modeIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    appliesGlobalFontMagnification: true
+                )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true
                     )
                 Text(item.label)
-                    .font(
-                        .system(
-                            size: RightSidebarChromeControlStyle.labelSize,
-                            weight: RightSidebarChromeControlStyle.labelWeight
-                        )
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.labelSize,
+                        weight: RightSidebarChromeControlStyle.labelWeight
                     )
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -393,7 +405,7 @@ struct ModeBarButton: View {
     private var pendingChip: some View {
         let countText = badgeCount > 9 ? "9+" : String(badgeCount)
         return Text(countText)
-            .font(.system(size: 10, weight: .bold).monospacedDigit())
+            .cmuxFont(size: 10, weight: .bold, monospacedDigit: true)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: true)
             .foregroundColor(.orange)

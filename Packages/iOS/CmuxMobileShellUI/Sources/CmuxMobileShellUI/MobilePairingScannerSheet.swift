@@ -18,6 +18,7 @@ struct MobilePairingScannerSheet: View {
                 switch authorizationStatus {
                 case .authorized:
                     QRCodeScannerView { code in
+                        dismiss()
                         onCode(code)
                     }
                     .ignoresSafeArea(edges: .bottom)
