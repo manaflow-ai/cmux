@@ -43,7 +43,7 @@ import Testing
         RemoteTmuxMirrorGeometry(
             cellWidthPx: 16, cellHeightPx: 34,
             surfacePadWidthPx: 8, surfacePadHeightPx: 0,
-            headerHeightPt: 24, scale: 2
+            scale: 2
         )
     }
 
@@ -155,7 +155,7 @@ import Testing
         mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
         #expect(mirror.updateClientSize())
         #expect(pushed(connection)?.cols == 98) // (1600-3·8)/16
-        #expect(pushed(connection)?.rows == 35) // (1240-48)/34
+        #expect(pushed(connection)?.rows == 35) // 1240/34 − 1 title-band row
         #expect(connection.lastWindowSizes[0] != nil)
     }
 

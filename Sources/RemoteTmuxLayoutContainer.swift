@@ -54,9 +54,17 @@ struct RemoteTmuxLayoutContainer: View {
         // places: dividers first (below the panes), then panes in tree order.
         let paneIds = node.paneIDsInOrder.filter { frames.paneFramesPt[$0] != nil }
         let orderedFrames = frames.dividersPt + paneIds.compactMap { frames.paneFramesPt[$0] }
+        // The active pane is marked by a dot in the strip ABOVE it (its
+        // title row — the top band for window-top panes, the separator strip
+        // for stacked ones). Strips are rows/columns tmux allocated, so the
+        // indicator can never sit over pane content — the constraint that
+        // killed the over-content corner-dot and edge-stroke designs.
+        let activeFrame = mirror.activePaneId.flatMap { frames.paneFramesPt[$0] }
         return RemoteTmuxImposedFrameLayout(frames: orderedFrames) {
-            ForEach(Array(frames.dividersPt.enumerated()), id: \.offset) { _, _ in
-                Rectangle().fill(appearance.dividerColor)
+            ForEach(Array(frames.dividersPt.enumerated()), id: \.offset) { _, rect in
+                RemoteTmuxDividerStrip(
+                    rect: rect, activeFrame: activeFrame, appearance: appearance
+                )
             }
             ForEach(paneIds, id: \.self) { paneId in
                 RemoteTmuxPaneLeaf(
@@ -116,8 +124,57 @@ private struct RemoteTmuxImposedFrameLayout: Layout {
     }
 }
 
-/// One pane leaf: control header on top of the terminal panel. Shared by both
-/// rendering modes.
+/// One divider strip: a tmux border row/column, drawn the way tmux draws it —
+/// a full separator cell of pane background with a thin line through the
+/// middle, so the gap reads as a hairline rather than a solid slab. The line
+/// segment that runs alongside the active pane takes the accent color
+/// (tmux's pane-active-border-style); the rest stays in the divider color.
+private struct RemoteTmuxDividerStrip: View {
+    let rect: CGRect
+    let activeFrame: CGRect?
+    let appearance: PanelAppearance
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        // True hairline, like tmux's box-drawing border glyphs: one DEVICE
+        // pixel, not one point (a 2pt bar reads as a slab next to a real
+        // tmux client).
+        let line = 1 / max(1, displayScale)
+        let horizontal = rect.width >= rect.height
+        ZStack(alignment: .topLeading) {
+            Color(nsColor: appearance.backgroundColor)
+            if horizontal {
+                appearance.dividerColor
+                    .frame(width: rect.width, height: line)
+                    .offset(y: (rect.height - line) / 2)
+                // The strip above the ACTIVE pane doubles as its title row:
+                // the active-pane dot renders here, over strip background —
+                // never over pane content. The dot is the ONLY active-pane
+                // signal; the lines themselves stay uniform.
+                if let activeFrame,
+                   abs(rect.maxY - activeFrame.minY) < 2,
+                   activeFrame.maxX > rect.minX, activeFrame.minX < rect.maxX {
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 6, height: 6)
+                        .offset(
+                            x: max(activeFrame.minX, rect.minX) - rect.minX + 6,
+                            y: (rect.height - 6) / 2
+                        )
+                }
+            } else {
+                appearance.dividerColor
+                    .frame(width: line, height: rect.height)
+                    .offset(x: (rect.width - line) / 2)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// One pane leaf: the terminal panel, chrome-free — pane actions live in its
+/// context menu and the active-pane signal on the adjacent divider strips.
+/// Shared by both rendering modes.
 @MainActor
 struct RemoteTmuxPaneLeaf: View {
     let paneId: Int
@@ -130,31 +187,33 @@ struct RemoteTmuxPaneLeaf: View {
     var body: some View {
         if let panel = mirror.panel(forPane: paneId),
            let syntheticPaneId = mirror.syntheticPaneID(forPane: paneId) {
-            VStack(spacing: 0) {
-                RemoteTmuxPaneHeader(
-                    isActive: mirror.activePaneId == paneId,
-                    appearance: appearance,
-                    onFocus: { mirror.focus(pane: paneId) },
-                    onSplitRight: { mirror.requestSplit(fromPane: paneId, vertical: false) },
-                    onSplitDown: { mirror.requestSplit(fromPane: paneId, vertical: true) },
-                    onClose: { onClosePane(paneId) }
-                )
-                TerminalPanelView(
-                    panel: panel,
-                    paneId: syntheticPaneId,
-                    isFocused: mirror.activePaneId == paneId,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: portalPriority,
-                    isSplit: true,
-                    appearance: appearance,
-                    hasUnreadNotification: false,
-                    terminalAgentContext: "",
-                    onFocus: { mirror.focus(pane: paneId) },
-                    onResumeAgentHibernation: {},
-                    onAutoResumeAgentHibernation: {},
-                    onTriggerFlash: {}
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            TerminalPanelView(
+                panel: panel,
+                paneId: syntheticPaneId,
+                isFocused: mirror.activePaneId == paneId,
+                isVisibleInUI: isVisibleInUI,
+                portalPriority: portalPriority,
+                isSplit: true,
+                appearance: appearance,
+                hasUnreadNotification: false,
+                terminalAgentContext: "",
+                onFocus: { mirror.focus(pane: paneId) },
+                onResumeAgentHibernation: {},
+                onAutoResumeAgentHibernation: {},
+                onTriggerFlash: {}
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contextMenu {
+                Button(String(localized: "remoteTmux.pane.splitRight", defaultValue: "Split Right")) {
+                    mirror.requestSplit(fromPane: paneId, vertical: false)
+                }
+                Button(String(localized: "remoteTmux.pane.splitDown", defaultValue: "Split Down")) {
+                    mirror.requestSplit(fromPane: paneId, vertical: true)
+                }
+                Divider()
+                Button(String(localized: "remoteTmux.pane.close", defaultValue: "Close Pane"), role: .destructive) {
+                    onClosePane(paneId)
+                }
             }
             .id(paneId)
             .background(Color(nsColor: appearance.backgroundColor))

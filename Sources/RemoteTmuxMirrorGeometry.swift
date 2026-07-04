@@ -32,22 +32,16 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
     /// Vertical ghostty padding per surface in device pixels (both sides
     /// combined).
     let surfacePadHeightPx: Int
-    /// Pane header height in POINTS (fixed chrome above each pane:
-    /// RemoteTmuxPaneHeader's 24pt frame + 1pt divider line).
-    let headerHeightPt: CGFloat
     /// The hosting window's backing scale (1.0 or 2.0 on macOS).
     let scale: CGFloat
-
-    /// Header height in device pixels at the current scale.
-    var headerHeightPx: Int { Int(headerHeightPt * scale) }
 
     /// The client size (tmux cols × rows) whose layout fits this pixel budget.
     ///
     /// Width: every pane column and every separator column costs exactly
     /// `cellWidthPx`; each pane additionally costs its surface padding, and
     /// the number of panes stacked side by side varies per row of the tree —
-    /// the structural fold below accounts both. Height is the transpose with
-    /// the per-pane header added. The fold depends only on the tree's
+    /// the structural fold below accounts both; height is the transpose. The
+    /// fold depends only on the tree's
     /// STRUCTURE (pane nesting), never on assigned sizes: sums of assigned cells
     /// along a split collapse to the parent total, so tmux's layout cancels out.
     ///
@@ -64,10 +58,16 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
         let chrome = Self.chromePx(
             of: structure,
             padW: surfacePadWidthPx,
-            padH: surfacePadHeightPx + headerHeightPx
+            padH: surfacePadHeightPx
         )
         let cols = (pixelWidth - chrome.width) / max(1, cellWidthPx)
-        let rows = (pixelHeight - chrome.height) / max(1, cellHeightPx)
+        // − 1 row: the title band reserved across the top of the mirror
+        // (``frames(layout:containerPt:)``). One row TOTAL, not per pane:
+        // every pane below the window top already sits under a tmux
+        // separator row, so the band is the only strip tmux doesn't provide
+        // — and because it is uniform across branches, bottom edges still
+        // align regardless of stacking depth.
+        let rows = (pixelHeight - chrome.height) / max(1, cellHeightPx) - 1
         return (cols: max(Self.minCols, cols), rows: max(Self.minRows, rows))
     }
 
@@ -79,8 +79,11 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
     static let minRows = 5
 
     /// The pixel cost of everything that is NOT tmux cell grid, folded over
-    /// the layout structure. Per pane: the surface padding (and, on the
-    /// height axis, the header). Same-axis splits sum their children;
+    /// the layout structure. Per pane: the surface padding — the ONLY
+    /// off-grid chrome the mirror has. Every other non-content pixel is a
+    /// row or column tmux itself allocated (separators, and title rows when
+    /// pane-border-status is set), so it lives inside the cell budget and
+    /// never appears here. Same-axis splits sum their children;
     /// cross-axis splits take the max. Separator columns/rows are deliberately
     /// absorbed into the CELL budget (a separator costs exactly one cell), so
     /// they never appear here — that collapse is what makes the fold
@@ -119,7 +122,7 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
     /// spend, so per-pane error never accumulates) and returned in points.
     ///
     /// Split-axis exact, cross-axis fill: a leaf's extent on its split axis
-    /// is exactly `cells·cellPx + padding (+ header on the height axis)`; on
+    /// is exactly `cells·cellPx + padding`; on
     /// the cross axis it fills whatever the parent allocated, so asymmetric
     /// trees don't accumulate dead bands. Trailing leftover pixels (budget tmux's
     /// layout doesn't consume) stay at the trailing edge as background.
@@ -135,11 +138,20 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
     ) -> RemoteTmuxMirrorFrames {
         var paneFrames: [Int: CGRect] = [:]
         var dividers: [CGRect] = []
+        let bandPx = CGFloat(cellHeightPx)
         let containerPx = CGRect(
-            x: 0, y: 0,
+            x: 0, y: bandPx,
             width: containerPt.width * scale,
-            height: containerPt.height * scale
+            height: containerPt.height * scale - bandPx
         )
+        // The title band: one cell-high strip across the top, the synthetic
+        // twin of tmux's separator rows, so EVERY pane has a strip above it
+        // (window-top panes get this band; every other pane sits under a
+        // tmux separator). The active pane's dot renders in the strip above
+        // it — over strip background, never over content.
+        dividers.append(CGRect(
+            x: 0, y: 0, width: containerPt.width * scale, height: bandPx
+        ))
         place(layout, in: containerPx, paneFrames: &paneFrames, dividers: &dividers)
         return RemoteTmuxMirrorFrames(
             paneFramesPt: paneFrames.mapValues { $0.divided(by: scale) },
@@ -196,7 +208,7 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                 let chrome = Self.chromePx(
                     of: child,
                     padW: 0,
-                    padH: surfacePadHeightPx + headerHeightPx
+                    padH: surfacePadHeightPx
                 ).height
                 let spend = CGFloat(child.height * cellHeightPx + chrome)
                 let next = (cursor + spend).rounded()

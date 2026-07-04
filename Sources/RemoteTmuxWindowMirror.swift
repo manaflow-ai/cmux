@@ -226,7 +226,6 @@ final class RemoteTmuxWindowMirror {
             cellHeightPx: sample.cellHeightPx,
             surfacePadWidthPx: minNonGridWidthPxByScale[scale] ?? max(0, nonGridW),
             surfacePadHeightPx: minNonGridHeightPxByScale[scale] ?? max(0, nonGridH),
-            headerHeightPt: RemoteTmuxPaneHeader.totalHeightPt,
             scale: scale
         )
         if geometrySnapshot != geometry { geometrySnapshot = geometry }

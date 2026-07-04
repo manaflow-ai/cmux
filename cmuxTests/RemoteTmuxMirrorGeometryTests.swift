@@ -15,14 +15,13 @@ import Testing
 /// that make the sizing loop-free by construction.
 @Suite struct RemoteTmuxMirrorGeometryTests {
     /// The calibrated 2× constants from the Phase 0 sweep (cell 16×34 px,
-    /// pad 8×0 px, header 25 pt).
+    /// pad 8×0 px).
     private var geometry: RemoteTmuxMirrorGeometry {
         RemoteTmuxMirrorGeometry(
             cellWidthPx: 16,
             cellHeightPx: 34,
             surfacePadWidthPx: 8,
             surfacePadHeightPx: 0,
-            headerHeightPt: 25,
             scale: 2
         )
     }
@@ -155,9 +154,7 @@ import Testing
                 let widthPx = (frame.width * geo.scale).rounded()
                 let heightPx = (frame.height * geo.scale).rounded()
                 let needW = CGFloat(leaf.width * geo.cellWidthPx + geo.surfacePadWidthPx)
-                let needH = CGFloat(
-                    leaf.height * geo.cellHeightPx + geo.surfacePadHeightPx + geo.headerHeightPx
-                )
+                let needH = CGFloat(leaf.height * geo.cellHeightPx + geo.surfacePadHeightPx)
                 // Split-axis exactness / cross-axis fill: a frame never holds
                 // FEWER pixels than its assigned cells need — a one-pixel
                 // shortfall renders one column short and wraps every
@@ -234,8 +231,9 @@ import Testing
         let container = CGSize(width: 800, height: 620)
         let frames = geo.frames(layout: tree, containerPt: container)
         let left = frames.paneFramesPt[1]!
-        #expect(abs(left.height - container.height) < 0.001,
-                "left pane must fill the container height (no dead band), got \(left.height)")
+        let bandPt = CGFloat(geo.cellHeightPx) / geo.scale
+        #expect(abs(left.height - (container.height - bandPt)) < 0.001,
+                "left pane must fill the container below the title band (no dead band), got \(left.height)")
     }
 
     @Test func clientCellsClampsDegenerateBudgets() {
@@ -248,10 +246,48 @@ import Testing
         #expect(tiny.rows == RemoteTmuxMirrorGeometry.minRows)
     }
 
+    /// The pane-header regression guard: panes carry NO per-pane vertical
+    /// chrome, so a window's row budget must not depend on how deeply one
+    /// branch stacks panes. (With the old 24pt header, a 10-pane column cost
+    /// the whole window ~14 rows and shallow branches rendered them as a
+    /// blank band below their last row.)
+    @Test func rowBudgetIsIndependentOfStackingDepth() {
+        let geo = geometry
+        let single = node(.pane(1))
+        let stackedThree = node(.vertical((0..<3).map { node(.pane($0)) }))
+        let stackedTen = node(.vertical((0..<10).map { node(.pane($0)) }))
+        for (pxW, pxH) in [(1600, 1288), (900, 700), (2800, 2000)] {
+            let a = geo.clientCells(pixelWidth: pxW, pixelHeight: pxH, structure: single)
+            let b = geo.clientCells(pixelWidth: pxW, pixelHeight: pxH, structure: stackedThree)
+            let c = geo.clientCells(pixelWidth: pxW, pixelHeight: pxH, structure: stackedTen)
+            #expect(a.rows == b.rows && b.rows == c.rows,
+                    "row budget varied with stacking depth: \(a.rows)/\(b.rows)/\(c.rows) at \(pxW)x\(pxH)")
+        }
+    }
+
+    /// The title band: one cell-high strip across the top of the window —
+    /// every window-top pane's header row (all other panes sit under a tmux
+    /// separator). Uniform across branches, so it costs exactly one row of
+    /// the budget and cannot skew bottom alignment.
+    @Test func framesReserveTheTitleBandAndFOmitsItsRow() {
+        let geo = geometry
+        let tree = node(.pane(1), w: 98, h: 35)
+        let container = CGSize(width: 800, height: 620)
+        let frames = geo.frames(layout: tree, containerPt: container)
+        let bandPt = CGFloat(geo.cellHeightPx) / geo.scale
+        let band = frames.dividersPt.first
+        #expect(band != nil && abs(band!.minY) < 0.001 && abs(band!.height - bandPt) < 0.001,
+                "first strip must be the full-width title band, got \(String(describing: band))")
+        let pane = frames.paneFramesPt[1]!
+        #expect(abs(pane.minY - bandPt) < 0.001, "pane must start below the band")
+        let cells = geo.clientCells(pixelWidth: 1600, pixelHeight: 1240, structure: tree)
+        #expect(cells.rows == 1240 / 34 - 1, "rows must exclude the title-band row")
+    }
+
     @Test func chromeFoldMatchesHandComputedNestedTree() {
-        // h[pane, v[pane, pane]] at 2×: width chrome = pad + pad = 16 (max of
-        // the right column is one pane's pad); height chrome = max(header+pad,
-        // 2·(header+pad)) = 2·50 = 100.
+        // h[pane, v[pane, pane]]: width chrome = pad + pad = 16 (max of
+        // the right column is one pane's pad); height chrome = max(pad, 2·pad)
+        // = 100 with a synthetic 50px pad.
         let tree = node(.horizontal([
             node(.pane(1)),
             node(.vertical([node(.pane(2)), node(.pane(3))])),
