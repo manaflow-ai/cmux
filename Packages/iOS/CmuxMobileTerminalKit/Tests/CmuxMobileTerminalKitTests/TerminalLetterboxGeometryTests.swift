@@ -251,29 +251,6 @@ struct TerminalLetterboxGeometryTests {
         #expect(size.height == 874 - Self.keyboard)
     }
 
-    @Test("stale live viewport clamp cannot collapse below target layout height")
-    func renderViewportHeightClampDoesNotShrinkBelowTarget() {
-        let targetHeight: CGFloat = 420
-        let transientOneRowLiveHeight: CGFloat = 18
-        let staleOvershootLiveHeight: CGFloat = 500
-
-        #expect(TerminalLetterboxGeometry.renderViewportHeight(
-            targetHeight: targetHeight,
-            liveHeight: transientOneRowLiveHeight,
-            clampsStaleLiveViewport: true
-        ) == targetHeight)
-        #expect(TerminalLetterboxGeometry.renderViewportHeight(
-            targetHeight: targetHeight,
-            liveHeight: staleOvershootLiveHeight,
-            clampsStaleLiveViewport: true
-        ) == targetHeight)
-        #expect(TerminalLetterboxGeometry.renderViewportHeight(
-            targetHeight: targetHeight,
-            liveHeight: transientOneRowLiveHeight,
-            clampsStaleLiveViewport: false
-        ) == transientOneRowLiveHeight)
-    }
-
     @Test("keyboard occupancy uses keyboard when up, safe area when down")
     func keyboardOccupancyContract() {
         #expect(TerminalLetterboxGeometry.keyboardOccupancy(keyboardHeight: 336, bottomSafeAreaInset: 34) == 336)

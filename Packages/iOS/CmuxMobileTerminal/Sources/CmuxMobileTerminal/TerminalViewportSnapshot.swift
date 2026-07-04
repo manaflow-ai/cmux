@@ -12,17 +12,10 @@ struct TerminalViewportSnapshot {
     let liveViewportRect: CGRect
 
     func renderViewportRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
-        let height = TerminalLetterboxGeometry.renderViewportHeight(
-            targetHeight: layoutViewportRect.height,
-            liveHeight: liveViewportRect.height,
-            clampsStaleLiveViewport: clampsStaleLiveViewport
-        )
-        return CGRect(
-            x: layoutViewportRect.minX,
-            y: layoutViewportRect.minY,
-            width: layoutViewportRect.width,
-            height: height
-        )
+        TerminalRenderViewportGeometry(
+            layoutViewportRect: layoutViewportRect,
+            liveViewportRect: liveViewportRect
+        ).viewportRect(clampsStaleLiveViewport: clampsStaleLiveViewport)
     }
 
     func renderRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
