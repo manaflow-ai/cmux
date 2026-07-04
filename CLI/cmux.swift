@@ -7072,9 +7072,13 @@ struct CMUXCLI {
         if let description, !description.isEmpty {
             params["description"] = description
         }
-        if let descriptionSource = descriptionSourceOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !descriptionSource.isEmpty {
-            params["description_source"] = descriptionSource
+        if action == "set_description" {
+            let descriptionSource = descriptionSourceOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let descriptionSource, !descriptionSource.isEmpty {
+                params["description_source"] = descriptionSource
+            } else {
+                params["description_source"] = "user"
+            }
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
