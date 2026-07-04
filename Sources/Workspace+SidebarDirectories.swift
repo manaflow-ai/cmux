@@ -39,7 +39,8 @@ extension Workspace {
             .publisher(for: .workspaceCurrentDirectoryDidChange)
             .filter { [weak self] notification in
                 guard let self else { return false }
-                return notification.userInfo?["workspaceId"] as? UUID == self.id
+                return notification.userInfo?["workspaceId"] as? UUID == self.id &&
+                    notification.userInfo?["presentedDirectoryOnly"] as? Bool == true
             }
             .map { _ in () }
             .scan(UInt64(0)) { revision, _ in revision &+ 1 }

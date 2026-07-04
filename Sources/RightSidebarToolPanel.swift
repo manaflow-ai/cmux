@@ -170,11 +170,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
             workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
-            NotificationCenter.default.publisher(for: .workspaceCurrentDirectoryDidChange)
-                .filter { [weak workspace] notification in
-                    guard let workspace else { return false }
-                    return notification.userInfo?["workspaceId"] as? UUID == workspace.id
-                }
+            workspace.currentDirectoryChangeRevisionPublisher()
                 .map { _ in () }
                 .eraseToAnyPublisher(),
             workspace.$activeRemoteTerminalSessionCount.map { _ in () }.eraseToAnyPublisher(),

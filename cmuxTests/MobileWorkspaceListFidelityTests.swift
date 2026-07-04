@@ -273,6 +273,55 @@ struct MobileWorkspaceListFidelityTests {
         #expect(clearedTerminal["current_directory"] is NSNull)
     }
 
+    @Test func focusingUntrustedRemoteTerminalChangesObserverHash() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let trustedPanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-focus-\(UUID().uuidString).sock",
+                terminalStartupCommand: "ssh seepine@192.168.5.20"
+            ),
+            autoConnect: false
+        )
+        workspace.updateRemotePanelDirectory(panelId: trustedPanelId, directory: remoteDirectory)
+        let untrustedPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        #expect(workspace.isRemoteTerminalSurface(untrustedPanel.id))
+        #expect(workspace.reportedPanelDirectory(panelId: trustedPanelId) == remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: untrustedPanel.id) == nil)
+
+        let trustedFocusHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        workspace.focusPanel(untrustedPanel.id)
+        #expect(workspace.focusedPanelId == untrustedPanel.id)
+        #expect(workspace.presentedCurrentDirectory == nil)
+
+        let untrustedFocusHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(
+            trustedFocusHash != untrustedFocusHash,
+            "a focus-only presented cwd change must refresh the mobile list"
+        )
+    }
+
     /// Why some rows showed no relative time: the payload's only timestamp was
     /// `preview_at`, sourced from the latest notification, so a workspace that
     /// never fired a notification carried no timestamp at all and its trailing

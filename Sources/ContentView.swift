@@ -799,14 +799,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                     .map { ($0, UInt64(0)) }
                     .eraseToAnyPublisher()
                 }
-                let directoryChangeRevision = NotificationCenter.default
-                    .publisher(for: .workspaceCurrentDirectoryDidChange)
-                    .filter { notification in
-                        notification.userInfo?["workspaceId"] as? UUID == workspace.id
-                    }
-                    .map { _ in () }
-                    .scan(UInt64(0)) { revision, _ in revision &+ 1 }
-                    .prepend(0)
+                let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
                 return workspace.$currentDirectory
                     .combineLatest(
                         workspace.$remoteConfiguration,

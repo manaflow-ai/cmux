@@ -4595,7 +4595,10 @@ final class Workspace: Identifiable, ObservableObject {
         NotificationCenter.default.post(
             name: .workspaceCurrentDirectoryDidChange,
             object: self,
-            userInfo: ["workspaceId": id]
+            userInfo: [
+                "workspaceId": id,
+                "presentedDirectoryOnly": true,
+            ]
         )
     }
 
@@ -11747,6 +11750,8 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
         let previousFocusedPanelId = focusedPanelId
+        let previousPresentedDirectory = presentedCurrentDirectory
+        let previousCurrentDirectory = currentDirectory
 #if DEBUG
         let focusedPaneBefore = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let selectedTabBefore = bonsplitController.focusedPaneId
@@ -11899,6 +11904,9 @@ extension Workspace: BonsplitDelegate {
         // Update current directory if this is a terminal
         if let dir = panelDirectories[panelId] {
             currentDirectory = dir
+        }
+        if isRemoteWorkspace, previousCurrentDirectory == currentDirectory {
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
         }
         gitBranch = panelGitBranches[panelId]
         pullRequest = panelPullRequests[panelId]
