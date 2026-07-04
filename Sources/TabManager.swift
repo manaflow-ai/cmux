@@ -1877,7 +1877,7 @@ class TabManager: ObservableObject {
             }
             commonGroupId = groupId
         }
-        return commonGroupId
+        return commonGroupId.flatMap { id in workspaceGroups.contains { $0.id == id } ? id : nil }
     }
 
     func moveWorkspaceGroup(groupId: UUID, toIndex targetIndex: Int) {

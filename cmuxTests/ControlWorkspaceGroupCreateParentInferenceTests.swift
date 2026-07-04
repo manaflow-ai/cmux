@@ -53,6 +53,29 @@ struct ControlWorkspaceGroupCreateParentInferenceTests {
         #expect(manager.workspaceGroups.first { $0.id == createdGroupId }?.parentGroupId == parentId)
     }
 
+    @Test func commonWorkspaceGroupIdIgnoresStaleMembership() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let workspaceIds = manager.tabs.map(\.id)
+        let staleGroupId = UUID()
+        manager.tabs[0].groupId = staleGroupId
+        manager.tabs[1].groupId = staleGroupId
+
+        let inferredParentId = manager.commonWorkspaceGroupId(for: workspaceIds)
+        let createdGroupId = manager.createWorkspaceGroup(
+            name: "Recovered",
+            childWorkspaceIds: workspaceIds,
+            parentGroupId: inferredParentId,
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        )
+
+        #expect(inferredParentId == nil)
+        let groupId = try #require(createdGroupId)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.parentGroupId == nil)
+    }
+
     @Test func socketMoveGroupRejectsNonSiblingRelativeTargets() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager(autoWelcomeIfNeeded: false)
