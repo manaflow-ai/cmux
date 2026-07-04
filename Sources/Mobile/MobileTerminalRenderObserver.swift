@@ -33,7 +33,6 @@ final class MobileTerminalRenderObserver {
         }
 
         mutating func append(seq nextSeq: UInt64, data nextData: Data, budget: Int) {
-            renderGridMissCount = 0
             let currentEnd = seq &+ UInt64(data.count)
             if currentEnd == nextSeq {
                 data.append(nextData)
