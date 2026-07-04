@@ -293,7 +293,7 @@ struct MacComputerRow: View {
     /// The localized display label for the Mac-chosen transport mode, or `nil`
     /// when the host hasn't announced one (see ``MobileTransportModeLabel``).
     private var transportLabel: String? {
-        MobileTransportModeLabel.label(for: computer.transportMode)
+        MobileTransportModeLabel().label(for: computer.transportMode)
     }
 
     /// A read-only pill showing HOW this Mac is reachable (the Mac chooses the

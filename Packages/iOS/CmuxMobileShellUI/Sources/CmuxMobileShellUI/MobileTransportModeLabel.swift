@@ -6,8 +6,8 @@ import CmuxMobileSupport
 /// the computer detail sheet so both surfaces render the same wording. Unknown
 /// future modes fall through to their raw value so a new mode is visible before
 /// this app learns its display name.
-enum MobileTransportModeLabel {
-    static func label(for rawMode: String?) -> String? {
+struct MobileTransportModeLabel {
+    func label(for rawMode: String?) -> String? {
         switch rawMode {
         case nil: return nil
         case "cmuxRelay":

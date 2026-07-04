@@ -30,7 +30,7 @@ struct MobileTransportModeMigrationTests {
         let defaults = makeDefaults()
         defaults.set(true, forKey: MobileTransportModeMigration.legacyIrohKey)
 
-        MobileTransportModeMigration.runIfNeeded(defaults: defaults)
+        MobileTransportModeMigration(defaults: defaults).runIfNeeded()
 
         #expect(defaults.string(forKey: MobileTransportModeMigration.modeKey) == MobileTransportMode.cmuxRelay.rawValue)
         #expect(defaults.object(forKey: MobileTransportModeMigration.legacyIrohKey) == nil)
@@ -41,7 +41,7 @@ struct MobileTransportModeMigrationTests {
         defaults.set(false, forKey: MobileTransportModeMigration.legacyIrohKey)
         defaults.set(true, forKey: MobileTransportModeMigration.legacyPairingKey)
 
-        MobileTransportModeMigration.runIfNeeded(defaults: defaults)
+        MobileTransportModeMigration(defaults: defaults).runIfNeeded()
 
         #expect(defaults.string(forKey: MobileTransportModeMigration.modeKey) == MobileTransportMode.tailscale.rawValue)
         #expect(defaults.object(forKey: MobileTransportModeMigration.legacyPairingKey) == nil)
@@ -50,7 +50,7 @@ struct MobileTransportModeMigrationTests {
     @Test func runIfNeeded_freshInstall_leavesModeUnset() {
         let defaults = makeDefaults()
 
-        MobileTransportModeMigration.runIfNeeded(defaults: defaults)
+        MobileTransportModeMigration(defaults: defaults).runIfNeeded()
 
         // No legacy keys: leave the mode unset so the catalog default applies and
         // onboarding makes the choice explicit.
@@ -63,7 +63,7 @@ struct MobileTransportModeMigrationTests {
         // Legacy iroh=on would otherwise derive cmuxRelay; an explicit mode wins.
         defaults.set(true, forKey: MobileTransportModeMigration.legacyIrohKey)
 
-        MobileTransportModeMigration.runIfNeeded(defaults: defaults)
+        MobileTransportModeMigration(defaults: defaults).runIfNeeded()
 
         #expect(defaults.string(forKey: MobileTransportModeMigration.modeKey) == MobileTransportMode.tailscale.rawValue)
     }

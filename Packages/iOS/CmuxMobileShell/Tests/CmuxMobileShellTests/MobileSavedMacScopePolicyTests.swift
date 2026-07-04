@@ -12,7 +12,7 @@ import Testing
     private let dl2 = MobileIOSBuildScope("dl2")
 
     private func decision(tag: String?, bundle: String?, scope: MobileIOSBuildScope?) -> MobileSavedMacScopePolicy.Decision {
-        MobileSavedMacScopePolicy.decision(macDevTag: tag, macBundleID: bundle, iosScope: scope)
+        MobileSavedMacScopePolicy().decision(macDevTag: tag, macBundleID: bundle, iosScope: scope)
     }
 
     @Test func unscopedPhoneConnectsToAnything() {

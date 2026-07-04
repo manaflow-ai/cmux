@@ -7,31 +7,37 @@ import Foundation
 /// This is not a 1:1 key rename (two booleans collapse into one enum), so it
 /// can't use `DefaultsKey.legacyUserDefaultsKeys`. Run once at startup before
 /// the mobile host reads its mode.
-public enum MobileTransportModeMigration {
+public struct MobileTransportModeMigration {
     static let modeKey = "mobile.iOSTransportMode"
     static let legacyIrohKey = "mobile.iOSIrohHost.enabled"
     static let legacyPairingKey = "mobile.iOSPairingHost.enabled"
+
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     /// Derives a mode from the legacy boolean pair and persists it, unless the
     /// new key is already set or this is a fresh install (no legacy keys). Old
     /// keys are removed after a successful derivation so defaults stay clean.
     ///
     /// Idempotent: a no-op once `mobile.iOSTransportMode` exists.
-    public static func runIfNeeded(defaults: UserDefaults = .standard) {
+    public func runIfNeeded() {
         // Already chosen (by a prior migration or by the user): leave it.
-        guard defaults.object(forKey: modeKey) == nil else { return }
+        guard defaults.object(forKey: Self.modeKey) == nil else { return }
 
-        let hadIroh = defaults.object(forKey: legacyIrohKey) as? Bool
-        let hadPairing = defaults.object(forKey: legacyPairingKey) as? Bool
+        let hadIroh = defaults.object(forKey: Self.legacyIrohKey) as? Bool
+        let hadPairing = defaults.object(forKey: Self.legacyPairingKey) as? Bool
 
         // Fresh install: no legacy state. Leave the key unset so the catalog
         // default (cmuxRelay) applies and onboarding makes the choice explicit.
         guard hadIroh != nil || hadPairing != nil else { return }
 
-        let derived = derivedMode(hadIroh: hadIroh, hadPairing: hadPairing)
-        defaults.set(derived.rawValue, forKey: modeKey)
-        defaults.removeObject(forKey: legacyIrohKey)
-        defaults.removeObject(forKey: legacyPairingKey)
+        let derived = Self.derivedMode(hadIroh: hadIroh, hadPairing: hadPairing)
+        defaults.set(derived.rawValue, forKey: Self.modeKey)
+        defaults.removeObject(forKey: Self.legacyIrohKey)
+        defaults.removeObject(forKey: Self.legacyPairingKey)
     }
 
     /// Pure mapping, exposed for tests:

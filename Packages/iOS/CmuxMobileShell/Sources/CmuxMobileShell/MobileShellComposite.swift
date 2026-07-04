@@ -1841,9 +1841,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
-            guard !dialRoutes.isEmpty else { break }
+            // Skip (not abort): a Mac with no dialable routes (offline, or all
+            // routes filtered by the iroh pin gate) must not block later candidates.
+            guard !dialRoutes.isEmpty else { continue }
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-            guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope), !latestForgottenIDs.contains(mac.macDeviceID) else { break }
+            guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope) else { break }
+            // Forgotten mid-reconnect: skip this Mac only; the rest stay eligible.
+            if latestForgottenIDs.contains(mac.macDeviceID) { continue }
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
             // Try the Mac's routes in order (host/port first, then iroh peer):
@@ -2959,7 +2963,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // heartbeats under its own device UUID, so the per-deviceId summary is the
         // exact identity of the row being filtered.
         let summary = presenceMap.deviceSummary(deviceId: mac.macDeviceID)
-        return MobileSavedMacScopePolicy.decision(
+        return MobileSavedMacScopePolicy().decision(
             macDevTag: summary?.tag,
             macBundleID: summary?.bundleId,
             iosScope: iosBuildScope

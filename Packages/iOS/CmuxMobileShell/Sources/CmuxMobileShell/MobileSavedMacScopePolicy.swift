@@ -21,7 +21,7 @@ import Foundation
 /// use for sockets/bundle ids, because the iOS scope value may be the DOTTED
 /// bundle suffix ("my.tag") while the Mac heartbeats the DASHED reload tag
 /// ("my-tag").
-enum MobileSavedMacScopePolicy {
+struct MobileSavedMacScopePolicy {
     /// The Mac-side tagged Debug bundle prefix (`com.cmuxterm.app.debug.<seg>`).
     private static let macDevBundlePrefix = "com.cmuxterm.app.debug."
 
@@ -37,7 +37,7 @@ enum MobileSavedMacScopePolicy {
         case refused
     }
 
-    static func decision(
+    func decision(
         macDevTag: String?,
         macBundleID: String?,
         iosScope: MobileIOSBuildScope?
@@ -49,11 +49,11 @@ enum MobileSavedMacScopePolicy {
         var devTag: String?
         if let trimmedTag, !trimmedTag.isEmpty, trimmedTag != "default" {
             devTag = trimmedTag
-        } else if let bundle = macBundleID?.lowercased(), bundle.hasPrefix(macDevBundlePrefix) {
-            devTag = String(bundle.dropFirst(macDevBundlePrefix.count))
+        } else if let bundle = macBundleID?.lowercased(), bundle.hasPrefix(Self.macDevBundlePrefix) {
+            devTag = String(bundle.dropFirst(Self.macDevBundlePrefix.count))
         }
         if let devTag {
-            return slug(devTag) == slug(iosScope.value) ? .allowed : .refused
+            return Self.slug(devTag) == Self.slug(iosScope.value) ? .allowed : .refused
         }
         // A known NON-dev build (stable/nightly/rc bundle) is a real product
         // install: always dialable. No identity at all is the ambiguous case.
