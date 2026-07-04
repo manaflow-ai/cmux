@@ -8,6 +8,7 @@ import SwiftUI
 struct RemoteTmuxWindowMirrorView: View {
     let mirror: RemoteTmuxWindowMirror
     let appearance: PanelAppearance
+    let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     /// Pane-header ✕ handler — owned by the workspace layer so the kill-pane can
@@ -21,6 +22,7 @@ struct RemoteTmuxWindowMirrorView: View {
                 node: mirror.layout,
                 mirror: mirror,
                 appearance: appearance,
+                isFocused: isFocused,
                 isVisibleInUI: isVisibleInUI,
                 portalPriority: portalPriority,
                 onClosePane: onClosePane

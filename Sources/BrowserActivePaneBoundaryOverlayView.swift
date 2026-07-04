@@ -33,6 +33,12 @@ final class BrowserActivePaneBoundaryOverlayView: NSView {
         updatePath()
     }
 
+    func setIncludesTopEdge(_ includesTopEdge: Bool) {
+        guard self.includesTopEdge != includesTopEdge else { return }
+        self.includesTopEdge = includesTopEdge
+        updatePath()
+    }
+
     override func layout() {
         super.layout()
         updatePath()

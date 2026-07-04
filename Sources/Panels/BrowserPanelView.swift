@@ -7438,12 +7438,12 @@ struct WebViewRepresentable: NSViewRepresentable {
                   coordinator.attachGeneration == generation else { return }
             let shouldShowLocalInlineActivePaneBoundary =
                 coordinator.desiredShowsActivePaneBoundary && !shouldPreserveExternalFullscreenHost
+            slotView.setPaneTopChromeHeight(slotView.isHidden ? 0 : paneTopChromeHeight)
             slotView.setActivePaneBoundary(
                 visible: shouldShowLocalInlineActivePaneBoundary && !slotView.isHidden,
                 color: coordinator.desiredActivePaneBoundaryColor
             )
         }
-
         if panel.releasePortalHostIfOwned(
             hostId: ObjectIdentifier(host),
             reason: "localInlineHosting"

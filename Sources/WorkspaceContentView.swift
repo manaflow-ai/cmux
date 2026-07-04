@@ -219,6 +219,7 @@ struct WorkspaceContentView: View {
                     RemoteTmuxWindowMirrorView(
                         mirror: windowMirror,
                         appearance: appearance,
+                        isFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
                         onClosePane: { tmuxPaneId in

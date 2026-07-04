@@ -1451,6 +1451,7 @@ final class WindowBrowserSlotView: NSView {
         guard abs(paneTopChromeHeight - resolvedHeight) > 0.5 else { return }
         paneTopChromeHeight = resolvedHeight
         applyResolvedDropZoneOverlay()
+        activePaneBoundaryOverlayView.setIncludesTopEdge(resolvedHeight <= 0)
     }
 
     private func logSearchOverlayEvent(_ action: String, panelId: UUID?) {
