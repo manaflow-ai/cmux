@@ -40,13 +40,9 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
-    struct InputRecord: Sendable {
-        var surfaceID: String
-        var text: String
-    }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
-    private(set) var inputs: [InputRecord] = []
+    private(set) var inputs: [RoutingHostInputRecord] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
@@ -127,7 +123,7 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
-    func recordedInputs() -> [InputRecord] { inputs }
+    func recordedInputs() -> [RoutingHostInputRecord] { inputs }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -216,7 +212,7 @@ actor RoutingHostRouter {
                 for waiter in reachedWaiters { waiter.resume() }
                 await withCheckedContinuation { firstTerminalInputContinuation = $0 }
             }
-            inputs.append(InputRecord(surfaceID: surfaceID, text: text))
+            inputs.append(RoutingHostInputRecord(surfaceID: surfaceID, text: text))
             resumeSatisfiedInputCountWaiters()
             return try? Self.resultFrame(id: id, result: [:])
         case "notification.dismiss":
