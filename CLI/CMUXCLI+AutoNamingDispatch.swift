@@ -101,10 +101,20 @@ extension CMUXCLI {
 
     func clearPersistedAgentSessionTitle(
         workspaceId: String,
+        excludingSessionId: String,
+        sessionStore: ClaudeHookSessionStore,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
     ) {
+        let workspaceStillOwned = (try? sessionStore.hasOtherLiveSession(
+            workspaceId: workspaceId,
+            excludingSessionId: excludingSessionId
+        )) != false
+        guard !workspaceStillOwned else {
+            telemetry.breadcrumb("\(telemetryKey).clear-title.other-session-live")
+            return
+        }
         guard let payload = try? client.sendV2(method: "workspace.set_auto_title", params: [
             "workspace_id": workspaceId,
             "clear_auto": true

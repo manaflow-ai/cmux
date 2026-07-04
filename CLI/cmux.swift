@@ -23030,6 +23030,8 @@ struct CMUXCLI {
             if shouldRegisterPID, !suppressVisibleMutations {
                 clearPersistedAgentSessionTitle(
                     workspaceId: workspaceId,
+                    excludingSessionId: parsedInput.sessionId ?? "",
+                    sessionStore: sessionStore,
                     client: client,
                     telemetryKey: "claude-hook.session-start",
                     telemetry: telemetry
@@ -29803,6 +29805,8 @@ export default CMUXSessionRestore;
             if !suppressVisibleMutations {
                 clearPersistedAgentSessionTitle(
                     workspaceId: workspaceId,
+                    excludingSessionId: sessionId,
+                    sessionStore: store,
                     client: client,
                     telemetryKey: "\(def.name)-hook.session-start",
                     telemetry: telemetry

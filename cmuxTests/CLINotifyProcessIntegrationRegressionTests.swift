@@ -47,6 +47,55 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeClearSessionStartSkipsAutoTitleClearWhenSiblingSessionIsLive() throws {
+        let context = try makeClaudeHookContext(name: "claude-clear-live-sibling")
+        defer { context.cleanup() }
+
+        let startingSessionId = "clear-starting-session"
+        let siblingSessionId = "clear-live-sibling-session"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                siblingSessionId: [
+                    "sessionId": siblingSessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": "\(context.surfaceId)-sibling",
+                    "cwd": context.root.path,
+                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(startingSessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let clearTitleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            clearTitleRequests.contains {
+                $0["workspace_id"] as? String == context.workspaceId
+                    && $0["clear_auto"] as? Bool == true
+            },
+            "Expected SessionStart to keep a live sibling's auto title, saw \(context.state.commands)"
+        )
+    }
+
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
         let context = try makeClaudeHookContext(name: "claude-session-restorable")
         defer { context.cleanup() }
