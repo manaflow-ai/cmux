@@ -303,9 +303,20 @@ public actor IntegrationHub {
 
     /// Pushes a normalized external event into the local inbox.
     public func push(account: InboxAccount, thread: InboxThread, item: InboxItem) async throws {
-        try await store.upsertAccount(account)
-        try await store.upsertThread(thread)
-        try await store.upsertItem(item)
+        try await push(records: [InboxPushRecord(account: account, thread: thread, item: item)])
+    }
+
+    /// Pushes a batch of normalized external events with one change
+    /// notification, so bulk mirrors (like the Feed mirror's initial load)
+    /// trigger a single downstream refresh instead of one per item.
+    /// - Parameter records: Events to persist.
+    public func push(records: [InboxPushRecord]) async throws {
+        guard !records.isEmpty else { return }
+        for record in records {
+            try await store.upsertAccount(record.account)
+            try await store.upsertThread(record.thread)
+            try await store.upsertItem(record.item)
+        }
         notify(.items)
     }
 

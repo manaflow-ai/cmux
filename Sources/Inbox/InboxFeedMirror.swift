@@ -44,16 +44,24 @@ final class InboxFeedMirror {
         mirror(store.items)
     }
 
+    /// Mirrors unseen workstream items as one batched hub push. The initial
+    /// Feed load can carry many items; pushing them individually produced one
+    /// store mutation plus one full downstream inbox refresh per item.
     private func mirror(_ items: [WorkstreamItem]) {
-        for item in items where mirroredItemIDs.insert(item.id).inserted {
-            let mapped = mappedRecords(for: item)
-            Task { [hub] in
-                try? await hub.push(account: mapped.account, thread: mapped.thread, item: mapped.item)
-            }
+        let unseen = items.filter { !mirroredItemIDs.contains($0.id) }
+        mirroredItemIDs.formUnion(unseen.map(\.id))
+        // Feed event ids are unique and never re-enter once the Feed store
+        // prunes them, so keeping only current ids bounds the dedupe set to
+        // the Feed ring instead of growing for the whole app session.
+        mirroredItemIDs.formIntersection(Set(items.map(\.id)))
+        guard !unseen.isEmpty else { return }
+        let records = unseen.map { mappedRecords(for: $0) }
+        Task { [hub] in
+            try? await hub.push(records: records)
         }
     }
 
-    private func mappedRecords(for item: WorkstreamItem) -> (account: InboxAccount, thread: InboxThread, item: InboxItem) {
+    private func mappedRecords(for item: WorkstreamItem) -> InboxPushRecord {
         let accountID = item.source.rawValue
         let threadID = identity.threadID(
             source: .agent,
@@ -99,7 +107,7 @@ final class InboxFeedMirror {
             isUnread: item.status.isPending,
             isActionable: item.kind.isActionable
         )
-        return (account, thread, inboxItem)
+        return InboxPushRecord(account: account, thread: thread, item: inboxItem)
     }
 
     private static func preview(for item: WorkstreamItem) -> String {

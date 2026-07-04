@@ -110,6 +110,25 @@ import CmuxInbox
         #expect(await connector.sentBodyList() == ["Edited final body"])
     }
 
+    @Test func batchPushPersistsAllRecordsForBulkMirrors() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let hub = IntegrationHub(store: store, connectors: [])
+        let thread = fixtures.thread(source: .agent, accountID: "claude", title: "Agent burst")
+        let records = ["one", "two", "three"].map { suffix in
+            InboxPushRecord(
+                account: fixtures.account(source: .agent, accountID: "claude"),
+                thread: thread,
+                item: fixtures.item(source: .agent, accountID: "claude", threadID: thread.threadID, suffix: suffix)
+            )
+        }
+
+        try await hub.push(records: records)
+
+        let rows = try await hub.list(InboxListQuery(filter: .all, source: .agent, limit: 10))
+        #expect(rows.count == 3)
+        #expect(try await hub.accounts().map(\.accountID) == ["claude"])
+    }
+
     @Test func syncFailurePersistsErrorStatusWithUserSafeMessage() async throws {
         let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
         let hub = IntegrationHub(store: store, connectors: [ThrowingSyncConnector(source: .generic)])
