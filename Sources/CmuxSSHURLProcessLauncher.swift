@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 /// Launches the bundled `cmux` CLI against the app's own control socket to
