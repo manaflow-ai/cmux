@@ -443,6 +443,12 @@ extension Workspace {
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
+        let directoryIsTrustedRemoteReport = directory != nil &&
+            isRemoteTerminalSurface(panelId) &&
+            remoteDirectoryReportPanelIds.contains(panelId)
+        let directoryRequiresRemoteTrust = directory != nil &&
+            remoteDirectoryTrustRequiredPanelIds.contains(panelId) &&
+            !directoryIsTrustedRemoteReport
         let listeningPorts: [Int]
         if remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId) {
             listeningPorts = []
@@ -627,9 +633,8 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: customTitleSource,
             directory: directory,
-            directoryIsTrustedRemoteReport: directory != nil &&
-                isRemoteTerminalSurface(panelId) &&
-                remoteDirectoryReportPanelIds.contains(panelId),
+            directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
+            directoryRequiresRemoteTrust: directoryRequiresRemoteTrust ? true : nil,
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
             hasUnreadIndicator: hasUnreadIndicator,
@@ -1643,6 +1648,9 @@ extension Workspace {
                 ? .trustedRestoredRemoteSnapshotMetadata
                 : .restoredSnapshotMetadata
             updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: nil, source: source)
+            if snapshot.directoryRequiresRemoteTrust == true {
+                remoteDirectoryTrustRequiredPanelIds.insert(panelId)
+            }
         }
 
         if let branch = snapshot.gitBranch {
@@ -5735,8 +5743,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDirectoryReportPanelIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         for panelId in remoteDirectoryTrustRequiredPanelIds {
-            panelGitBranches.removeValue(forKey: panelId)
-            panelPullRequests.removeValue(forKey: panelId)
+            clearPanelGitBranch(panelId: panelId)
         }
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: clearedRemoteDirectoryTrust)
         remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)

@@ -1709,6 +1709,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
+    var directoryRequiresRemoteTrust: Bool? = nil
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil

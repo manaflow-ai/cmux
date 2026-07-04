@@ -199,12 +199,15 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let remotePanelId = try #require(workspace.focusedPanelId)
 
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
+        workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "local-main", isDirty: false)
+        #expect(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch) == ["local-main"])
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
 
         #expect(workspace.isRemoteWorkspace)
         #expect(workspace.isRemoteTerminalSurface(remotePanelId))
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+        #expect(workspace.sidebarGitBranchesInDisplayOrder().isEmpty)
         #expect(workspace.presentedCurrentDirectory == nil)
 
         #expect(!workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory))
@@ -247,6 +250,12 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == nil)
         #expect(workspace.presentedCurrentDirectory == nil)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        #expect(try #require(snapshot.panels.first { $0.id == remotePanelId }).directoryRequiresRemoteTrust == true)
+        let restored = Workspace()
+        let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[remotePanelId])
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
+        #expect(restored.presentedCurrentDirectory == nil)
         #expect(workspace.closePanel(remotePanelId, force: true))
         #expect(!workspace.remoteDirectoryTrustRequiredPanelIds.contains(remotePanelId))
     }
