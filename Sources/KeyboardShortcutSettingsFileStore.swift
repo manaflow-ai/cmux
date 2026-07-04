@@ -1616,6 +1616,7 @@ final class CmuxSettingsFileStore {
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
+            var sessionScrollbackPersistenceOptOutSource: String?
             for change in changes {
                 if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
                     TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
@@ -1643,6 +1644,10 @@ final class CmuxSettingsFileStore {
                     change.defaultsKey == RendererRealizationSettings.idleSecondsKey ||
                     change.defaultsKey == RendererRealizationSettings.maxWarmRenderersKey {
                     rendererRealizationDidChange = true
+                }
+                if change.defaultsKey == SessionScrollbackPersistenceSettings.persistScrollbackKey,
+                   !SessionScrollbackPersistenceSettings.isEnabled() {
+                    sessionScrollbackPersistenceOptOutSource = change.source
                 }
 
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
@@ -1674,6 +1679,9 @@ final class CmuxSettingsFileStore {
             }
             if paneChromeDidChange {
                 PaneChromeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if let source = sessionScrollbackPersistenceOptOutSource {
+                AppDelegate.shared?.scrubPersistedSessionScrollbackForOptOut(source: source)
             }
         }
         if Thread.isMainThread {

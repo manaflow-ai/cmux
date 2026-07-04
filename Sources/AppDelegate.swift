@@ -3200,10 +3200,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
+        scrubPersistedSessionScrollbackForOptOut(source: "session.restore.prepareStartup")
         syncManualRestoreSnapshotCachePruningCrashDiagnostics()
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    @discardableResult
+    func scrubPersistedSessionScrollbackForOptOut(source: String) -> Bool {
+        guard !SessionScrollbackPersistenceSettings.isEnabled() else { return false }
+        let didScrubPersistedSnapshots = sessionSnapshotStore.scrubPersistedTerminalScrollback()
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                workspace.clearRestoredTerminalScrollbackForPersistenceOptOut()
+            }
+        }
+        if !mainWindowContexts.isEmpty {
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "session.scrollbackPersistence.scrub source=\(source) " +
+                "persisted=\(didScrubPersistedSnapshots ? 1 : 0)"
+        )
+#endif
+        return didScrubPersistedSnapshots
     }
 
     private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {

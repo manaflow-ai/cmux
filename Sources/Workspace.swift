@@ -2656,6 +2656,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+
+    func clearRestoredTerminalScrollbackForPersistenceOptOut() {
+        restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+    }
+
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]

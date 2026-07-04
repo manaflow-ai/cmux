@@ -239,7 +239,16 @@ public struct AppSection: View {
                     ? String(localized: "settings.app.persistTerminalScrollback.subtitleOn", defaultValue: "Terminal scrollback is saved to disk and replayed when cmux restarts.")
                     : String(localized: "settings.app.persistTerminalScrollback.subtitleOff", defaultValue: "Tabs, layout, and working directories still restore, but terminal scrollback is never written to disk.")
             ) {
-                Toggle("", isOn: Binding(get: { persistScrollback.current }, set: { persistScrollback.set($0) }))
+                Toggle("", isOn: Binding(
+                    get: { persistScrollback.current },
+                    set: { enabled in
+                        persistScrollback.set(enabled) {
+                            if !enabled {
+                                hostActions.scrubPersistedTerminalScrollback()
+                            }
+                        }
+                    }
+                ))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsPersistTerminalScrollbackToggle")

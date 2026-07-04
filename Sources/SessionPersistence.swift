@@ -1918,6 +1918,52 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
     var hasWindows: Bool { !windows.isEmpty }
 }
 
+extension AppSessionSnapshot {
+    func removingTerminalScrollback() -> (snapshot: AppSessionSnapshot, removedAny: Bool) {
+        var snapshot = self
+        var removedAny = false
+
+        for windowIndex in snapshot.windows.indices {
+            for workspaceIndex in snapshot.windows[windowIndex].tabManager.workspaces.indices {
+                for panelIndex in snapshot.windows[windowIndex].tabManager.workspaces[workspaceIndex].panels.indices {
+                    var panel = snapshot.windows[windowIndex].tabManager.workspaces[workspaceIndex].panels[panelIndex]
+                    guard panel.terminal?.scrollback != nil else { continue }
+                    panel.terminal?.scrollback = nil
+                    snapshot.windows[windowIndex].tabManager.workspaces[workspaceIndex].panels[panelIndex] = panel
+                    removedAny = true
+                }
+            }
+        }
+
+        return (snapshot, removedAny)
+    }
+}
+
+extension SessionSnapshotStoring where SnapshotValue == AppSessionSnapshot {
+    @discardableResult
+    func scrubPersistedTerminalScrollback() -> Bool {
+        let scrubbedPrimary = scrubPersistedTerminalScrollback(fileURL: defaultSnapshotFileURL())
+        let scrubbedManualRestore = scrubPersistedTerminalScrollback(fileURL: manualRestoreSnapshotFileURL())
+        return scrubbedPrimary || scrubbedManualRestore
+    }
+
+    private func scrubPersistedTerminalScrollback(fileURL: URL?) -> Bool {
+        guard let fileURL else { return false }
+
+        switch loadOutcome(fileURL: fileURL) {
+        case .loaded(let snapshot):
+            let scrubbed = snapshot.removingTerminalScrollback()
+            guard scrubbed.removedAny else { return false }
+            return save(scrubbed.snapshot, fileURL: fileURL)
+        case .missing:
+            return false
+        case .unusable:
+            removeSnapshot(fileURL: fileURL)
+            return true
+        }
+    }
+}
+
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
     private static let directoryName = "cmux-session-scrollback"

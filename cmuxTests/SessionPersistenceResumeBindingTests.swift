@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
@@ -467,6 +468,57 @@ import Testing
         let enabledWorkspace = Workspace(sessionScrollbackPersistenceDefaults: onDefaults)
         enabledWorkspace.restoreSessionSnapshot(snapshot)
         #expect(enabledWorkspace.restoredTerminalScrollbackByPanelId.values.contains("SENSITIVE_TOKEN_OUTPUT"))
+    }
+
+    @Test @MainActor func persistedSessionSnapshotsScrubScrollbackWhenPersistenceDisabled() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-persisted-scrollback-scrub-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let repository = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests",
+            appSupportDirectory: root
+        )
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+        let backupURL = try #require(repository.manualRestoreSnapshotFileURL())
+        var workspaceSnapshot = Workspace().sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(workspaceSnapshot.panels.firstIndex { $0.terminal != nil })
+        workspaceSnapshot.panels[panelIndex].terminal?.scrollback = "SENSITIVE_TOKEN_OUTPUT"
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [workspaceSnapshot]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        #expect(repository.save(snapshot, fileURL: nil))
+        #expect(repository.save(snapshot, fileURL: backupURL))
+        let primaryBefore = try #require(String(data: Data(contentsOf: primaryURL), encoding: .utf8))
+        let backupBefore = try #require(String(data: Data(contentsOf: backupURL), encoding: .utf8))
+        #expect(primaryBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
+        #expect(backupBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
+
+        #expect(repository.scrubPersistedTerminalScrollback())
+
+        for fileURL in [primaryURL, backupURL] {
+            let contents = try #require(String(data: Data(contentsOf: fileURL), encoding: .utf8))
+            #expect(!contents.contains("SENSITIVE_TOKEN_OUTPUT"))
+            let loaded = try #require(repository.load(fileURL: fileURL))
+            let terminal = try #require(
+                loaded.windows.first?.tabManager.workspaces.first?.panels.first { $0.terminal != nil }?.terminal
+            )
+            #expect(terminal.scrollback == nil)
+        }
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
