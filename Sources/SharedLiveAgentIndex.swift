@@ -9,44 +9,37 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     @Published private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
-    private var processScopeFingerprint: Set<ProcessScopeKey> = []
+    private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
-    private var processScopeWatchTask: Task<Void, Never>?
-    private var reloadInProgress = false
+    private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var changePending = false
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let minEventReloadInterval: TimeInterval = 2.0
-    private static let processScopePollInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let processSnapshotProvider: @Sendable () -> CmuxTopProcessSnapshot
-    private let indexLoader: @Sendable (CmuxTopProcessSnapshot) -> RestorableAgentSessionIndex
+    private let indexLoader: @Sendable () -> RestorableAgentSessionIndex
     private let hookStoreDirectoryProvider: @MainActor () -> String
 
     init(
-        processSnapshotProvider: @escaping @Sendable () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        },
-        indexLoader: @escaping @Sendable (CmuxTopProcessSnapshot) -> RestorableAgentSessionIndex = {
-            SharedLiveAgentIndex.loadIndexSynchronously(processSnapshot: $0)
+        indexLoader: @escaping @Sendable () -> RestorableAgentSessionIndex = {
+            SharedLiveAgentIndexLoader().loadSynchronously()
         },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
         }
     ) {
-        self.processSnapshotProvider = processSnapshotProvider
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
     }
 
     deinit {
         refreshTask?.cancel()
-        processScopeWatchTask?.cancel()
+        forkAvailabilityRefreshTask?.cancel()
         deferredReloadTask?.cancel()
         directoryWatchSource?.cancel()
     }
@@ -57,9 +50,10 @@ final class SharedLiveAgentIndex: ObservableObject {
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
-    /// Read a process-sensitive snapshot for the Fork Conversation context menu.
+    /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
+        requestForkAvailabilityRefresh()
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
@@ -71,12 +65,27 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     func scheduleRefreshIfStale() {
         ensureWatchingHookStoreDirectory()
-        ensureWatchingProcessScope()
-        guard refreshTask == nil, !reloadInProgress else { return }
+        guard refreshTask == nil else { return }
         if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.cacheTTL {
             return
         }
         startReload()
+    }
+
+    func refreshForkAvailabilityNow() async {
+        await reloadIfLiveAgentProcessFingerprintChanged()
+    }
+
+    private func requestForkAvailabilityRefresh() {
+        guard refreshTask == nil,
+              forkAvailabilityRefreshTask == nil else {
+            return
+        }
+        forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reloadIfLiveAgentProcessFingerprintChanged()
+            self.forkAvailabilityRefreshTask = nil
+        }
     }
 
     private func startReload() {
@@ -84,7 +93,7 @@ final class SharedLiveAgentIndex: ObservableObject {
         deferredReloadTask = nil
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.reload()
+            await self.reload(forcePublish: true)
             self.refreshTask = nil
             if self.changePending {
                 self.changePending = false
@@ -93,67 +102,40 @@ final class SharedLiveAgentIndex: ObservableObject {
         }
     }
 
-    func refreshIfProcessScopeChanged() async {
-        let scope = await captureProcessScope()
-        guard index == nil || scope.fingerprint != processScopeFingerprint else { return }
-        guard refreshTask == nil, !reloadInProgress else {
-            if index != nil {
-                changePending = true
-            }
-            return
-        }
-        await reload(using: scope)
-        if changePending {
-            changePending = false
-            handleHookStoreChange()
-        }
-    }
-
-    private func reload(using scope: ProcessScopeSnapshot? = nil) async {
-        guard !reloadInProgress else {
+    private func reloadIfLiveAgentProcessFingerprintChanged() async {
+        guard refreshTask == nil else {
             changePending = true
             return
         }
-        reloadInProgress = true
-        defer { reloadInProgress = false }
-        let resolvedScope = if let scope {
-            scope
-        } else {
-            await captureProcessScope()
-        }
+        await reload(forcePublish: index == nil)
+    }
+
+    private func reload(forcePublish: Bool) async {
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
-            ReloadResult(
-                index: indexLoader(resolvedScope.processSnapshot),
-                fingerprint: resolvedScope.fingerprint
+            let newIndex = indexLoader()
+            return ReloadResult(
+                index: newIndex,
+                liveAgentProcessFingerprint: newIndex.liveAgentProcessFingerprint()
             )
         }.value
         guard !Task.isCancelled else { return }
-        applyReloadedIndex(result.index, fingerprint: result.fingerprint)
-    }
-
-    private func captureProcessScope() async -> ProcessScopeSnapshot {
-        let processSnapshotProvider = self.processSnapshotProvider
-        return await Task.detached(priority: .utility) {
-            let processSnapshot = processSnapshotProvider()
-            return ProcessScopeSnapshot(
-                processSnapshot: processSnapshot,
-                fingerprint: SharedLiveAgentIndex.processScopeFingerprint(from: processSnapshot)
-            )
-        }.value
+        if forcePublish || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint {
+            applyReloadedIndex(result.index, liveAgentProcessFingerprint: result.liveAgentProcessFingerprint)
+        }
     }
 
     private func applyReloadedIndex(
         _ newIndex: RestorableAgentSessionIndex,
-        fingerprint: Set<ProcessScopeKey>
+        liveAgentProcessFingerprint: Set<String>
     ) {
         index = newIndex
         loadedAt = Date()
-        processScopeFingerprint = fingerprint
+        self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
     }
 
     private func handleHookStoreChange() {
-        if refreshTask != nil || reloadInProgress {
+        if refreshTask != nil {
             changePending = true
             return
         }
@@ -194,67 +176,13 @@ final class SharedLiveAgentIndex: ObservableObject {
         directoryWatchSource = source
         if index == nil, refreshTask == nil {
             startReload()
-        } else if refreshTask != nil || reloadInProgress {
+        } else if refreshTask != nil {
             changePending = true
         }
     }
 
-    private func ensureWatchingProcessScope() {
-        guard processScopeWatchTask == nil else { return }
-        processScopeWatchTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                await self?.refreshIfProcessScopeChanged()
-                // Bounded, cancellable polling interval for process-scope changes.
-                try? await Task.sleep(for: .seconds(Self.processScopePollInterval))
-            }
-        }
-    }
-
-    private nonisolated static func loadIndexSynchronously(
-        processSnapshot: CmuxTopProcessSnapshot
-    ) -> RestorableAgentSessionIndex {
-        SharedLiveAgentIndexLoader(
-            processSnapshotProvider: { processSnapshot },
-            capturedAtProvider: { processSnapshot.sampledAt.timeIntervalSince1970 }
-        )
-        .loadSynchronously()
-    }
-
-    nonisolated private static func processScopeFingerprint(
-        from processSnapshot: CmuxTopProcessSnapshot
-    ) -> Set<ProcessScopeKey> {
-        Set(processSnapshot.cmuxScopedProcesses().map {
-            ProcessScopeKey(
-                workspaceId: $0.cmuxWorkspaceID,
-                panelId: $0.cmuxSurfaceID,
-                pid: $0.pid,
-                parentPID: $0.parentPID,
-                processGroupID: $0.processGroupID,
-                terminalProcessGroupID: $0.terminalProcessGroupID,
-                name: $0.name,
-                path: $0.path
-            )
-        })
-    }
-
-    private struct ProcessScopeKey: Hashable, Sendable {
-        let workspaceId: UUID?
-        let panelId: UUID?
-        let pid: Int
-        let parentPID: Int
-        let processGroupID: Int?
-        let terminalProcessGroupID: Int?
-        let name: String
-        let path: String?
-    }
-
-    private struct ProcessScopeSnapshot: Sendable {
-        let processSnapshot: CmuxTopProcessSnapshot
-        let fingerprint: Set<ProcessScopeKey>
-    }
-
     private struct ReloadResult: Sendable {
         let index: RestorableAgentSessionIndex
-        let fingerprint: Set<ProcessScopeKey>
+        let liveAgentProcessFingerprint: Set<String>
     }
 }

@@ -998,6 +998,19 @@ struct RestorableAgentSessionIndex: Sendable {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
+    func liveAgentProcessFingerprint() -> Set<String> {
+        Set(entriesByPanel.compactMap { key, entry in
+            guard !entry.processIDs.isEmpty else { return nil }
+            return [
+                key.workspaceId.uuidString,
+                key.panelId.uuidString,
+                entry.snapshot.kind.rawValue,
+                entry.snapshot.sessionId,
+                entry.processIDs.sorted().map(String.init).joined(separator: ",")
+            ].joined(separator: "|")
+        })
+    }
+
     // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
     // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
     // live-PID filtering (measured 350ms-1.8s on machines with large agent history).

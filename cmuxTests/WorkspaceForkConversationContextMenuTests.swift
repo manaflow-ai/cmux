@@ -182,8 +182,8 @@ struct WorkspaceForkConversationContextMenuTests {
             includesProcessDetails: true
         ))
         let sharedIndex = SharedLiveAgentIndex(
-            processSnapshotProvider: { processSnapshotLock.withLock { $0 } },
-            indexLoader: { snapshot in
+            indexLoader: {
+                let snapshot = processSnapshotLock.withLock { $0 }
                 SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
                     fileManager: .default,
@@ -205,9 +205,9 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
-        await sharedIndex.refreshIfProcessScopeChanged()
+        await sharedIndex.refreshForkAvailabilityNow()
         #expect(
-            sharedIndex.snapshotForForkAvailability(
+            sharedIndex.index?.snapshot(
                 workspaceId: staleWorkspaceId,
                 panelId: stalePanelId
             )?.sessionId == sessionId
@@ -238,7 +238,7 @@ struct WorkspaceForkConversationContextMenuTests {
             )
         }
 
-        await sharedIndex.refreshIfProcessScopeChanged()
+        await sharedIndex.refreshForkAvailabilityNow()
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: staleWorkspaceId,
