@@ -82,6 +82,38 @@ import CmuxGit
         #expect(service.activeWorkspaceGitProbePanelIds(workspaceId: workspaceId).isEmpty)
     }
 
+    @Test func remoteWorkspaceBranchReportDoesNotScheduleLocalProbe() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/remote")
+        host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.hasTrustedRemoteDirectory = true
+        let clock = ManualGitPollClock()
+        let reader = GatedMetadataReader(metadata: .repository(branch: "local-main", isDirty: true))
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: reader,
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "remote-main",
+            isDirty: false
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
+            branch: "remote-main",
+            isDirty: false
+        ))
+        #expect(await clock.recordedDurations.isEmpty)
+        #expect(await reader.probedDirectories.isEmpty)
+        #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+    }
+
     /// A repository probe projects the branch (with dirty flag) onto the
     /// panel and, with PR polling enabled, schedules a PR refresh.
     @Test func repositorySnapshotProjectsBranchAndSchedulesPullRequestRefresh() async throws {

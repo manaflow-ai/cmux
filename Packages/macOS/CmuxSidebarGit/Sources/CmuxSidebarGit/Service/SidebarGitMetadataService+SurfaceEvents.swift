@@ -102,13 +102,23 @@ extension SidebarGitMetadataService {
         let current = host.panelGitBranch(workspaceId: workspaceId, panelId: panelId)
         let normalizedBranch = GitMetadataService.normalizedBranchName(branch) ?? branch
         let nextIsDirty = isDirty ?? (current?.branch == normalizedBranch ? current?.isDirty ?? false : false)
-        guard current?.branch != normalizedBranch || current?.isDirty != nextIsDirty else { return }
-        host.updatePanelGitBranch(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            branch: normalizedBranch,
-            isDirty: nextIsDirty
-        )
+        let branchChanged = current?.branch != normalizedBranch || current?.isDirty != nextIsDirty
+        if branchChanged {
+            host.updatePanelGitBranch(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                branch: normalizedBranch,
+                isDirty: nextIsDirty
+            )
+        }
+        if host.isRemoteWorkspace(workspaceId) == true {
+            clearWorkspaceGitProbe(probeKey)
+            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+            updateWorkspaceGitMetadataFallbackTimer()
+            pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspaceId, panelId: panelId)
+            return
+        }
+        guard branchChanged else { return }
         if let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId) {
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
             updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
