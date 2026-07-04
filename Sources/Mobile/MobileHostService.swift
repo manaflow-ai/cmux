@@ -1343,7 +1343,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketAuthorizationError(
+    nonisolated static func ticketAuthorizationError(
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1357,7 +1357,7 @@ final class MobileHostService {
         )
     }
 
-    private static func ticketAuthorizationError(
+    nonisolated static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1400,16 +1400,16 @@ final class MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return nil
-        case "mobile.host.status":
+        case "mobile.events.subscribe", "mobile.events.unsubscribe",
+             "notification.settings.get", "notification.settings.set",
+             "mobile.host.status":
             return nil
         default:
             return scopedTicketError
         }
     }
 
-    private static func ticketTerminalAuthorizationError(
+    nonisolated private static func ticketTerminalAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         workspaceSelection: String?,
         terminalSelection: String?
@@ -1448,34 +1448,18 @@ final class MobileHostService {
         return nil
     }
 
-    static func debugTicketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest,
-        createdWorkspaceIDs: Set<String> = [],
-        createdTerminalIDs: Set<String> = []
-    ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: createdWorkspaceIDs,
-                createdTerminalIDs: createdTerminalIDs
-            ),
-            request: request
-        )
-    }
-
-    private static var scopedTicketError: MobileHostRPCError {
+    nonisolated private static var scopedTicketError: MobileHostRPCError {
         MobileHostRPCError(
             code: "forbidden",
             message: "Attach ticket is not valid for this workspace or terminal."
         )
     }
 
-    private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
+    nonisolated private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }
 
-    private static func stringParamSelection(
+    nonisolated private static func stringParamSelection(
         _ params: [String: Any],
         keys: [String]
     ) -> StringParamSelection {

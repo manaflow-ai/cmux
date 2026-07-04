@@ -183,6 +183,9 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 isShowingAddDeviceSheet = false
+                #if os(iOS)
+                pushCoordinator.macConnectionDidBecomeAvailable()
+                #endif
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }

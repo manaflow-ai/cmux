@@ -365,7 +365,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error?.code == "forbidden")
     }
@@ -384,7 +384,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error?.code == "forbidden")
     }
@@ -400,7 +400,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -419,7 +419,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -437,7 +437,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -453,7 +453,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -472,10 +472,13 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(
-            ticket: ticket,
+        let error = MobileHostService.ticketAuthorizationError(
+            authorization: MobileAttachTicketAuthorization(
+                ticket: ticket,
+                createdWorkspaceIDs: ["created-workspace"],
+                createdTerminalIDs: []
+            ),
             request: request,
-            createdWorkspaceIDs: ["created-workspace"]
         )
 
         #expect(error == nil)
@@ -495,10 +498,13 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(
-            ticket: ticket,
-            request: request,
-            createdTerminalIDs: ["created-terminal"]
+        let error = MobileHostService.ticketAuthorizationError(
+            authorization: MobileAttachTicketAuthorization(
+                ticket: ticket,
+                createdWorkspaceIDs: [],
+                createdTerminalIDs: ["created-terminal"]
+            ),
+            request: request
         )
 
         #expect(error == nil)
@@ -515,7 +521,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -535,7 +541,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error?.code == "forbidden")
     }
@@ -554,7 +560,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -573,7 +579,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -593,7 +599,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error?.code == "forbidden")
     }
@@ -609,7 +615,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error?.code == "forbidden")
     }
@@ -628,7 +634,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error?.code == "forbidden")
     }
@@ -647,7 +653,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }
@@ -666,7 +672,7 @@ struct MobileHostAuthorizationTests {
             )
         )
 
-        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
 
         #expect(error == nil)
     }

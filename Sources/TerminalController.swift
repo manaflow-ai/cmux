@@ -13214,10 +13214,8 @@ class TerminalController {
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: true)
         case "workspace.group.expand":
             result = v2MobileWorkspaceGroupSetCollapsed(params: request.params, isCollapsed: false)
-        case "notification.dismiss":
-            result = v2MobileNotificationDismiss(params: request.params)
-        case "notification.reconcile":
-            result = v2MobileNotificationReconcile(params: request.params)
+        case let method where method.hasPrefix("notification."):
+            result = v2MobileNotificationDispatch(method: method, params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:

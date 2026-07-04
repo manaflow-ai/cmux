@@ -11,7 +11,6 @@ import SwiftUI
 /// paired Mac. Presented as a sheet from the workspace list.
 struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
-    @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
     let connectedHostName: String
     let rescanQR: (() -> Void)?
@@ -22,11 +21,6 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
-    /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
-    /// update after the async enable/disable. The coordinator exposes
-    /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
-    /// directly in `body` would not re-render when it flips.
-    @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
@@ -236,26 +230,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsPreviewLines")
                 }
 
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
-                    Button {
-                        Task {
-                            if notificationsEnabled {
-                                await pushCoordinator.disable()
-                                notificationsEnabled = false
-                            } else {
-                                notificationsEnabled = await pushCoordinator.enable()
-                            }
-                        }
-                    } label: {
-                        Label(
-                            notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                            systemImage: notificationsEnabled ? "bell.slash" : "bell"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsNotifications")
-                }
+                MobileNotificationSettingsSection(store: store)
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
                     LabeledContent {
@@ -271,7 +246,6 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

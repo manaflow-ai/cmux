@@ -329,6 +329,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return false
+        case "notification.settings.get", "notification.settings.set":
+            return false
         default:
             return true
         }

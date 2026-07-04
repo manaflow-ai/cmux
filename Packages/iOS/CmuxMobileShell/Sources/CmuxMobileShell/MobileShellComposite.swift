@@ -300,7 +300,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public private(set) var supportedHostCapabilities: Set<String> = []
+    public internal(set) var supportedHostCapabilities: Set<String> = []
     /// Whether the Mac supports workspace group sections and collapse/expand RPCs.
     public var supportsWorkspaceGroups: Bool { supportedHostCapabilities.contains(Self.workspaceGroupsCapability) }
     /// Whether the Mac supports rename/pin workspace actions.

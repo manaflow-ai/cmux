@@ -4,6 +4,76 @@ import Foundation
 /// `notification.dismiss` and `notification.reconcile` RPC handlers dispatched
 /// from `mobileHostHandleRPC(_:)`.
 extension TerminalController {
+    /// Dispatch notification-related mobile RPCs to their shared handlers.
+    func v2MobileNotificationDispatch(method: String, params: [String: Any]) -> V2CallResult {
+        switch method {
+        case "notification.dismiss":
+            v2MobileNotificationDismiss(params: params)
+        case "notification.reconcile":
+            v2MobileNotificationReconcile(params: params)
+        case "notification.settings.get":
+            v2MobileNotificationSettingsGet(params: params)
+        case "notification.settings.set":
+            v2MobileNotificationSettingsSet(params: params)
+        default:
+            .err(code: "method_not_found", message: "Unknown mobile method", data: ["method": method])
+        }
+    }
+
+    /// Return the Mac's current phone-forwarding preferences for the paired
+    /// phone settings UI. Uses the same `UserDefaults` keys as
+    /// ``NotificationsPage`` so Mac and iOS surfaces stay in sync.
+    func v2MobileNotificationSettingsGet(params _: [String: Any]) -> V2CallResult {
+        .ok(v2MobileNotificationSettingsPayload())
+    }
+
+    /// Apply phone-forwarding preferences changed from the paired iOS app.
+    ///
+    /// The master toggle remains explicit opt-in. When enabled from the phone,
+    /// the default mode is `.always`, so Mac presence cannot suppress phone
+    /// notifications while the user is using their iPhone.
+    func v2MobileNotificationSettingsSet(params: [String: Any]) -> V2CallResult {
+        var enabledUpdate: Bool?
+        var modeUpdate: PhoneForwardingMode?
+        var hideContentUpdate: Bool?
+
+        if v2HasNonNullParam(params, "enabled") {
+            guard let enabled = v2Bool(params, "enabled") else {
+                return .err(code: "invalid_params", message: "enabled must be a boolean", data: nil)
+            }
+            enabledUpdate = enabled
+        }
+        if v2HasNonNullParam(params, "mode") {
+            guard let rawMode = v2OptionalTrimmedRawString(params, "mode"),
+                  let mode = PhoneForwardingMode(rawValue: rawMode) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "mode must be always or onlyWhenAway",
+                    data: nil
+                )
+            }
+            modeUpdate = mode
+        }
+        if v2HasNonNullParam(params, "hide_content") {
+            guard let hideContent = v2Bool(params, "hide_content") else {
+                return .err(code: "invalid_params", message: "hide_content must be a boolean", data: nil)
+            }
+            hideContentUpdate = hideContent
+        }
+
+        let defaults = UserDefaults.standard
+        if let enabledUpdate {
+            defaults.set(enabledUpdate, forKey: PhonePushSettings.forwardEnabledKey)
+        }
+        if let modeUpdate {
+            defaults.set(modeUpdate.rawValue, forKey: PhonePushSettings.forwardModeKey)
+        }
+        if let hideContentUpdate {
+            defaults.set(hideContentUpdate, forKey: PhonePushSettings.hideContentKey)
+        }
+        return .ok(v2MobileNotificationSettingsPayload(defaults: defaults))
+    }
+
     /// Mark notifications read on the Mac in response to the user dismissing the
     /// mirrored banner on a paired phone. Accepts either a single `notification_id`
     /// or a `notification_ids` array; ignores unknown/malformed ids.
@@ -102,5 +172,13 @@ extension TerminalController {
               !trimmed.isEmpty else { return false }
         let normalized = trimmed.lowercased().replacingOccurrences(of: "-", with: "_")
         return ["pin", "unpin", "rename", "mark_read", "mark_unread"].contains(normalized)
+    }
+
+    private func v2MobileNotificationSettingsPayload(defaults: UserDefaults = .standard) -> [String: Any] {
+        [
+            "enabled": defaults.bool(forKey: PhonePushSettings.forwardEnabledKey),
+            "mode": PhoneForwardingMode.fromDefaults(defaults).rawValue,
+            "hide_content": defaults.bool(forKey: PhonePushSettings.hideContentKey),
+        ]
     }
 }
