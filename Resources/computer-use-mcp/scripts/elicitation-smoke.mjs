@@ -250,9 +250,10 @@ async function runRawCancellationSmoke({ queued }) {
 }
 
 async function runUnknownCancellationSmoke() {
-  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
-  delete env.CMUX_CU_AUTO_APPROVE;
-  const child = spawn(process.execPath, [serverPath], { stdio: ["pipe", "pipe", "pipe"], env });
+  const child = spawn(process.execPath, [serverPath], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: fakeEnv(),
+  });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
   const pending = new Map();
