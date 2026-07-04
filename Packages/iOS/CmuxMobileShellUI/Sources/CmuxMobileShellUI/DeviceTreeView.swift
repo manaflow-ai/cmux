@@ -29,6 +29,7 @@ struct DeviceTreeView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State private var computerPendingRemovalID: String?
+    @State private var computerPendingTrustID: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -59,6 +60,7 @@ struct DeviceTreeView: View {
                 buildLabel: summary?.buildLabel,
                 transportMode: summary?.transportMode,
                 routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
+                identityMismatch: store.hasIrohIdentityMismatch(for: mac.macDeviceID),
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: store.workspaceCount(for: mac.macDeviceID),
                 aliasIDs: aliases
@@ -78,7 +80,10 @@ struct DeviceTreeView: View {
                                 computer: computer,
                                 requestRemove: requestComputerRemoval,
                                 isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
-                                confirmRemove: { _ in confirmComputerRemoval() }
+                                confirmRemove: { _ in confirmComputerRemoval() },
+                                requestTrust: requestComputerTrust,
+                                isConfirmingTrust: trustConfirmationBinding(for: computer.deviceId),
+                                confirmTrust: { _ in confirmComputerTrust() }
                             )
                         }
                         if showAddDevice != nil {
@@ -190,6 +195,34 @@ struct DeviceTreeView: View {
         computerPendingRemovalID = nil
         Task {
             await store.forgetMac(macDeviceID: deviceID)
+            await reload()
+        }
+    }
+
+    private func requestComputerTrust(_ deviceID: String) {
+        computerPendingTrustID = deviceID
+    }
+
+    private func trustConfirmationBinding(for deviceID: String) -> Binding<Bool> {
+        Binding(
+            get: { computerPendingTrustID == deviceID },
+            set: { isPresented in
+                if isPresented {
+                    computerPendingTrustID = deviceID
+                } else if computerPendingTrustID == deviceID {
+                    computerPendingTrustID = nil
+                }
+            }
+        )
+    }
+
+    private func confirmComputerTrust() {
+        guard let deviceID = computerPendingTrustID else {
+            return
+        }
+        computerPendingTrustID = nil
+        Task {
+            await store.trustCurrentIrohIdentity(macDeviceID: deviceID)
             await reload()
         }
     }

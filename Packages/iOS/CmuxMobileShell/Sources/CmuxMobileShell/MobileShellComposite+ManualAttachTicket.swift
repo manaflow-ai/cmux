@@ -64,8 +64,12 @@ extension MobileShellComposite {
         displayName: String,
         route: CmxAttachRoute,
         syntheticMacDeviceID: String,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        pinnedIrohEndpointID: String? = nil
     ) async throws -> CmxAttachTicket {
+        guard routeAllowsTokenBearingDial(route, pinnedIrohEndpointID: pinnedIrohEndpointID) else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
         if MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
             do {
                 return try await requestManualAttachTicket(

@@ -20,10 +20,27 @@ struct MacComputerRow: View {
     /// Performs the confirmed removal. Separate from ``requestRemove`` so a
     /// full-swipe can request confirmation without directly removing the row.
     var confirmRemove: ((String) -> Void)? = nil
+    /// Request confirmation before trusting a changed iroh identity.
+    var requestTrust: ((String) -> Void)? = nil
+    /// Whether this row's re-trust confirmation is presented.
+    var isConfirmingTrust: Binding<Bool> = .constant(false)
+    /// Performs the confirmed re-trust.
+    var confirmTrust: ((String) -> Void)? = nil
 
     var body: some View {
-        NavigationLink(value: computer.deviceId) {
-            rowLabel
+        Group {
+            if computer.identityMismatch, let requestTrust {
+                Button {
+                    requestTrust(computer.deviceId)
+                } label: {
+                    rowLabel
+                }
+                .buttonStyle(.plain)
+            } else {
+                NavigationLink(value: computer.deviceId) {
+                    rowLabel
+                }
+            }
         }
         .contextMenu { removeMenuButton }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -50,6 +67,26 @@ struct MacComputerRow: View {
             }
         } message: {
             Text(removeMessage)
+        }
+        .confirmationDialog(
+            trustTitle,
+            isPresented: isConfirmingTrust,
+            titleVisibility: .visible
+        ) {
+            if let confirmTrust {
+                Button(
+                    L10n.string("mobile.computers.trustNewIdentity", defaultValue: "Trust New Identity"),
+                    role: .destructive
+                ) {
+                    confirmTrust(computer.deviceId)
+                }
+                .accessibilityIdentifier("MobileComputerTrustConfirm-\(computer.deviceId)")
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                isConfirmingTrust.wrappedValue = false
+            }
+        } message: {
+            Text(trustMessage)
         }
     }
 
@@ -149,16 +186,44 @@ struct MacComputerRow: View {
         )
     }
 
+    private var trustTitle: String {
+        String(
+            format: L10n.string("mobile.computers.identityChangedTitleFormat", defaultValue: "Trust %@ again?"),
+            computer.title
+        )
+    }
+
+    private var trustMessage: String {
+        L10n.string(
+            "mobile.computers.identityChangedMessage",
+            defaultValue: "This Mac's secure identity changed. That can happen after a Mac Keychain reset. If you did not expect it, do not connect."
+        )
+    }
+
     /// The connection dot: green only when the PHONE is actually connected to this
     /// Mac. Orange while reconnecting, grey when the phone is not connected (even
     /// if presence says the Mac is online — that's the route/tailscale signal).
     @ViewBuilder
     private var badge: some View {
-        Image(systemName: "circle.fill")
-            .font(.caption2)
-            .foregroundStyle(dotColor)
-            .accessibilityLabel(connectionPhrase)
-            .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(isConnected ? "connected" : "disconnected")")
+        if computer.identityMismatch {
+            Label {
+                Text(L10n.string("mobile.computers.identityChanged", defaultValue: "Identity changed"))
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption2.weight(.semibold))
+            }
+            .foregroundStyle(.orange)
+            .accessibilityIdentifier("MobileComputerIdentityChanged-\(computer.deviceId)")
+        } else {
+            Image(systemName: "circle.fill")
+                .font(.caption2)
+                .foregroundStyle(dotColor)
+                .accessibilityLabel(connectionPhrase)
+                .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(isConnected ? "connected" : "disconnected")")
+        }
     }
 
     /// A small build-channel pill (e.g. "DEV · teams", "Nightly"). DEV/RC/Staging

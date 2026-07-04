@@ -66,6 +66,9 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The pairing code carried no route kind this device build can dial (for
     /// example an iroh-only ticket on a build without the iroh transport).
     case noSupportedRoute
+    /// The pairing code advertises an iroh EndpointId that differs from the
+    /// device-local pin already trusted for this Mac.
+    case irohIdentityChanged
     /// The attempt was cancelled (the user tapped Cancel, or a newer attempt
     /// superseded it). Not surfaced as an error.
     case cancelled
@@ -94,6 +97,7 @@ extension MobilePairingFailureCategory {
         case .loopbackRejected: return "loopback_rejected"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
+        case .irohIdentityChanged: return "iroh_identity_changed"
         case .cancelled: return "cancelled"
         case .unknown: return "other"
         }
@@ -226,6 +230,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.unsupportedRoute",
                 defaultValue: "This pairing code is not supported."
             )
+        case .irohIdentityChanged:
+            return L10n.string(
+                "mobile.pairing.irohIdentityChanged",
+                defaultValue: "This Mac's secure identity changed."
+            )
         case .cancelled:
             return ""
         case let .unknown(host, port):
@@ -271,6 +280,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
                 defaultValue: "Open the pairing window on your Mac and scan a fresh QR or link."
+            )
+        case .irohIdentityChanged:
+            return L10n.string(
+                "mobile.pairing.guidance.irohIdentityChanged",
+                defaultValue: "Open Computers, tap the Mac marked Identity changed, then choose Trust New Identity if you recognize it."
             )
         case .unrecognizedVersion:
             return L10n.string(

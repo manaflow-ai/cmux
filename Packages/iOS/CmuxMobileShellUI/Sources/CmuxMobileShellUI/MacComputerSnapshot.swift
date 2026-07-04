@@ -24,6 +24,8 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     var transportMode: String?
     /// The reachable route the phone would dial.
     let routeDescription: String?
+    /// Whether the stored iroh EndpointId no longer matches the advertised route.
+    let identityMismatch: Bool
     /// When the Mac was last seen by the paired store.
     let lastSeenAt: Date
     /// How many aggregated workspaces this computer contributes.

@@ -76,6 +76,23 @@ public protocol MobilePairedMacStoring: Sendable {
         now: Date
     ) async throws
 
+    /// Set the device-local iroh EndpointId trust pin. Leaves routes,
+    /// customization, active state, and `lastSeenAt` untouched.
+    /// - Parameters:
+    ///   - macDeviceID: Mac whose iroh identity is trusted.
+    ///   - endpointID: iroh EndpointId to trust for this Mac.
+    ///   - stackUserID: Owning Stack Auth user, if any.
+    ///   - teamID: Stack team this trust pin belongs to, if any.
+    ///   - now: Timestamp supplied by callers for audit symmetry; implementations
+    ///     must not bump `lastSeenAt` from this value.
+    func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws
+
     /// Remove a single paired Mac in one owner scope.
     /// - Parameters:
     ///   - macDeviceID: Mac to forget.
@@ -171,6 +188,22 @@ extension MobilePairedMacStoring {
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
+            stackUserID: nil,
+            teamID: nil,
+            now: now
+        )
+    }
+
+    /// Persist an iroh trust pin without an explicit owner scope. Team-aware
+    /// callers should pass the captured scope through the full requirement.
+    public func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        now: Date
+    ) async throws {
+        try await setPinnedIrohEndpointID(
+            macDeviceID: macDeviceID,
+            endpointID: endpointID,
             stackUserID: nil,
             teamID: nil,
             now: now

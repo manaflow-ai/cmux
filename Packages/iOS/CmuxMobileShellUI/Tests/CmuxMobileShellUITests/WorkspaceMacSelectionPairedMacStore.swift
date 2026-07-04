@@ -103,6 +103,21 @@ actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
         records[index].lastSeenAt = now
     }
 
+    func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        _ = now
+        guard let index = records.firstIndex(where: {
+            $0.macDeviceID == macDeviceID
+                && matchesScope($0, stackUserID: stackUserID, teamID: teamID)
+        }) else { return }
+        records[index].pinnedIrohEndpointID = endpointID
+    }
+
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         records.removeAll {
             $0.macDeviceID == macDeviceID

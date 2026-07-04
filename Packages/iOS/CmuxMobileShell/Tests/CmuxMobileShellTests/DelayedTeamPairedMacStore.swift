@@ -110,6 +110,20 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         recordsByTeam[key]?[index].customColor = customColor
         recordsByTeam[key]?[index].customIcon = customIcon
     }
+
+    func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        _ = now
+        let key = teamID ?? ""
+        guard let index = recordsByTeam[key]?.firstIndex(where: { $0.macDeviceID == macDeviceID }) else { return }
+        recordsByTeam[key]?[index].pinnedIrohEndpointID = endpointID
+    }
+
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         if gatedRemoveFailures.contains(macDeviceID) {
             markRemoveStarted(macDeviceID)

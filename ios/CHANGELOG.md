@@ -53,6 +53,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - Sign-out is local-first and works offline; revocation is best-effort and bounded (#5776).
 - Workspace list: groups, unread dots, last-activity previews, shared Unread filter (#5726).
 - Watchdog fix: render-grid liveness probes before teardown, fixing a false-fire replay loop (#5869).
+- iroh mobile transport is enabled on release iOS builds with EndpointId pinning. What to test: pair a new cmuxRelay Mac over iroh on a release build, then rotate/reset the Mac identity and confirm the phone shows the re-trust prompt instead of connecting silently.
 - Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on.
 
 ### External
@@ -60,6 +61,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - New terminal composer: type and send like a message, with drafts saved per terminal.
 - View as Text: copy raw terminal output from a clean sheet.
 - Faster, simpler Mac pairing QR, with Copy IP/Port if scanning is awkward.
+- Mac pairing now works over the cmux relay transport on release builds, and the phone asks before trusting a Mac whose secure identity changed.
 - Smarter notifications: your phone only buzzes when you are away from your Mac, tapping a notification opens the right workspace, and unread state stays in sync across devices.
 - Sign-out now works offline.
 - Polished workspace list with groups, unread dots, and recent-activity previews.

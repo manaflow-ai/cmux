@@ -1650,6 +1650,74 @@
         }
       }
     },
+    "mobile.computers.identityChanged" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identity changed"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "識別情報が変更されました"
+          }
+        }
+      }
+    },
+    "mobile.computers.identityChangedMessage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac's secure identity changed. That can happen after a Mac Keychain reset. If you did not expect it, do not connect."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac の安全な識別情報が変更されました。Mac のキーチェーンをリセットした後に起きることがあります。心当たりがない場合は接続しないでください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.identityChangedTitleFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trust %@ again?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を再度信頼しますか？"
+          }
+        }
+      }
+    },
+    "mobile.computers.trustNewIdentity" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trust New Identity"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい識別情報を信頼"
+          }
+        }
+      }
+    },
     "mobile.computers.remove" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3520,6 +3588,23 @@
         }
       }
     },
+    "mobile.pairing.guidance.irohIdentityChanged" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Computers, tap the Mac marked Identity changed, then choose Trust New Identity if you recognize it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「コンピュータ」を開き、「識別情報が変更されました」と表示された Mac をタップし、心当たりがある場合は「新しい識別情報を信頼」を選択してください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.guidance.localNetwork" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3788,6 +3873,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "QR コードをスキャン"
+          }
+        }
+      }
+    },
+    "mobile.pairing.irohIdentityChanged" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac's secure identity changed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac の安全な識別情報が変更されました。"
           }
         }
       }

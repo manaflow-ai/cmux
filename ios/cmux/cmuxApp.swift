@@ -17,30 +17,20 @@ struct cmuxApp: App {
         // attach to an in-runner mock host; release device builds keep only
         // real transports.
         // `debugLoopback` (127.0.0.1) is the Network.framework lane; iroh is the
-        // dial-by-EndpointId lane (plans/feat-ios-iroh/DESIGN.md). iroh is
-        // registered on simulator + DEBUG only for now; it stays inert until a
-        // Mac publishes an iroh route (PR 4), at which point `preferredRoute`
-        // picks it over tailscale on these builds.
-        // NOTE: enabling iroh on release requires PR #6689 to enforce the
-        // EndpointId pin before Stack-token auth (an unpinned peer must never
-        // receive the token); until then release stays iroh-off, so the Mac's
-        // cmuxRelay default only pairs release phones once #6689 lands that gate.
+        // dial-by-EndpointId lane, with `MobileIrohPinPolicy` enforced before
+        // every token-bearing iroh dial path.
         #if targetEnvironment(simulator) || DEBUG
         let networkKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
-        let irohEnabled = true
         #else
         let networkKinds: [CmxAttachTransportKind] = [.tailscale]
-        let irohEnabled = false
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: networkKinds)
         var registrations = networkKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
-        if irohEnabled {
-            registrations.append(
-                CmxRouteTransportFactoryRegistration(kind: .iroh, factory: CmxIrohByteTransportFactory())
-            )
-        }
+        registrations.append(
+            CmxRouteTransportFactoryRegistration(kind: .iroh, factory: CmxIrohByteTransportFactory())
+        )
         let transportFactory: CmxRouteTransportFactory
         do {
             transportFactory = try CmxRouteTransportFactory(registrations)

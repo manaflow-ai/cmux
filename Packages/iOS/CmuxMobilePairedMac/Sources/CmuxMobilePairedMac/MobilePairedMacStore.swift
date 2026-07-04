@@ -14,7 +14,7 @@ private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: 
 /// inject it as `any MobilePairedMacStoring`.
 public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
-    public static let currentSchemaVersion: Int32 = 4
+    public static let currentSchemaVersion: Int32 = 5
 
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
@@ -109,27 +109,36 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 try migrateToV2()
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 1:
             try transaction {
                 try migrateToV2()
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 2:
             try transaction {
                 try migrateToV3()
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 3:
             try transaction {
                 try migrateToV4()
-                try setUserVersion(4)
+                try migrateToV5()
+                try setUserVersion(5)
             }
         case 4:
+            try transaction {
+                try migrateToV5()
+                try setUserVersion(5)
+            }
+        case 5:
             break
         default:
             // A newer build wrote a higher schema version. Schema migrations are
@@ -289,6 +298,16 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("CREATE INDEX IF NOT EXISTS idx_routes_device ON mac_routes(mac_device_id, owner_key);")
     }
 
+    /// v5: device-local iroh EndpointId trust pin. Additive and nullable so
+    /// existing rows start unpinned; route refresh/upsert writes deliberately do
+    /// not touch this column.
+    private func migrateToV5() throws {
+        let existing = try tableColumns("paired_macs")
+        if !existing.contains("pinned_iroh_endpoint_id") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN pinned_iroh_endpoint_id TEXT;")
+        }
+    }
+
     /// Column names defined on `table` (via `PRAGMA table_info`), used to make
     /// additive column migrations idempotent.
     private func tableColumns(_ table: String) throws -> Set<String> {
@@ -432,6 +451,27 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         ])
     }
 
+    /// Persist the device-local iroh EndpointId trust pin for one paired Mac.
+    public func setPinnedIrohEndpointID(
+        macDeviceID: String,
+        endpointID: String,
+        stackUserID: String? = nil,
+        teamID: String? = nil,
+        now: Date = Date()
+    ) throws {
+        _ = now
+        try ensureReady()
+        try exec("""
+            UPDATE paired_macs
+            SET pinned_iroh_endpoint_id = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(endpointID),
+            .text(macDeviceID),
+            .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")"),
+        ])
+    }
+
     /// Remove one paired Mac in a specific owner scope, or all matching legacy rows when unscoped.
     public func remove(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
         try ensureReady()
@@ -484,6 +524,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         var customName: String? = nil
         var customColor: String? = nil
         var customIcon: String? = nil
+        var pinnedIrohEndpointID: String? = nil
     }
 
     private func fetchMacRow(macDeviceID: String, ownerKey: String) throws -> MacRow? {
@@ -579,11 +620,13 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         try exec("""
             INSERT INTO paired_macs (
                 mac_device_id, owner_key, display_name, stack_user_id, team_id,
-                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon
+                created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon,
+                pinned_iroh_endpoint_id
             )
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
-                last_seen_at, is_active, custom_name, custom_color, custom_icon
+                last_seen_at, is_active, custom_name, custom_color, custom_icon,
+                pinned_iroh_endpoint_id
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -634,7 +677,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         let whereClause = clauses.isEmpty ? "" : "WHERE " + clauses.joined(separator: " AND ")
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
-                   custom_name, custom_color, custom_icon, team_id
+                   custom_name, custom_color, custom_icon, team_id, pinned_iroh_endpoint_id
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -666,7 +709,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 isActive: isActive,
                 customName: Self.readNullableText(statement, column: 7),
                 customColor: Self.readNullableText(statement, column: 8),
-                customIcon: Self.readNullableText(statement, column: 9)
+                customIcon: Self.readNullableText(statement, column: 9),
+                pinnedIrohEndpointID: Self.readNullableText(statement, column: 11)
             ))
         }
 
@@ -683,7 +727,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 teamID: row.teamID,
                 customName: row.customName,
                 customColor: row.customColor,
-                customIcon: row.customIcon
+                customIcon: row.customIcon,
+                pinnedIrohEndpointID: row.pinnedIrohEndpointID
             )
         }
     }
