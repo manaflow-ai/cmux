@@ -230,7 +230,7 @@ public actor IntegrationHub {
     /// so raw Swift error dumps never reach persisted or UI-visible fields.
     private static func userSafeMessage(for error: Error) -> String {
         switch error {
-        case InboxError.openFailed, InboxError.prepareFailed, InboxError.stepFailed:
+        case InboxError.openFailed, InboxError.prepareFailed, InboxError.stepFailed, InboxError.credentialStoreFailed:
             return "Inbox storage error"
         case let error as InboxError:
             return error.description

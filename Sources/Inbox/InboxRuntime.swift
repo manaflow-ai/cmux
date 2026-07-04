@@ -271,7 +271,7 @@ final class InboxRuntime {
     /// of a raw Swift error dump.
     private static func userFacingMessage(for error: Error) -> String {
         switch error {
-        case InboxError.openFailed, InboxError.prepareFailed, InboxError.stepFailed:
+        case InboxError.openFailed, InboxError.prepareFailed, InboxError.stepFailed, InboxError.credentialStoreFailed:
             return String(localized: "inbox.error.storage", defaultValue: "Inbox storage error")
         case let error as InboxError:
             return error.description

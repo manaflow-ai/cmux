@@ -1,10 +1,20 @@
-import CmuxInbox
+@testable import CmuxInbox
 import Foundation
 import Testing
 
 @Suite("Gmail OAuth credential")
 struct GmailOAuthTests {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    @Test func formEncodingEscapesPlusAndReservedCharacters() {
+        // URLComponents-style query encoding leaves + intact, which a form
+        // decoder reads back as a space; tokens containing + must survive.
+        let encoded = GmailOAuthCredential.formEncoded([
+            "refresh_token": "1//a+b/c=d&e",
+            "client_secret": "GOCSPX-x y",
+        ])
+        #expect(encoded == "client_secret=GOCSPX-x%20y&refresh_token=1%2F%2Fa%2Bb%2Fc%3Dd%26e")
+    }
 
     @Test func expiryUsesClockSkewHeadroom() {
         let credential = GmailOAuthCredential(

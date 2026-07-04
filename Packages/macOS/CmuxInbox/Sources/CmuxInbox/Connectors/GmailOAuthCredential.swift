@@ -178,10 +178,23 @@ public struct GmailOAuthCredential: Codable, Equatable, Sendable {
         var request = URLRequest(url: URL(string: url)!)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        var components = URLComponents()
-        components.queryItems = fields.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
-        request.httpBody = Data((components.percentEncodedQuery ?? "").utf8)
+        request.httpBody = Data(formEncoded(fields).utf8)
         return request
+    }
+
+    /// Strict application/x-www-form-urlencoded encoding. URLComponents'
+    /// percentEncodedQuery leaves `+` intact, which a form-decoding token
+    /// endpoint reads back as a space and corrupts codes/tokens/secrets.
+    static func formEncoded(_ fields: [String: String]) -> String {
+        var unreserved = CharacterSet.alphanumerics
+        unreserved.insert(charactersIn: "-._~")
+        func encode(_ value: String) -> String {
+            value.addingPercentEncoding(withAllowedCharacters: unreserved) ?? value
+        }
+        return fields
+            .sorted { $0.key < $1.key }
+            .map { "\(encode($0.key))=\(encode($0.value))" }
+            .joined(separator: "&")
     }
 }
 
