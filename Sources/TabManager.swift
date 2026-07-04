@@ -334,6 +334,8 @@ class TabManager: ObservableObject {
                 "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
             )
 #endif
+            let shouldRestoreSelectedPanelFocus = !suppressNextSelectionPanelFocusRestore
+            suppressNextSelectionPanelFocusRestore = false
             selectionSideEffectsGeneration &+= 1
             let generation = selectionSideEffectsGeneration
             if !shouldRecordFocusHistory {
@@ -344,7 +346,9 @@ class TabManager: ObservableObject {
                 let suppressFocusHistory = self.focusHistoryNavigation.consumeSuppressedSelectionSideEffectGeneration(generation)
                 guard self.selectionSideEffectsGeneration == generation else { return }
                 let applySelectionSideEffects = {
-                    self.focusSelectedTabPanel(previousTabId: previousTabId)
+                    if shouldRestoreSelectedPanelFocus {
+                        self.focusSelectedTabPanel(previousTabId: previousTabId)
+                    }
                     self.updateWindowTitleForSelectedTab()
                     if let selectedTabId = self.selectedTabId {
                         self.dismissFocusedPanelNotificationIfActive(
@@ -417,6 +421,7 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
     private var selectionSideEffectsGeneration: UInt64 = 0
+    private var suppressNextSelectionPanelFocusRestore = false
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
@@ -2300,14 +2305,23 @@ class TabManager: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: Workspace) {
+        selectWorkspace(workspace, restorePanelFocus: true)
+    }
+
+    func selectWorkspace(_ workspace: Workspace, restorePanelFocus: Bool) {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
+        if !restorePanelFocus {
+            suppressNextSelectionPanelFocusRestore = true
+        }
         selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     // Keep selectTab as convenience alias
-    func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
+    func selectTab(_ tab: Workspace, restorePanelFocus: Bool = true) {
+        selectWorkspace(tab, restorePanelFocus: restorePanelFocus)
+    }
 
     var isCloseConfirmationInFlight: Bool { closeConfirmationInFlight }
 
@@ -2972,7 +2986,7 @@ class TabManager: ObservableObject {
     /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
     /// are nil this mirrors the keyboard shortcut: it resolves the browser + return terminal from the
     /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
-    /// (must be a terminal) overrides that route. Used by both the Cmd+Shift+G shortcut and the
+    /// (must be a terminal) overrides that route. Used by both the Cmd+Option+G shortcut and the
     /// `cmux browser react-grab toggle` CLI command so both share one action path.
     /// Returns the resolved browser surface id it acted on, or nil if it could not resolve/act
     /// (so callers can report the actual browser surface rather than the focused panel).
@@ -3227,6 +3241,7 @@ class TabManager: ObservableObject {
         notificationDismissalContext: NotificationDismissalContext?
     ) {
         guard selectedTabId != tabId else {
+            suppressNextSelectionPanelFocusRestore = false
             notificationDismissal.setPendingSelectionContext(nil)
             if let notificationDismissalContext {
                 notificationDismissal.dismissFocusedPanelNotificationIfActive(

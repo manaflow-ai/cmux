@@ -30,7 +30,7 @@ The sidebar layout, top to bottom:
 
 Press `⌃⌘G` to create a new empty workspace group. cmux inserts a fresh anchor workspace as the group header and auto-names it `Group 1`, `Group 2`, … (rename anytime via the header context menu).
 
-Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` collides with React Grab's default; the group handler only consumes the chord when there is an explicit sidebar multi-selection of at least two workspaces, so React Grab still fires in single-selection and browser/terminal contexts. Rebind in Settings → Keyboard if you'd rather the two not share a key.
+Select two or more workspaces in the sidebar, press `⌘⇧G`. A fresh anchor workspace is inserted above the selection; all selected workspaces become children. The group is auto-named `Group 1`, `Group 2`, … (rename anytime via the header context menu). `⌘⇧G` is also the default for Find Previous; the group handler only consumes the chord when the workspace sidebar is focused with an explicit multi-selection of at least two workspaces, so terminal search still works outside that sidebar-focused grouping context. Rebind it in Settings → Keyboard if you'd rather the grouping and search actions not share a key.
 
 Single-tab groups are not created from the shortcut. Use the workspace context menu's **New Group from Workspace** entry for that.
 

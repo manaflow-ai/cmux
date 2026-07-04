@@ -214,7 +214,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 |----------|--------|
 | ⌘ F | Find |
 | ⌘ ⇧ F | Find in directory |
-| ⌘ G / ⌥ ⌘ G | Find next / previous |
+| ⌘ G / ⌘ ⇧ G | Find next / previous |
 | ⌥ ⌘ ⇧ F | Hide find bar |
 | ⌘ E | Use selection for find |
 

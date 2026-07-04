@@ -292,7 +292,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.reactGrabVersion"),
                 String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"),
-                subtitle: String(localized: "settings.browser.reactGrabVersion.subtitle", defaultValue: "Pinned npm version of react-grab injected by the toolbar button (Cmd+Shift+G). Only versions with a known integrity hash are accepted.")
+                subtitle: String(localized: "settings.browser.reactGrabVersion.subtitle", defaultValue: "Pinned npm version of react-grab injected by the toolbar button (Cmd+Option+G). Only versions with a known integrity hash are accepted.")
             ) {
                 TextField("", text: Binding(get: { reactGrab.current }, set: { reactGrab.set($0) }))
                     .textFieldStyle(.roundedBorder)

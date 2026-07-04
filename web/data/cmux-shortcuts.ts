@@ -395,7 +395,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "toggleReactGrab",
-        combos: [["⌘", "⇧", "G"]],
+        combos: [["⌥", "⌘", "G"]],
         description: { en: "Toggle React Grab", ja: "React Grabを切り替え" },
         note: {
           en: "focused browser, or the only browser pane when a terminal is focused",
@@ -453,7 +453,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "find", combos: [["⌘", "F"]], description: { en: "Find", ja: "検索" } },
       { id: "findInDirectory", combos: [["⌘", "⇧", "F"]], description: { en: "Find in directory", ja: "ディレクトリ内を検索" } },
       { id: "findNext", combos: [["⌘", "G"]], description: { en: "Find next", ja: "次を検索" } },
-      { id: "findPrevious", combos: [["⌥", "⌘", "G"]], description: { en: "Find previous", ja: "前を検索" } },
+      { id: "findPrevious", combos: [["⌘", "⇧", "G"]], description: { en: "Find previous", ja: "前を検索" } },
       { id: "hideFind", combos: [["⌥", "⌘", "⇧", "F"]], description: { en: "Hide find bar", ja: "検索バーを隠す" } },
       { id: "useSelectionForFind", combos: [["⌘", "E"]], description: { en: "Use selection for find", ja: "選択範囲で検索" } },
     ],

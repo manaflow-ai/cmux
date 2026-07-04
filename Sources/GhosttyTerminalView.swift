@@ -5434,7 +5434,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         performKeyEquivalent(with: event, shouldRetryMainMenu: false)
     }
 
-    private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
+    func performGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        performKeyEquivalent(
+            with: event,
+            shouldRetryMainMenu: false,
+            shouldForwardUnboundCommandEvent: false
+        )
+    }
+
+    func hasGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        guard let fr = window?.firstResponder as? NSView,
+              fr === self || fr.isDescendant(of: self) else { return false }
+        guard let surface = ensureSurfaceReadyForInput() else { return false }
+
+        if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            return false
+        }
+
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        if !flags.contains(.command),
+           !flags.contains(.control),
+           let text = textForKeyEvent(event),
+           shouldSendText(text) {
+            return false
+        }
+
+        return ghosttyBindingFlags(for: event, surface: surface) != nil
+    }
+
+    private func performKeyEquivalent(
+        with event: NSEvent,
+        shouldRetryMainMenu: Bool,
+        shouldForwardUnboundCommandEvent: Bool = true
+    ) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
@@ -5489,16 +5524,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         // Check if this event matches a Ghostty keybinding.
-        let bindingFlags: ghostty_binding_flags_e? = {
-            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
-            var flags = ghostty_binding_flags_e(0)
-            let isBinding = text.withCString { ptr in
-                keyEvent.text = ptr
-                return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-            }
-            return isBinding ? flags : nil
-        }()
+        let bindingFlags = ghosttyBindingFlags(for: event, surface: surface)
 
         if let bindingFlags {
             let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
@@ -5551,7 +5577,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
-            if !shouldRetryMainMenu { lastPerformKeyEvent = nil; keyDown(with: event); return true }
+            if !shouldRetryMainMenu {
+                lastPerformKeyEvent = nil
+                guard shouldForwardUnboundCommandEvent else { return false }
+                keyDown(with: event)
+                return true
+            }
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
@@ -5582,6 +5613,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    private func ghosttyBindingFlags(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_binding_flags_e? {
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
+        var flags = ghostty_binding_flags_e(0)
+        let isBinding = text.withCString { ptr in
+            keyEvent.text = ptr
+            return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+        }
+        return isBinding ? flags : nil
     }
 
     override func keyDown(with event: NSEvent) {
@@ -9962,11 +10004,15 @@ final class GhosttySurfaceScrollView: NSView {
             }
             if respectForeignFirstResponder,
                let firstResponder = window.firstResponder,
-               shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
-           }) {
+               shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+                   AppDelegate.shared?.isNonTerminalFocusResponder($0, in: window) == true
+               }) {
 #if DEBUG
-                let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
+                let reason = firstResponder is NSText
+                    ? "textEditorFocused"
+                    : (AppDelegate.shared?.isWorkspaceSidebarFocusResponder(firstResponder, in: window) == true
+                        ? "workspaceSidebarFocused"
+                        : "rightSidebarFocused")
                 dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=dock.\(reason)")
 #endif
                 return
@@ -10038,11 +10084,15 @@ final class GhosttySurfaceScrollView: NSView {
         // surface already owns focus.
         if respectForeignFirstResponder,
            let firstResponder = window.firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+               AppDelegate.shared?.isNonTerminalFocusResponder($0, in: window) == true
            }) {
 #if DEBUG
-            let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
+            let reason = firstResponder is NSText
+                ? "textEditorFocused"
+                : (AppDelegate.shared?.isWorkspaceSidebarFocusResponder(firstResponder, in: window) == true
+                    ? "workspaceSidebarFocused"
+                    : "rightSidebarFocused")
             dlog("focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=\(reason)")
 #endif
             return
@@ -10408,11 +10458,15 @@ final class GhosttySurfaceScrollView: NSView {
         // own GhosttyNSView for input, so NSText and the feed focus host are always foreign focus
         // owners that should survive deferred terminal visibility applies.
         if let firstResponder = window.firstResponder,
-           shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
-               AppDelegate.shared?.isRightSidebarFocusResponder($0, in: window) == true
+           shouldRespectForeignFirstResponder(firstResponder, in: window, isNonTerminalFocusOwner: {
+               AppDelegate.shared?.isNonTerminalFocusResponder($0, in: window) == true
            }) {
 #if DEBUG
-            let reason = firstResponder is NSText ? "textEditorFocused" : "rightSidebarFocused"
+            let reason = firstResponder is NSText
+                ? "textEditorFocused"
+                : (AppDelegate.shared?.isWorkspaceSidebarFocusResponder(firstResponder, in: window) == true
+                    ? "workspaceSidebarFocused"
+                    : "rightSidebarFocused")
             cmuxDebugLog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=\(reason)")
 #endif
             return

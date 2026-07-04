@@ -409,11 +409,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
             case .groupSelectedWorkspaces:
                 // Cmd+Shift+G is the user-natural mnemonic. It collides with
-                // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
-                // returns false (lets the event propagate) whenever there are
-                // no eligible workspaces to group — so React Grab still
-                // fires in browser/terminal contexts where this shortcut
-                // wouldn't have done anything anyway.
+                // Find Previous, but the shortcut router lets terminal-owned
+                // Ghostty navigation keep the chord and
+                // handleGroupSelectedWorkspacesShortcut only consumes it when
+                // the workspace sidebar owns focus and there are eligible
+                // workspaces to group.
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .toggleFocusedWorkspaceGroupCollapsed:
                 // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family
@@ -534,7 +534,7 @@ enum KeyboardShortcutSettings {
             case .findNext:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: false)
             case .findPrevious:
-                return StoredShortcut(key: "g", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .hideFind:
                 return StoredShortcut(key: "f", command: true, shift: true, option: true, control: false)
             case .useSelectionForFind:
@@ -553,7 +553,7 @@ enum KeyboardShortcutSettings {
                 // Exit stays double-Escape; rebind in Settings or cmux.json.
                 return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
-                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+                return StoredShortcut(key: "g", command: true, shift: false, option: true, control: false)
             case .openDiffViewer:
                 // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
                 // "Look Up & data detectors" — the OS swallows it before it reaches the
@@ -638,6 +638,13 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
+            if allowsRoutedShortcutCollision(
+                with: proposedAction,
+                proposedShortcut: proposedShortcut,
+                configuredShortcut: configuredShortcut
+            ) {
+                return false
+            }
             // Two bindings on the same keystroke only collide when some focus
             // state activates both AND router priority cannot decide the overlap.
             // A `shortcuts.when` override (or the built-in context default) can
@@ -658,6 +665,33 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        private func allowsRoutedShortcutCollision(
+            with other: Action,
+            proposedShortcut: StoredShortcut,
+            configuredShortcut: StoredShortcut
+        ) -> Bool {
+            guard Self.isIntentionalRoutedCollisionShortcut(proposedShortcut),
+                  Self.isIntentionalRoutedCollisionShortcut(configuredShortcut) else {
+                return false
+            }
+            switch (self, other) {
+            case (.groupSelectedWorkspaces, .findPrevious),
+                 (.findPrevious, .groupSelectedWorkspaces):
+                return true
+            default:
+                return false
+            }
+        }
+
+        private static func isIntentionalRoutedCollisionShortcut(_ shortcut: StoredShortcut) -> Bool {
+            !shortcut.hasChord &&
+                shortcut.key == "g" &&
+                shortcut.command &&
+                shortcut.shift &&
+                !shortcut.option &&
+                !shortcut.control
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

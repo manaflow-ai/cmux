@@ -363,6 +363,9 @@ public struct KeyboardShortcutsSection: View {
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultShortcut
             guard let effective, !effective.isUnbound else { continue }
+            if allowsRoutedShortcutCollision(action, other, proposed: stroke, configured: effective) {
+                continue
+            }
             if numberedAwareStrokesConflict(
                 stroke.first,
                 numbered: action.usesNumberedDigitMatching,
@@ -373,6 +376,34 @@ public struct KeyboardShortcutsSection: View {
             }
         }
         return nil
+    }
+
+    private func allowsRoutedShortcutCollision(
+        _ lhs: ShortcutAction,
+        _ rhs: ShortcutAction,
+        proposed: StoredShortcut,
+        configured: StoredShortcut
+    ) -> Bool {
+        guard isIntentionalRoutedCollisionShortcut(proposed),
+              isIntentionalRoutedCollisionShortcut(configured) else {
+            return false
+        }
+        switch (lhs, rhs) {
+        case (.groupSelectedWorkspaces, .findPrevious),
+             (.findPrevious, .groupSelectedWorkspaces):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isIntentionalRoutedCollisionShortcut(_ shortcut: StoredShortcut) -> Bool {
+        !shortcut.hasChord &&
+            shortcut.first.key == "g" &&
+            shortcut.first.command &&
+            shortcut.first.shift &&
+            !shortcut.first.option &&
+            !shortcut.first.control
     }
 
     /// Formats a binding for display, delegating to

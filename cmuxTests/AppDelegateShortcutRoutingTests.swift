@@ -72,15 +72,29 @@ private final class MenuActionProbe: NSObject {
 }
 private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
     var afterMenuMissCallCount = 0
+    var ghosttyBindingBeforeAppShortcutCallCount = 0
+    var hasGhosttyBindingBeforeAppShortcutCallCount = 0
     var keyDownCallCount = 0
     var lastKeyDownCharactersIgnoringModifiers: String?
     var pasteCallCount = 0
     var pasteAsPlainTextCallCount = 0
     var performAfterMenuMissResult = true
+    var performGhosttyBindingBeforeAppShortcutResult = true
+    var hasGhosttyBindingBeforeAppShortcutResult = false
 
     override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
         afterMenuMissCallCount += 1
         return performAfterMenuMissResult
+    }
+
+    override func performGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        ghosttyBindingBeforeAppShortcutCallCount += 1
+        return performGhosttyBindingBeforeAppShortcutResult
+    }
+
+    override func hasGhosttyBindingKeyEquivalentBeforeAppShortcut(with event: NSEvent) -> Bool {
+        hasGhosttyBindingBeforeAppShortcutCallCount += 1
+        return hasGhosttyBindingBeforeAppShortcutResult
     }
 
     override func keyDown(with event: NSEvent) {
@@ -135,17 +149,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         _ config: ghostty_config_t,
         key: String,
         modifiers: NSEvent.ModifierFlags,
-        keyCode: UInt32
+        keyCode: UInt16,
+        text: String? = nil,
+        unshiftedCodepoint: UInt32? = nil
     ) -> Bool {
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = keyCode
+        keyEvent.keycode = UInt32(keyCode)
         keyEvent.mods = ghosttyMods(from: modifiers)
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = key.unicodeScalars.first.map { UInt32($0.value) } ?? 0
+        keyEvent.unshifted_codepoint = unshiftedCodepoint ?? key.unicodeScalars.first.map { UInt32($0.value) } ?? 0
         keyEvent.composing = false
 
-        return key.withCString { ptr in
+        return (text ?? key).withCString { ptr in
             keyEvent.text = ptr
             return ghostty_config_key_is_binding(config, keyEvent)
         }
@@ -807,6 +823,204 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialWorkspaceCount, "Pending chord should block unrelated single-stroke actions")
         XCTAssertEqual(workspace.panels.count, initialPanelCount, "Mismatched second key should not split the workspace")
+    }
+
+    func testConfiguredChordSuffixWinsOverTerminalGhosttyPreRoute() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        let initialWorkspaceCount = manager.tabs.count
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "g",
+            chordCommand: true,
+            chordShift: false,
+            chordOption: false,
+            chordControl: false,
+            chordKeyCode: 5
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+B prefix event")
+                return
+            }
+
+            guard let suffixEvent = makeKeyDownEvent(
+                key: "g",
+                modifiers: [.command],
+                keyCode: 5,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+G suffix event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: suffixEvent),
+                "Armed app shortcut chords must complete before terminal Ghostty pre-routing"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount + 1, "Cmd+G chord suffix should dispatch the app action")
+    }
+
+    func testConfiguredChordPrefixWinsOverTerminalGhosttyPreRoute() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        focusHostedTerminalForRepairTesting(window: window, hostedView: terminalPanel.hostedView)
+        let initialWorkspaceCount = manager.tabs.count
+        let shortcut = StoredShortcut(
+            key: "g",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 5,
+            chordKey: "n",
+            chordKeyCode: 45
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "g",
+                modifiers: [.command],
+                keyCode: 5,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+G prefix event")
+                return
+            }
+
+            guard let suffixEvent = makeKeyDownEvent(
+                key: "n",
+                modifiers: [],
+                keyCode: 45,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct N suffix event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: prefixEvent),
+                "Configured app chord prefixes must arm before terminal Ghostty pre-routing"
+            )
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: suffixEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount + 1, "Cmd+G chord prefix should arm and dispatch the app action")
+    }
+
+    func testConfiguredSingleStrokeRunsAfterTerminalGhosttyBindingMiss() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        probeView.hasGhosttyBindingBeforeAppShortcutResult = false
+        contentView.addSubview(probeView)
+        defer { probeView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        XCTAssertTrue(window.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        let initialWorkspaceCount = manager.tabs.count
+        let shortcut = StoredShortcut(
+            key: "g",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 5
+        )
+
+        withTemporaryShortcut(action: .newTab, shortcut: shortcut) {
+            guard let event = makeKeyDownEvent(
+                key: "g",
+                modifiers: [.command],
+                keyCode: 5,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+G event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "An app-owned shortcut on a Ghostty candidate chord should run when Ghostty has no binding"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(probeView.hasGhosttyBindingBeforeAppShortcutCallCount, 1)
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount + 1, "Cmd+G should dispatch the app action after a Ghostty binding miss")
     }
 
     func testConfiguredChordDoesNotCrossWindowBoundary() {
@@ -2538,16 +2752,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let digitKeyCodes: [(String, UInt32)] = [
-            ("1", UInt32(kVK_ANSI_1)),
-            ("2", UInt32(kVK_ANSI_2)),
-            ("3", UInt32(kVK_ANSI_3)),
-            ("4", UInt32(kVK_ANSI_4)),
-            ("5", UInt32(kVK_ANSI_5)),
-            ("6", UInt32(kVK_ANSI_6)),
-            ("7", UInt32(kVK_ANSI_7)),
-            ("8", UInt32(kVK_ANSI_8)),
-            ("9", UInt32(kVK_ANSI_9)),
+        let digitKeyCodes: [(String, UInt16)] = [
+            ("1", UInt16(kVK_ANSI_1)),
+            ("2", UInt16(kVK_ANSI_2)),
+            ("3", UInt16(kVK_ANSI_3)),
+            ("4", UInt16(kVK_ANSI_4)),
+            ("5", UInt16(kVK_ANSI_5)),
+            ("6", UInt16(kVK_ANSI_6)),
+            ("7", UInt16(kVK_ANSI_7)),
+            ("8", UInt16(kVK_ANSI_8)),
+            ("9", UInt16(kVK_ANSI_9)),
         ]
 
         for (digit, keyCode) in digitKeyCodes {
@@ -4504,30 +4718,68 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let window = window(withId: windowId) else {
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView else {
             XCTFail("Expected test window")
             return
         }
+
+        let focusableView = FocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(focusableView)
+        defer { focusableView.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(focusableView), "Expected non-terminal responder to own focus")
 
         withTemporaryShortcut(action: .toggleReactGrab) {
             guard let event = NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
-                modifierFlags: [.command, .shift],
+                modifierFlags: [.command, .option],
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber,
                 context: nil,
-                characters: "G",
+                characters: "g",
                 charactersIgnoringModifiers: "g",
                 isARepeat: false,
                 keyCode: 5
+            ) else {
+                XCTFail("Failed to construct Cmd+Option+G event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testCmdShiftGFocusedBrowserFindPreviousFallsThroughBeforeConfiguredReactGrabCollision() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+        XCTAssertNil(harness.panel.searchState)
+
+        let reactGrabCollision = StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+        withTemporaryShortcut(action: .toggleReactGrab, shortcut: reactGrabCollision) {
+            guard let event = makeKeyDownEvent(
+                key: "G",
+                modifiers: [.command, .shift],
+                keyCode: 5,
+                windowNumber: harness.window.windowNumber
             ) else {
                 XCTFail("Failed to construct Cmd+Shift+G event")
                 return
             }
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Focused browser Cmd+Shift+G should fall through to browser Find Previous for the configured collision"
+            )
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
@@ -5928,7 +6180,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             (.find, [.command], "f", 3),
             (.findInDirectory, [.command, .shift], "f", 3),
             (.findNext, [.command], "g", 5),
-            (.findPrevious, [.command, .option], "g", 5),
+            (.findPrevious, [.command, .shift], "g", 5),
             (.hideFind, [.command, .option, .shift], "f", 3),
             (.useSelectionForFind, [.command], "e", 14),
         ]
@@ -5963,7 +6215,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testBrowserFirstFindShortcutRoutingRecognizesBrowserLocalFindCommandFamily() {
         let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
             ("cmd-g", [.command], "g", 5),
-            ("cmd-option-g", [.command, .option], "g", 5),
+            ("cmd-shift-g", [.command, .shift], "g", 5),
             ("cmd-option-shift-f", [.command, .option, .shift], "f", 3),
             ("cmd-e", [.command], "e", 14),
         ]
@@ -6103,7 +6355,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             ("cmd-w", [.command], "w", 13),
             ("cmd-l", [.command], "l", 37),
             ("cmd-option-f", [.command, .option], "f", 3),
-            ("cmd-shift-g-toggle-react-grab", [.command, .shift], "g", 5),
         ]
 
         for testCase in cases {
@@ -6444,6 +6695,185 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             0,
             "Window routing must not force plain-text paste before Ghostty inspects bindings"
         )
+    }
+
+    func testWindowPerformKeyEquivalentRoutesTerminalFindPreviousToGhosttyBeforeMenu() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+            probeWindow.close()
+        }
+
+        let findMenu = NSMenu(title: "Test")
+        let findPreviousItem = NSMenuItem(
+            title: "Find Previous",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "g"
+        )
+        findPreviousItem.keyEquivalentModifierMask = [.command, .shift]
+        findPreviousItem.target = menuProbe
+        findMenu.addItem(findPreviousItem)
+        NSApp.mainMenu = findMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "G",
+            modifiers: [.command, .shift],
+            keyCode: 5,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+G event")
+            return
+        }
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Terminal Cmd+Shift+G should route to Ghostty before the app Find Previous menu"
+        )
+        XCTAssertEqual(
+            probeView.ghosttyBindingBeforeAppShortcutCallCount,
+            1,
+            "Ghostty binding resolution should run before the menu"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 0, "Pre-menu routing must not use the unbound command fallback")
+        XCTAssertEqual(menuProbe.callCount, 0, "The app menu must not steal Ghostty's Cmd+Shift+G binding")
+    }
+
+    func testWindowPerformKeyEquivalentLetsUnboundGhosttyCandidateReachMenu() {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let previousMainMenu = NSApp.mainMenu
+        let probeWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+        let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let menuProbe = MenuActionProbe()
+        probeView.performGhosttyBindingBeforeAppShortcutResult = false
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            probeWindow.orderOut(nil)
+            probeWindow.close()
+        }
+
+        let findMenu = NSMenu(title: "Test")
+        let findPreviousItem = NSMenuItem(
+            title: "Find Previous",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "g"
+        )
+        findPreviousItem.keyEquivalentModifierMask = [.command, .shift]
+        findPreviousItem.target = menuProbe
+        findMenu.addItem(findPreviousItem)
+        NSApp.mainMenu = findMenu
+
+        probeWindow.contentView = contentView
+        contentView.addSubview(probeView)
+        probeWindow.makeKeyAndOrderFront(nil)
+        probeWindow.displayIfNeeded()
+        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
+
+        guard let event = makeKeyDownEvent(
+            key: "G",
+            modifiers: [.command, .shift],
+            keyCode: 5,
+            windowNumber: probeWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+G event")
+            return
+        }
+
+        XCTAssertTrue(
+            probeWindow.performKeyEquivalent(with: event),
+            "Unbound terminal-owned candidates should fall through to the normal menu path"
+        )
+        XCTAssertEqual(
+            probeView.ghosttyBindingBeforeAppShortcutCallCount,
+            1,
+            "The pre-route candidate should still ask Ghostty whether a binding exists"
+        )
+        XCTAssertEqual(probeView.afterMenuMissCallCount, 0, "Pre-menu misses must not use the after-menu command fallback")
+        XCTAssertEqual(menuProbe.callCount, 1, "An unbound Ghostty candidate should reach the app menu")
+        XCTAssertEqual(probeView.keyDownCallCount, 0, "An unbound Ghostty candidate must not be forced into keyDown")
+    }
+
+    func testAppOwnedShortcutsStayAppOwnedWhenTerminalFocused() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before focus history shortcuts"
+        )
+
+        let cases: [(KeyboardShortcutSettings.Action, String, NSEvent.ModifierFlags, UInt16)] = [
+            (.focusHistoryBack, "[", [.command], 33),
+            (.focusHistoryForward, "]", [.command], 30),
+            (.reopenClosedBrowserPanel, "T", [.command, .shift], 17),
+        ]
+
+        for (action, key, modifiers, keyCode) in cases {
+            withTemporaryShortcut(action: action) {
+                guard let event = makeKeyDownEvent(
+                    key: key,
+                    modifiers: modifiers,
+                    keyCode: keyCode,
+                    windowNumber: window.windowNumber
+                ) else {
+                    XCTFail("Failed to construct \(key) focus-history event")
+                    return
+                }
+
+                XCTAssertFalse(
+                    appDelegate.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: window),
+                    "\(action.label) must stay app-owned instead of pre-routing to Ghostty"
+                )
+            }
+        }
     }
 
     func testWindowPerformKeyEquivalentForwardsClearedCmdDPastStaleMenuShortcut() {
@@ -10797,6 +11227,324 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testGroupSelectedWorkspacesShortcutDoesNotConsumeWhenTerminalOwnsFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        _ = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let selectedWorkspaceIds = Set(manager.tabs.prefix(2).map(\.id))
+        XCTAssertEqual(selectedWorkspaceIds.count, 2, "Expected two workspaces for the sidebar multi-selection")
+        manager.setSidebarSelectedWorkspaceIds(selectedWorkspaceIds)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            window.firstResponder === terminalView || terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+
+        XCTAssertTrue(
+            window.firstResponder === terminalView || terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before grouping shortcut"
+        )
+
+        let workspaceGroupCountBefore = manager.workspaceGroups.count
+        let workspaceCountBefore = manager.tabs.count
+
+        XCTAssertFalse(
+            appDelegate.handleGroupSelectedWorkspacesShortcut(preferredWindow: window),
+            "A stale sidebar multi-selection must not let the global grouping shortcut consume terminal focus"
+        )
+        XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore)
+        XCTAssertEqual(manager.tabs.count, workspaceCountBefore)
+    }
+
+    func testGroupSelectedWorkspacesShortcutGroupsWhenWorkspaceSidebarOwnsFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window with tab manager")
+            return
+        }
+
+        _ = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let selectedWorkspaceIds = Set(manager.tabs.prefix(2).map(\.id))
+        XCTAssertEqual(selectedWorkspaceIds.count, 2, "Expected two workspaces for the sidebar multi-selection")
+        manager.setSidebarSelectedWorkspaceIds(selectedWorkspaceIds)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        let sidebarResponder = WorkspaceSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+        XCTAssertTrue(appDelegate.focusWorkspaceSidebar(in: window), "Expected workspace sidebar responder to take focus")
+        XCTAssertTrue(appDelegate.shouldRouteWorkspaceSidebarShortcut(in: window))
+
+        let workspaceGroupCountBefore = manager.workspaceGroups.count
+
+        XCTAssertTrue(
+            appDelegate.handleGroupSelectedWorkspacesShortcut(preferredWindow: window),
+            "The grouping shortcut should remain available while the workspace sidebar owns focus"
+        )
+        XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore + 1)
+    }
+
+    func testWorkspaceSidebarFocusForwardsTypingBackToTerminal() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+
+        let sidebarResponder = WorkspaceSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        contentView.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+        XCTAssertTrue(appDelegate.focusWorkspaceSidebar(in: window), "Expected workspace sidebar responder to take focus")
+        XCTAssertTrue(window.firstResponder === sidebarResponder, "Expected workspace sidebar responder to own focus before typing")
+
+        let repairProbe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 0)
+        defer { repairProbe.restore() }
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        sidebarResponder.keyDown(with: keyDown)
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+                && window.firstResponder === terminalView
+                && repairProbe.forwardedKeyDownCount() > 0
+        }
+
+        XCTAssertTrue(terminalPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertTrue(window.firstResponder === terminalView, "Typing should restore terminal focus after sidebar shortcut focus")
+        XCTAssertEqual(repairProbe.repairCount(), 0, "Forwarding should be owned by the sidebar focus host, not stale-focus repair")
+        XCTAssertGreaterThan(
+            repairProbe.forwardedKeyDownCount(),
+            0,
+            "Typing after a workspace-sidebar shortcut should preserve the first key in Ghostty"
+        )
+    }
+
+    func testWorkspaceSidebarFocusForwardsTypingBackToFocusedBrowser() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        let sidebarResponder = WorkspaceSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        harness.window.contentView?.addSubview(sidebarResponder)
+        defer { sidebarResponder.removeFromSuperview() }
+        sidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+        XCTAssertTrue(appDelegate.focusWorkspaceSidebar(in: harness.window), "Expected workspace sidebar responder to take focus")
+        XCTAssertTrue(harness.window.firstResponder === sidebarResponder, "Expected workspace sidebar responder to own focus before typing")
+
+        guard let keyDown = makeKeyDownEvent(
+            key: "a",
+            modifiers: [],
+            keyCode: 0,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct typing event")
+            return
+        }
+
+        sidebarResponder.keyDown(with: keyDown)
+
+        XCTAssertTrue(
+            harness.window.firstResponder === harness.webView,
+            "Typing after a workspace-sidebar shortcut should restore the focused browser instead of stealing terminal focus"
+        )
+    }
+
+    func testGhosttyFindNavigationShortcutsFallThroughForTerminalFirstResponderWithSidebarMultiSelection() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        _ = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let selectedWorkspaceIds = Set(manager.tabs.prefix(2).map(\.id))
+        XCTAssertEqual(selectedWorkspaceIds.count, 2, "Expected two workspaces for the sidebar multi-selection")
+        manager.setSidebarSelectedWorkspaceIds(selectedWorkspaceIds)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before Ghostty find navigation shortcut"
+        )
+
+        let cases: [(name: String, modifiers: NSEvent.ModifierFlags, characters: String)] = [
+            ("Cmd+G", [.command], "g"),
+            ("Cmd+Shift+G", [.command, .shift], "G"),
+        ]
+
+        for testCase in cases {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: testCase.modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: testCase.characters,
+                charactersIgnoringModifiers: "g",
+                isARepeat: false,
+                keyCode: 5
+            ) else {
+                XCTFail("Failed to construct \(testCase.name) event")
+                return
+            }
+
+            let workspaceGroupCountBefore = manager.workspaceGroups.count
+            let workspaceCountBefore = manager.tabs.count
+
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "cmux must not consume Ghostty's \(testCase.name) binding while Ghostty owns first responder"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            XCTAssertEqual(manager.workspaceGroups.count, workspaceGroupCountBefore, testCase.name)
+            XCTAssertEqual(manager.tabs.count, workspaceCountBefore, testCase.name)
+        }
+    }
+
+    func testFindInDirectoryFromTerminalFocusUsesAppShortcutInsteadOfGhosttyPreMenuRouting() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before Cmd+Shift+F"
+        )
+
+        guard let event = makeKeyDownEvent(
+            key: "F",
+            modifiers: [.command, .shift],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+F event")
+            return
+        }
+
+        XCTAssertFalse(
+            appDelegate.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: window),
+            "Cmd+Shift+F is the app Find in Directory default, not a terminal pre-menu shortcut"
+        )
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNil(terminalPanel.searchState, "Cmd+Shift+F should not create terminal find state")
+        XCTAssertEqual(appDelegate.fileExplorerState?.mode, .find)
+    }
+
     func testFindShortcutFromFileTreeOpensRightSidebarFind() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -10833,6 +11581,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Failed to construct Cmd+F event")
             return
         }
+
+        XCTAssertFalse(
+            appDelegate.shouldRouteFocusedTerminalGhosttyOwnedShortcut(event, in: window),
+            "Cmd+F should stay on cmux terminal find setup instead of Ghostty pre-menu routing"
+        )
 
 #if DEBUG
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))

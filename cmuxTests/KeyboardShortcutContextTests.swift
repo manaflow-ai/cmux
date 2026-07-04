@@ -160,6 +160,61 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    func testFindPreviousDefaultMatchesGhosttyMacSearchPreviousShortcut() {
+        let expected = StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
+
+        XCTAssertEqual(KeyboardShortcutSettings.Action.findPrevious.defaultShortcut, expected)
+        XCTAssertEqual(
+            CmuxSettings.ShortcutAction.findPrevious.defaultStroke,
+            ShortcutStroke(key: "g", command: true, shift: true)
+        )
+    }
+
+    func testFindPreviousAndGroupDefaultsAreRoutedCollisions() {
+        let shortcut = KeyboardShortcutSettings.Action.findPrevious.defaultShortcut
+
+        XCTAssertEqual(shortcut, KeyboardShortcutSettings.Action.groupSelectedWorkspaces.defaultShortcut)
+        XCTAssertNotEqual(shortcut, KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut)
+        XCTAssertFalse(
+            KeyboardShortcutSettings.Action.groupSelectedWorkspaces.conflicts(
+                with: shortcut,
+                proposedAction: .findPrevious,
+                configuredShortcut: shortcut
+            )
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.findPrevious.normalizedRecordedShortcutResult(shortcut),
+            .accepted(shortcut)
+        )
+    }
+
+    func testRoutedCollisionExceptionDoesNotPermitChordPrefixAmbiguity() {
+        let routedShortcut = KeyboardShortcutSettings.Action.findPrevious.defaultShortcut
+        let chordWithRoutedPrefix = StoredShortcut(
+            key: "g",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            chordKey: "x"
+        )
+
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.groupSelectedWorkspaces.conflicts(
+                with: chordWithRoutedPrefix,
+                proposedAction: .findPrevious,
+                configuredShortcut: routedShortcut
+            )
+        )
+        XCTAssertTrue(
+            KeyboardShortcutSettings.Action.findPrevious.conflicts(
+                with: routedShortcut,
+                proposedAction: .groupSelectedWorkspaces,
+                configuredShortcut: chordWithRoutedPrefix
+            )
+        )
+    }
+
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
         let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
 

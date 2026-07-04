@@ -6102,7 +6102,7 @@ struct ContentView: View {
         case "palette.terminalFindNext":
             return "⌘G"
         case "palette.terminalFindPrevious":
-            return "⌥⌘G"
+            return "⌘⇧G"
         case "palette.terminalHideFind":
             return "⌥⌘⇧F"
         case "palette.terminalUseSelectionForFind":
@@ -7179,7 +7179,7 @@ struct ContentView: View {
                 commandId: "palette.terminalFindPrevious",
                 title: constant(String(localized: "command.terminalFindPrevious.title", defaultValue: "Find Previous")),
                 subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌥⌘G",
+                shortcutHint: "⌘⇧G",
                 keywords: ["terminal", "find", "previous", "search"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -10584,11 +10584,16 @@ struct VerticalTabsSidebar: View {
                     )
                 }
                 .background(
-                    SidebarScrollViewResolver { scrollView in
-                        configureSidebarScrollView(scrollView)
-                        dragAutoScrollController.attach(scrollView: scrollView)
+                    ZStack {
+                        WorkspaceSidebarKeyboardFocusBridge()
+                            .frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
+                        SidebarScrollViewResolver { scrollView in
+                            configureSidebarScrollView(scrollView)
+                            dragAutoScrollController.attach(scrollView: scrollView)
+                        }
+                        .frame(width: 0, height: 0)
                     }
-                    .frame(width: 0, height: 0)
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
                     Color.clear.frame(height: scrollInsets.top)
@@ -10701,6 +10706,13 @@ struct VerticalTabsSidebar: View {
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
         scrollView.applySidebarOverlayScrollerConfiguration()
+    }
+
+    @discardableResult
+    func focusWorkspaceSidebarForKeyboardShortcut() -> Bool {
+        AppDelegate.shared?.focusWorkspaceSidebar(
+            in: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        ) ?? false
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
@@ -12372,6 +12384,7 @@ struct VerticalTabsSidebar: View {
             latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
+            focusWorkspaceSidebar: { _ = focusWorkspaceSidebarForKeyboardShortcut() },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
@@ -13259,6 +13272,7 @@ struct TabItemView: View, Equatable {
     let latestNotificationText: String?
     let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
+    let focusWorkspaceSidebar: () -> Void
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let showsModifierShortcutHints: Bool
@@ -14594,7 +14608,7 @@ struct TabItemView: View, Equatable {
             resolvedShiftAnchorIndex: shiftAnchorIndex,
             clickedIndex: index
         )
-        tabManager.selectTab(tab)
+        tabManager.selectTab(tab, restorePanelFocus: !(isCommand || isShift))
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
                 tabId: tab.id,
@@ -14602,6 +14616,11 @@ struct TabItemView: View, Equatable {
             )
         }
         setSelectionToTabs()
+        if isCommand || isShift {
+            // Modified row selection is the sidebar-owned path for grouping;
+            // plain workspace activation should leave typing with the terminal.
+            focusWorkspaceSidebar()
+        }
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {

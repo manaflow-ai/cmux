@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// Coverage for ``shouldRespectForeignFirstResponder(_:in:isRightSidebarOwner:)`` — the policy that
+/// Coverage for ``shouldRespectForeignFirstResponder(_:in:isNonTerminalFocusOwner:)`` — the policy that
 /// decides whether an active terminal yields to the window's current first responder or reclaims
 /// focus. Regression coverage for issue #5269 (a stranded responder must not block focus).
 @MainActor
@@ -21,14 +21,14 @@ import Testing
         )
     }
 
-    private let neverSidebarOwner: (NSResponder) -> Bool = { _ in false }
-    private let alwaysSidebarOwner: (NSResponder) -> Bool = { _ in true }
+    private let neverNonTerminalFocusOwner: (NSResponder) -> Bool = { _ in false }
+    private let alwaysNonTerminalFocusOwner: (NSResponder) -> Bool = { _ in true }
 
     @Test func respectsInWindowTextEditor() {
         let window = makeWindow()
         let textView = NSTextView(frame: .zero)
         window.contentView?.addSubview(textView)
-        #expect(shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: neverSidebarOwner))
+        #expect(shouldRespectForeignFirstResponder(textView, in: window, isNonTerminalFocusOwner: neverNonTerminalFocusOwner))
     }
 
     /// The #5269 regression: a text responder stranded in another window must NOT be respected, so
@@ -38,14 +38,14 @@ import Testing
         let windowB = makeWindow()
         let textView = NSTextView(frame: .zero)
         windowB.contentView?.addSubview(textView) // belongs to windowB, not windowA
-        #expect(!shouldRespectForeignFirstResponder(textView, in: windowA, isRightSidebarOwner: neverSidebarOwner))
+        #expect(!shouldRespectForeignFirstResponder(textView, in: windowA, isNonTerminalFocusOwner: neverNonTerminalFocusOwner))
     }
 
     @Test func respectsInWindowRightSidebarOwner() {
         let window = makeWindow()
         let view = NSView(frame: .zero)
         window.contentView?.addSubview(view)
-        #expect(shouldRespectForeignFirstResponder(view, in: window, isRightSidebarOwner: alwaysSidebarOwner))
+        #expect(shouldRespectForeignFirstResponder(view, in: window, isNonTerminalFocusOwner: alwaysNonTerminalFocusOwner))
     }
 
     /// The #5269 regression for the sidebar/dock flavor: a sidebar host stranded in another window
@@ -55,13 +55,13 @@ import Testing
         let windowB = makeWindow()
         let view = NSView(frame: .zero)
         windowB.contentView?.addSubview(view)
-        #expect(!shouldRespectForeignFirstResponder(view, in: windowA, isRightSidebarOwner: alwaysSidebarOwner))
+        #expect(!shouldRespectForeignFirstResponder(view, in: windowA, isNonTerminalFocusOwner: alwaysNonTerminalFocusOwner))
     }
 
     @Test func reclaimsFromDetachedResponder() {
         let window = makeWindow()
         let textView = NSTextView(frame: .zero) // never added to a window -> .window is nil
-        #expect(!shouldRespectForeignFirstResponder(textView, in: window, isRightSidebarOwner: alwaysSidebarOwner))
+        #expect(!shouldRespectForeignFirstResponder(textView, in: window, isNonTerminalFocusOwner: alwaysNonTerminalFocusOwner))
     }
 
     @Test func doesNotRespectPlainInWindowView() {
@@ -69,6 +69,6 @@ import Testing
         let view = NSView(frame: .zero)
         window.contentView?.addSubview(view)
         // Neither a text editor nor a sidebar owner: the terminal reclaims focus (existing behavior).
-        #expect(!shouldRespectForeignFirstResponder(view, in: window, isRightSidebarOwner: neverSidebarOwner))
+        #expect(!shouldRespectForeignFirstResponder(view, in: window, isNonTerminalFocusOwner: neverNonTerminalFocusOwner))
     }
 }
