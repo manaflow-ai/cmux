@@ -142,7 +142,7 @@ struct CanvasShortcutRoutingFeedbackTests {
                 StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
                 for: .selectSurfaceByNumber
             )
-            let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))
+            let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, modifiers: [.control], windowNumber: window.windowNumber))
 
             window.makeKeyAndOrderFront(nil)
             workspace.setLayoutMode(.canvas)
