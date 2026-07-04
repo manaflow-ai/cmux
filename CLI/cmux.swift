@@ -3326,12 +3326,10 @@ struct CMUXCLI {
             )
             return
         }
-
         if command == "right-sidebar" {
             let parsed = try parseRightSidebarCLIArguments(commandArgs)
             _ = try rightSidebarSocketArguments(from: parsed)
         }
-
         if command == "themes" {
             try runThemes(
                 commandArgs: commandArgs,
@@ -3341,7 +3339,6 @@ struct CMUXCLI {
             )
             return
         }
-
         if command == "claude-teams" {
             try runClaudeTeams(
                 commandArgs: commandArgs,
@@ -3350,7 +3347,6 @@ struct CMUXCLI {
             )
             return
         }
-
         if command == "codex-teams" {
             try runCodexTeams(
                 commandArgs: commandArgs,
@@ -3359,7 +3355,6 @@ struct CMUXCLI {
             )
             return
         }
-
         if command == "omo" {
             try runOMO(
                 commandArgs: commandArgs,
@@ -3368,7 +3363,6 @@ struct CMUXCLI {
             )
             return
         }
-
         if command == "omx" {
             try runOMX(
                 commandArgs: commandArgs,
@@ -3550,6 +3544,8 @@ struct CMUXCLI {
 
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "integrations": try runIntegrationsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+        case "inbox": try runInboxCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
@@ -5331,6 +5327,8 @@ struct CMUXCLI {
         "help",
         "hooks",
         "identify",
+        "inbox",
+        "integrations",
         "is-webview-focused",
         "join-pane",
         "jump-to-unread",
@@ -14310,6 +14308,8 @@ struct CMUXCLI {
             Enable or disable Agent Hibernation.
             Configure idle and live-terminal limits from Settings or cmux settings JSON.
             """
+        case "integrations": return Self.integrationsUsage
+        case "inbox": return Self.inboxUsage
         case "restore-session":
             return """
             Usage: cmux restore-session

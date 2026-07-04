@@ -26,7 +26,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
         case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
         case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        case .feed: return String(localized: "rightSidebar.mode.inbox", defaultValue: "Inbox")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
@@ -37,7 +37,7 @@ nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .files: return "folder"
         case .find: return "magnifyingglass"
         case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
+        case .feed: return "tray.full"
         case .dock: return "dock.rectangle"
         case .customSidebar: return "wand.and.stars"
         }
@@ -136,12 +136,10 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @Environment(InboxRuntime.self) private var inboxRuntime
 
-    // Re-reading the observable store inside modeBar causes SwiftUI to
-    // track the pending count so the badge updates live when hooks push
-    // new items.
     private var feedPendingCount: Int {
-        FeedCoordinator.shared.store?.pending.count ?? 0
+        inboxRuntime.totalUnreadCount
     }
 
     private var availableModes: [RightSidebarMode] {
@@ -398,7 +396,7 @@ struct RightSidebarPanelView: View {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
             case .feed:
-                FeedPanelView()
+                InboxPanelView()
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .customSidebar:

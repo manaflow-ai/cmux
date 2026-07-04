@@ -1,0 +1,106 @@
+import Foundation
+import Testing
+import CmuxInbox
+
+@Suite struct InboxStorageTests {
+    private let fixtures = InboxFixtures()
+
+    @Test func migrationsAreIdempotentAndPersistCoreSchema() async throws {
+        let url = fixtures.temporaryDatabaseURL()
+        let store = try InboxSQLiteStore(databaseURL: url)
+
+        try await store.runMigrationsForTesting()
+        try await store.runMigrationsForTesting()
+
+        let account = fixtures.account(source: .gmail, accountID: "me")
+        let thread = fixtures.thread(source: .gmail, accountID: "me", title: "Launch mail")
+        let item = fixtures.item(
+            source: .gmail,
+            accountID: "me",
+            threadID: thread.threadID,
+            preview: "Migration smoke",
+            body: "Schema survived repeated migration"
+        )
+        try await store.upsertAccount(account)
+        try await store.upsertThread(thread)
+        try await store.upsertItem(item)
+
+        let rows = try await store.list(InboxListQuery(filter: .all, source: .gmail, limit: 10))
+        #expect(rows.map { $0.itemID } == [item.itemID])
+    }
+
+    @Test func dedupesExternalMessagesAndRefreshesUnreadCounts() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let thread = fixtures.thread(source: .slack, accountID: "team", title: "#alerts")
+        try await store.upsertThread(thread)
+
+        let first = fixtures.item(
+            source: .slack,
+            accountID: "team",
+            threadID: thread.threadID,
+            suffix: "same",
+            preview: "first",
+            unread: true,
+            actionable: true
+        )
+        var updated = first
+        updated.bodyPreview = "updated"
+        updated.isUnread = false
+        updated.isActionable = false
+        try await store.upsertItem(first)
+        try await store.upsertItem(updated)
+
+        let rows = try await store.list(InboxListQuery(filter: .all, source: .slack, limit: 10))
+        #expect(rows.count == 1)
+        #expect(rows.first?.bodyPreview == "updated")
+
+        let refreshed = try #require(try await store.thread(id: thread.threadID))
+        #expect(refreshed.unreadCount == 0)
+        let loadedThreads = try await store.threads(ids: [thread.threadID, thread.threadID, "missing"])
+        #expect(loadedThreads.map(\.threadID) == [thread.threadID])
+
+        let counts = try await store.unreadCounts()
+        #expect(counts.first(where: { $0.source == .slack }) == nil)
+
+        try await store.markRead(threadID: thread.threadID, unread: true)
+        let unreadCounts = try await store.unreadCounts()
+        #expect(unreadCounts.first(where: { $0.source == .slack })?.unreadCount == 1)
+    }
+
+    @Test func fullTextSearchFindsIndexedInboxBodies() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let thread = fixtures.thread(source: .generic, title: "Ops")
+        let item = fixtures.item(
+            source: .generic,
+            threadID: thread.threadID,
+            preview: "Pager alert",
+            body: "Database pager escalation needs attention"
+        )
+        try await store.upsertThread(thread)
+        try await store.upsertItem(item)
+
+        let hits = try await store.search("pager escalation", limit: 10)
+        #expect(hits.map(\.item.itemID) == [item.itemID])
+        #expect(hits.first?.thread.threadID == thread.threadID)
+    }
+
+    @Test func agentSourceItemsRoundTripForFeedMirroringCompatibility() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let thread = fixtures.thread(source: .agent, accountID: "workstream", title: "Agent approval")
+        let item = fixtures.item(
+            source: .agent,
+            accountID: "workstream",
+            threadID: thread.threadID,
+            preview: "Plan approval required",
+            actionable: true
+        )
+        try await store.upsertAccount(fixtures.account(source: .agent, accountID: "workstream"))
+        try await store.upsertThread(thread)
+        try await store.upsertItem(item)
+
+        let agentRows = try await store.list(InboxListQuery(filter: .actionable, source: .agent, limit: 10))
+        let gmailRows = try await store.list(InboxListQuery(filter: .all, source: .gmail, limit: 10))
+        #expect(agentRows.map { $0.itemID } == [item.itemID])
+        #expect(gmailRows.isEmpty)
+    }
+}

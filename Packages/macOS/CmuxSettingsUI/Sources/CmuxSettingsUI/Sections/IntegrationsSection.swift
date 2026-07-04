@@ -1,0 +1,235 @@
+import CmuxFoundation
+import SwiftUI
+
+@MainActor
+public struct IntegrationsSection: View {
+    private let hostActions: SettingsHostActions
+
+    @State private var snapshot: IntegrationSettingsSnapshot
+    @State private var accountDrafts: [IntegrationSettingsSource: String] = [:]
+    @State private var tokenDrafts: [IntegrationSettingsSource: String] = [:]
+    @State private var isSyncingAll = false
+
+    public init(hostActions: SettingsHostActions) {
+        self.hostActions = hostActions
+        _snapshot = State(initialValue: hostActions.integrationSettingsSnapshot())
+    }
+
+    public var body: some View {
+        Group {
+            SettingsSectionHeader(String(localized: "settings.section.integrations", defaultValue: "Integrations"), section: .integrations)
+            SettingsCard {
+                privacyNote
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .action,
+                    searchAnchorID: "setting:integrations:syncAll",
+                    String(localized: "settings.integrations.syncAll", defaultValue: "Sync All"),
+                    subtitle: String(localized: "settings.integrations.syncAll.subtitle", defaultValue: "Refresh every configured connector without launching source apps.")
+                ) {
+                    Button(String(localized: "settings.integrations.sync", defaultValue: "Sync")) {
+                        sync(source: nil)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isSyncingAll)
+                }
+
+                ForEach(IntegrationSettingsSource.allCases) { source in
+                    SettingsCardDivider()
+                    sourceBlock(source)
+                }
+            }
+        }
+        .task { observeUpdates() }
+    }
+
+    private var privacyNote: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(String(localized: "settings.integrations.privacy.title", defaultValue: "Local-first inbox"), systemImage: "lock.shield")
+                .cmuxFont(size: 12, weight: .semibold)
+            Text(String(localized: "settings.integrations.privacy.body", defaultValue: "Normalized inbox data is stored locally in ~/.cmuxterm/inbox.sqlite3. Credentials are stored only in Keychain. AI drafting runs only when you request a draft, and external replies are never sent until you approve Send."))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sourceBlock(_ source: IntegrationSettingsSource) -> some View {
+        VStack(spacing: 0) {
+            SettingsCardRow(
+                configurationReview: .action,
+                searchAnchorID: "setting:integrations:\(source.rawValue)",
+                sourceTitle(source),
+                subtitle: sourceSubtitle(source)
+            ) {
+                HStack(spacing: 8) {
+                    if snapshot.unreadCount(for: source) > 0 {
+                        Text("\(snapshot.unreadCount(for: source))")
+                            .cmuxFont(size: 11, weight: .semibold)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    Button(String(localized: "settings.integrations.sync", defaultValue: "Sync")) {
+                        sync(source: source)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
+            let accounts = snapshot.accounts(for: source)
+            if accounts.isEmpty {
+                connectRow(source)
+            } else {
+                ForEach(accounts) { account in
+                    SettingsCardDivider()
+                    IntegrationAccountRow(
+                        account: account,
+                        statusText: account.statusMessage ?? account.status,
+                        onNotificationsChanged: { enabled in
+                            Task {
+                                await hostActions.setIntegrationNotificationsEnabled(
+                                    source: account.source,
+                                    accountID: account.accountID,
+                                    enabled: enabled
+                                )
+                            }
+                        },
+                        onDisconnect: {
+                            Task {
+                                await hostActions.disconnectIntegration(source: account.source, accountID: account.accountID)
+                                snapshot = hostActions.integrationSettingsSnapshot()
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private func connectRow(_ source: IntegrationSettingsSource) -> some View {
+        SettingsCardRow(
+            configurationReview: .action,
+            searchAnchorID: "setting:integrations:\(source.rawValue):connect",
+            connectTitle(source),
+            subtitle: connectSubtitle(source),
+            controlWidth: 260
+        ) {
+            VStack(alignment: .trailing, spacing: 6) {
+                if source.requiresAccountField {
+                    TextField(
+                        String(localized: "settings.integrations.account.placeholder", defaultValue: "Account ID"),
+                        text: Binding(
+                            get: { accountDrafts[source] ?? "default" },
+                            set: { accountDrafts[source] = $0 }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+                if source.requiresTokenField {
+                    SecureField(
+                        String(localized: "settings.integrations.token.placeholder", defaultValue: "Token"),
+                        text: Binding(
+                            get: { tokenDrafts[source] ?? "" },
+                            set: { tokenDrafts[source] = $0 }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+                Button(String(localized: "settings.integrations.connect", defaultValue: "Connect")) {
+                    connect(source)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private func connect(_ source: IntegrationSettingsSource) {
+        let accountID = (accountDrafts[source] ?? "default").trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = tokenDrafts[source]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            _ = await hostActions.connectIntegration(
+                source: source,
+                accountID: accountID.isEmpty ? "default" : accountID,
+                displayName: nil,
+                token: token?.isEmpty == false ? token : nil
+            )
+            tokenDrafts[source] = nil
+            snapshot = hostActions.integrationSettingsSnapshot()
+        }
+    }
+
+    private func sync(source: IntegrationSettingsSource?) {
+        isSyncingAll = source == nil
+        Task {
+            await hostActions.syncIntegration(source: source)
+            snapshot = hostActions.integrationSettingsSnapshot()
+            isSyncingAll = false
+        }
+    }
+
+    private func observeUpdates() {
+        snapshot = hostActions.integrationSettingsSnapshot()
+        Task {
+            for await next in hostActions.integrationSettingsUpdates() {
+                snapshot = next
+            }
+        }
+    }
+
+    private func sourceTitle(_ source: IntegrationSettingsSource) -> String {
+        switch source {
+        case .agent: return String(localized: "settings.integrations.source.agents", defaultValue: "Agents")
+        case .gmail: return String(localized: "settings.integrations.source.gmail", defaultValue: "Gmail")
+        case .slack: return String(localized: "settings.integrations.source.slack", defaultValue: "Slack")
+        case .discord: return String(localized: "settings.integrations.source.discord", defaultValue: "Discord")
+        case .imessage: return String(localized: "settings.integrations.source.imessage", defaultValue: "iMessage")
+        case .generic: return String(localized: "settings.integrations.source.generic", defaultValue: "Generic")
+        }
+    }
+
+    private func sourceSubtitle(_ source: IntegrationSettingsSource) -> String {
+        switch source {
+        case .agent:
+            return String(localized: "settings.integrations.source.agents.subtitle", defaultValue: "Mirrors existing Feed and Workstream events into Inbox.")
+        case .gmail:
+            return String(localized: "settings.integrations.source.gmail.subtitle", defaultValue: "OAuth-ready Gmail API history polling, labels, threads, unread, and approved reply sends.")
+        case .slack:
+            return String(localized: "settings.integrations.source.slack.subtitle", defaultValue: "Slack Web API backfill plus Socket Mode event shape for near-real-time activity.")
+        case .discord:
+            return String(localized: "settings.integrations.source.discord.subtitle", defaultValue: "Official bot and Gateway connector for selected channels, mentions, DMs, and accessible threads.")
+        case .imessage:
+            return String(localized: "settings.integrations.source.imessage.subtitle", defaultValue: "Uses the cmux-imsg helper for status, recent sync, history, dedupe, and approved sends.")
+        case .generic:
+            return String(localized: "settings.integrations.source.generic.subtitle", defaultValue: "Accepts normalized events from CLI, Shortcuts, webhooks, Zapier, or internal tools.")
+        }
+    }
+
+    private func connectTitle(_ source: IntegrationSettingsSource) -> String {
+        String.localizedStringWithFormat(
+            String(localized: "settings.integrations.connectSource", defaultValue: "Connect %@"),
+            sourceTitle(source)
+        )
+    }
+
+    private func connectSubtitle(_ source: IntegrationSettingsSource) -> String {
+        source.requiresTokenField
+            ? String(localized: "settings.integrations.connect.token.subtitle", defaultValue: "Paste a token to store it in Keychain. It is not written to settings or the inbox database.")
+            : String(localized: "settings.integrations.connect.noToken.subtitle", defaultValue: "Records this source locally and reports helper or credential status.")
+    }
+}
+
+private extension IntegrationSettingsSource {
+    var requiresTokenField: Bool {
+        self == .gmail || self == .slack || self == .discord
+    }
+
+    var requiresAccountField: Bool {
+        self != .agent
+    }
+}

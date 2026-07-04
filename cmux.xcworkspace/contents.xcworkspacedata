@@ -121,6 +121,9 @@
          location = "group:CmuxGit">
       </FileRef>
       <FileRef
+         location = "group:CmuxInbox">
+      </FileRef>
+      <FileRef
          location = "group:CmuxLiveEval">
       </FileRef>
       <FileRef

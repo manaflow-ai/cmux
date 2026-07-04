@@ -1,0 +1,345 @@
+import Foundation
+
+/// Owns connector lifecycle, sync state, dedupe fanout, and shared inbox mutations.
+public actor IntegrationHub {
+    private let store: InboxSQLiteStore
+    private let connectors: [InboxSource: any InboxConnector]
+    private let tokenStore: (any InboxTokenStoring)?
+    private var continuations: [UUID: AsyncStream<InboxChange>.Continuation] = [:]
+    private var eventTasks: [InboxSource: Task<Void, Never>] = [:]
+
+    /// Creates an integration hub.
+    /// - Parameters:
+    ///   - store: Local inbox store.
+    ///   - connectors: Connector instances keyed by source.
+    ///   - tokenStore: Optional secure token store for connect/disconnect actions.
+    public init(
+        store: InboxSQLiteStore,
+        connectors: [any InboxConnector],
+        tokenStore: (any InboxTokenStoring)? = nil
+    ) {
+        self.store = store
+        self.tokenStore = tokenStore
+        self.connectors = Dictionary(uniqueKeysWithValues: connectors.map { ($0.source, $0) })
+    }
+
+    deinit {
+        for task in eventTasks.values {
+            task.cancel()
+        }
+    }
+
+    /// Starts connector live-event tasks once.
+    public func start() {
+        for connector in connectors.values where eventTasks[connector.source] == nil {
+            let source = connector.source
+            eventTasks[source] = Task { [connector] in
+                for await event in connector.events() {
+                    await self.ingest(event)
+                }
+            }
+        }
+    }
+
+    /// Returns an async stream of local inbox changes.
+    public func changes() -> AsyncStream<InboxChange> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            continuations[id] = continuation
+            continuation.onTermination = { _ in
+                Task { await self.removeContinuation(id) }
+            }
+        }
+    }
+
+    /// Returns connector and persisted account status.
+    public func status(source: InboxSource? = nil) async -> [InboxConnectorStatus] {
+        var statuses: [InboxConnectorStatus] = []
+        for connector in connectors.values where source == nil || connector.source == source {
+            statuses.append(await connector.status())
+        }
+        let knownAccounts = (try? await store.accounts()) ?? []
+        let connectorSources = Set(statuses.map(\.source))
+        for account in knownAccounts where source == nil || account.source == source {
+            guard !connectorSources.contains(account.source) else { continue }
+            statuses.append(InboxConnectorStatus(
+                source: account.source,
+                accountID: account.accountID,
+                displayName: account.displayName,
+                status: account.status,
+                message: account.statusMessage,
+                credentialState: .missing,
+                capabilities: account.capabilities,
+                lastSyncAt: account.lastSyncAt
+            ))
+        }
+        return statuses.sorted { $0.id < $1.id }
+    }
+
+    /// Syncs one source or all sources.
+    /// - Parameter source: Optional source to sync.
+    public func sync(source: InboxSource? = nil) async -> [InboxConnectorStatus] {
+        var statuses: [InboxConnectorStatus] = []
+        for connector in connectors.values where source == nil || connector.source == source {
+            let accountID = await connector.status().accountID ?? "default"
+            let cursor = try? await store.syncCursor(source: connector.source, accountID: accountID)
+            do {
+                let result = try await connector.sync(cursor: cursor)
+                for account in result.accounts { try await store.upsertAccount(account) }
+                for thread in result.threads { try await store.upsertThread(thread) }
+                try await store.upsertItems(result.items)
+                if let nextCursor = result.nextCursor {
+                    try await store.setSyncCursor(nextCursor, source: connector.source, accountID: accountID)
+                }
+                statuses.append(result.status)
+                notify(.items)
+            } catch {
+                statuses.append(InboxConnectorStatus(
+                    source: connector.source,
+                    accountID: accountID,
+                    status: .error,
+                    message: String(describing: error),
+                    capabilities: connector.capabilities
+                ))
+            }
+        }
+        notify(.accounts)
+        return statuses
+    }
+
+    /// Connects or records an account, storing token bytes only in Keychain when supplied.
+    /// - Parameters:
+    ///   - source: Source service to connect.
+    ///   - accountID: Source account id.
+    ///   - displayName: Optional display name.
+    ///   - token: Optional secret token bytes as a string.
+    public func connect(
+        source: InboxSource,
+        accountID: String = "default",
+        displayName: String? = nil,
+        token: String? = nil
+    ) async throws -> InboxConnectorStatus {
+        if let token, !token.isEmpty {
+            guard let tokenStore else { throw InboxError.connectorUnavailable("No token store configured") }
+            try await tokenStore.saveToken(Data(token.utf8), source: source, accountID: accountID)
+        }
+        let connector = connectors[source]
+        let capabilities = connector?.capabilities ?? []
+        let credentialState = await tokenStore?.credentialState(source: source, accountID: accountID) ?? .missing
+        let requiresCredential = source == .gmail || source == .slack || source == .discord
+        let status: InboxAccountStatus = requiresCredential && credentialState != .present ? .missingCredentials : .connected
+        let account = InboxAccount(
+            source: source,
+            accountID: accountID,
+            displayName: displayName ?? source.rawValue,
+            status: status,
+            statusMessage: status == .connected ? nil : "Credential required",
+            capabilities: capabilities
+        )
+        try await store.upsertAccount(account)
+        notify(.accounts)
+        return InboxConnectorStatus(
+            source: source,
+            accountID: accountID,
+            displayName: account.displayName,
+            status: status,
+            message: account.statusMessage,
+            credentialState: credentialState,
+            capabilities: capabilities
+        )
+    }
+
+    /// Disconnects an account and removes its token from Keychain when available.
+    /// - Parameters:
+    ///   - source: Source service to disconnect.
+    ///   - accountID: Source account id.
+    public func disconnect(source: InboxSource, accountID: String = "default") async throws -> InboxConnectorStatus {
+        try await tokenStore?.deleteToken(source: source, accountID: accountID)
+        let capabilities = connectors[source]?.capabilities ?? []
+        let account = InboxAccount(
+            source: source,
+            accountID: accountID,
+            displayName: source.rawValue,
+            status: .disconnected,
+            statusMessage: nil,
+            capabilities: capabilities
+        )
+        try await store.upsertAccount(account)
+        notify(.accounts)
+        return InboxConnectorStatus(
+            source: source,
+            accountID: accountID,
+            displayName: account.displayName,
+            status: .disconnected,
+            credentialState: .missing,
+            capabilities: capabilities
+        )
+    }
+
+    /// Lists local inbox items.
+    /// - Parameter query: List query.
+    public func list(_ query: InboxListQuery) async throws -> [InboxItem] {
+        try await store.list(query)
+    }
+
+    /// Searches local inbox items.
+    /// - Parameters:
+    ///   - query: User-entered search query.
+    ///   - limit: Maximum result count.
+    public func search(_ query: String, limit: Int = 50) async throws -> [InboxSearchHit] {
+        try await store.search(query, limit: limit)
+    }
+
+    /// Marks a local item or thread read or unread.
+    public func markRead(itemID: String? = nil, threadID: String? = nil, unread: Bool = false) async throws {
+        try await store.markRead(itemID: itemID, threadID: threadID, unread: unread)
+        notify(.items)
+    }
+
+    /// Creates a local draft using the owning connector when available.
+    public func draftReply(threadID: String, instruction: String?) async throws -> InboxDraft {
+        guard let thread = try await store.thread(id: threadID) else {
+            throw InboxError.notFound("Inbox thread not found")
+        }
+        let recent = try await store.recentItems(threadID: threadID, limit: 12)
+        let body: String
+        if let connector = connectors[thread.source] {
+            body = try await connector.draftReply(thread: thread, recentItems: recent, instruction: instruction)
+        } else {
+            body = instruction ?? ""
+        }
+        let draft = try await store.createDraft(threadID: threadID, instruction: instruction, body: body)
+        notify(.items)
+        return draft
+    }
+
+    /// Sends a draft after explicit user approval.
+    public func sendApprovedReply(draftID: String) async throws -> InboxDraft {
+        guard var draft = try await store.draft(id: draftID) else {
+            throw InboxError.notFound("Inbox draft not found")
+        }
+        guard let thread = try await store.thread(id: draft.threadID) else {
+            throw InboxError.notFound("Inbox thread not found")
+        }
+        guard let connector = connectors[draft.source] else {
+            throw InboxError.connectorUnavailable("No connector for \(draft.source.rawValue)")
+        }
+        guard connector.capabilities.contains(.sendReply) else {
+            throw InboxError.unsupported("\(draft.source.rawValue) does not support replies")
+        }
+        draft.status = .approved
+        draft.approvedAt = Date.now
+        try await store.upsertDraft(draft)
+        do {
+            try await connector.sendApprovedReply(draft: draft, thread: thread)
+            draft.status = .sent
+            draft.sentAt = Date.now
+            draft.errorMessage = nil
+        } catch {
+            draft.status = .failed
+            draft.errorMessage = String(describing: error)
+        }
+        try await store.upsertDraft(draft)
+        notify(.items)
+        return draft
+    }
+
+    /// Pushes a normalized external event into the local inbox.
+    public func push(account: InboxAccount, thread: InboxThread, item: InboxItem) async throws {
+        try await store.upsertAccount(account)
+        try await store.upsertThread(thread)
+        try await store.upsertItem(item)
+        notify(.items)
+    }
+
+    /// Returns source unread counts.
+    public func unreadCounts() async throws -> [InboxSourceUnreadCount] {
+        try await store.unreadCounts()
+    }
+
+    /// Returns persisted accounts.
+    public func accounts() async throws -> [InboxAccount] {
+        try await store.accounts()
+    }
+
+    /// Updates the cmux-native notification preference for one account.
+    /// - Parameters:
+    ///   - source: Source service.
+    ///   - accountID: Source account id.
+    ///   - enabled: Whether cmux should surface native notifications.
+    public func setNotificationsEnabled(
+        source: InboxSource,
+        accountID: String,
+        enabled: Bool
+    ) async throws {
+        try await store.setNotificationsEnabled(source: source, accountID: accountID, enabled: enabled)
+        notify(.accounts)
+    }
+
+    /// Returns recent context for a thread.
+    public func recentItems(threadID: String, limit: Int = 20) async throws -> [InboxItem] {
+        try await store.recentItems(threadID: threadID, limit: limit)
+    }
+
+    /// Returns one local thread by id.
+    /// - Parameter threadID: Local thread id.
+    public func thread(id threadID: String) async throws -> InboxThread? {
+        try await store.thread(id: threadID)
+    }
+
+    /// Returns local threads by id.
+    /// - Parameter threadIDs: Local thread ids to load.
+    public func threads(ids threadIDs: [String]) async throws -> [InboxThread] {
+        try await store.threads(ids: threadIDs)
+    }
+
+    /// Returns one local draft by id.
+    /// - Parameter draftID: Local draft id.
+    public func draft(id draftID: String) async throws -> InboxDraft? {
+        try await store.draft(id: draftID)
+    }
+
+    /// Updates the editable body for a local draft before approved send.
+    /// - Parameters:
+    ///   - draftID: Local draft id.
+    ///   - body: Edited reply body.
+    public func updateDraftBody(draftID: String, body: String) async throws -> InboxDraft {
+        guard var draft = try await store.draft(id: draftID) else {
+            throw InboxError.notFound("Inbox draft not found")
+        }
+        draft.body = body
+        draft.status = .editing
+        try await store.upsertDraft(draft)
+        notify(.items)
+        return draft
+    }
+
+    private func ingest(_ event: InboxConnectorEvent) async {
+        do {
+            switch event {
+            case .account(let account):
+                try await store.upsertAccount(account)
+                notify(.accounts)
+            case .thread(let thread):
+                try await store.upsertThread(thread)
+                notify(.items)
+            case .item(let item):
+                try await store.upsertItem(item)
+                notify(.items)
+            }
+        } catch {
+            notify(.accounts)
+        }
+    }
+
+    private func notify(_ change: InboxChange) {
+        for continuation in continuations.values {
+            continuation.yield(change)
+        }
+    }
+
+    private func removeContinuation(_ id: UUID) {
+        continuations[id]?.finish()
+        continuations.removeValue(forKey: id)
+    }
+}

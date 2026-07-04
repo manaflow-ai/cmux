@@ -6464,7 +6464,7 @@ struct ContentView: View {
                 )
             )
         }
-        contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions())
+        contributions.append(contentsOf: Self.commandPaletteRightSidebarModeCommandContributions() + Self.commandPaletteInboxCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteRightSidebarToolPaneCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7651,8 +7651,7 @@ struct ContentView: View {
                 forKey: WorkspacePresentationModeSettings.modeKey
             )
         }
-        registerViewCommandHandlers(&registry)
-        registerCanvasCommandHandlers(&registry)
+        registerViewCommandHandlers(&registry); registerCanvasCommandHandlers(&registry); registerInboxCommandHandlers(&registry, observedWindow: observedWindow)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }

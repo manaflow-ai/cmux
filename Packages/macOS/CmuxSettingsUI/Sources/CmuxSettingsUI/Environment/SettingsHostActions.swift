@@ -163,11 +163,62 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// Returns the current external integration account/status snapshot.
+    func integrationSettingsSnapshot() -> IntegrationSettingsSnapshot
+
+    /// Streams integration status changes for the Settings > Integrations pane.
+    func integrationSettingsUpdates() -> AsyncStream<IntegrationSettingsSnapshot>
+
+    /// Connects or records an integration account. Token values are handed
+    /// directly to the host so it can store them in Keychain, never settings.
+    func connectIntegration(
+        source: IntegrationSettingsSource,
+        accountID: String,
+        displayName: String?,
+        token: String?
+    ) async -> IntegrationAccountSettingsSnapshot?
+
+    /// Disconnects an integration account and deletes any host-held token.
+    func disconnectIntegration(source: IntegrationSettingsSource, accountID: String) async
+
+    /// Runs an on-demand sync for one source or all sources.
+    func syncIntegration(source: IntegrationSettingsSource?) async
+
+    /// Updates cmux-native notification preference for one account.
+    func setIntegrationNotificationsEnabled(
+        source: IntegrationSettingsSource,
+        accountID: String,
+        enabled: Bool
+    ) async
 }
 
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    func integrationSettingsSnapshot() -> IntegrationSettingsSnapshot { IntegrationSettingsSnapshot() }
+
+    func integrationSettingsUpdates() -> AsyncStream<IntegrationSettingsSnapshot> {
+        AsyncStream { $0.finish() }
+    }
+
+    func connectIntegration(
+        source: IntegrationSettingsSource,
+        accountID: String,
+        displayName: String?,
+        token: String?
+    ) async -> IntegrationAccountSettingsSnapshot? { nil }
+
+    func disconnectIntegration(source: IntegrationSettingsSource, accountID: String) async {}
+
+    func syncIntegration(source: IntegrationSettingsSource?) async {}
+
+    func setIntegrationNotificationsEnabled(
+        source: IntegrationSettingsSource,
+        accountID: String,
+        enabled: Bool
+    ) async {}
 
     func openMobilePairingWindow() {}
 

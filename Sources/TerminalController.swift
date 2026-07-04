@@ -1046,6 +1046,7 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "integrations.status", "integrations.connect", "integrations.disconnect", "integrations.sync", "inbox.list", "inbox.search", "inbox.mark_read", "inbox.draft_reply", "inbox.send_reply", "inbox.push": return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) { await self.v2InboxSocketMethod(request.method, params: request.params) }
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -1926,8 +1927,6 @@ class TerminalController {
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
 
         // surface.read_text handled by ControlCommandCoordinator.
-
-
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,
         // textbox fixtures, command palette, browser probes, sidebar/terminal
         // focus, file drop, layout/portal/flash/panel-snapshot counters, window
@@ -2041,6 +2040,7 @@ class TerminalController {
             "feed.exit_plan.reply",
             "feed.jump",
             "feed.list",
+            "integrations.status", "integrations.connect", "integrations.disconnect", "integrations.sync", "inbox.list", "inbox.search", "inbox.mark_read", "inbox.draft_reply", "inbox.send_reply", "inbox.push",
             "surface.list",
             "surface.current",
             "surface.focus",

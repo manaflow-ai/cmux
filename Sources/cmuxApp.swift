@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxInbox
 import CmuxPanes
 import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
@@ -45,6 +46,7 @@ struct cmuxApp: App {
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
     /// through it via the `@LiveSetting` property wrapper.
     private let settingsRuntime: SettingsRuntime
+    private let inboxRuntime: InboxRuntime
 
     /// The de-singletonized auth graph (shared AuthCoordinator + the macOS
     /// hosted-browser sign-in flow). Constructed once at app launch and
@@ -95,7 +97,6 @@ struct cmuxApp: App {
             .deletingLastPathComponent()
             ?? CmuxStateDirectory.url(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         let secretStore = SecretFileStore(baseDirectory: secretBaseDirectory)
-
         // Lift any plaintext socket-control password out of `cmux.json` into the
         // secure store, then scrub it from the config. This runs here, in the App
         // initializer, on purpose: it completes before the managed-config layer
@@ -121,7 +122,7 @@ struct cmuxApp: App {
         )
         let authComposition = MacAuthComposition()
         self.authComposition = authComposition
-
+        let inboxRuntime = InboxRuntime.makeProduction(); self.inboxRuntime = inboxRuntime
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
         // share the name `cmux`, so if the GUI's Contents/MacOS leaks onto $PATH
@@ -157,7 +158,6 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
         _ = KeyboardShortcutSettings.settingsFileStore
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.loaded")
-
         // Apply saved language preference before any UI loads
         let languageSettingsStore = LanguageSettingsStore(defaults: .standard)
         languageSettingsStore.applyLanguageOverride(languageSettingsStore.storedLanguage)
@@ -175,10 +175,9 @@ struct cmuxApp: App {
                 coordinator: authComposition.coordinator,
                 browserSignIn: authComposition.browserSignIn
             ),
-            hostActions: HostSettingsActions(configFileURL: configFileURL)
+            hostActions: HostSettingsActions(configFileURL: configFileURL, inboxRuntime: inboxRuntime)
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
-
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
@@ -215,7 +214,6 @@ struct cmuxApp: App {
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")
-
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
@@ -379,9 +377,11 @@ struct cmuxApp: App {
         WindowGroup {
             MainWindowBootstrapView()
                 .settingsRuntime(settingsRuntime)
+                .environment(inboxRuntime)
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
+                    InboxRuntimeRegistry.install(inboxRuntime); inboxRuntime.start()
                     SettingsWindowPresenter.configure(
                         openWindow: {
                             openWindow(id: SettingsWindowPresenter.windowID)

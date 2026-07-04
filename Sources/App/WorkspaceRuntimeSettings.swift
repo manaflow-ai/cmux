@@ -483,7 +483,7 @@ enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
 
-    static let defaultFeedEnabled = false
+    static let defaultFeedEnabled = true
     static let defaultDockEnabled = false
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
