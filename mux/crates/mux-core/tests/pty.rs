@@ -77,6 +77,23 @@ fn surface_runs_command_and_screen_updates() {
 }
 
 #[test]
+fn surface_resize_reports_whether_the_size_changed() {
+    let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 30"));
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    assert!(!surface.resize(80, 24));
+    assert_eq!(surface.size(), (80, 24));
+    assert!(surface.resize(100, 40));
+    assert_eq!(surface.size(), (100, 40));
+    assert!(!surface.resize(100, 40));
+    assert!(surface.resize(0, 0));
+    assert_eq!(surface.size(), (1, 1));
+    assert!(!surface.resize(0, 0));
+
+    mux.close_surface(surface.id);
+}
+
+#[test]
 fn surface_exit_reaps_tree_and_emits_event() {
     let opts =
         SurfaceOptions { command: Some(vec!["/usr/bin/true".to_string()]), ..Default::default() };

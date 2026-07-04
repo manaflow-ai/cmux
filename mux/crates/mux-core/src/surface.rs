@@ -247,13 +247,14 @@ impl Surface {
         rs.update(&mut self.term.lock().unwrap())
     }
 
-    /// Resize both the PTY and the terminal state.
-    pub fn resize(&self, cols: u16, rows: u16) {
+    /// Resize both the PTY and the terminal state. Returns whether the
+    /// final clamped size actually changed.
+    pub fn resize(&self, cols: u16, rows: u16) -> bool {
         let (cols, rows) = (cols.max(1), rows.max(1));
         {
             let mut size = self.size.lock().unwrap();
             if *size == (cols, rows) {
-                return;
+                return false;
             }
             *size = (cols, rows);
         }
@@ -265,6 +266,7 @@ impl Surface {
         });
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = self.term.lock().unwrap().resize(cols, rows, 8, 16);
+        true
     }
 
     pub fn size(&self) -> (u16, u16) {

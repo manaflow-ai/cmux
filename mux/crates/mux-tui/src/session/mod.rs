@@ -37,9 +37,22 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
     cmd
 }
 
+pub(crate) fn resize_action(
+    desired: (u16, u16),
+    asserted: Option<(u16, u16)>,
+    server: (u16, u16),
+    user_interaction: bool,
+) -> bool {
+    if user_interaction {
+        desired != server
+    } else {
+        asserted != Some(desired)
+    }
+}
+
 #[derive(Clone)]
 pub enum SurfaceHandle {
-    Local(Arc<Surface>),
+    Local(Arc<Surface>, Arc<Mux>),
     Remote(Arc<RemoteSurface>, Arc<RemoteSession>),
 }
 
@@ -94,7 +107,9 @@ impl Session {
     /// the attach replay, so the replay arrives at final geometry).
     pub fn surface_sized(&self, id: SurfaceId, size: Option<(u16, u16)>) -> Option<SurfaceHandle> {
         match self {
-            Session::Local(mux) => mux.surface(id).map(SurfaceHandle::Local),
+            Session::Local(mux) => {
+                mux.surface(id).map(|surface| SurfaceHandle::Local(surface, mux.clone()))
+            }
             Session::Remote(remote) => remote
                 .ensure_surface(id, size)
                 .map(|surface| SurfaceHandle::Remote(surface, remote.clone())),
@@ -295,7 +310,7 @@ impl Session {
 impl SurfaceHandle {
     pub fn write_bytes(&self, bytes: &[u8]) {
         match self {
-            SurfaceHandle::Local(surface) => {
+            SurfaceHandle::Local(surface, _) => {
                 let _ = surface.write_bytes(bytes);
             }
             SurfaceHandle::Remote(surface, session) => {
@@ -305,31 +320,55 @@ impl SurfaceHandle {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) {
+        let desired = (cols.max(1), rows.max(1));
         match self {
-            SurfaceHandle::Local(surface) => surface.resize(cols, rows),
+            SurfaceHandle::Local(surface, mux) => {
+                let _ = mux.resize_surface(surface.id, desired.0, desired.1);
+            }
             SurfaceHandle::Remote(surface, session) => {
-                if surface.set_size(cols, rows) {
+                if resize_action(desired, surface.asserted_size(), surface.server_size(), false) {
                     let _ = session.request(json!({
                         "cmd": "resize-surface",
                         "surface": surface.id,
-                        "cols": cols,
-                        "rows": rows,
+                        "cols": desired.0,
+                        "rows": desired.1,
+                    }));
+                    surface.set_asserted_size(desired);
+                }
+            }
+        }
+    }
+
+    pub fn reassert_size(&self, cols: u16, rows: u16) {
+        let desired = (cols.max(1), rows.max(1));
+        match self {
+            SurfaceHandle::Local(surface, mux) => {
+                let _ = mux.resize_surface(surface.id, desired.0, desired.1);
+            }
+            SurfaceHandle::Remote(surface, session) => {
+                if resize_action(desired, surface.asserted_size(), surface.server_size(), true) {
+                    let _ = session.request(json!({
+                        "cmd": "resize-surface",
+                        "surface": surface.id,
+                        "cols": desired.0,
+                        "rows": desired.1,
                     }));
                 }
+                surface.set_asserted_size(desired);
             }
         }
     }
 
     pub fn take_dirty(&self) -> bool {
         match self {
-            SurfaceHandle::Local(surface) => surface.take_dirty(),
+            SurfaceHandle::Local(surface, _) => surface.take_dirty(),
             SurfaceHandle::Remote(surface, _) => surface.dirty.swap(false, Ordering::AcqRel),
         }
     }
 
     pub fn snapshot(&self, rs: &mut RenderState) -> ghostty_vt::Result<()> {
         match self {
-            SurfaceHandle::Local(surface) => surface.snapshot(rs),
+            SurfaceHandle::Local(surface, _) => surface.snapshot(rs),
             SurfaceHandle::Remote(surface, _) => rs.update(&mut surface.term.lock().unwrap()),
         }
     }
@@ -338,8 +377,40 @@ impl SurfaceHandle {
     /// remote surfaces — modes and keyboard state replay there too).
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> R {
         match self {
-            SurfaceHandle::Local(surface) => surface.with_terminal(f),
+            SurfaceHandle::Local(surface, _) => surface.with_terminal(f),
             SurfaceHandle::Remote(surface, _) => f(&mut surface.term.lock().unwrap()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resize_action;
+
+    #[test]
+    fn first_layout_after_attach_does_not_send_redundant_resize() {
+        let desired = (123, 65);
+        assert!(!resize_action(desired, Some(desired), desired, false));
+    }
+
+    #[test]
+    fn remote_resize_with_no_local_change_does_not_send() {
+        let desired = (123, 65);
+        let server = (341, 92);
+        assert!(!resize_action(desired, Some(desired), server, false));
+    }
+
+    #[test]
+    fn remote_resize_followed_by_user_interaction_sends() {
+        let desired = (123, 65);
+        let server = (341, 92);
+        assert!(resize_action(desired, Some(desired), server, true));
+    }
+
+    #[test]
+    fn steady_state_does_not_send() {
+        let desired = (123, 65);
+        assert!(!resize_action(desired, Some(desired), desired, false));
+        assert!(!resize_action(desired, Some(desired), desired, true));
     }
 }

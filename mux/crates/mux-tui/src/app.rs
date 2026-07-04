@@ -13,8 +13,9 @@ use std::time::Duration;
 
 use base64::Engine;
 use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
-    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+    EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    MouseButton, MouseEvent, MouseEventKind,
 };
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -36,6 +37,17 @@ use crate::ui::thumb_geometry;
 pub enum AppEvent {
     Mux(MuxEvent),
     Input(Event),
+}
+
+struct HandleOutcome {
+    needs_draw: bool,
+    user_interaction: bool,
+}
+
+impl HandleOutcome {
+    fn new(needs_draw: bool, user_interaction: bool) -> Self {
+        HandleOutcome { needs_draw, user_interaction }
+    }
 }
 
 /// A clickable region of the current frame. The renderers rebuild the hit
@@ -384,6 +396,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(EnableMouseCapture)?;
+        stdout.execute(EnableFocusChange)?;
         stdout.execute(EnableBracketedPaste)?;
         Ok(())
     })() {
@@ -443,6 +456,7 @@ fn restore_terminal() -> anyhow::Result<()> {
     // Reset the mouse pointer shape in case we left it as a hand.
     let _ = write!(stdout, "\x1b]22;default\x07");
     let _ = stdout.execute(DisableBracketedPaste);
+    let _ = stdout.execute(DisableFocusChange);
     let _ = stdout.execute(DisableMouseCapture);
     let _ = stdout.execute(LeaveAlternateScreen);
     disable_raw_mode()?;
@@ -477,12 +491,19 @@ impl App {
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
+            let mut user_interaction = false;
             if let Some(event) = first {
-                needs_draw |= self.handle(event)?;
+                let outcome = self.handle(event)?;
+                needs_draw |= outcome.needs_draw;
+                user_interaction |= outcome.user_interaction;
             }
             for _ in 0..256 {
                 match rx.try_recv() {
-                    Ok(event) => needs_draw |= self.handle(event)?,
+                    Ok(event) => {
+                        let outcome = self.handle(event)?;
+                        needs_draw |= outcome.needs_draw;
+                        user_interaction |= outcome.user_interaction;
+                    }
                     Err(_) => break,
                 }
             }
@@ -492,6 +513,9 @@ impl App {
             if needs_draw {
                 let size = terminal.size()?;
                 self.sync_layout((size.width, size.height));
+                if user_interaction {
+                    self.reassert_visible_surface_sizes();
+                }
                 terminal.draw(|f| crate::ui::draw(self, f))?;
             }
         }
@@ -576,11 +600,11 @@ impl App {
         }
     }
 
-    fn handle(&mut self, event: AppEvent) -> anyhow::Result<bool> {
+    fn handle(&mut self, event: AppEvent) -> anyhow::Result<HandleOutcome> {
         match event {
             AppEvent::Mux(MuxEvent::Empty) => {
                 self.quit = true;
-                Ok(false)
+                Ok(HandleOutcome::new(false, false))
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.render_states.remove(&id);
@@ -588,17 +612,47 @@ impl App {
                 if self.selection.is_some_and(|s| s.surface == id) {
                     self.selection = None;
                 }
-                Ok(true)
+                Ok(HandleOutcome::new(true, false))
             }
-            AppEvent::Mux(_) => Ok(true),
-            AppEvent::Input(Event::Key(key)) => self.handle_key(key),
-            AppEvent::Input(Event::Mouse(mouse)) => self.handle_mouse(mouse),
+            AppEvent::Mux(_) => Ok(HandleOutcome::new(true, false)),
+            AppEvent::Input(Event::Key(key)) => {
+                let user_interaction = key.kind != KeyEventKind::Release;
+                if user_interaction {
+                    self.reassert_visible_surface_sizes();
+                }
+                let needs_draw = self.handle_key(key)?;
+                Ok(HandleOutcome::new(needs_draw, user_interaction))
+            }
+            AppEvent::Input(Event::Mouse(mouse)) => {
+                self.reassert_visible_surface_sizes();
+                let needs_draw = self.handle_mouse(mouse)?;
+                Ok(HandleOutcome::new(needs_draw, true))
+            }
             AppEvent::Input(Event::Paste(text)) => {
+                self.reassert_visible_surface_sizes();
                 self.paste(&text);
-                Ok(false)
+                Ok(HandleOutcome::new(false, true))
             }
-            AppEvent::Input(Event::Resize(_, _)) => Ok(true),
-            AppEvent::Input(_) => Ok(false),
+            AppEvent::Input(Event::FocusGained) => {
+                self.reassert_visible_surface_sizes();
+                Ok(HandleOutcome::new(true, true))
+            }
+            AppEvent::Input(Event::Resize(_, _)) => Ok(HandleOutcome::new(true, true)),
+            AppEvent::Input(_) => Ok(HandleOutcome::new(false, false)),
+        }
+    }
+
+    fn reassert_visible_surface_sizes(&self) {
+        for area in &self.pane_areas {
+            if area.content.width == 0 || area.content.height == 0 {
+                continue;
+            }
+            if let Some(surface) = self
+                .session
+                .surface_sized(area.surface, Some((area.content.width, area.content.height)))
+            {
+                surface.reassert_size(area.content.width, area.content.height);
+            }
         }
     }
 

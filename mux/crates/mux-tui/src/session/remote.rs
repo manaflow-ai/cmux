@@ -22,19 +22,34 @@ pub struct RemoteSurface {
     pub id: SurfaceId,
     pub term: Mutex<Terminal>,
     pub dirty: AtomicBool,
-    size: Mutex<(u16, u16)>,
+    server_size: Mutex<(u16, u16)>,
+    asserted_size: Mutex<Option<(u16, u16)>>,
 }
 
 impl RemoteSurface {
-    /// Returns true when the size actually changed.
-    pub(super) fn set_size(&self, cols: u16, rows: u16) -> bool {
-        let mut size = self.size.lock().unwrap();
+    /// Apply the server's authoritative size to the mirror terminal.
+    /// Returns true when the local mirror geometry actually changed.
+    pub(super) fn set_server_size(&self, cols: u16, rows: u16) -> bool {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        let mut size = self.server_size.lock().unwrap();
         if *size == (cols, rows) {
             return false;
         }
         *size = (cols, rows);
         let _ = self.term.lock().unwrap().resize(cols, rows, 8, 16);
         true
+    }
+
+    pub(super) fn server_size(&self) -> (u16, u16) {
+        *self.server_size.lock().unwrap()
+    }
+
+    pub(super) fn asserted_size(&self) -> Option<(u16, u16)> {
+        *self.asserted_size.lock().unwrap()
+    }
+
+    pub(super) fn set_asserted_size(&self, size: (u16, u16)) {
+        *self.asserted_size.lock().unwrap() = Some(size);
     }
 }
 
@@ -118,13 +133,23 @@ impl RemoteSession {
                     return;
                 };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.set_size(cols, rows);
+                    surface.set_server_size(cols, rows);
                     let mut term = surface.term.lock().unwrap();
                     term.vt_write(&replay);
                     drop(term);
                     surface.dirty.store(true, Ordering::Release);
                 }
                 self.emit(MuxEvent::SurfaceOutput(id));
+            }
+            Some("surface-resized") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.set_server_size(cols, rows);
+                    surface.dirty.store(true, Ordering::Release);
+                    self.emit(MuxEvent::SurfaceOutput(id));
+                }
             }
             Some("output") => {
                 let Some(id) = surface_id() else { return };
@@ -232,7 +257,8 @@ impl RemoteSession {
             id,
             term: Mutex::new(term),
             dirty: AtomicBool::new(false),
-            size: Mutex::new((cols, rows)),
+            server_size: Mutex::new((cols, rows)),
+            asserted_size: Mutex::new(size.map(|_| (cols, rows))),
         });
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         // The vt-state event that follows fills the mirror.
