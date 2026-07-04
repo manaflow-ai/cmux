@@ -8110,7 +8110,7 @@ struct CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(response, mode: idFormat)))
         } else {
-            print("OK")
+            print(String(localized: "common.ok", defaultValue: "OK"))
         }
     }
 
@@ -8335,7 +8335,7 @@ struct CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(response, mode: idFormat)))
         } else {
-            print("OK")
+            print(String(localized: "common.ok", defaultValue: "OK"))
         }
     }
 
@@ -8347,7 +8347,7 @@ struct CMUXCLI {
         windowOverride: String?
     ) throws {
         guard let sub = commandArgs.first?.lowercased() else {
-            throw CLIError(message: "workstream requires a subcommand. Try: list, create, rename, delete, add, remove, move, enter, exit")
+            throw CLIError(message: String(localized: "cli.workstream.error.missingSubcommand", defaultValue: "workstream requires a subcommand. Try: list, create, rename, delete, add, remove, move, enter, exit"))
         }
         let rest = Array(commandArgs.dropFirst())
         var params: [String: Any] = [:]
@@ -8362,7 +8362,7 @@ struct CMUXCLI {
             for arg in rem1 where !arg.hasPrefix("--") {
                 return arg
             }
-            throw CLIError(message: "workstream \(sub) requires a workstream id or --workstream <id>")
+            throw CLIError(message: localizedFormat("cli.workstream.error.requiresWorkstream", defaultValue: "workstream %@ requires a workstream id or --workstream <id>", sub))
         }
 
         switch sub {
@@ -8374,14 +8374,14 @@ struct CMUXCLI {
                 let workstreams = payload["workstreams"] as? [[String: Any]] ?? []
                 let drilledIn = payload["drilled_in_workstream_id"] as? String
                 if workstreams.isEmpty {
-                    print("No workstreams")
+                    print(String(localized: "cli.workstream.output.none", defaultValue: "No workstreams"))
                 } else {
                     for w in workstreams {
                         let handle = textHandle(w, idFormat: idFormat)
                         let name = (w["name"] as? String) ?? ""
                         let count = (w["workspace_count"] as? Int) ?? 0
-                        let here = (w["id"] as? String) == drilledIn ? " [drilled-in]" : ""
-                        print("\(handle)  \(name)  (\(count) workspaces)\(here)")
+                        let here = (w["id"] as? String) == drilledIn ? String(localized: "cli.workstream.output.drilledInSuffix", defaultValue: " [drilled-in]") : ""
+                        print(localizedFormat("cli.workstream.output.listRow", defaultValue: "%@  %@  (%d workspaces)%@", handle, name, count, here))
                     }
                 }
             }
@@ -8400,9 +8400,9 @@ struct CMUXCLI {
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
             } else if let workstream = response["workstream"] as? [String: Any] {
-                print("OK \(textHandle(workstream, idFormat: idFormat))")
+                print(localizedFormat("cli.workstream.output.okWithHandle", defaultValue: "OK %@", textHandle(workstream, idFormat: idFormat)))
             } else {
-                print("OK")
+                print(String(localized: "common.ok", defaultValue: "OK"))
             }
 
         case "rename":
@@ -8415,7 +8415,7 @@ struct CMUXCLI {
             let (_, remNoWindow) = parseOption(rem0, name: "--window")
             let positional = remNoWindow.filter { !$0.hasPrefix("--") && $0 != id }
             guard let newName = nameOpt ?? positional.first else {
-                throw CLIError(message: "rename requires --name <name>")
+                throw CLIError(message: String(localized: "cli.workstream.error.renameRequiresName", defaultValue: "rename requires --name <name>"))
             }
             params["name"] = newName
             let resp = try client.sendV2(method: "workstream.rename", params: params)
@@ -8431,7 +8431,7 @@ struct CMUXCLI {
             let (wstOpt, rem0) = parseOption(rest, name: "--workstream")
             let (wsOpt, _) = parseOption(rem0, name: "--workspace")
             guard let id = wstOpt, let wsId = wsOpt else {
-                throw CLIError(message: "add requires --workstream <id> --workspace <id>")
+                throw CLIError(message: String(localized: "cli.workstream.error.addRequiresIds", defaultValue: "add requires --workstream <id> --workspace <id>"))
             }
             params["workstream_id"] = id
             params["workspace_id"] = wsId
@@ -8442,7 +8442,7 @@ struct CMUXCLI {
             let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
             let (_, rem1) = parseOption(rem0, name: "--window")
             guard let wsId = wsOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) else {
-                throw CLIError(message: "remove requires --workspace <id>")
+                throw CLIError(message: String(localized: "cli.workstream.error.removeRequiresWorkspace", defaultValue: "remove requires --workspace <id>"))
             }
             params["workspace_id"] = wsId
             let resp = try client.sendV2(method: "workstream.remove", params: params)
@@ -8455,7 +8455,7 @@ struct CMUXCLI {
             params["workstream_id"] = try resolveWorkstreamId(in: rem2)
             if let toIndexOpt {
                 guard let n = Int(toIndexOpt) else {
-                    throw CLIError(message: "move --to-index must be an integer")
+                    throw CLIError(message: String(localized: "cli.workstream.error.moveIndexInteger", defaultValue: "move --to-index must be an integer"))
                 }
                 params["to_index"] = n
             } else if let beforeOpt {
@@ -8463,7 +8463,7 @@ struct CMUXCLI {
             } else if let afterOpt {
                 params["after_workstream_id"] = afterOpt
             } else {
-                throw CLIError(message: "move requires --to-index <n>, --before <workstream>, or --after <workstream>")
+                throw CLIError(message: String(localized: "cli.workstream.error.moveRequiresTarget", defaultValue: "move requires --to-index <n>, --before <workstream>, or --after <workstream>"))
             }
             let resp = try client.sendV2(method: "workstream.move", params: params)
             printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -8478,7 +8478,7 @@ struct CMUXCLI {
             printWorkstreamResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
-            throw CLIError(message: "Unknown workstream subcommand: \(sub)")
+            throw CLIError(message: localizedFormat("cli.workstream.error.unknownSubcommand", defaultValue: "Unknown workstream subcommand: %@", sub))
         }
     }
 
@@ -15094,7 +15094,7 @@ struct CMUXCLI {
             via Settings → Keyboard.
             """
         case "workstream":
-            return """
+            return String(localized: "cli.workstream.usage", defaultValue: """
             Usage: cmux workstream <subcommand> [flags]
 
             Manage top-level "workstreams": drill-in (master-detail) containers
@@ -15122,7 +15122,7 @@ struct CMUXCLI {
             <workstream> accepts a UUID or a workstream:N ref printed by `list`.
 
             All commands honor --json.
-            """
+            """)
         case "ssh":
             return String(localized: "cli.help.ssh", defaultValue: """
             Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]

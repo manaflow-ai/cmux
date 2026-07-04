@@ -24,9 +24,11 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
+        let fullMemberWorkspaceIds = renderContext.tabs.compactMap { $0.groupId == group.id ? $0.id : nil }
+        let groupMemberWorkspaceIds = fullMemberWorkspaceIds.isEmpty ? memberWorkspaceIds : fullMemberWorkspaceIds
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
-                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
+                return groupMemberWorkspaceIds.reduce(0) { partial, workspaceId in
                     partial + notificationStore.unreadCount(forTabId: workspaceId)
                 }
             }
@@ -39,7 +41,7 @@ extension VerticalTabsSidebar {
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
-        let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
+        let nonAnchorMemberIds = groupMemberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
         let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
         let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
@@ -78,7 +80,7 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
-            memberCount: memberWorkspaceIds.count,
+            memberCount: groupMemberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
             canMarkUnread: canMarkAnchorUnread,
@@ -173,7 +175,7 @@ extension VerticalTabsSidebar {
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
-            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, memberCount = memberWorkspaceIds.count] in
+            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, memberCount = groupMemberWorkspaceIds.count] in
                 guard let tabManager else { return }
                 let otherMemberCount = max(memberCount - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
