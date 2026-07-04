@@ -16,14 +16,27 @@ import { ctaButtonStyle } from "./cta-styles";
 import { PlatformIcon } from "./platform-icons";
 import { WaitlistDialog } from "./waitlist-dialog";
 
+// Optional per-instance padding override in px, used only by the /debug tuner
+// to fine-tune both sizes live. When absent (every production call site), the
+// Tailwind classes below are the single source of truth and rendering is
+// unchanged. downloadRight = gap LEFT of divider; caretLeft = gap RIGHT of it.
+export type PadOverride = {
+  downloadLeft?: number;
+  downloadRight?: number;
+  caretLeft?: number;
+  caretRight?: number;
+};
+
 export function DownloadButton({
   size = "default",
   location = "hero",
   className,
+  padOverride,
 }: {
   size?: "default" | "sm";
   location?: string;
   className?: string;
+  padOverride?: PadOverride;
 }) {
   const t = useTranslations("common");
   const tp = useTranslations("platforms");
@@ -47,6 +60,14 @@ export function DownloadButton({
   // it navigates same-tab to the confirmation page (no popup, no new tab).
   const onConfirmationPage = pathname === DOWNLOAD_CONFIRMATION_PATH;
   const macHref = onConfirmationPage ? DOWNLOAD_URL : DOWNLOAD_CONFIRMATION_HREF;
+
+  // Inline padding overrides win over the Tailwind classes; undefined in prod.
+  const downloadStyle = padOverride
+    ? { paddingLeft: padOverride.downloadLeft, paddingRight: padOverride.downloadRight }
+    : undefined;
+  const caretStyle = padOverride
+    ? { paddingLeft: padOverride.caretLeft, paddingRight: padOverride.caretRight }
+    : undefined;
 
   // The split button is one pill with two zones (Mac download + platform caret)
   // that tint independently on hover. `overflow-hidden` clips the hover tint to
@@ -115,23 +136,35 @@ export function DownloadButton({
   return (
     <>
       <div
-        // `[transform:translateZ(0)]` gives the rounded pill its own backing
-        // layer so Safari reliably clips the zones' hover tint to the
-        // `rounded-full` corners (WebKit otherwise lets a tinted child leak past
-        // the corners as square edges; Chrome clips correctly). Paired with the
-        // transition-free tint above, the pill stays fully stable on hover.
-        className={`inline-flex items-stretch overflow-hidden whitespace-nowrap rounded-full bg-foreground font-medium [transform:translateZ(0)] ${
+        // No CSS transition on the hover tint and no forced GPU layer (e.g.
+        // `translateZ(0)`) on this pill: either one makes WebKit composite the
+        // sub-pixel-positioned zones and snap them to the device-pixel grid on
+        // hover, which reads as the label/caret jumping (Safari only, worst at
+        // the small size). Keeping the hover repaint on the main thread matches
+        // Chrome and stays stable; overflow-hidden still clips the tint since
+        // the zones never get their own layer.
+        className={`inline-flex items-stretch overflow-hidden whitespace-nowrap rounded-full bg-foreground font-medium ${
           className ?? ""
         }`}
         style={ctaButtonStyle}
       >
         {onConfirmationPage ? (
-          <a href={macHref} onClick={captureMac} className={downloadZone}>
+          <a
+            href={macHref}
+            onClick={captureMac}
+            className={downloadZone}
+            style={downloadStyle}
+          >
             {macIcon}
             {t("downloadForMac")}
           </a>
         ) : (
-          <Link href={macHref} onClick={captureMac} className={downloadZone}>
+          <Link
+            href={macHref}
+            onClick={captureMac}
+            className={downloadZone}
+            style={downloadStyle}
+          >
             {macIcon}
             {t("downloadForMac")}
           </Link>
@@ -142,6 +175,7 @@ export function DownloadButton({
         <Menu.Root>
           <Menu.Trigger
             className={caretZone}
+            style={caretStyle}
             aria-label={t("otherPlatforms")}
           >
             {caretIcon}
