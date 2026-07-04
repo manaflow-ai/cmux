@@ -238,6 +238,36 @@ auto_setup_launch() {
   "$MOBILE_DEV_LAUNCH" "${args[@]}"
 }
 
+print_auth_environment_summary() {
+  if [[ "$AUTH_ENV_VALUE" == "production" ]]; then
+    cat <<EOF
+Auth environment:
+  production (default): sign in in-app with your real account, then pair
+  with your beta/stable Mac using the in-app QR scanner.
+EOF
+  elif [[ "$NO_SETUP" -eq 1 ]]; then
+    cat <<EOF
+Auth environment:
+  development (--dev-auth): plain launch; auto sign-in/auto-pair skipped (--no-setup).
+EOF
+  elif [[ "$NO_SIGN_IN" -eq 1 ]]; then
+    cat <<EOF
+Auth environment:
+  development (--dev-auth): plain launch; auto sign-in/auto-pair skipped (--no-sign-in).
+EOF
+  elif [[ "$NO_ATTACH" -eq 1 ]]; then
+    cat <<EOF
+Auth environment:
+  development (--dev-auth): auto sign-in is enabled; auto-pair skipped (--no-attach).
+EOF
+  else
+    cat <<EOF
+Auth environment:
+  development (--dev-auth): local dogfood auto sign-in/auto-pair is enabled.
+EOF
+  fi
+}
+
 # Dev-build identity baked into the app's Info.plist (CMUXGitSHA / CMUXDevTag),
 # surfaced in-app under Settings > About so a dogfood build is tellable. The
 # short SHA marks "+" when the working tree is dirty. Use `git status --porcelain`
@@ -561,18 +591,7 @@ Bundle id:
 Simulator:
   $SIMULATOR_NAME ($SIM_ID)
 EOF
-  if [[ "$AUTH_ENV_VALUE" == "production" ]]; then
-    cat <<EOF
-Auth environment:
-  production (default): sign in in-app with your real account, then pair
-  with your beta/stable Mac using the in-app QR scanner.
-EOF
-  else
-    cat <<EOF
-Auth environment:
-  development (--dev-auth): local dogfood auto sign-in/auto-pair is enabled.
-EOF
-  fi
+  print_auth_environment_summary
 }
 
 reload_device() {
@@ -687,18 +706,7 @@ Bundle id:
 Device:
   $selected_device_name ($selected_device_id)
 EOF
-  if [[ "$AUTH_ENV_VALUE" == "production" ]]; then
-    cat <<EOF
-Auth environment:
-  production (default): sign in in-app with your real account, then pair
-  with your beta/stable Mac using the in-app QR scanner.
-EOF
-  else
-    cat <<EOF
-Auth environment:
-  development (--dev-auth): local dogfood auto sign-in/auto-pair is enabled.
-EOF
-  fi
+  print_auth_environment_summary
 }
 
 echo "==> iOS reload starting (tag: $TAG)"
