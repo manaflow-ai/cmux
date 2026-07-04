@@ -29,6 +29,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { maxActiveVmsForPlan } from "./entitlements";
+import { reportError } from "../observability/report";
 import { isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -65,6 +66,10 @@ export type BaseVmEntry = VmEntry & {
 export type CloudVmSessionEntry = CloudVmSessionRow;
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
+
+function reportWorkflowError(error: unknown, context: Record<string, unknown>): Effect.Effect<void, never, never> {
+  return Effect.sync(() => reportError(error, { subsystem: "cloud_vm_workflow", ...context }));
+}
 
 export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
@@ -184,7 +189,14 @@ export function createVm(input: {
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause) },
           }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ], { discard: true }).pipe(Effect.catchAll((cleanupErr) =>
+          reportWorkflowError(cleanupErr, {
+            operation: "create_provider_failure_cleanup",
+            vmId: create.vm.id,
+            provider: input.provider,
+            eventType: "vm.create.failed",
+          })
+        ))
       ),
     );
 
@@ -214,7 +226,14 @@ export function createVm(input: {
             create.vm,
             "database_finalize_failed",
             errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
+          ).pipe(Effect.catchAll((usageErr) =>
+            reportWorkflowError(usageErr, {
+              operation: "record_create_failure_event",
+              vmId: create.vm.id,
+              provider: input.provider,
+              eventType: "vm.create.failed",
+            })
+          ));
           return yield* Effect.fail(err);
         }),
       ),
@@ -356,7 +375,14 @@ function finishBaseCreate(
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause), baseName: input.baseName ?? "base" },
           }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ], { discard: true }).pipe(Effect.catchAll((cleanupErr) =>
+          reportWorkflowError(cleanupErr, {
+            operation: "base_create_provider_failure_cleanup",
+            vmId: create.vm.id,
+            provider: input.provider,
+            eventType: "vm.base.create.failed",
+          })
+        ))
       ),
     );
 
@@ -398,7 +424,14 @@ function finishBaseCreate(
             create.vm,
             "database_finalize_failed",
             errorMessage(err.cause),
-          ).pipe(Effect.catchAll(() => Effect.void));
+          ).pipe(Effect.catchAll((usageErr) =>
+            reportWorkflowError(usageErr, {
+              operation: "record_base_create_failure_event",
+              vmId: create.vm.id,
+              provider: input.provider,
+              eventType: "vm.create.failed",
+            })
+          ));
           return yield* Effect.fail(err);
         }),
       ),
@@ -418,7 +451,14 @@ function finishBaseCreate(
         generation: create.generation.generation,
         retainedProviderVmId: create.previousVm?.providerVmId ?? null,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_base_opened_event",
+        vmId: running.id,
+        provider: input.provider,
+        eventType: create.previousVm ? "vm.base.reset" : "vm.base.opened",
+      })
+    ));
 
     return baseVmEntryFromRows(
       create.base,
@@ -597,7 +637,14 @@ export function forkVm(input: {
               imageId: source.imageId,
               metadata: { operation: err.operation, message: errorMessage(err.cause), sourceProviderVmId: source.providerVmId },
             }),
-          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+          ], { discard: true }).pipe(Effect.catchAll((cleanupErr) =>
+            reportWorkflowError(cleanupErr, {
+              operation: "fork_provider_failure_cleanup",
+              vmId: create.vm.id,
+              provider: source.provider,
+              eventType: "vm.create.failed",
+            })
+          ))
         ),
       );
 
@@ -633,7 +680,14 @@ export function forkVm(input: {
               create.vm,
               "database_finalize_failed",
               errorMessage(err.cause),
-            ).pipe(Effect.catchAll(() => Effect.void));
+            ).pipe(Effect.catchAll((usageErr) =>
+              reportWorkflowError(usageErr, {
+                operation: "record_fork_create_failure_event",
+                vmId: create.vm.id,
+                provider: source.provider,
+                eventType: "vm.create.failed",
+              })
+            ));
             return yield* Effect.fail(err);
           }),
         ),
@@ -655,7 +709,14 @@ export function forkVm(input: {
           forkProviderVmId: fork.providerVmId,
           idempotencyKeySet: !!input.idempotencyKey,
         },
-      }).pipe(Effect.catchAll(() => Effect.void));
+      }).pipe(Effect.catchAll((usageErr) =>
+        reportWorkflowError(usageErr, {
+          operation: "record_native_forked_event",
+          vmId: source.id,
+          provider: source.provider,
+          eventType: "vm.forked",
+        })
+      ));
       return { snapshot: null, fork };
     }
 
@@ -690,7 +751,14 @@ export function forkVm(input: {
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_snapshot_forked_event",
+        vmId: source.id,
+        provider: source.provider,
+        eventType: "vm.forked",
+      })
+    ));
     return { snapshot, fork };
   });
 }
@@ -764,7 +832,14 @@ function refreshActiveLimitProviderStatuses(
             provider: vm.provider,
             imageId: vm.imageId,
             metadata: { source: "provider_status_refresh" },
-          }).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(Effect.catchAll((usageErr) =>
+            reportWorkflowError(usageErr, {
+              operation: "record_provider_status_destroyed_event",
+              vmId: vm.id,
+              provider: vm.provider,
+              eventType: "vm.destroyed",
+            })
+          ));
         }
       });
     }, { concurrency: "unbounded", discard: true });
@@ -801,7 +876,14 @@ export function destroyVm(input: {
       eventType: "vm.destroyed",
       provider: vm.provider,
       imageId: vm.imageId,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_destroyed_event",
+        vmId: vm.id,
+        provider: vm.provider,
+        eventType: "vm.destroyed",
+      })
+    ));
   });
 }
 
@@ -828,7 +910,14 @@ export function execVm(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_exec_event",
+        vmId: vm.id,
+        provider: vm.provider,
+        eventType: "vm.exec",
+      })
+    ));
     return result satisfies ExecResult;
   });
 }
@@ -921,7 +1010,14 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_attach_event",
+        vmId: vm.id,
+        provider: vm.provider,
+        eventType: "vm.attach",
+      })
+    ));
     const session = endpoint.transport === "websocket"
       ? yield* repo.upsertVmSession({
         vmId: vm.id,
@@ -973,7 +1069,14 @@ export function openSshEndpoint(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_ssh_endpoint_event",
+        vmId: vm.id,
+        provider: vm.provider,
+        eventType: "vm.ssh_endpoint",
+      })
+    ));
     return endpoint;
   });
 }
@@ -1022,7 +1125,14 @@ function ensureUserVmRunning(
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { source: resumeSource },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    }).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_resumed_event",
+        vmId: vm.id,
+        provider: vm.provider,
+        eventType: "vm.resumed",
+      })
+    ));
     return reserved;
   });
 }
@@ -1140,20 +1250,35 @@ function reserveCreateCredit(
     Effect.gen(function* () {
       yield* seedInitialCreateCredits(billing, repo, input, vm).pipe(
         Effect.catchAll((err) =>
-          repo.recordUsageEvent({
-            userId: input.userId,
-            billingTeamId: input.billingTeamId,
-            billingPlanId: input.billingPlanId,
-            vmId: vm.id,
-            eventType: "vm.create.credit.grant_failed",
-            provider: input.provider,
-            imageId: input.image,
-            metadata: {
-              idempotencyKeySet: !!input.idempotencyKey,
-              imageVersion: input.imageVersion ?? null,
-              message: errorMessage(err),
-            },
-          }).pipe(Effect.catchAll(() => Effect.void))
+          Effect.gen(function* () {
+            yield* reportWorkflowError(err, {
+              operation: "seed_initial_create_credits",
+              vmId: vm.id,
+              provider: input.provider,
+              eventType: "vm.create.credit.grant_failed",
+            });
+            yield* repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              vmId: vm.id,
+              eventType: "vm.create.credit.grant_failed",
+              provider: input.provider,
+              imageId: input.image,
+              metadata: {
+                idempotencyKeySet: !!input.idempotencyKey,
+                imageVersion: input.imageVersion ?? null,
+                message: errorMessage(err),
+              },
+            }).pipe(Effect.catchAll((usageErr) =>
+              reportWorkflowError(usageErr, {
+                operation: "record_credit_grant_failed_event",
+                vmId: vm.id,
+                provider: input.provider,
+                eventType: "vm.create.credit.grant_failed",
+              })
+            ));
+          })
         ),
       );
 
@@ -1191,7 +1316,14 @@ function reserveCreateCredit(
                   : null,
               },
             }),
-          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+          ], { discard: true }).pipe(Effect.catchAll((cleanupErr) =>
+            reportWorkflowError(cleanupErr, {
+              operation: "billing_reserve_failure_cleanup",
+              vmId: vm.id,
+              provider: input.provider,
+              eventType: "vm.create.billing_failed",
+            })
+          ))
         ),
       );
       return creditReservation;
@@ -1234,7 +1366,14 @@ function recordCreateRequestedEvents(
           imageVersion: input.imageVersion ?? null,
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ]).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_create_requested_events",
+        vmId: requestedVm.id,
+        provider: input.provider,
+        eventType: "vm.create.requested",
+      })
+    )),
   );
 }
 
@@ -1263,7 +1402,14 @@ function recordCreateSuccessEvents(
           imageVersion: running.imageVersion,
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ]).pipe(Effect.catchAll((usageErr) =>
+      reportWorkflowError(usageErr, {
+        operation: "record_create_success_events",
+        vmId: running.id,
+        provider: running.provider,
+        eventType: "vm.created",
+      })
+    )),
   );
 }
 
@@ -1345,12 +1491,33 @@ function seedInitialCreateCredits(
 
     yield* billing.applyCreateCreditGrant(grant).pipe(
       Effect.tapError(() =>
-        repo.deleteBillingGrant(claim.grantId).pipe(Effect.catchAll(() => Effect.void))
+        repo.deleteBillingGrant(claim.grantId).pipe(Effect.catchAll((deleteErr) =>
+          reportWorkflowError(deleteErr, {
+            operation: "delete_failed_billing_grant",
+            vmId: vm.id,
+            provider: vm.provider,
+            grantId: claim.grantId,
+          })
+        ))
       ),
     );
-    yield* repo.markBillingGrantApplied(claim.grantId).pipe(Effect.catchAll(() => Effect.void));
+    yield* repo.markBillingGrantApplied(claim.grantId).pipe(Effect.catchAll((markErr) =>
+      reportWorkflowError(markErr, {
+        operation: "mark_billing_grant_applied",
+        vmId: vm.id,
+        provider: vm.provider,
+        grantId: claim.grantId,
+      })
+    ));
     yield* recordGrantEvent(repo, vm, "vm.create.credit.granted", grant)
-      .pipe(Effect.catchAll(() => Effect.void));
+      .pipe(Effect.catchAll((usageErr) =>
+        reportWorkflowError(usageErr, {
+          operation: "record_credit_granted_event",
+          vmId: vm.id,
+          provider: vm.provider,
+          eventType: "vm.create.credit.granted",
+        })
+      ));
   });
 }
 
@@ -1387,7 +1554,15 @@ function refundCredit(
 ) {
   return billing.refundCreate(reservation).pipe(
     Effect.andThen(recordCreditEvent(repo, vm, "vm.create.credit.refunded", reservation)),
-    Effect.catchAll(() => Effect.void),
+    Effect.catchAll((refundErr) =>
+      reportWorkflowError(refundErr, {
+        operation: "refund_create_credit",
+        vmId: vm.id,
+        provider: vm.provider,
+        reservationKind: reservation.kind,
+        eventType: "vm.create.credit.refunded",
+      })
+    ),
   );
 }
 
@@ -1423,7 +1598,13 @@ function revokeEndpointIdentity(provider: ProviderId, endpoint: AttachEndpoint |
   return Effect.gen(function* () {
     if (endpoint.transport !== "ssh" || !endpoint.identityHandle) return;
     const providers = yield* VmProviderGateway;
-    yield* providers.revokeSSHIdentity(provider, endpoint.identityHandle).pipe(Effect.catchAll(() => Effect.void));
+    yield* providers.revokeSSHIdentity(provider, endpoint.identityHandle).pipe(Effect.catchAll((revokeErr) =>
+      reportWorkflowError(revokeErr, {
+        operation: "revoke_endpoint_identity",
+        provider,
+        identityHandleSet: true,
+      })
+    ));
   });
 }
 

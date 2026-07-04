@@ -1,5 +1,6 @@
 import type { Span } from "@opentelemetry/api";
 import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
+import { reportError } from "../observability/report";
 import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
 import {
   isVmBillingTeamResolutionError,
@@ -57,7 +58,12 @@ export async function withAuthedVmApiRoute(
           responseFinalizer(response);
         } catch (err) {
           recordSpanError(span, err);
-          console.error(`${failureLog}: response finalizer failed`, err);
+          reportError(err, {
+            subsystem: "cloud_vm_route",
+            route,
+            failureLog,
+            phase: "response_finalizer",
+          });
         }
         return response;
       };
@@ -76,7 +82,12 @@ export async function withAuthedVmApiRoute(
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
-        console.error(failureLog, err);
+        reportError(err, {
+          subsystem: "cloud_vm_route",
+          route,
+          failureLog,
+          phase: "handler",
+        });
         const workflowError = vmWorkflowErrorResponse(err);
         if (workflowError) return finalize(workflowError);
         return finalize(vmErrorResponse({

@@ -39,6 +39,7 @@
     "@effect/sql": "0.48.6",
     "@effect/sql-pg": "0.49.7",
     "@opentelemetry/api": "^1.9.1",
+    "@sentry/nextjs": "^10.63.0",
     "@stackframe/js": "^2.8.89",
     "@stackframe/stack": "^2.8.89",
     "@t3-oss/env-nextjs": "^0.13.10",

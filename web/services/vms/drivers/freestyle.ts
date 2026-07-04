@@ -18,6 +18,7 @@ import {
   setSpanAttributes,
   withVmSpan,
 } from "../telemetry";
+import { reportError } from "../../observability/report";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
@@ -628,6 +629,12 @@ export class FreestyleProvider implements VMProvider {
           // Best effort: identity may already be gone (e.g. VM was destroyed by the provider
           // itself). Don't let cleanup failures cascade into the caller, but keep it visible.
           recordSpanError(span, err);
+          reportError(err, {
+            subsystem: "cloud_vm_provider",
+            provider: "freestyle",
+            operation: "revoke_ssh_identity",
+            identityHandleSet: true,
+          });
         }
       },
     );

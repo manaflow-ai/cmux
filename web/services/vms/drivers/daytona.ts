@@ -14,6 +14,7 @@ import {
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { reportError } from "../../observability/report";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
@@ -204,6 +205,12 @@ export class DaytonaProvider implements VMProvider {
             await this.ensureWebSocketHealthyOrRepair(sandbox);
           } catch (healthErr) {
             recordSpanError(span, healthErr);
+            reportError(healthErr, {
+              subsystem: "cloud_vm_provider",
+              provider: "daytona",
+              operation: "post_resume_cmuxd_repair",
+              providerVmId: sandbox.id,
+            });
           }
           return {
             provider: "daytona",

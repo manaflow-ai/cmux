@@ -211,8 +211,31 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `10`.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
+- Sentry and alerting variables:
+  - `SENTRY_DSN`, optional. Enables server-side Sentry error reporting when set.
+  - `NEXT_PUBLIC_SENTRY_DSN`, optional. Enables conservative client-side Sentry error reporting when set.
+  - `CRON_SECRET`, required for `/api/cron/vm-alerts`; Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`.
+  - `CMUX_ALERTS_SLACK_WEBHOOK_URL`, optional Slack incoming webhook for Cloud VM alerts. Alerts no-op when unset.
+  - `CMUX_VM_ALERT_CREATE_FAILURES_15M`, optional create-failure threshold. Defaults to `3`.
+  - `CMUX_VM_ALERT_EXPIRED_LEASES`, optional expired-unrevoked lease threshold. Defaults to `50`.
 
 Local development keeps using Docker Postgres through `DATABASE_URL`, derived from `CMUX_PORT`.
+
+## Alerts
+
+Cloud VM alerting runs from the Vercel cron route `/api/cron/vm-alerts` every 5 minutes. Set
+`CRON_SECRET` in Vercel; the cron request must include `Authorization: Bearer ${CRON_SECRET}` or the
+route returns `401`. If `CRON_SECRET` is unset, the route returns `503` and does not query the
+database.
+
+Set `CMUX_ALERTS_SLACK_WEBHOOK_URL` to a Slack incoming webhook URL to send alerts. If the webhook
+is unset, checks still run and return JSON, but sending is a no-op.
+
+Current checks:
+
+- Create-failure spike: `vm.create.failed` and `vm.base.create.failed` usage events in the last 15 minutes at or above `CMUX_VM_ALERT_CREATE_FAILURES_15M`, default `3`. Severity: critical.
+- Stuck provisioning: `cloud_vms` rows in `provisioning` older than 20 minutes. Severity: warning.
+- Expired but unrevoked leases: `cloud_vm_leases` rows with `expires_at < now()` and `revoked_at is null` above `CMUX_VM_ALERT_EXPIRED_LEASES`, default `50`. Severity: warning.
 
 Run production/staging migrations explicitly, never during Vercel build or route startup. The local operator path pulls deployed Vercel env. The GitHub Actions path uses the minimal DB metadata copied into protected GitHub environments, generates an RDS IAM auth token, and applies Drizzle migrations:
 
