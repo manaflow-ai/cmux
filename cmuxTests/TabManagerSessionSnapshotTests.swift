@@ -2,8 +2,20 @@ import CmuxWorkspaces
 import Darwin
 import CmuxCore
 import CmuxFoundation
-import XCTest
 import CmuxTerminal
+import Testing
+import func XCTest.XCTAssertEqual
+import func XCTest.XCTAssertFalse
+import func XCTest.XCTAssertGreaterThan
+import func XCTest.XCTAssertGreaterThanOrEqual
+import func XCTest.XCTAssertLessThan
+import func XCTest.XCTAssertLessThanOrEqual
+import func XCTest.XCTAssertNil
+import func XCTest.XCTAssertNotEqual
+import func XCTest.XCTAssertNotNil
+import func XCTest.XCTAssertTrue
+import func XCTest.XCTFail
+import func XCTest.XCTUnwrap
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -12,15 +24,14 @@ import CmuxTerminal
 #endif
 
 @MainActor
-final class TabManagerSessionSnapshotTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
+@Suite(.serialized)
+final class TabManagerSessionSnapshotTests {
+    init() {
         ClosedItemHistoryStore.shared.removeAll()
     }
 
-    override func tearDown() {
+    deinit {
         ClosedItemHistoryStore.shared.removeAll()
-        super.tearDown()
     }
 
     private func reserveRemoteRestoreSocket() -> String {
@@ -37,7 +48,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }
 
-    func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
+    @Test func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
             XCTFail("Expected initial workspace")
@@ -63,7 +74,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
-    func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
+    @Test func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -81,7 +92,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(manager.canNavigateForward)
     }
 
-    func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
+    @Test func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
@@ -102,7 +113,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(firstWorkspace.panels[closedPanelId])
     }
 
-    func testFocusHistoryFallbackKeepsForwardStackAfterQueuedSelectionFocus() throws {
+    @Test func testFocusHistoryFallbackKeepsForwardStackAfterQueuedSelectionFocus() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(firstWorkspace.bonsplitController.allPaneIds.first)
@@ -125,7 +136,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
-    func testFocusHistoryBackSkipsStaleEntriesThatResolveToCurrentPanel() throws {
+    @Test func testFocusHistoryBackSkipsStaleEntriesThatResolveToCurrentPanel() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -157,7 +168,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(notificationCount, 0)
     }
 
-    func testFocusHistoryRevisionInvalidatesWhenClosedPanelChangesAvailability() throws {
+    @Test func testFocusHistoryRevisionInvalidatesWhenClosedPanelChangesAvailability() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -188,7 +199,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(manager.canNavigateBack)
     }
 
-    func testFocusHistoryRevisionInvalidatesWhenClosedPaneChangesAvailability() throws {
+    @Test func testFocusHistoryRevisionInvalidatesWhenClosedPaneChangesAvailability() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -219,7 +230,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(manager.canNavigateBack)
     }
 
-    func testFocusHistoryRevisionInvalidatesWhenClosedWorkspaceChangesAvailability() throws {
+    @Test func testFocusHistoryRevisionInvalidatesWhenClosedWorkspaceChangesAvailability() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -246,7 +257,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(manager.canNavigateBack)
     }
 
-    func testFocusHistoryWorkspaceInvalidationPreservesForwardStackAfterBackNavigation() throws {
+    @Test func testFocusHistoryWorkspaceInvalidationPreservesForwardStackAfterBackNavigation() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -270,7 +281,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
-    func testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory() throws {
+    @Test func testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -295,7 +306,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
     }
 
-    func testFocusHistoryNavigatesBetweenFreshWorkspaces() throws {
+    @Test func testFocusHistoryNavigatesBetweenFreshWorkspaces() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -323,7 +334,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
-    func testFocusHistoryRevisionPostsMenuInvalidationNotification() {
+    @Test func testFocusHistoryRevisionPostsMenuInvalidationNotification() {
         let manager = TabManager()
         var notificationCount = 0
         let observer = NotificationCenter.default.addObserver(
@@ -342,7 +353,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertGreaterThan(notificationCount, 0)
     }
 
-    func testFocusHistoryNavigationNotificationSeesUpdatedDirectionState() throws {
+    @Test func testFocusHistoryNavigationNotificationSeesUpdatedDirectionState() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -367,7 +378,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(observedCanNavigateForward)
     }
 
-    func testFocusHistoryBackMenuSnapshotLimitsBackStack() throws {
+    @Test func testFocusHistoryBackMenuSnapshotLimitsBackStack() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         firstWorkspace.setCustomTitle("Workspace 0")
@@ -394,7 +405,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(fullSnapshot.items.count, limitedSnapshot.totalItemCount)
     }
 
-    func testFocusHistoryMenuSnapshotsSplitBackAndForwardStacks() throws {
+    @Test func testFocusHistoryMenuSnapshotsSplitBackAndForwardStacks() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         firstWorkspace.setCustomTitle("First")
@@ -418,7 +429,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(forwardSnapshot.items.allSatisfy(\.isNavigable))
     }
 
-    func testFocusHistoryMenuItemNavigatesToSelectedEntry() throws {
+    @Test func testFocusHistoryMenuItemNavigatesToSelectedEntry() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         firstWorkspace.setCustomTitle("First")
@@ -440,7 +451,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(forwardSnapshot.items.map(\.workspaceTitle), ["Second", "Third"])
     }
 
-    func testFocusHistoryMenuSnapshotReflectsRenamedWorkspaceAndPanel() throws {
+    @Test func testFocusHistoryMenuSnapshotReflectsRenamedWorkspaceAndPanel() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
@@ -457,7 +468,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(FocusHistoryMenuFormatter.title(for: item), "Renamed Workspace - Renamed Pane")
     }
 
-    func testRecentlyFocusedMenuSnapshotCombinesDirectionsByFocusedTime() throws {
+    @Test func testRecentlyFocusedMenuSnapshotCombinesDirectionsByFocusedTime() throws {
         let workspaceId = UUID()
         let older = FocusHistoryMenuItem(
             historyIndex: 0,
@@ -490,7 +501,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(FocusHistoryMenuFormatter.subtitle(for: newer).contains(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
     }
 
-    func testFocusHistoryMenuSnapshotCarriesFocusedTimestamp() throws {
+    @Test func testFocusHistoryMenuSnapshotCarriesFocusedTimestamp() throws {
         let manager = TabManager()
         let startedAt = Date()
 
@@ -507,7 +518,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertLessThanOrEqual(item.focusedAt.timeIntervalSince1970, endedAt.timeIntervalSince1970)
     }
 
-    func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
+    @Test func testReopenClosedItemRestoresClosedPanelSnapshot() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -524,7 +535,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(workspace.focusedPanelId.flatMap { workspace.panels[$0] })
     }
 
-    func testReopenClosedPanelRestoresUnreadIndicator() throws {
+    @Test func testReopenClosedPanelRestoresUnreadIndicator() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -545,7 +556,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: restoredPanelId))
     }
 
-    func testReopenClosedPanelRestoresManualUnreadState() throws {
+    @Test func testReopenClosedPanelRestoresManualUnreadState() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -565,7 +576,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(workspace.manualUnreadPanelIds.contains(restoredPanelId))
     }
 
-    func testReopenClosedPanelBackReturnsToPreviousWorkspaceFocus() throws {
+    @Test func testReopenClosedPanelBackReturnsToPreviousWorkspaceFocus() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: false)
@@ -585,7 +596,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
     }
 
-    func testRestoreClosedPanelRequiresOriginalWorkspaceBeforeChangingSelection() throws {
+    @Test func testRestoreClosedPanelRequiresOriginalWorkspaceBeforeChangingSelection() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -601,7 +612,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
-    func testReopenClosedPanelPreservesForwardFocusHistoryBranch() throws {
+    @Test func testReopenClosedPanelPreservesForwardFocusHistoryBranch() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -626,7 +637,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
     }
 
-    func testReopenClosedPanelAfterWorkspaceRestoreUsesRestoredWorkspaceId() throws {
+    @Test func testReopenClosedPanelAfterWorkspaceRestoreUsesRestoredWorkspaceId() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -657,7 +668,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(restoredWorkspace.focusedPanelId.flatMap { restoredWorkspace.panels[$0] })
     }
 
-    func testReopenClosedBrowserSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
+    @Test func testReopenClosedBrowserSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -686,7 +697,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(workspace.focusedPanelId.flatMap { workspace.panels[$0] } is BrowserPanel)
     }
 
-    func testReopenClosedTerminalSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
+    @Test func testReopenClosedTerminalSplitFromClosedItemHistoryRestoresCollapsedPane() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -716,7 +727,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(workspace.paneId(forPanelId: restoredPanelId))
     }
 
-    func testClosingPaneRecordsTabsInRecentlyClosedHistory() throws {
+    @Test func testClosingPaneRecordsTabsInRecentlyClosedHistory() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
@@ -746,7 +757,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredTitles.contains("Pane Closed Second"))
     }
 
-    func testReopenClosedBrowserSplitAfterWorkspaceRestoreRestoresCollapsedPane() throws {
+    @Test func testReopenClosedBrowserSplitAfterWorkspaceRestoreRestoresCollapsedPane() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -785,7 +796,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredWorkspace.focusedPanelId.flatMap { restoredWorkspace.panels[$0] } is BrowserPanel)
     }
 
-    func testReopenClosedPanelsAfterWorkspaceRestoreRemapsStillClosedAnchors() throws {
+    @Test func testReopenClosedPanelsAfterWorkspaceRestoreRemapsStillClosedAnchors() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -854,7 +865,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotEqual(restoredWorkspace.paneId(forPanelId: restoredOlderPanelId), restoredWrongPane)
     }
 
-    func testRemapClosedPanelHistoryAfterWindowRestoreUsesRestoredWorkspaceIds() throws {
+    @Test func testRemapClosedPanelHistoryAfterWindowRestoreUsesRestoredWorkspaceIds() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -890,7 +901,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Closed Panel"))
     }
 
-    func testClosedWindowRestoreRemapsClosedWorkspaceWindowIds() throws {
+    @Test func testClosedWindowRestoreRemapsClosedWorkspaceWindowIds() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.setCustomTitle("Closed Workspace")
@@ -939,7 +950,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(untouchedEntry.windowId, otherWindowId)
     }
 
-    func testReopenClosedItemRestoresClosedWorkspaceSnapshot() throws {
+    @Test func testReopenClosedItemRestoresClosedWorkspaceSnapshot() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -953,7 +964,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Recovered")
     }
 
-    func testReopenClosedWorkspaceBackReturnsToPreviousWorkspaceFocus() throws {
+    @Test func testReopenClosedWorkspaceBackReturnsToPreviousWorkspaceFocus() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let secondWorkspace = manager.addWorkspace(select: true)
@@ -971,7 +982,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
     }
 
-    func testReopenClosedWindowWithoutAppDelegatePreservesHistoryEntry() throws {
+    @Test func testReopenClosedWindowWithoutAppDelegatePreservesHistoryEntry() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -994,7 +1005,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(menuSnapshot.items.first?.title, "Window")
     }
 
-    func testRestoreSessionSnapshotPrunesClosedPanelsForReplacedWorkspaces() throws {
+    @Test func testRestoreSessionSnapshotPrunesClosedPanelsForReplacedWorkspaces() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer { ClosedItemHistoryStore.shared.removeAll() }
 
@@ -1026,7 +1037,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(menuSnapshot.items.map(\.title), ["Preserved Closed Workspace"])
     }
 
-    func testRecentlyClosedMenuSnapshotListsPanelWorkspaceAndWindowRowsNewestFirst() throws {
+    @Test func testRecentlyClosedMenuSnapshotListsPanelWorkspaceAndWindowRowsNewestFirst() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.setCustomTitle("Workspace Row")
@@ -1069,7 +1080,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.items.allSatisfy { $0.menuSubtitle.contains("Closed") })
     }
 
-    func testClosedItemHistoryPersistsRecordsWithoutSharedCapacityLimit() throws {
+    @Test func testClosedItemHistoryPersistsRecordsWithoutSharedCapacityLimit() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -1119,7 +1130,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: historyURL.path))
     }
 
-    func testClosedItemHistoryAsyncLoadMergesEarlyMutation() throws {
+    @Test func testClosedItemHistoryAsyncLoadMergesEarlyMutation() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-merge-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -1172,7 +1183,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ])
     }
 
-    func testClosedItemHistoryFlushPendingSavesPersistsLatestRecords() throws {
+    @Test func testClosedItemHistoryFlushPendingSavesPersistsLatestRecords() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-flush-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -1209,7 +1220,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredStore.menuSnapshot().items.map(\.title), ["Flushed Workspace"])
     }
 
-    func testClosedItemHistoryAsyncLoadReplaysQueuedPanelWorkspaceRemap() throws {
+    @Test func testClosedItemHistoryAsyncLoadReplaysQueuedPanelWorkspaceRemap() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-closed-history-remap-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -1272,7 +1283,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(entry.restoreInOriginalPane)
     }
 
-    func testSessionRestoreRemapsPersistedClosedPanelWorkspaceIds() throws {
+    @Test func testSessionRestoreRemapsPersistedClosedPanelWorkspaceIds() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -1306,7 +1317,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredWorkspace.panelCustomTitles.values.contains("Persisted Closed Tab"))
     }
 
-    func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {
+    @Test func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
@@ -1327,7 +1338,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
-    func testRecentlyClosedMenuSnapshotLimitsPreviewButKeepsFullCount() throws {
+    @Test func testRecentlyClosedMenuSnapshotLimitsPreviewButKeepsFullCount() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
@@ -1352,7 +1363,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(limitedSnapshot.items.last?.title, "Panel 2")
     }
 
-    func testRecentlyClosedMenuSnapshotCarriesClosedTimestamp() throws {
+    @Test func testRecentlyClosedMenuSnapshotCarriesClosedTimestamp() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         var panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
@@ -1376,13 +1387,13 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(item.menuSubtitle.contains(String(localized: "menu.history.recentlyClosed.kind.tab", defaultValue: "Tab")))
     }
 
-    func testRightSidebarToolSnapshotTolerantlyDecodesObsoleteHistoryMode() throws {
+    @Test func testRightSidebarToolSnapshotTolerantlyDecodesObsoleteHistoryMode() throws {
         let json = #"{"mode":"history"}"#.data(using: .utf8)!
         let snapshot = try JSONDecoder().decode(SessionRightSidebarToolPanelSnapshot.self, from: json)
         XCTAssertNil(snapshot.mode)
     }
 
-    func testReopenSpecificRecentlyClosedRowRestoresOnlyThatRecord() throws {
+    @Test func testReopenSpecificRecentlyClosedRowRestoresOnlyThatRecord() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -1418,7 +1429,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Specific Workspace")
     }
 
-    func testFailedSpecificRecentlyClosedRestoreKeepsOriginalRecord() throws {
+    @Test func testFailedSpecificRecentlyClosedRestoreKeepsOriginalRecord() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -1443,7 +1454,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Unreachable Tab"])
     }
 
-    func testExplicitLastPanelCloseRecordsWorkspaceHistoryInsteadOfStalePanelHistory() throws {
+    @Test func testExplicitLastPanelCloseRecordsWorkspaceHistoryInsteadOfStalePanelHistory() throws {
         let manager = TabManager()
         let closingWorkspace = manager.addWorkspace(select: true)
         closingWorkspace.setCustomTitle("Closing Workspace")
@@ -1468,7 +1479,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
     }
 
-    func testReopenSkipsInvalidRecentRecordButKeepsItInHistory() throws {
+    @Test func testReopenSkipsInvalidRecentRecordButKeepsItInHistory() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -1498,7 +1509,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Invalid Newest Tab"])
     }
 
-    func testSkippedClosedPanelIsRemappedWhenOlderWorkspaceRestores() throws {
+    @Test func testSkippedClosedPanelIsRemappedWhenOlderWorkspaceRestores() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -1538,7 +1549,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
     }
 
-    func testNoOpClosedPanelRemapDoesNotAdvanceRevision() throws {
+    @Test func testNoOpClosedPanelRemapDoesNotAdvanceRevision() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
@@ -1563,7 +1574,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(store.revision, revision)
     }
 
-    func testFailedRestoreReinsertPreservesProtectedRecordWhenStoreIsAtCapacity() throws {
+    @Test func testFailedRestoreReinsertPreservesProtectedRecordWhenStoreIsAtCapacity() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         var protectedSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
@@ -1603,7 +1614,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.items.map(\.title), ["Second Newer", "Failed Restore"])
     }
 
-    func testRestoreFirstRestorableCanSkipRecordsThatAlreadyFailedThisCommand() throws {
+    @Test func testRestoreFirstRestorableCanSkipRecordsThatAlreadyFailedThisCommand() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         var oldSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
@@ -1661,7 +1672,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(failedRecordIds, Set([newRecord.id, oldRecord.id]))
     }
 
-    func testFailedClosedWorkspaceRestoreRemovesCreatedWorkspaceAndKeepsHistoryRecord() throws {
+    @Test func testFailedClosedWorkspaceRestoreRemovesCreatedWorkspaceAndKeepsHistoryRecord() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer {
@@ -1700,7 +1711,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Broken Workspace"])
     }
 
-    func testClosedWindowRestoreValidationRejectsFailedRestorablePanelRestore() throws {
+    @Test func testClosedWindowRestoreValidationRejectsFailedRestorablePanelRestore() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let snapshot = SessionWindowSnapshot(
@@ -1726,7 +1737,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ))
     }
 
-    func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
+    @Test func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(
             selectedWorkspaceIndex: nil,
@@ -1739,7 +1750,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(manager.selectedTabId)
     }
 
-    func testRestoredPersistentSSHBrowserOnlyWorkspaceAutoConnectsWithoutForegroundAuthTerminal() {
+    @Test func testRestoredPersistentSSHBrowserOnlyWorkspaceAutoConnectsWithoutForegroundAuthTerminal() {
         let browserPanelId = UUID()
         let browserOnlySnapshot = Self.persistentSSHWorkspaceSnapshot(
             panel: Self.browserPanelSnapshot(id: browserPanelId),
@@ -1805,7 +1816,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         ))
     }
 
-    func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
+    @Test func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         let configuration = WorkspaceRemoteConfiguration(
@@ -1832,7 +1843,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(remoteSnapshot.remote?.destination, "cmux-macmini")
     }
 
-    func testSessionSnapshotSkipsTemporaryDiffViewerBrowserPanels() throws {
+    @Test func testSessionSnapshotSkipsTemporaryDiffViewerBrowserPanels() throws {
         let workspace = try XCTUnwrap(TabManager().selectedWorkspace)
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let url = try XCTUnwrap(URL(string: "\(CmuxDiffViewerURLSchemeHandler.scheme)://token/index.html"))
@@ -1850,7 +1861,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(snapshot.panels.contains { $0.type == .browser })
     }
 
-    func testSessionSnapshotSkipsNonRestorableRemoteWorkspaces() {
+    @Test func testSessionSnapshotSkipsNonRestorableRemoteWorkspaces() {
         let manager = TabManager()
         let localWorkspace = manager.tabs[0]
         localWorkspace.setCustomTitle("Local")
@@ -1879,7 +1890,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(snapshot.selectedWorkspaceIndex)
     }
 
-    func testClosedHistorySkipsNonRestorableRemoteWorkspaces() {
+    @Test func testClosedHistorySkipsNonRestorableRemoteWorkspaces() {
         let manager = TabManager()
         let localWorkspace = manager.tabs[0]
         let remoteWorkspace = manager.addWorkspace(select: true)
@@ -1905,7 +1916,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
     }
 
-    func testCleanupEmptySourceWorkspaceDoesNotRecordRecentlyClosedWorkspace() {
+    @Test func testCleanupEmptySourceWorkspaceDoesNotRecordRecentlyClosedWorkspace() {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
@@ -1930,7 +1941,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(ClosedItemHistoryStore.shared.canReopen)
     }
 
-    func testRestoringLocalWorkspaceSnapshotClearsStaleRemoteState() throws {
+    @Test func testRestoringLocalWorkspaceSnapshotClearsStaleRemoteState() throws {
         let localSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
             .sessionSnapshot(includeScrollback: false)
         let manager = TabManager()
@@ -1957,7 +1968,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(workspace.hasActiveRemoteTerminalSessions)
     }
 
-    func testSessionSnapshotRestoresSSHWorkspaceDescriptor() throws {
+    @Test func testSessionSnapshotRestoresSSHWorkspaceDescriptor() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Remote Mac mini")
@@ -2054,7 +2065,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], restoredAgentSocketPath)
     }
 
-    func testSessionSnapshotRestoreOmitsSSHAgentEnvironmentWhenSocketUnavailable() throws {
+    @Test func testSessionSnapshotRestoreOmitsSSHAgentEnvironmentWhenSocketUnavailable() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Remote Without Agent")
@@ -2106,7 +2117,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
-    func testSessionSnapshotRestoresPersistentSSHPTYSessionAfterRelaunch() throws {
+    @Test func testSessionSnapshotRestoresPersistentSSHPTYSessionAfterRelaunch() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Persistent SSH")
@@ -2299,7 +2310,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     /// table with a bounded buffer. The attach command must carry the payload
     /// compressed so its inlined size stays a small fraction of the uncompressed
     /// base64 form.
-    func testSSHPTYAttachCommandDoesNotInlineUncompressedBootstrap() throws {
+    @Test func testSSHPTYAttachCommandDoesNotInlineUncompressedBootstrap() throws {
         let bootstrap = Self.makeLargeRemoteBootstrapStub()
         let uncompressedBase64 = Data(bootstrap.utf8).base64EncodedString()
         XCTAssertGreaterThan(
@@ -2336,7 +2347,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         return lines.joined(separator: "\n")
     }
 
-    func testSessionSnapshotRestoresSplitPersistentSSHPTYWithoutDefaultAttachScaffold() throws {
+    @Test func testSessionSnapshotRestoresSplitPersistentSSHPTYWithoutDefaultAttachScaffold() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Persistent SSH Split")
@@ -2405,7 +2416,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         }
     }
 
-    func testPersistentSSHPTYRestoreRewritesStaleRemoteRelayContextIDs() throws {
+    @Test func testPersistentSSHPTYRestoreRewritesStaleRemoteRelayContextIDs() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Relay Alias SSH")
@@ -2588,7 +2599,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(clearedParams["panel_id"] as? String, originalPanelId.uuidString)
     }
 
-    func testRemoteRelayAmbiguousTabIDAliasesPreferWorkspaceOnCollision() throws {
+    @Test func testRemoteRelayAmbiguousTabIDAliasesPreferWorkspaceOnCollision() throws {
         let staleID = UUID()
         let restoredWorkspaceID = UUID()
         let restoredPanelID = UUID()
@@ -2618,7 +2629,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspaceID.uuidString])
     }
 
-    func testPersistentSSHPTYRestoreRewritesMovedSourceWorkspaceContextID() throws {
+    @Test func testPersistentSSHPTYRestoreRewritesMovedSourceWorkspaceContextID() throws {
         let manager = TabManager()
         let sourceWorkspace = manager.addWorkspace(select: true)
         sourceWorkspace.setCustomTitle("Moved Relay Source")
@@ -2719,7 +2730,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(caller["tab_id"] as? String, restoredWorkspace.id.uuidString)
     }
 
-    func testPersistentSSHPTYReattachRewritesStaleRemoteRelayContextIDs() throws {
+    @Test func testPersistentSSHPTYReattachRewritesStaleRemoteRelayContextIDs() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Relay Alias Reattach SSH")
@@ -2819,7 +2830,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["session_id"] as? String, sessionID)
     }
 
-    func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionIDWhenActiveMarkerExists() throws {
+    @Test func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionIDWhenActiveMarkerExists() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Legacy Persistent SSH")
@@ -2882,7 +2893,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
-    func testPersistentSSHPTYRestoreDoesNotReattachEndedSnapshotPanel() throws {
+    @Test func testPersistentSSHPTYRestoreDoesNotReattachEndedSnapshotPanel() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Ended Persistent SSH")
@@ -2943,7 +2954,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
-    func testPersistentSSHPTYRestorePreservesLocalTerminalWorkingDirectory() throws {
+    @Test func testPersistentSSHPTYRestorePreservesLocalTerminalWorkingDirectory() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Remote Workspace With Local Terminal")
@@ -3002,7 +3013,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restoredPanel.requestedWorkingDirectory, localDirectory)
     }
 
-    func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
+    @Test func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
         TerminalController.shared.stop()
         defer { TerminalController.shared.stop() }
 
@@ -3043,7 +3054,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(terminalStartupCommand.contains("ssh -p 2222"), terminalStartupCommand)
     }
 
-    func testSessionSnapshotFallsBackFromSkipBootstrapPersistentSSHPTYWithoutDaemonBridge() throws {
+    @Test func testSessionSnapshotFallsBackFromSkipBootstrapPersistentSSHPTYWithoutDaemonBridge() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Durable Persistent SSH")
@@ -3116,7 +3127,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(roundTrip.panels.first?.terminal?.remotePTYSessionID)
     }
 
-    func testSessionRemoteWorkspaceSnapshotRequiresPersistentDaemonSlotForPTYRestore() throws {
+    @Test func testSessionRemoteWorkspaceSnapshotRequiresPersistentDaemonSlotForPTYRestore() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3145,7 +3156,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
-    func testSessionRemoteWorkspaceSnapshotRequiresRelayPortForPTYRestore() throws {
+    @Test func testSessionRemoteWorkspaceSnapshotRequiresRelayPortForPTYRestore() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3173,7 +3184,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
-    func testSessionRemoteWorkspaceSnapshotRequiresLocalSocketPathForPTYRestore() throws {
+    @Test func testSessionRemoteWorkspaceSnapshotRequiresLocalSocketPathForPTYRestore() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3201,7 +3212,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
-    func testSessionRemoteWorkspaceSnapshotStripsTransientControlOptionsWhenPreservedRestoreFallsBack() throws {
+    @Test func testSessionRemoteWorkspaceSnapshotStripsTransientControlOptionsWhenPreservedRestoreFallsBack() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3231,7 +3242,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
-    func testSessionRemoteWorkspaceSnapshotRequiresValidPersistentDaemonSlotForPTYRestore() throws {
+    @Test func testSessionRemoteWorkspaceSnapshotRequiresValidPersistentDaemonSlotForPTYRestore() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3259,7 +3270,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
-    func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
+    @Test func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3280,7 +3291,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     /// terminal pane header showed the default "Terminal" title instead of its real
     /// title until a command ran. `applySessionPanelMetadata` wrote the restored title
     /// into `panelTitles` but never pushed it to the bonsplit tab header.
-    func testRestoredTerminalPaneHeaderTitleSyncsToBonsplitTab() throws {
+    @Test func testRestoredTerminalPaneHeaderTitleSyncsToBonsplitTab() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)

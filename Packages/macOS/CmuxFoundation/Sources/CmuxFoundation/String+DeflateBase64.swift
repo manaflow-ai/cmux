@@ -17,10 +17,10 @@ import Foundation
 /// compresses 5–13×, so the inlined literal shrinks proportionally.
 /// `init?(deflatedBase64:)` reverses it with a bounded zlib inflater. The format
 /// never has to interoperate with command-line `gzip`.
-public extension String {
+extension String {
     /// This string zlib-compressed and base64-encoded, or `nil` for an empty string
     /// or if compression fails — so callers can fall back to a plain base64 literal.
-    var deflatedBase64: String? {
+    public var deflatedBase64: String? {
         let data = Data(utf8)
         guard !data.isEmpty,
               let compressed = try? (data as NSData).compressed(using: .zlib) as Data,
@@ -36,7 +36,7 @@ public extension String {
     /// - Parameter maxDecodedByteCount: Maximum accepted inflated byte count. The
     ///   default is 1 MiB, comfortably above cmux's SSH bootstrap payload while
     ///   keeping corrupted or crafted compressed argv values bounded.
-    init?(deflatedBase64 encoded: String, maxDecodedByteCount: Int = 1_048_576) {
+    public init?(deflatedBase64 encoded: String, maxDecodedByteCount: Int = 1_048_576) {
         guard let compressed = Data(base64Encoded: encoded),
               !compressed.isEmpty,
               maxDecodedByteCount > 0,

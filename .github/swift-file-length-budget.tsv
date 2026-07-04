@@ -30,7 +30,7 @@
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
-3423	cmuxTests/TabManagerSessionSnapshotTests.swift
+3434	cmuxTests/TabManagerSessionSnapshotTests.swift
 3397	Sources/CmuxConfig.swift
 3058	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
