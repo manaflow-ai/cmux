@@ -109,7 +109,7 @@
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
     "faqPlatformQ": "What platforms does it support?",
-    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app.",
+    "faqPlatformA": "macOS only, for now. cmux is a native Swift + AppKit app. <waitlist>Join the waitlist</waitlist> to hear when Linux, Windows, and Android are ready.",
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
