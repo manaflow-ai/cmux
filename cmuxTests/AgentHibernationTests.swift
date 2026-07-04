@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import Bonsplit
 import CmuxTerminal
 
@@ -9,29 +9,33 @@ import CmuxTerminal
 @testable import cmux
 #endif
 
-final class AgentHibernationTests: XCTestCase {
+@Suite(.serialized)
+struct AgentHibernationTests {
+    @Test
     func testLifecycleStateParsingAcceptsShellFriendlyAliases() throws {
-        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("IDLE"), .idle)
-        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
-        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
-        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
-        XCTAssertNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("IDLE"), .idle)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
+        expectNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
 
         let decoded = try JSONDecoder().decode(
             AgentHibernationLifecycleState.self,
             from: Data(#""paused""#.utf8)
         )
-        XCTAssertEqual(decoded, .unknown)
+        expectEqual(decoded, .unknown)
     }
 
     @MainActor
+    @Test
     func testSocketLifecycleRejectsUnsupportedStatusKey() {
         let response = TerminalController.shared.handleSocketLine("set_agent_lifecycle fake-agent idle")
 
-        XCTAssertTrue(response.contains("Unsupported agent lifecycle key"))
+        expectTrue(response.contains("Unsupported agent lifecycle key"))
     }
 
     @MainActor
+    @Test
     func testSocketLifecycleAcceptsRegisteredCustomAgentKey() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-custom-lifecycle-\(UUID().uuidString)", isDirectory: true)
@@ -63,27 +67,28 @@ final class AgentHibernationTests: XCTestCase {
             TerminalMutationBus.shared.drainForTesting()
         }
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
         workspace.panelDirectories[panelId] = root.path
 
         let response = TerminalController.shared.handleSocketLine(
             "set_agent_lifecycle local-agent idle --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
         )
-        XCTAssertEqual(response, "OK")
+        expectEqual(response, "OK")
         TerminalMutationBus.shared.drainForTesting()
 
-        XCTAssertEqual(workspace.agentLifecycleStatesByPanelId[panelId]?["local-agent"], .idle)
+        expectEqual(workspace.agentLifecycleStatesByPanelId[panelId]?["local-agent"], .idle)
     }
 
+    @Test
     func testSettingsDefaultToOptInAndNotifyOnChanges() throws {
         let suiteName = "cmux-agent-hibernation-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertFalse(AgentHibernationSettings.isEnabled(defaults: defaults))
-        XCTAssertEqual(AgentHibernationSettings.idleSeconds(defaults: defaults), 5)
-        XCTAssertEqual(AgentHibernationSettings.maxLiveTerminals(defaults: defaults), 12)
+        expectFalse(AgentHibernationSettings.isEnabled(defaults: defaults))
+        expectEqual(AgentHibernationSettings.idleSeconds(defaults: defaults), 5)
+        expectEqual(AgentHibernationSettings.maxLiveTerminals(defaults: defaults), 12)
 
         let notificationCenter = NotificationCenter()
         var notificationCount = 0
@@ -105,17 +110,17 @@ final class AgentHibernationTests: XCTestCase {
         )
 
         let values = AgentHibernationSettings.values(defaults: defaults)
-        XCTAssertTrue(values.enabled)
-        XCTAssertEqual(values.idleSeconds, 10)
-        XCTAssertEqual(values.maxLiveTerminals, 4)
-        XCTAssertEqual(notificationCount, 1)
+        expectTrue(values.enabled)
+        expectEqual(values.idleSeconds, 10)
+        expectEqual(values.maxLiveTerminals, 4)
+        expectEqual(notificationCount, 1)
 
         defaults.set(42, forKey: AgentHibernationSettings.confirmationSecondsKey)
-        XCTAssertEqual(AgentHibernationSettings.confirmationSeconds(defaults: defaults), 42)
+        expectEqual(AgentHibernationSettings.confirmationSeconds(defaults: defaults), 42)
         AgentHibernationSettings.reset(defaults: defaults, notificationCenter: notificationCenter)
-        XCTAssertEqual(AgentHibernationSettings.confirmationSeconds(defaults: defaults), AgentHibernationSettings.defaultConfirmationSeconds)
-        XCTAssertNil(defaults.object(forKey: AgentHibernationSettings.confirmationSecondsKey))
-        XCTAssertEqual(notificationCount, 2)
+        expectEqual(AgentHibernationSettings.confirmationSeconds(defaults: defaults), AgentHibernationSettings.defaultConfirmationSeconds)
+        expectNil(defaults.object(forKey: AgentHibernationSettings.confirmationSecondsKey))
+        expectEqual(notificationCount, 2)
 
         AgentHibernationSettings.setValues(
             enabled: AgentHibernationSettings.defaultEnabled,
@@ -124,9 +129,10 @@ final class AgentHibernationTests: XCTestCase {
             defaults: defaults,
             notificationCenter: notificationCenter
         )
-        XCTAssertEqual(notificationCount, 2)
+        expectEqual(notificationCount, 2)
     }
 
+    @Test
     func testPlannerOnlySelectsIdleUnprotectedExcessLiveAgents() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
@@ -158,9 +164,10 @@ final class AgentHibernationTests: XCTestCase {
             now: now
         )
 
-        XCTAssertEqual(selected, Set([idleOld]))
+        expectEqual(selected, Set([idleOld]))
     }
 
+    @Test
     func testPlannerDoesNotSelectWhenUnderLiveLimit() {
         let key = AgentHibernationPanelKey(workspaceId: UUID(), panelId: UUID())
         let settings = AgentHibernationSettings.Values(
@@ -178,9 +185,10 @@ final class AgentHibernationTests: XCTestCase {
             now: 1_000
         )
 
-        XCTAssertTrue(selected.isEmpty)
+        expectTrue(selected.isEmpty)
     }
 
+    @Test
     func testScrollbackFingerprintIncludesProcessIDs() {
         let first = AgentHibernationController.scrollbackFingerprint(
             tail: "stable tail",
@@ -195,12 +203,13 @@ final class AgentHibernationTests: XCTestCase {
             processIDs: [8]
         )
 
-        XCTAssertEqual(first, sameIDsDifferentOrder)
-        XCTAssertNotEqual(first, restarted)
+        expectEqual(first, sameIDsDifferentOrder)
+        expectNotEqual(first, restarted)
     }
 
+    @Test
     func testFirstTailSampleStartsObservedStabilityWindow() {
-        XCTAssertEqual(
+        expectEqual(
             AgentHibernationController.tailFingerprintStableSince(
                 previousFingerprint: nil,
                 previousStableSince: nil,
@@ -210,7 +219,7 @@ final class AgentHibernationTests: XCTestCase {
             ),
             500
         )
-        XCTAssertEqual(
+        expectEqual(
             AgentHibernationController.tailFingerprintStableSince(
                 previousFingerprint: "tail-a",
                 previousStableSince: 100,
@@ -220,7 +229,7 @@ final class AgentHibernationTests: XCTestCase {
             ),
             100
         )
-        XCTAssertEqual(
+        expectEqual(
             AgentHibernationController.tailFingerprintStableSince(
                 previousFingerprint: "tail-a",
                 previousStableSince: 100,
@@ -233,36 +242,39 @@ final class AgentHibernationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testClearingAgentPIDByPanelClearsLifecycleWithoutOwnedPID() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
 
         workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
-        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
 
-        XCTAssertTrue(workspace.clearAgentPID(key: "codex.missing", panelId: panelId, clearStatus: true))
+        expectTrue(workspace.clearAgentPID(key: "codex.missing", panelId: panelId, clearStatus: true))
 
-        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
     }
 
     @MainActor
+    @Test
     func testClearingAgentPIDByPanelClearsOnlyThatPanelLifecycleWhenSameStatusKeyRemains() throws {
         let workspace = Workspace()
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
 
         workspace.recordAgentPID(key: "codex.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
         workspace.recordAgentPID(key: "codex.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
         workspace.setAgentLifecycle(key: "codex", panelId: firstPanelId, lifecycle: .idle)
         workspace.setAgentLifecycle(key: "codex", panelId: secondPanelId, lifecycle: .running)
 
-        XCTAssertTrue(workspace.clearAgentPID(key: "codex.first", panelId: firstPanelId, clearStatus: true, refreshPorts: false))
+        expectTrue(workspace.clearAgentPID(key: "codex.first", panelId: firstPanelId, clearStatus: true, refreshPorts: false))
 
-        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: firstPanelId, fallback: nil), .unknown)
-        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: firstPanelId, fallback: nil), .unknown)
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
     }
 
+    @Test
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)
@@ -296,10 +308,11 @@ final class AgentHibernationTests: XCTestCase {
         try data.write(to: storeURL, options: .atomic)
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
-        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
     }
 
+    @Test
     func testSessionIndexUsesLiveHookPIDAsProcessID() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-live-hook-pid-\(UUID().uuidString)", isDirectory: true)
@@ -353,11 +366,12 @@ final class AgentHibernationTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
-        XCTAssertTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
     }
 
+    @Test
     func testSessionIndexAcceptsNodeBackedClaudeProcessAsLiveHookPID() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-claude-node-pid-\(UUID().uuidString)", isDirectory: true)
@@ -428,11 +442,12 @@ final class AgentHibernationTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
-        XCTAssertTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [pid])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
     }
 
+    @Test
     func testLiveProcessScopeMatchingAcceptsLegacyEnvironmentKeys() throws {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -444,11 +459,12 @@ final class AgentHibernationTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId))
-        XCTAssertFalse(process.matchesCMUXScope(workspaceId: UUID(), surfaceId: panelId))
-        XCTAssertFalse(process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: UUID()))
+        expectTrue(process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId))
+        expectFalse(process.matchesCMUXScope(workspaceId: UUID(), surfaceId: panelId))
+        expectFalse(process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: UUID()))
     }
 
+    @Test
     func testSessionIndexDoesNotDropHookStoreForUnknownAgentLifecycle() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)
@@ -482,10 +498,11 @@ final class AgentHibernationTests: XCTestCase {
         try data.write(to: storeURL, options: .atomic)
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
-        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .unknown)
-        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .unknown)
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
     }
 
+    @Test
     func testProcessDetectedSnapshotPreservesMatchingHookLifecycleWithoutRefreshingActivity() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-detected-\(UUID().uuidString)", isDirectory: true)
@@ -546,13 +563,14 @@ final class AgentHibernationTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        XCTAssertEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), hookUpdatedAt)
-        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123, 456])
-        XCTAssertTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
-        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
+        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), hookUpdatedAt)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123, 456])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
     }
 
+    @Test
     func testProcessDetectedSnapshotPreservesMatchingHookLifecycleWhenHookPIDIsStale() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-stale-pid-\(UUID().uuidString)", isDirectory: true)
@@ -614,12 +632,13 @@ final class AgentHibernationTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
-        XCTAssertEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), hookUpdatedAt)
-        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [321])
-        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
+        expectEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
+        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), hookUpdatedAt)
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [321])
+        expectEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.launchCommand?.executablePath, "/opt/homebrew/bin/opencode")
     }
 
+    @Test
     func testProcessDetectedSnapshotPreservesHookLifecycleWhenRestoredPanelIDsChange() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-remapped-panel-\(UUID().uuidString)", isDirectory: true)
@@ -683,12 +702,13 @@ final class AgentHibernationTests: XCTestCase {
             ]
         )
 
-        XCTAssertNil(index.snapshot(workspaceId: oldWorkspaceId, panelId: oldPanelId))
-        XCTAssertEqual(index.lifecycle(workspaceId: currentWorkspaceId, panelId: currentPanelId), .idle)
-        XCTAssertEqual(index.updatedAt(workspaceId: currentWorkspaceId, panelId: currentPanelId), hookUpdatedAt)
-        XCTAssertEqual(index.processIDs(workspaceId: currentWorkspaceId, panelId: currentPanelId), [654])
+        expectNil(index.snapshot(workspaceId: oldWorkspaceId, panelId: oldPanelId))
+        expectEqual(index.lifecycle(workspaceId: currentWorkspaceId, panelId: currentPanelId), .idle)
+        expectEqual(index.updatedAt(workspaceId: currentWorkspaceId, panelId: currentPanelId), hookUpdatedAt)
+        expectEqual(index.processIDs(workspaceId: currentWorkspaceId, panelId: currentPanelId), [654])
     }
 
+    @Test
     func testProcessDetectedOnlySnapshotDoesNotUseScanTimeAsActivity() {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-empty-home-\(UUID().uuidString)", isDirectory: true)
@@ -719,12 +739,13 @@ final class AgentHibernationTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), 0)
-        XCTAssertNil(index.lifecycle(workspaceId: workspaceId, panelId: panelId))
-        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [789])
-        XCTAssertTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.updatedAt(workspaceId: workspaceId, panelId: panelId), 0)
+        expectNil(index.lifecycle(workspaceId: workspaceId, panelId: panelId))
+        expectEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [789])
+        expectTrue(index.hasLiveProcess(workspaceId: workspaceId, panelId: panelId))
     }
 
+    @Test
     func testSupportedAgentSnapshotsHaveResumeCommandsForHibernation() {
         let cwd = "/tmp/cmux-agent-hibernation"
         let sessionId = "session-123"
@@ -751,11 +772,12 @@ final class AgentHibernationTests: XCTestCase {
                 workingDirectory: cwd,
                 launchCommand: launchCommand
             )
-            XCTAssertNotNil(snapshot.resumeCommand, "\(kind.rawValue) should be resumable before hibernation can use it")
-            XCTAssertFalse(snapshot.agentDisplayName.isEmpty)
+            expectNotNil(snapshot.resumeCommand, "\(kind.rawValue) should be resumable before hibernation can use it")
+            expectFalse(snapshot.agentDisplayName.isEmpty)
         }
     }
 
+    @Test
     func testCustomRegisteredAgentSnapshotCanHibernateWhenResumeCommandExists() {
         let registration = CmuxVaultAgentRegistration(
             id: "local-agent",
@@ -773,11 +795,12 @@ final class AgentHibernationTests: XCTestCase {
             registration: registration
         )
 
-        XCTAssertEqual(snapshot.agentDisplayName, "Local Agent")
-        XCTAssertEqual(snapshot.resumeCommand, "cd -- '/tmp/custom-agent' 2>/dev/null || [ ! -d '/tmp/custom-agent' ] && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
+        expectEqual(snapshot.agentDisplayName, "Local Agent")
+        expectEqual(snapshot.resumeCommand, "cd -- '/tmp/custom-agent' 2>/dev/null || [ ! -d '/tmp/custom-agent' ] && '/usr/local/bin/local-agent' 'resume' 'custom-session'")
     }
 
     @MainActor
+    @Test
     func testInvalidatedIndexedAgentSnapshotIsNotEligibleForHibernation() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-invalidated-index-\(UUID().uuidString)", isDirectory: true)
@@ -785,7 +808,7 @@ final class AgentHibernationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: home) }
 
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-invalidated-index",
@@ -810,14 +833,15 @@ final class AgentHibernationTests: XCTestCase {
         workspace.invalidatedRestoredAgentFingerprintsByPanelId[panelId] =
             TabManager.restorableAgentSnapshotFingerprint(snapshot)
 
-        XCTAssertNil(workspace.restorableAgentForHibernation(panelId: panelId, index: index))
+        expectNil(workspace.restorableAgentForHibernation(panelId: panelId, index: index))
     }
 
     @MainActor
+    @Test
     func testFocusingHibernatedTerminalAutomaticallyPreparesResume() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-auto-resume-on-visit",
@@ -830,19 +854,20 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
+        expectTrue(panel.isAgentHibernated)
 
         workspace.focusPanel(panelId)
 
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+        expectFalse(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
+    @Test
     func testVisibleHibernatedTerminalAutomaticallyPreparesResumeWithoutFocus() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-visible-resume",
@@ -855,19 +880,20 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
+        expectTrue(panel.isAgentHibernated)
 
-        XCTAssertTrue(workspace.resumeVisibleAgentHibernationPanels(panelIds: [panelId]))
+        expectTrue(workspace.resumeVisibleAgentHibernationPanels(panelIds: [panelId]))
 
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+        expectFalse(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
+    @Test
     func testHiddenMountedWorkspaceDoesNotAutoResumeHibernatedTerminal() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-hidden-mounted-resume",
@@ -880,26 +906,27 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
+        expectTrue(panel.isAgentHibernated)
 
         workspace.setAgentHibernationAutoResumePresentationVisible(false)
-        XCTAssertEqual(workspace.agentHibernationVisiblePanelIdsForCurrentLayout(), [])
+        expectEqual(workspace.agentHibernationVisiblePanelIdsForCurrentLayout(), [])
 
         _ = workspace.debugReconcileTerminalPortalVisibilityForTesting()
-        XCTAssertTrue(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
+        expectTrue(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
 
         workspace.setAgentHibernationAutoResumePresentationVisible(true)
 
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+        expectFalse(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
+    @Test
     func testAutosaveFingerprintTracksHibernationTransitions() throws {
         let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-autosave-hibernation",
@@ -915,15 +942,16 @@ final class AgentHibernationTests: XCTestCase {
         )
         let hibernatedFingerprint = manager.sessionAutosaveFingerprint()
 
-        XCTAssertNotEqual(liveFingerprint, hibernatedFingerprint)
-        XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
-        XCTAssertNotEqual(hibernatedFingerprint, manager.sessionAutosaveFingerprint())
+        expectNotEqual(liveFingerprint, hibernatedFingerprint)
+        expectTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
+        expectNotEqual(hibernatedFingerprint, manager.sessionAutosaveFingerprint())
     }
 
     @MainActor
+    @Test
     func testResumeClearsStaleLifecycleState() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panelId = try #require(workspace.focusedPanelId)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-clear-lifecycle-on-resume",
@@ -938,15 +966,16 @@ final class AgentHibernationTests: XCTestCase {
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
 
-        XCTAssertTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
-        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+        expectTrue(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
     }
 
     @MainActor
+    @Test
     func testDirectFocusOnHibernatedTerminalPreparesResumeWithoutHiddenFocus() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-direct-focus-resume",
@@ -959,19 +988,20 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
+        expectTrue(panel.isAgentHibernated)
 
         panel.focus()
 
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+        expectFalse(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
+    @Test
     func testExplicitInputToHibernatedTerminalQueuesAndPreparesResume() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-explicit-input-resume",
@@ -984,26 +1014,27 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
+        expectTrue(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
 
         let result = panel.sendInputResult("pwd\r")
 
-        XCTAssertEqual(result, .queued)
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+        expectEqual(result, .queued)
+        expectFalse(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
+    @Test
     func testMovedHibernatedTerminalResumesThroughDestinationWorkspace() throws {
         let source = Workspace()
-        let panelId = try XCTUnwrap(source.focusedPanelId)
-        let panel = try XCTUnwrap(source.panels[panelId] as? TerminalPanel)
-        let detached = try XCTUnwrap(source.detachSurface(panelId: panelId))
+        let panelId = try #require(source.focusedPanelId)
+        let panel = try #require(source.panels[panelId] as? TerminalPanel)
+        let detached = try #require(source.detachSurface(panelId: panelId))
 
         let destination = Workspace()
-        let destinationPaneId = try XCTUnwrap(destination.bonsplitController.focusedPaneId)
-        XCTAssertEqual(
+        let destinationPaneId = try #require(destination.bonsplitController.focusedPaneId)
+        expectEqual(
             destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false),
             panelId
         )
@@ -1019,21 +1050,22 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
+        expectTrue(panel.isAgentHibernated)
 
         let result = panel.sendInputResult("pwd\r")
 
-        XCTAssertEqual(result, .queued)
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertNil(source.restoredAgentResumeStatesByPanelId[panelId])
-        XCTAssertEqual(destination.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+        expectEqual(result, .queued)
+        expectFalse(panel.isAgentHibernated)
+        expectNil(source.restoredAgentResumeStatesByPanelId[panelId])
+        expectEqual(destination.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
+    @Test
     func testExplicitNamedKeyToHibernatedTerminalQueuesAndPreparesResume() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "codex-explicit-key-resume",
@@ -1046,21 +1078,22 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
+        expectTrue(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .manualResumeAvailable)
 
         let result = panel.sendNamedKeyResult("enter")
 
-        XCTAssertEqual(result, .queued)
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
+        expectEqual(result, .queued)
+        expectFalse(panel.isAgentHibernated)
+        expectEqual(workspace.restoredAgentResumeStatesByPanelId[panelId], .awaitingAutoResumeCommand)
     }
 
     @MainActor
+    @Test
     func testResumePreparationWithoutStartupInputStillLeavesHibernation() throws {
         let workspace = Workspace()
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let panel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .custom("manual-agent"),
             sessionId: "manual-agent-session",
@@ -1072,29 +1105,13 @@ final class AgentHibernationTests: XCTestCase {
             agent: snapshot,
             lastActivityAt: Date(timeIntervalSince1970: 0)
         )
-        XCTAssertTrue(panel.isAgentHibernated)
+        expectTrue(panel.isAgentHibernated)
 
         let preparation = panel.prepareAgentHibernationResume()
 
-        XCTAssertEqual(preparation, .resumed(queuedStartupInput: false))
-        XCTAssertFalse(panel.isAgentHibernated)
-        XCTAssertFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
+        expectEqual(preparation, .resumed(queuedStartupInput: false))
+        expectFalse(panel.isAgentHibernated)
+        expectFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
-    private func launch(
-        _ launcher: String,
-        _ executablePath: String,
-        arguments: [String] = [],
-        cwd: String
-    ) -> AgentLaunchCommandSnapshot {
-        AgentLaunchCommandSnapshot(
-            launcher: launcher,
-            executablePath: executablePath,
-            arguments: arguments.isEmpty ? [executablePath] : arguments,
-            workingDirectory: cwd,
-            environment: nil,
-            capturedAt: nil,
-            source: nil
-        )
-    }
 }
