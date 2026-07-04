@@ -83,6 +83,8 @@ function positiveIntegerEnv(name, fallback) {
 
 const TIMEOUT_MS = positiveIntegerEnv("CMUX_CU_TIMEOUT_MS", 180000);
 const MAX_TREE = positiveIntegerEnv("CMUX_CU_MAX_TREE", 60000);
+const MAX_PENDING_TOOL_CALLS = 8;
+const MAX_TOOL_CALL_ARGUMENT_BYTES = 256 * 1024;
 // Explicit opt-in for headless automation: pre-approve the engine's per-app
 // control elicitations instead of forwarding them to the MCP client. Headless
 // clients (e.g. `claude -p`) cannot show the approval prompt and cancel it,
@@ -146,6 +148,10 @@ const MESSAGE_CATALOG = {
       `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`,
     targetDescription: "Describe the current computer-use target.",
     toolCallCancelled: "tool call was cancelled",
+    toolCallQueueFull: (limit) =>
+      `too many computer-use requests are already pending (limit ${limit}); wait for the current request to finish and retry`,
+    toolCallTooLarge: (limit) =>
+      `computer-use request arguments are too large (limit ${limit} bytes)`,
     typeDescription:
       "Type text into an app (the focused field). Confirm with the user before destructive, irreversible, or high-stakes actions.",
     typed: "typed",
@@ -211,6 +217,10 @@ const MESSAGE_CATALOG = {
       `このセッションには「${app}」の computer_state スナップショットがありません。要素 index はスナップショット固有です。先に computer_state を実行してください`,
     targetDescription: "現在の computer-use 対象を説明します。",
     toolCallCancelled: "ツール呼び出しはキャンセルされました",
+    toolCallQueueFull: (limit) =>
+      `保留中の computer-use リクエストが多すぎます（上限 ${limit} 件）。現在のリクエストが完了してから再試行してください`,
+    toolCallTooLarge: (limit) =>
+      `computer-use リクエストの引数が大きすぎます（上限 ${limit} バイト）`,
     typeDescription:
       "アプリのフォーカス中フィールドにテキストを入力します。破壊的、取り消し困難、または重要度の高い操作の前にはユーザーに確認してください。",
     typed: "入力しました",
@@ -1216,6 +1226,14 @@ let activeToolToken = null;
 
 const requestKey = (id) => String(id);
 
+function toolCallArgumentsBytes(args) {
+  try {
+    return Buffer.byteLength(JSON.stringify(args ?? {}), "utf8");
+  } catch {
+    return Infinity;
+  }
+}
+
 function displayClientName(clientInfo) {
   const raw = String(clientInfo?.name ?? "").trim();
   if (!raw) return localizedMessage("mcpClientFallback");
@@ -1331,7 +1349,13 @@ async function forwardElicitationToClient(params) {
 
 let toolCallQueue = Promise.resolve();
 
-function enqueueToolCall(id, run) {
+function enqueueToolCall(id, args, run) {
+  if (activeToolCalls.size >= MAX_PENDING_TOOL_CALLS) {
+    return Promise.resolve(err(localizedMessage("toolCallQueueFull", MAX_PENDING_TOOL_CALLS)));
+  }
+  if (toolCallArgumentsBytes(args) > MAX_TOOL_CALL_ARGUMENT_BYTES) {
+    return Promise.resolve(err(localizedMessage("toolCallTooLarge", MAX_TOOL_CALL_ARGUMENT_BYTES)));
+  }
   const key = requestKey(id);
   const token = {
     id: key,
@@ -1390,7 +1414,8 @@ async function handleRequest(message) {
         return;
       }
       try {
-        mcpReply(id, await enqueueToolCall(id, () => tool.run(params?.arguments ?? {})));
+        const args = params?.arguments ?? {};
+        mcpReply(id, await enqueueToolCall(id, args, () => tool.run(args)));
       } catch (error) {
         mcpReply(id, err(error?.message ?? String(error)));
       }

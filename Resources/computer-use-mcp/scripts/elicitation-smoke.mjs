@@ -139,6 +139,31 @@ async function runConcurrentElementRace() {
   return [state, summarizeResult(first), summarizeResult(second)];
 }
 
+async function runQueueBoundSmoke() {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverPath],
+    env: { ...process.env, CMUX_CU_CODEX: fakeCodex },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
+  await client.connect(transport);
+  const calls = [
+    client.callTool({ name: "computer_state", arguments: { app: "QueueHoldApp" } }),
+    ...Array.from({ length: 10 }, () => client.callTool({ name: "computer_target", arguments: {} })),
+  ];
+  const results = await Promise.all(
+    calls.map((call) =>
+      call.then((result) => summarizeResult(result)).catch((error) => ({
+        isError: true,
+        text: String(error?.message ?? error),
+      }))
+    )
+  );
+  await client.close();
+  return results;
+}
+
 async function runCancellationSmoke() {
   const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
   delete env.CMUX_CU_AUTO_APPROVE;
@@ -314,6 +339,25 @@ console.log(
 );
 if (queuedCancelled.active.isError || !queuedCancelled.queued.isError) {
   console.error("FAIL: cancelling a queued tool call should not stop the active tool call");
+  process.exit(1);
+}
+
+const queueBounded = await runQueueBoundSmoke();
+const queueRejected = queueBounded.filter((result) => result.isError && result.text.includes("too many")).length;
+console.log(`queue bound -> first=${queueBounded[0].isError} rejected=${queueRejected}`);
+if (queueBounded[0].isError || queueRejected === 0) {
+  console.error("FAIL: concurrent tool calls should be bounded with a clear error");
+  process.exit(1);
+}
+
+const largeArgs = await run({
+  withElicitation: false,
+  tool: "computer_type",
+  args: { app: "TestApp", text: "x".repeat(300000) },
+});
+console.log(`large arguments -> isError=${largeArgs.isError}`);
+if (!largeArgs.isError || !largeArgs.text.includes("too large")) {
+  console.error("FAIL: oversized tool-call arguments should be rejected before queueing");
   process.exit(1);
 }
 
