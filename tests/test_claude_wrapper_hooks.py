@@ -1164,7 +1164,7 @@ def test_computer_use_mcp_skipped_for_strict_mcp_config(failures: list[str]) -> 
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["--strict-mcp-config", "--mcp-config", "{}", "-p", "hello"],
-        setup_sandbox=computer_use_sandbox(),
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>"),
     )
     expect(code == 0, f"computer use strict: wrapper exited {code}: {stderr}", failures)
     expect(
