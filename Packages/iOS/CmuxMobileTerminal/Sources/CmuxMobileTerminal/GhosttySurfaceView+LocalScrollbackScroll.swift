@@ -10,17 +10,27 @@ extension GhosttySurfaceView {
     /// display-only and drops those bytes, so the authoritative Mac response
     /// remains the visible update for TUIs.
     func applyLocalScrollbackScroll(lines: Double, col: Int, row: Int) {
-        guard lines != 0, let surface else { return }
-        let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
-        let scale = max(Double(displayScale), 1)
-        let size = ghostty_surface_size(surface)
-        let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
-        let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
-        let posX = (Double(max(0, col)) + 0.5) * cellWidthPt
-        let posY = (Double(max(0, row)) + 0.5) * cellHeightPt
-        ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-        ghostty_surface_mouse_scroll(surface, 0, lines, 0)
-        drawForWakeup()
+        guard lines != 0,
+              let state = localScrollbackScrollState() else {
+            return
+        }
+        let surface = state.surface
+        let generation = state.generation
+        let scale = state.scale
+        let clampedCol = max(0, col)
+        let clampedRow = max(0, row)
+        state.queue.async { [weak self] in
+            let size = ghostty_surface_size(surface)
+            let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
+            let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
+            let posX = (Double(clampedCol) + 0.5) * cellWidthPt
+            let posY = (Double(clampedRow) + 0.5) * cellHeightPt
+            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+            ghostty_surface_mouse_scroll(surface, 0, lines, 0)
+            Task { @MainActor in
+                self?.requestDrawAfterLocalScrollbackScroll(generation: generation)
+            }
+        }
     }
 }
 #endif

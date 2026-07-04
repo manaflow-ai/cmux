@@ -11,7 +11,11 @@ struct TerminalScrollDelivery: Equatable, Sendable {
         lines += delivery.lines
         col = delivery.col
         row = delivery.row
-        switch (maxScrollbackRows, delivery.maxScrollbackRows) {
+        mergeMaxScrollbackRows(delivery.maxScrollbackRows)
+    }
+
+    mutating func mergeMaxScrollbackRows(_ incomingRows: Int?) {
+        switch (maxScrollbackRows, incomingRows) {
         case (.some(let current), .some(let incoming)):
             maxScrollbackRows = max(current, incoming)
         case (nil, .some(let incoming)):
@@ -74,16 +78,33 @@ struct TerminalScrollDeliveryQueue: Sendable {
     }
 
     mutating func completeInFlight() -> TerminalScrollDelivery? {
+        completeInFlight(completedDelivery: nil).next
+    }
+
+    mutating func completeInFlight(
+        completedDelivery: TerminalScrollDelivery?
+    ) -> TerminalScrollDeliveryCompletion {
         guard inFlight else {
             pending = nil
-            return nil
+            return TerminalScrollDeliveryCompletion(
+                next: nil,
+                shouldDeliverScrollPrefetchRenderGrid: false
+            )
         }
         guard let next = pending else {
             inFlight = false
-            return nil
+            return TerminalScrollDeliveryCompletion(
+                next: nil,
+                shouldDeliverScrollPrefetchRenderGrid: true
+            )
         }
         pending = nil
-        return next
+        var nextWithPrefetch = next
+        nextWithPrefetch.mergeMaxScrollbackRows(completedDelivery?.maxScrollbackRows)
+        return TerminalScrollDeliveryCompletion(
+            next: nextWithPrefetch,
+            shouldDeliverScrollPrefetchRenderGrid: false
+        )
     }
 
     mutating func reset() {
