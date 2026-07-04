@@ -108,12 +108,14 @@ extension TerminalController {
         if let preferredTab, preferredTab.panels[panelID] != nil {
             return preferredTab
         }
+
+        guard case .workspace(let tabID) = target,
+              preferredTab != nil else {
+            return nil
+        }
         return AppDelegate.shared?.workspaceContainingPanel(
             panelId: panelID,
-            preferredWorkspaceId: controlSidebarPreferredWorkspaceID(
-                for: target,
-                resolvedTab: preferredTab
-            )
+            preferredWorkspaceId: tabID
         )?.workspace
     }
 
@@ -128,18 +130,6 @@ extension TerminalController {
                 return
             }
             mutation(self, tab)
-        }
-    }
-
-    private func controlSidebarPreferredWorkspaceID(
-        for target: ControlSidebarTabTarget,
-        resolvedTab: Workspace?
-    ) -> UUID? {
-        switch target {
-        case .workspace(let tabID):
-            return tabID
-        case .selected, .index:
-            return resolvedTab?.id
         }
     }
 

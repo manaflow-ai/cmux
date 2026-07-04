@@ -97,6 +97,52 @@ struct MovedPanelSidebarStatusRoutingTests {
         #expect(moved.destination.statusEntries["build"] == nil)
     }
 
+    @Test func panelScopedMutationsDoNotFallbackForImplicitOrNonWorkspaceTargets() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let moved = try makeMovedTerminalSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let panel = moved.panelID.uuidString
+
+        #expect(
+            TerminalController.shared.handleSocketLine(
+                "set_status selected Running --panel=\(panel)"
+            ) == "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(moved.source.statusEntries["selected"] == nil)
+        #expect(moved.destination.statusEntries["selected"] == nil)
+
+        #expect(
+            TerminalController.shared.handleSocketLine(
+                "set_status indexed Running --tab=0 --panel=\(panel)"
+            ) == "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(moved.source.statusEntries["indexed"] == nil)
+        #expect(moved.destination.statusEntries["indexed"] == nil)
+
+        #expect(
+            TerminalController.shared.handleSocketLine(
+                "set_status unknown Running --tab=\(UUID().uuidString) --panel=\(panel)"
+            ) == "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(moved.source.statusEntries["unknown"] == nil)
+        #expect(moved.destination.statusEntries["unknown"] == nil)
+    }
+
     private func makeMovedTerminalSurface(
         in manager: TabManager
     ) throws -> (source: Workspace, destination: Workspace, panelID: UUID) {
