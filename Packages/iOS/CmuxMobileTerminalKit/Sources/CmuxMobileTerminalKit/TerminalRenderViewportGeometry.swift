@@ -7,6 +7,8 @@ public import CoreGraphics
 /// stale live geometry is being clamped, the layout target wins so a transient
 /// one-row live measurement cannot collapse the rendered prompt row.
 public struct TerminalRenderViewportGeometry {
+    private static let collapsedLiveViewportThresholdRatio: CGFloat = 0.25
+
     /// The layout viewport for the current terminal grid.
     public let layoutViewportRect: CGRect
     /// The transient live viewport from presentation state.
@@ -24,16 +26,40 @@ public struct TerminalRenderViewportGeometry {
 
     /// Returns the viewport rectangle used for positioning rendered content.
     ///
-    /// - Parameter clampsStaleLiveViewport: Whether stale live geometry should be clamped.
+    /// - Parameters:
+    ///   - renderSize: The current rendered terminal content size.
+    ///   - clampsStaleLiveViewport: Whether stale live geometry should be clamped.
     /// - Returns: A viewport using the layout origin and width, with height floored at 1 point.
-    public func viewportRect(clampsStaleLiveViewport: Bool) -> CGRect {
+    public func viewportRect(
+        forRenderSize renderSize: CGSize,
+        clampsStaleLiveViewport: Bool
+    ) -> CGRect {
         let targetHeight = max(1, layoutViewportRect.height)
         let liveHeight = max(1, liveViewportRect.height)
+        let height: CGFloat
+        if clampsStaleLiveViewport {
+            height = isCollapsedLiveViewport(
+                liveHeight: liveHeight,
+                targetHeight: targetHeight,
+                renderHeight: renderSize.height
+            ) ? targetHeight : min(liveHeight, targetHeight)
+        } else {
+            height = liveHeight
+        }
         return CGRect(
             x: layoutViewportRect.minX,
             y: layoutViewportRect.minY,
             width: layoutViewportRect.width,
-            height: clampsStaleLiveViewport ? targetHeight : liveHeight
+            height: height
         )
+    }
+
+    private func isCollapsedLiveViewport(
+        liveHeight: CGFloat,
+        targetHeight: CGFloat,
+        renderHeight: CGFloat
+    ) -> Bool {
+        let referenceHeight = min(targetHeight, max(1, renderHeight))
+        return liveHeight < referenceHeight * Self.collapsedLiveViewportThresholdRatio
     }
 }

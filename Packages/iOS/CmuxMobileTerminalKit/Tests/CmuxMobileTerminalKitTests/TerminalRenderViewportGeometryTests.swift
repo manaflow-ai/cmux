@@ -14,14 +14,38 @@ struct TerminalRenderViewportGeometryTests {
             layoutViewportRect: layout,
             liveViewportRect: transientOneRowLive
         )
-        #expect(transient.viewportRect(clampsStaleLiveViewport: true) == layout)
-        #expect(transient.viewportRect(clampsStaleLiveViewport: false).height == 18)
+        #expect(transient.viewportRect(
+            forRenderSize: layout.size,
+            clampsStaleLiveViewport: true
+        ) == layout)
+        #expect(transient.viewportRect(
+            forRenderSize: layout.size,
+            clampsStaleLiveViewport: false
+        ).height == 18)
 
         let overshoot = TerminalRenderViewportGeometry(
             layoutViewportRect: layout,
             liveViewportRect: staleOvershootLive
         )
-        #expect(overshoot.viewportRect(clampsStaleLiveViewport: true) == layout)
+        #expect(overshoot.viewportRect(
+            forRenderSize: layout.size,
+            clampsStaleLiveViewport: true
+        ) == layout)
+    }
+
+    @Test("stale live viewport clamp preserves legitimate smaller animation heights")
+    func clampPreservesLegitimateSmallerLiveHeight() {
+        let layout = CGRect(x: 4, y: 8, width: 390, height: 840)
+        let live = CGRect(x: 100, y: 200, width: 111, height: 420)
+        let geometry = TerminalRenderViewportGeometry(
+            layoutViewportRect: layout,
+            liveViewportRect: live
+        )
+
+        #expect(geometry.viewportRect(
+            forRenderSize: layout.size,
+            clampsStaleLiveViewport: true
+        ).height == 420)
     }
 
     @Test("render viewport height floors at one point")
@@ -33,7 +57,13 @@ struct TerminalRenderViewportGeometryTests {
             liveViewportRect: live
         )
 
-        #expect(geometry.viewportRect(clampsStaleLiveViewport: true).height == 1)
-        #expect(geometry.viewportRect(clampsStaleLiveViewport: false).height == 1)
+        #expect(geometry.viewportRect(
+            forRenderSize: layout.size,
+            clampsStaleLiveViewport: true
+        ).height == 1)
+        #expect(geometry.viewportRect(
+            forRenderSize: layout.size,
+            clampsStaleLiveViewport: false
+        ).height == 1)
     }
 }

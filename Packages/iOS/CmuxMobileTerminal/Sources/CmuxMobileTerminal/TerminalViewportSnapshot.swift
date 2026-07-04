@@ -15,7 +15,10 @@ struct TerminalViewportSnapshot {
         TerminalRenderViewportGeometry(
             layoutViewportRect: layoutViewportRect,
             liveViewportRect: liveViewportRect
-        ).viewportRect(clampsStaleLiveViewport: clampsStaleLiveViewport)
+        ).viewportRect(
+            forRenderSize: renderSize,
+            clampsStaleLiveViewport: clampsStaleLiveViewport
+        )
     }
 
     func renderRect(forRenderSize renderSize: CGSize, clampsStaleLiveViewport: Bool) -> CGRect {
