@@ -270,7 +270,7 @@ struct PairingView: View {
         let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAddress.isEmpty,
               !CmxPairingURLScheme.hasPairingScheme(trimmedAddress),
-              let entry = CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort),
+              case .success(let entry) = CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort),
               MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(entry.host) else {
             return nil
         }
@@ -315,9 +315,14 @@ struct PairingView: View {
             }
             return
         }
-        guard let entry = CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort) else {
-            // The only parse failures are a bad port suffix or malformed
-            // brackets; a bare host always parses with the default port.
+        let entry: CmxManualPairingEntry
+        switch CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort) {
+        case .success(let parsed):
+            entry = parsed
+        case .failure(.invalidHost):
+            validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
+            return
+        case .failure(.invalidPort):
             validationError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             return
         }

@@ -51,56 +51,76 @@ public struct CmxManualPairingEntry: Equatable, Sendable {
         return pick?.entry
     }
 
+    /// Why ``parse(_:defaultPort:)`` rejected an address, so the caller can
+    /// show the host-shaped or port-shaped error instead of guessing (a user
+    /// typing `:58465` has a host problem, not a port problem).
+    public enum ParseError: Error, Equatable, Sendable {
+        /// The host part is missing or the bracket form is malformed
+        /// (empty input, `:port`, `[]`, `[v6` with no closing bracket,
+        /// or junk between `]` and the port separator).
+        case invalidHost
+        /// An explicit port separator is present but the port is not a
+        /// number in `1...65535`.
+        case invalidPort
+    }
+
     /// Splits a user-entered address into host + port, inverting
     /// ``displayString``: accepts `host`, `host:port`, `[v6]`, `[v6]:port`,
     /// and a bare bracketless IPv6 literal (two or more colons, which can
     /// never be a `host:port` split, so the whole string is the host).
     ///
     /// Only the shape is decided here; host *validity* (no schemes, paths,
-    /// or whitespace) stays with the caller's host policy. Returns `nil`
-    /// when an explicit port separator is present but the port is not a
-    /// number in `1...65535`, or when a bracket form is malformed.
+    /// or whitespace) stays with the caller's host policy. Failures carry a
+    /// ``ParseError`` naming the broken part so error messages stay honest.
     /// - Parameters:
     ///   - input: The raw address string the user typed or pasted.
     ///   - defaultPort: The port used when `input` has no port suffix.
-    public static func parse(_ input: String, defaultPort: Int) -> CmxManualPairingEntry? {
+    public static func parse(
+        _ input: String, defaultPort: Int
+    ) -> Result<CmxManualPairingEntry, ParseError> {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return nil
+            return .failure(.invalidHost)
         }
 
         if trimmed.hasPrefix("[") {
             guard let closing = trimmed.firstIndex(of: "]") else {
-                return nil
+                return .failure(.invalidHost)
             }
             let host = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing])
             let remainder = trimmed[trimmed.index(after: closing)...]
             guard !host.isEmpty else {
-                return nil
+                return .failure(.invalidHost)
             }
             if remainder.isEmpty {
-                return CmxManualPairingEntry(host: host, port: defaultPort)
+                return .success(CmxManualPairingEntry(host: host, port: defaultPort))
             }
-            guard remainder.hasPrefix(":"), let port = validPort(remainder.dropFirst()) else {
-                return nil
+            guard remainder.hasPrefix(":") else {
+                return .failure(.invalidHost)
             }
-            return CmxManualPairingEntry(host: host, port: port)
+            guard let port = validPort(remainder.dropFirst()) else {
+                return .failure(.invalidPort)
+            }
+            return .success(CmxManualPairingEntry(host: host, port: port))
         }
 
         let colonCount = trimmed.filter { $0 == ":" }.count
         switch colonCount {
         case 0:
-            return CmxManualPairingEntry(host: trimmed, port: defaultPort)
+            return .success(CmxManualPairingEntry(host: trimmed, port: defaultPort))
         case 1:
             let separator = trimmed.firstIndex(of: ":")!
             let host = String(trimmed[..<separator])
-            guard !host.isEmpty, let port = validPort(trimmed[trimmed.index(after: separator)...]) else {
-                return nil
+            guard !host.isEmpty else {
+                return .failure(.invalidHost)
             }
-            return CmxManualPairingEntry(host: host, port: port)
+            guard let port = validPort(trimmed[trimmed.index(after: separator)...]) else {
+                return .failure(.invalidPort)
+            }
+            return .success(CmxManualPairingEntry(host: host, port: port))
         default:
             // Bracketless IPv6 literal; there is no unambiguous port split.
-            return CmxManualPairingEntry(host: trimmed, port: defaultPort)
+            return .success(CmxManualPairingEntry(host: trimmed, port: defaultPort))
         }
     }
 }

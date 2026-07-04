@@ -87,18 +87,18 @@ import Testing
             CmxManualPairingEntry(host: "fd7a:115c:a1e0::1", port: 58465),
         ]
         for entry in entries {
-            #expect(CmxManualPairingEntry.parse(entry.displayString, defaultPort: 1) == entry)
+            #expect(CmxManualPairingEntry.parse(entry.displayString, defaultPort: 1) == .success(entry))
         }
     }
 
     @Test func parseDefaultsPortWhenAbsent() {
         #expect(
             CmxManualPairingEntry.parse("  100.64.0.5  ", defaultPort: 58465)
-                == CmxManualPairingEntry(host: "100.64.0.5", port: 58465)
+                == .success(CmxManualPairingEntry(host: "100.64.0.5", port: 58465))
         )
         #expect(
             CmxManualPairingEntry.parse("[fd7a::1]", defaultPort: 58465)
-                == CmxManualPairingEntry(host: "fd7a::1", port: 58465)
+                == .success(CmxManualPairingEntry(host: "fd7a::1", port: 58465))
         )
     }
 
@@ -107,24 +107,28 @@ import Testing
         // string is the host and the port falls back to the default.
         #expect(
             CmxManualPairingEntry.parse("fd7a:115c:a1e0::1", defaultPort: 58465)
-                == CmxManualPairingEntry(host: "fd7a:115c:a1e0::1", port: 58465)
+                == .success(CmxManualPairingEntry(host: "fd7a:115c:a1e0::1", port: 58465))
         )
     }
 
-    @Test func parseRejectsBadPorts() {
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:70000", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:0", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("100.64.0.5:abc", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("[fd7a::1]:99999", defaultPort: 1) == nil)
+    @Test func parseRejectsBadPortsAsPortFailures() {
+        // A well-shaped host with a broken port suffix must blame the port,
+        // so the phone shows the port error, not the host error.
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:70000", defaultPort: 1) == .failure(.invalidPort))
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:0", defaultPort: 1) == .failure(.invalidPort))
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:", defaultPort: 1) == .failure(.invalidPort))
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:abc", defaultPort: 1) == .failure(.invalidPort))
+        #expect(CmxManualPairingEntry.parse("[fd7a::1]:99999", defaultPort: 1) == .failure(.invalidPort))
     }
 
-    @Test func parseRejectsMalformedShapes() {
-        #expect(CmxManualPairingEntry.parse("", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("   ", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("[fd7a::1", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("[]:58465", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse(":58465", defaultPort: 1) == nil)
-        #expect(CmxManualPairingEntry.parse("[fd7a::1]58465", defaultPort: 1) == nil)
+    @Test func parseRejectsMalformedShapesAsHostFailures() {
+        // A missing host or broken bracket shape must blame the host even
+        // when the port digits are valid (`:58465` is a host problem).
+        #expect(CmxManualPairingEntry.parse("", defaultPort: 1) == .failure(.invalidHost))
+        #expect(CmxManualPairingEntry.parse("   ", defaultPort: 1) == .failure(.invalidHost))
+        #expect(CmxManualPairingEntry.parse("[fd7a::1", defaultPort: 1) == .failure(.invalidHost))
+        #expect(CmxManualPairingEntry.parse("[]:58465", defaultPort: 1) == .failure(.invalidHost))
+        #expect(CmxManualPairingEntry.parse(":58465", defaultPort: 1) == .failure(.invalidHost))
+        #expect(CmxManualPairingEntry.parse("[fd7a::1]58465", defaultPort: 1) == .failure(.invalidHost))
     }
 }
