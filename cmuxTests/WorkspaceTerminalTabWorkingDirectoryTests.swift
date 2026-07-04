@@ -220,6 +220,33 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("disconnected remote panel does not fall back to stale raw cwd")
+    func disconnectedRemotePanelDoesNotFallBackToStaleRawDirectory() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: sshCommand
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == remoteDirectory)
+
+        workspace.disconnectRemoteConnection()
+
+        #expect(workspace.isRemoteWorkspace)
+        #expect(!workspace.isRemoteTerminalSurface(remotePanelId))
+        #expect(workspace.panelDirectories[remotePanelId] == remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == nil)
+        #expect(workspace.presentedCurrentDirectory == nil)
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+    }
+
+    @MainActor
     @Test("control sidebar state hides inherited local cwd for remote ssh workspaces")
     func controlSidebarStateHidesInheritedLocalDirectoryForRemoteSSHWorkspace() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
