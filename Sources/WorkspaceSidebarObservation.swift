@@ -98,7 +98,7 @@ extension Workspace {
             .combineLatest(conversationFields)
             .map { [weak self] workspaceAndTagChange, conversationFields in
                 let workspaceFields = workspaceAndTagChange.0
-                SidebarImmediateObservationState(
+                return SidebarImmediateObservationState(
                     title: workspaceFields.0,
                     customDescription: workspaceFields.1,
                     customTags: self?.customTags ?? [],
