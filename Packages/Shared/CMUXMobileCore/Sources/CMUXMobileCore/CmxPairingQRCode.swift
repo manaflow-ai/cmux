@@ -137,7 +137,8 @@ public struct CmxPairingQRCode: Sendable {
                   route.priority == synthesizedRoutePriority(index: index),
                   case let .hostPort(host, _) = route.endpoint,
                   !CmxLoopbackHost().matches(host),
-                  isPlainHost(host) else {
+                  isPlainHost(host),
+                  route.kind != .manualHost || CmxManualHost(routeHost: host) != nil else {
                 return nil
             }
         }

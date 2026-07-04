@@ -236,6 +236,15 @@ import Testing
         ])
         #expect(CmxPairingQRCode().encode(loopbackTailscale) == nil)
 
+        // Manual-host routes must use the same route-host grammar on encode
+        // that the v3 decoder enforces, otherwise the codec can emit QR URLs
+        // it later refuses to scan.
+        let invalidManualHost = try pairingTicket(routes: [
+            try manualHostRoute(index: 0, host: "my:host"),
+        ])
+        #expect(CmxPairingQRCode().encode(invalidManualHost) == nil)
+        #expect(!CmxPairingQRCode().canEncode(invalidManualHost))
+
         // A non-Tailscale fallback route the bare host:port grammar cannot
         // express (an iroh peer) must NOT be silently dropped: the ticket
         // keeps the lossless compact payload instead. Only loopback routes,

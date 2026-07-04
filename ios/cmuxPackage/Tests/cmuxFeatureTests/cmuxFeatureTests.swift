@@ -2058,7 +2058,7 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale, .manualHost],
-        transportFactory: ScriptedTransportFactory(responses: responses),
+        transportFactory: FailingRouteTransportFactory(failingRouteID: "tailscale", responses: responses, attempts: RouteAttemptRecorder()),
         stackAccessToken: "stack-token-for-mixed-manual"
     )
     let store = CMUXMobileShellStore.preview(
