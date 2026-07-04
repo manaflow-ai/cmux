@@ -23101,7 +23101,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId)
+            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId) ?? (resolvedSurface.isAuthoritative ? workspaceId : nil)
             let hasAuthoritativeWorkspace = feedWorkspace != nil
             sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
                                     surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
@@ -23225,7 +23225,7 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession)
+                let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession) ?? (resolvedSurface.isAuthoritative ? workspaceId : nil)
                 let hasAuthoritativeWorkspace = feedWorkspace != nil
                 sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
                                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
@@ -23360,7 +23360,7 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession)
+            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession) ?? (resolvedSurface.isAuthoritative ? workspaceId : nil)
             let hasAuthoritativeWorkspace = feedWorkspace != nil
             sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
                                     surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
