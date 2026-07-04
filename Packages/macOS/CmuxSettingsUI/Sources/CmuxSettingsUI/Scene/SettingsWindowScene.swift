@@ -425,16 +425,24 @@ public struct SettingsWindowRoot: View {
 
     @ViewBuilder
     private var sectionStack: some View {
-        // Order matches the legacy in-app SettingsView scroll order:
-        // Account, App, Terminal, TextBox, Mobile, Sidebar, Beta Features,
-        // Automation, Browser (with embedded Import), Global Hotkey,
-        // Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
+        // Order matches the legacy in-app SettingsView scroll order with
+        // Appearance inserted after Account as the visual-settings hub:
+        // Account, Appearance, App, Terminal, TextBox, Mobile, Sidebar,
+        // Beta Features, Automation, Browser (with embedded Import),
+        // Global Hotkey, Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
         AccountSection(
             defaultsStore: defaultsStore,
             catalog: catalog,
             accountFlow: accountFlow
         )
         .id(anchorID(for: .account))
+
+        AppearanceSection(
+            defaultsStore: defaultsStore,
+            catalog: catalog,
+            hostActions: hostActions
+        )
+        .id(anchorID(for: .appearance))
 
         AppSection(
             defaultsStore: defaultsStore,
@@ -460,7 +468,7 @@ public struct SettingsWindowRoot: View {
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
-        SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+        SidebarSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .sidebarAppearance))
 
         CustomSidebarsSection(
@@ -509,9 +517,7 @@ public struct SettingsWindowRoot: View {
 
         WorkspaceColorsSection(
             defaultsStore: defaultsStore,
-            jsonStore: jsonStore,
-            catalog: catalog,
-            errorLog: runtime.errorLog
+            catalog: catalog
         )
         .id(anchorID(for: .workspaceColors))
 

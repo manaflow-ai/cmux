@@ -2,6 +2,7 @@ import SwiftUI
 
 enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
+    case appearance
     case app
     case terminal
     case textBox
@@ -25,6 +26,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         switch self {
         case .account:
             return String(localized: "settings.section.account", defaultValue: "Account")
+        case .appearance:
+            return String(localized: "settings.section.appearance", defaultValue: "Appearance")
         case .app:
             return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal:
@@ -64,6 +67,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         switch self {
         case .account:
             return "person.crop.circle"
+        case .appearance:
+            return "paintbrush"
         case .app:
             return "gearshape"
         case .terminal:
@@ -103,8 +108,10 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         switch self {
         case .account:
             return "\(title) sign in team sync"
+        case .appearance:
+            return "\(title) theme font family size terminal sidebar workspace colors ui scale light dark"
         case .app:
-            return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
+            return "\(title) language workspace notifications menu bar telemetry default terminal"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
@@ -322,8 +329,13 @@ enum SettingsSearchIndex {
 
     private static let settingEntries: [SettingsSearchEntry] = [
         setting(.account, "account", String(localized: "settings.section.account", defaultValue: "Account"), "sign in login team sync user profile"),
+        setting(.appearance, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "app.appearance theme light dark system app appearance"),
+        setting(.appearance, "terminal-font", String(localized: "settings.appearance.terminalFont", defaultValue: "Terminal Font"), "font-family font-size terminal font monospace typeface family size points ghostty config text bigger smaller"),
+        setting(.appearance, "global-font-magnification", String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome sidebar workspace bigger smaller accessibility ui scale"),
+        setting(.appearance, "sidebar-font-size", String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), "sidebar-font-size sidebar font size text scale workspace title badge metadata shortcut hint"),
+        setting(.appearance, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title workspace title"),
+        setting(.appearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
         setting(.app, "language", String(localized: "settings.app.language", defaultValue: "Language"), "locale translation japanese english restart"),
-        setting(.app, "appearance", String(localized: "settings.app.appearance", defaultValue: "Appearance"), "theme light dark system"),
         setting(.app, "app-icon", String(localized: "settings.app.appIcon", defaultValue: "App Icon"), "dock icon alternate"),
         setting(.app, "new-workspace-placement", String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"), "workspace order position"),
         setting(.app, "workspace-group-new-workspace-placement", String(localized: "settings.app.workspaceGroupNewWorkspacePlacement", defaultValue: "Group New Workspace Placement"), "workspace group command n plus insert position after current top end"),
@@ -373,7 +385,6 @@ enum SettingsSearchIndex {
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
-        setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
         setting(.terminal, "agent-hibernation", String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), "terminal.agentHibernation idle hibernate suspend background agents claude code codex opencode live terminals"),
         setting(.terminal, "renderer-realization", String(localized: "settings.terminal.rendererRealization", defaultValue: "Reclaim Offscreen Terminal Memory"), "terminal.rendererRealization renderer reclaim offscreen memory iosurface gpu idle warm release background terminals"),
@@ -382,8 +393,6 @@ enum SettingsSearchIndex {
         setting(.textBox, "focus-textbox-new-terminals", String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), "terminal.focusTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
         setting(.textBox, "default-submit-action", String(localized: "settings.textBox.defaultSubmitAction", defaultValue: "Default Submit Action"), "terminal.textBoxDefaultSubmitAction textbox submit action shift tab codex yolo claude opencode pi agent route"),
         setting(.textBox, "textbox-max-lines", String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"), "terminal.textBoxMaxLines terminal textbox text box rich input prompt max height lines grow scroll beta"),
-        setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
-        setting(.sidebarAppearance, "font-size", String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), "font size text scale workspace title badge metadata shortcut hint sidebar-font-size"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "wrap-workspace-titles", String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), "workspace title wrap multiline pr pull request"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
@@ -453,9 +462,9 @@ enum SettingsSearchIndex {
         setting(.keyboardShortcuts, "shortcut-chords", String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"), "tmux multi step keybindings"),
         setting(.keyboardShortcuts, "reset-defaults", String(localized: "settings.shortcuts.resetDefaults", defaultValue: "Reset Default Shortcuts"), "restore built in builtin defaults keybindings hotkeys chords commands"),
         setting(.keyboardShortcuts, "shortcuts", String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), "keybindings commands"),
-        setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
-        setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
-        setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
+        setting(.appearance, "workspace-color-indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "workspaceColors.indicatorStyle tab color indicator active workspace style stripe dot"),
+        setting(.appearance, "workspace-selection-highlight", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "workspaceColors.selectionColor selected workspace background highlight active tab"),
+        setting(.appearance, "workspace-notification-badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
         setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
         setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"), "config json file editor dotfiles"),
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
@@ -472,7 +481,8 @@ enum SettingsSearchIndex {
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
         "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
         "app.language": settingID(for: .app, idSuffix: "language"),
-        "app.appearance": settingID(for: .app, idSuffix: "appearance"),
+        "app.appearance": settingID(for: .appearance, idSuffix: "appearance"),
+        "app.globalFontMagnification": settingID(for: .appearance, idSuffix: "global-font-magnification"),
         "app.appIcon": settingID(for: .app, idSuffix: "app-icon"),
         "app.newWorkspacePlacement": settingID(for: .app, idSuffix: "new-workspace-placement"),
         "workspaceGroups.newWorkspacePlacement": settingID(for: .app, idSuffix: "workspace-group-new-workspace-placement"),
@@ -530,8 +540,8 @@ enum SettingsSearchIndex {
         "sidebar.showProgress": settingID(for: .sidebarAppearance, idSuffix: "show-progress"),
         "sidebar.showCustomMetadata": settingID(for: .sidebarAppearance, idSuffix: "show-metadata"),
         "sidebar.rightMaxWidth": settingID(for: .sidebarAppearance, idSuffix: "right-max-width"),
-        "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
-        "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),
+        "sidebar-font-size": settingID(for: .appearance, idSuffix: "sidebar-font-size"),
+        "surface-tab-bar-font-size": settingID(for: .appearance, idSuffix: "tab-bar-font-size"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
         "terminal.showTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"),
         "terminal.focusTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"),
@@ -545,10 +555,10 @@ enum SettingsSearchIndex {
         "terminal.rendererRealization.enabled": settingID(for: .terminal, idSuffix: "renderer-realization"),
         "terminal.rendererRealization.idleSeconds": settingID(for: .terminal, idSuffix: "renderer-realization"),
         "terminal.rendererRealization.maxWarmRenderers": settingID(for: .terminal, idSuffix: "renderer-realization"),
-        "workspaceColors.indicatorStyle": settingID(for: .workspaceColors, idSuffix: "indicator"),
-        "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
-        "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
-        "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
+        "workspaceColors.indicatorStyle": settingID(for: .appearance, idSuffix: "workspace-color-indicator"),
+        "workspaceColors.selectionColor": settingID(for: .appearance, idSuffix: "workspace-selection-highlight"),
+        "workspaceColors.notificationBadgeColor": settingID(for: .appearance, idSuffix: "workspace-notification-badge"),
+        "sidebarAppearance.matchTerminalBackground": settingID(for: .appearance, idSuffix: "match-terminal"),
         "customSidebars.renderer": settingID(for: .customSidebars, idSuffix: "renderer"),
         "automation.socketControlMode": settingID(for: .automation, idSuffix: "socket-mode"),
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),

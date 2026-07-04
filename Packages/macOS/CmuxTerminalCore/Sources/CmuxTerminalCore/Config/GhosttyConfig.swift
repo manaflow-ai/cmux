@@ -488,6 +488,8 @@ public struct GhosttyConfig {
         _ contents: String,
         loadingThemesImmediatelyFor preferredColorScheme: ColorSchemePreference? = nil
     ) {
+        var parsedTerminalFontFamily: String?
+        var hasTerminalFontFamilyPrimary = false
         let lines = contents.components(separatedBy: .newlines)
         for line in lines {
             var trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -502,14 +504,22 @@ public struct GhosttyConfig {
                 continue
             }
 
-            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             if parts.count == 2 {
                 let key = parts[0].trimmingCharacters(in: .whitespaces)
                 let value = parts[1].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
 
                 switch key {
                 case "font-family":
-                    fontFamily = value
+                    if value.isEmpty {
+                        parsedTerminalFontFamily = ""
+                        hasTerminalFontFamilyPrimary = false
+                        fontFamily = ""
+                    } else if !hasTerminalFontFamilyPrimary {
+                        parsedTerminalFontFamily = value
+                        hasTerminalFontFamilyPrimary = true
+                        fontFamily = value
+                    }
                 case "font-size":
                     if let size = Double(value) {
                         fontSize = CGFloat(size)
@@ -531,6 +541,9 @@ public struct GhosttyConfig {
                             bundleResourceURL: Bundle.main.resourceURL,
                             preferredColorScheme: preferredColorScheme
                         )
+                        if let parsedTerminalFontFamily {
+                            fontFamily = parsedTerminalFontFamily
+                        }
                     }
                 case "working-directory":
                     workingDirectory = value

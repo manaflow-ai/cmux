@@ -1,14 +1,26 @@
 public import Foundation
 
-/// Reads and writes cmux's numeric Ghostty config settings (sidebar and
-/// surface-tab-bar font sizes), including range clamping, display formatting,
-/// and symlink-aware writes.
+/// Reads and writes cmux's editable Ghostty config settings, including range
+/// clamping, display formatting, and symlink-aware writes for font controls.
 ///
 /// TRANSITIONAL: faithful lift of the app-target config-setting-editor namespace
 /// that ``GhosttyConfig`` and the settings UI share. Stateless config-body
 /// transforms over `String`/`URL` with no single natural receiver; modernization
 /// into an instantiated editor is deferred to the engine lift.
 public struct CmuxGhosttyConfigSettingEditor {
+    /// The config key for the terminal font family.
+    public static let terminalFontFamilyKey = "font-family"
+    /// The default terminal font family.
+    public static let defaultTerminalFontFamily = "Menlo"
+    /// The config key for the terminal font size.
+    public static let terminalFontSizeKey = "font-size"
+    /// The default terminal font size in points.
+    public static let defaultTerminalFontSize = 12.0
+    /// The smallest terminal font size cmux allows from Settings.
+    public static let minTerminalFontSize = 6.0
+    /// The largest terminal font size cmux allows from Settings.
+    public static let maxTerminalFontSize = 72.0
+
     /// The config key for the sidebar font size.
     public static let sidebarFontSizeKey = "sidebar-font-size"
     /// The default sidebar font size in points.
@@ -28,6 +40,38 @@ public struct CmuxGhosttyConfigSettingEditor {
     public static let maxSurfaceTabBarFontSize = 14.0
 
     public init() {}
+
+    /// Clamps a terminal font size to its allowed range, substituting the default
+    /// for non-finite input.
+    public func clampedTerminalFontSize(_ value: Double) -> Double {
+        guard value.isFinite else { return Self.defaultTerminalFontSize }
+        return min(max(value, Self.minTerminalFontSize), Self.maxTerminalFontSize)
+    }
+
+    /// The clamped terminal font size formatted for display.
+    public func formattedTerminalFontSize(_ value: Double) -> String {
+        formattedFontSize(clampedTerminalFontSize(value))
+    }
+
+    /// The clamped terminal font size parsed from a Ghostty config body, or
+    /// `nil` when absent.
+    public func parsedTerminalFontSize(in contents: String) -> Double? {
+        parsedFontSize(in: contents, key: Self.terminalFontSizeKey, clamp: clampedTerminalFontSize)
+    }
+
+    /// The effective primary terminal font family in a Ghostty config body, or
+    /// `nil` when absent.
+    public func parsedTerminalFontFamily(in contents: String) -> String? {
+        let lines = configLines(from: contents)
+        if let primaryIndex = primaryTerminalFontFamilyIndex(in: lines),
+           let value = parsedSetting(in: lines[primaryIndex])?.value {
+            return value.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        }
+        if hasTerminalFontFamilyReset(in: lines) {
+            return ""
+        }
+        return nil
+    }
 
     /// Clamps a sidebar font size to its allowed range, substituting the default
     /// for non-finite input.
@@ -110,13 +154,7 @@ public struct CmuxGhosttyConfigSettingEditor {
     /// Returns `contents` with every assignment to `key` replaced by `value`,
     /// appending a new assignment when the key is absent.
     public func updatedContents(_ contents: String, setting key: String, value: String) -> String {
-        var lines = contents.components(separatedBy: "\n")
-        if contents.hasSuffix("\n") {
-            lines.removeLast()
-        }
-        if lines.count == 1, lines[0].isEmpty {
-            lines = []
-        }
+        var lines = configLines(from: contents)
 
         var didReplace = false
         for index in lines.indices {
@@ -130,7 +168,19 @@ public struct CmuxGhosttyConfigSettingEditor {
         if !didReplace {
             lines.append("\(key) = \(value)")
         }
-        return lines.joined(separator: "\n") + "\n"
+        return serializedConfigLines(lines)
+    }
+
+    /// Returns `contents` with the effective primary terminal `font-family`
+    /// assignment replaced by `value`, preserving later fallback entries.
+    public func updatedTerminalFontFamilyContents(_ contents: String, value: String) -> String {
+        var lines = configLines(from: contents)
+        if let primaryIndex = primaryTerminalFontFamilyIndex(in: lines) {
+            lines[primaryIndex] = "\(Self.terminalFontFamilyKey) = \(value)"
+        } else {
+            lines.append("\(Self.terminalFontFamilyKey) = \(value)")
+        }
+        return serializedConfigLines(lines)
     }
 
     /// Writes `value` for `key` to the config at `url`, following symlinks and
@@ -152,6 +202,91 @@ public struct CmuxGhosttyConfigSettingEditor {
             attributes: nil
         )
         try updated.write(to: writeURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes `value` for `key`, preserving terminal `font-family` fallback
+    /// chains while retaining single-value replacement for other settings.
+    public func writeEditableSetting(
+        key: String,
+        value: String,
+        to url: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        if key == Self.terminalFontFamilyKey {
+            try writeTerminalFontFamily(value: value, to: url, fileManager: fileManager)
+        } else {
+            try writeSetting(key: key, value: value, to: url, fileManager: fileManager)
+        }
+    }
+
+    /// Writes the primary terminal `font-family` to the config at `url`,
+    /// following symlinks and preserving repeated fallback entries.
+    public func writeTerminalFontFamily(
+        value: String,
+        to url: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        let writeURL = configWriteURL(for: url, fileManager: fileManager)
+        let contents = (try? String(contentsOf: writeURL, encoding: .utf8))
+            ?? (try? String(contentsOf: url, encoding: .utf8))
+            ?? ""
+        let updated = updatedTerminalFontFamilyContents(contents, value: value)
+        try fileManager.createDirectory(
+            at: writeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try updated.write(to: writeURL, atomically: true, encoding: .utf8)
+    }
+
+    private func configLines(from contents: String) -> [String] {
+        var lines = contents.components(separatedBy: "\n")
+        if contents.hasSuffix("\n") {
+            lines.removeLast()
+        }
+        if lines.count == 1, lines[0].isEmpty {
+            lines = []
+        }
+        return lines
+    }
+
+    private func serializedConfigLines(_ lines: [String]) -> String {
+        lines.joined(separator: "\n") + "\n"
+    }
+
+    private func primaryTerminalFontFamilyIndex(in lines: [String]) -> Int? {
+        var lastResetIndex: Int?
+        for index in lines.indices {
+            guard let setting = parsedSetting(in: lines[index]),
+                  setting.key == Self.terminalFontFamilyKey,
+                  setting.value.isEmpty else {
+                continue
+            }
+            lastResetIndex = index
+        }
+
+        for index in lines.indices {
+            guard let setting = parsedSetting(in: lines[index]),
+                  setting.key == Self.terminalFontFamilyKey,
+                  !setting.value.isEmpty else {
+                continue
+            }
+            if let lastResetIndex, index <= lastResetIndex {
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private func hasTerminalFontFamilyReset(in lines: [String]) -> Bool {
+        lines.contains { line in
+            guard let setting = parsedSetting(in: line),
+                  setting.key == Self.terminalFontFamilyKey else {
+                return false
+            }
+            return setting.value.isEmpty
+        }
     }
 
     private func parsedSetting(in line: String) -> (key: String, value: String)? {
