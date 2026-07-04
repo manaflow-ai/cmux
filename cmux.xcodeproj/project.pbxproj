@@ -354,6 +354,7 @@
 		C750100000000000000000A3 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		CC0DE00000000000000000A3 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		CC0DE00000000000000000A4 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
+		D0CE100000000000000000B2 /* CmuxDockExtensions in Frameworks */ = {isa = PBXBuildFile; productRef = D0CE100000000000000000B1 /* CmuxDockExtensions */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		E7E000000000000000000005 /* CmuxEventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000006 /* CmuxEventBus.swift */; };
 		E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000004 /* CmuxEventBusTests.swift */; };
@@ -462,6 +463,7 @@
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
 		C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */; };
 		CA52E0010000000000000000 /* ContentView+CanvasCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52F0010000000000000000 /* ContentView+CanvasCommandPalette.swift */; };
+		D0CEA0000000000000000025 /* ContentView+ExtensionsCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0CEA0000000000000000015 /* ContentView+ExtensionsCommandPalette.swift */; };
 		C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */; };
 		D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */; };
 		C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */; };
@@ -495,6 +497,8 @@
 		DCDC1000000000000000B009 /* DockControlDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00A /* DockControlDefinition.swift */; };
 		DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
+		D0CEA0000000000000000021 /* DockExtensionsAppHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0CEA0000000000000000011 /* DockExtensionsAppHost.swift */; };
+		D0CEA0000000000000000020 /* DockExtensionsRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0CEA0000000000000000010 /* DockExtensionsRuntime.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		DCDC1000000000000000B00B /* DockRemoteBrowserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */; };
 		DCDC1000000000000000C020 /* DockScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C021 /* DockScope.swift */; };
@@ -514,6 +518,9 @@
 		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
 		5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
 		5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */; };
+		D0CEA0000000000000000023 /* ExtensionConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0CEA0000000000000000013 /* ExtensionConsentView.swift */; };
+		D0CEA0000000000000000024 /* ExtensionConsentWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0CEA0000000000000000014 /* ExtensionConsentWindowController.swift */; };
+		D0CEA0000000000000000022 /* ExtensionInstallCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0CEA0000000000000000012 /* ExtensionInstallCoordinator.swift */; };
 		E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 		E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 		E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
@@ -1778,6 +1785,7 @@
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AuthCommandPalette.swift"; sourceTree = "<group>"; };
 		CA52F0010000000000000000 /* ContentView+CanvasCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+CanvasCommandPalette.swift"; sourceTree = "<group>"; };
+		D0CEA0000000000000000015 /* ContentView+ExtensionsCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ExtensionsCommandPalette.swift"; sourceTree = "<group>"; };
 		C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+ForkAgentConversation.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+RightSidebarCommandPalette.swift"; sourceTree = "<group>"; };
@@ -1811,6 +1819,8 @@
 		DCDC1000000000000000B00A /* DockControlDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinition.swift; sourceTree = "<group>"; };
 		DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockControlDefinitionDecodingTests.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockEmptyView.swift; sourceTree = "<group>"; };
+		D0CEA0000000000000000011 /* DockExtensionsAppHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockExtensionsAppHost.swift; sourceTree = "<group>"; };
+		D0CEA0000000000000000010 /* DockExtensionsRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockExtensionsRuntime.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B00C /* DockRemoteBrowserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockRemoteBrowserSettings.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000C021 /* DockScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockScope.swift; sourceTree = "<group>"; };
@@ -1830,6 +1840,9 @@
 		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
 		5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
 		5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+SidebarLazyContractProbe.swift"; sourceTree = "<group>"; };
+		D0CEA0000000000000000013 /* ExtensionConsentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionConsentView.swift; sourceTree = "<group>"; };
+		D0CEA0000000000000000014 /* ExtensionConsentWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionConsentWindowController.swift; sourceTree = "<group>"; };
+		D0CEA0000000000000000012 /* ExtensionInstallCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionInstallCoordinator.swift; sourceTree = "<group>"; };
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 		E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 		E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
@@ -2622,6 +2635,7 @@
 				5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A3 /* CmuxCore in Frameworks */,
+				D0CE100000000000000000B2 /* CmuxDockExtensions in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
 				C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */,
@@ -2942,6 +2956,7 @@
 				D0B10025A1B2C3D4E5F60001 /* WindowInputRoutingContext.swift */,
 				C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */,
 				C3408A000000000000000002 /* ContentView+RightSidebarCommandPalette.swift */,
+				D0CEA0000000000000000015 /* ContentView+ExtensionsCommandPalette.swift */,
 				C3408A000000000000000006 /* ContentView+ViewCommandPalette.swift */,
 				C0DEF0A90000000000000002 /* ContentView+ForkAgentConversation.swift */,
 				D7AB00000000000000000004 /* ContentView+MoveTabToNewWorkspace.swift */,
@@ -3600,9 +3615,22 @@
 				C57B00040000000000000002 /* TerminalController+CustomSidebarCommands.swift */,
 				C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
+				D0CEA0000000000000000001 /* Extensions */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		D0CEA0000000000000000001 /* Extensions */ = {
+			isa = PBXGroup;
+			children = (
+				D0CEA0000000000000000010 /* DockExtensionsRuntime.swift */,
+				D0CEA0000000000000000011 /* DockExtensionsAppHost.swift */,
+				D0CEA0000000000000000012 /* ExtensionInstallCoordinator.swift */,
+				D0CEA0000000000000000013 /* ExtensionConsentView.swift */,
+				D0CEA0000000000000000014 /* ExtensionConsentWindowController.swift */,
+			);
+			path = Extensions;
 			sourceTree = "<group>";
 		};
 		CA52D0010000000000000000 /* Canvas */ = {
@@ -4102,6 +4130,7 @@
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CFF12E0000000000000000A2 /* CmuxTestSupport */,
+				D0CE100000000000000000B1 /* CmuxDockExtensions */,
 				CD0CFE5500000000CD0CFE55 /* CmuxSettingsUI */,
 				CDFEED0200000000CDFEED02 /* CmuxUpdater */,
 				CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */,
@@ -4198,6 +4227,7 @@
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
 				5E27010400000000000000A3 /* CmuxSettings */,
+				D0CE100000000000000000C1 /* CmuxDockExtensions */,
 				5E27010400000000000000A4 /* CmuxWorkspaces */,
 				C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
 				D7032A060000000000000002 /* CmuxBrowser */,
@@ -4256,6 +4286,7 @@
 				53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "CmuxAuthRuntime" */,
 				AC4A6E7C4A700001AC4A0003 /* XCLocalSwiftPackageReference "CmuxAgentChat" */,
 				C0DE45000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionKit" */,
+				D0CE100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxDockExtensions" */,
 				C0DE4A000000000000000003 /* XCLocalSwiftPackageReference "CmuxSidebarProviderKit" */,
 				C0DE49000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionSidebarExamples" */,
 				A5C0DE0000000000000000A1 /* XCLocalSwiftPackageReference "CMUXProjectModel" */,
@@ -4679,6 +4710,7 @@
 				3023A1003023A1003023A100 /* ConfigSource.swift in Sources */,
 				C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */,
 				CA52E0010000000000000000 /* ContentView+CanvasCommandPalette.swift in Sources */,
+				D0CEA0000000000000000025 /* ContentView+ExtensionsCommandPalette.swift in Sources */,
 				C0DEF0A90000000000000001 /* ContentView+ForkAgentConversation.swift in Sources */,
 				D7AB00000000000000000003 /* ContentView+MoveTabToNewWorkspace.swift in Sources */,
 				C3408A000000000000000001 /* ContentView+RightSidebarCommandPalette.swift in Sources */,
@@ -4704,6 +4736,8 @@
 				DCDC1000000000000000B001 /* DockConfigurationLoadResult.swift in Sources */,
 				DCDC1000000000000000B009 /* DockControlDefinition.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
+				D0CEA0000000000000000021 /* DockExtensionsAppHost.swift in Sources */,
+				D0CEA0000000000000000020 /* DockExtensionsRuntime.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				DCDC1000000000000000B00B /* DockRemoteBrowserSettings.swift in Sources */,
 				DCDC1000000000000000C020 /* DockScope.swift in Sources */,
@@ -4720,6 +4754,9 @@
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 					5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */,
 					5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */,
+				D0CEA0000000000000000023 /* ExtensionConsentView.swift in Sources */,
+				D0CEA0000000000000000024 /* ExtensionConsentWindowController.swift in Sources */,
+				D0CEA0000000000000000022 /* ExtensionInstallCoordinator.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
 				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
@@ -6145,6 +6182,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxExtensionKit;
 		};
+		D0CE100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxDockExtensions" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxDockExtensions;
+		};
 		C0DE49000000000000000003 /* XCLocalSwiftPackageReference "CmuxExtensionSidebarExamples" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Examples/CmuxExtensionSidebarExamples;
@@ -6457,6 +6498,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CD0CFE5100000000CD0CFE51 /* XCLocalSwiftPackageReference "CmuxSettings" */;
 			productName = CmuxSettings;
+		};
+		D0CE100000000000000000B1 /* CmuxDockExtensions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0CE100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxDockExtensions" */;
+			productName = CmuxDockExtensions;
+		};
+		D0CE100000000000000000C1 /* CmuxDockExtensions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0CE100000000000000000A1 /* XCLocalSwiftPackageReference "CmuxDockExtensions" */;
+			productName = CmuxDockExtensions;
 		};
 		CFF12E0000000000000000A2 /* CmuxTestSupport */ = {
 			isa = XCSwiftPackageProductDependency;

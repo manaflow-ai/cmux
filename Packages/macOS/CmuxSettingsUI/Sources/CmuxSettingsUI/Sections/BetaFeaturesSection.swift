@@ -93,10 +93,10 @@ public struct BetaFeaturesSection: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:extensions",
-            String(localized: "settings.betaFeatures.extensions", defaultValue: "Extensions"),
+            String(localized: "settings.betaFeatures.extensions", defaultValue: "Sidebar App Extensions"),
             subtitle: extensions.current
-                ? String(localized: "settings.betaFeatures.extensions.subtitleOn", defaultValue: "Shows the puzzle button, the sidebar-toggle extension menu, and lets you install and host sidebar extensions.")
-                : String(localized: "settings.betaFeatures.extensions.subtitleOff", defaultValue: "Hides all extension UI until you enable it here.")
+                ? String(localized: "settings.betaFeatures.extensions.subtitleOn", defaultValue: "Shows the puzzle button, the sidebar-toggle extension menu, and lets you install and host ExtensionKit sidebar extensions (unrelated to Dock TUI extensions).")
+                : String(localized: "settings.betaFeatures.extensions.subtitleOff", defaultValue: "Hides ExtensionKit sidebar-extension UI until you enable it here (unrelated to Dock TUI extensions).")
         ) {
             Toggle("", isOn: Binding(get: { extensions.current }, set: { extensions.set($0) }))
                 .labelsHidden()

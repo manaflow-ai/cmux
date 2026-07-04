@@ -21,6 +21,9 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case sidebarAppearance
     /// User/agent-authored custom sidebars: enable gate and renderer choice.
     case customSidebars
+    /// Dock TUI extensions installed from GitHub: install, marketplace, and
+    /// the installed list.
+    case extensions
     case betaFeatures
     case automation
     case browser
@@ -44,6 +47,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .sidebarAppearance: return "Sidebar"
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
+        case .extensions: return String(localized: "settings.section.extensions", defaultValue: "Extensions")
         case .betaFeatures: return "Beta Features"
         case .automation: return "Automation"
         case .browser: return "Browser"
@@ -67,6 +71,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .mobile: return "iphone"
         case .sidebarAppearance: return "sidebar.left"
         case .customSidebars: return "sidebar.squares.left"
+        case .extensions: return "puzzlepiece.extension"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
         case .browser: return "globe"
@@ -92,6 +97,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .mobile: return "ios iphone ipad mobile pairing local network sync"
         case .sidebarAppearance: return "sidebar details branches material terminal background"
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
+        case .extensions: return "extensions tui dock install github marketplace plugins community token usage"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
         case .browser: return "search engine links history theme"

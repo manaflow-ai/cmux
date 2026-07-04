@@ -383,6 +383,47 @@ final class DockSplitStore: BonsplitDelegate {
         return panel.id
     }
 
+    /// Creates a Dock tab for an installed TUI-extension pane. Uses the same
+    /// login-shell command path as config-seeded dock controls (the command is
+    /// a shell string wrapped by `shellStartupScript`, so PATH and toolchains
+    /// resolve like the user's terminal, and the pane drops into a shell when
+    /// the TUI exits).
+    @discardableResult
+    func openExtensionPane(
+        controlId: String,
+        title: String,
+        iconSystemName: String,
+        shellCommand: String,
+        workingDirectory: String,
+        environment: [String: String]
+    ) -> UUID? {
+        ensureLoaded()
+        let panel = makeTerminalPanel(
+            command: shellCommand,
+            useLoginShellWrapper: true,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            controlId: controlId,
+            controlTitle: title
+        )
+        let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+        guard let tabId = attachPanelAsTab(
+            panel,
+            kind: .terminal,
+            title: title,
+            icon: iconSystemName,
+            inPane: paneId,
+            tracksTerminalTitle: true
+        ) else { return nil }
+        recordExplicitPanelCreation()
+        if let paneId {
+            bonsplitController.focusPane(paneId)
+        }
+        bonsplitController.selectTab(tabId)
+        panel.focus()
+        return panel.id
+    }
+
     /// Resolves a Dock pane for `surface.create --placement dock`. An explicit
     /// `requestedPaneID` must match a Dock pane (else `nil` → the caller reports
     /// not-found, like the workspace path); with no explicit id, returns the
@@ -545,13 +586,14 @@ final class DockSplitStore: BonsplitDelegate {
         _ panel: any Panel,
         kind: DockSurfaceKind,
         title: String,
+        icon: String? = nil,
         inPane paneId: PaneID?,
         tracksTerminalTitle: Bool
     ) -> TabID? {
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
             title: title,
-            icon: panel.displayIcon,
+            icon: icon ?? panel.displayIcon,
             kind: tabKindRaw(kind),
             isDirty: panel.isDirty,
             isPinned: false,

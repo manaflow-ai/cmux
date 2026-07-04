@@ -98,13 +98,28 @@ private struct DockSplitContentView: View {
     /// Dock surfaces never overlay main-area surfaces.
     private static let portalPriority = 1
 
+    /// Installed TUI-extension panes offered as launchers in empty Dock panes.
+    /// Reads the extensions store (observable), so installs/uninstalls refresh
+    /// the affordance live.
+    private var dockEmptyPaneExtensionItems: [DockEmptyPaneExtensionItem] {
+        DockExtensionsRuntime.shared.launchablePaneItems.map {
+            DockEmptyPaneExtensionItem(
+                id: $0.qualifiedId,
+                title: $0.title,
+                iconSystemName: $0.iconSystemName
+            )
+        }
+    }
+
     var body: some View {
         BonsplitView(controller: store.bonsplitController) { tab, paneId in
             dockContent(tab: tab, paneId: paneId)
         } emptyPane: { paneId in
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
+                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) },
+                extensionItems: dockEmptyPaneExtensionItems,
+                onOpenExtension: { DockExtensionsRuntime.shared.openPaneOrBeep(qualifiedId: $0) }
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
@@ -148,18 +163,34 @@ private struct DockSplitContentView: View {
         } else {
             DockEmptyPaneView(
                 onNewTerminal: { _ = store.newSurface(kind: .terminal, inPane: paneId, focus: true) },
-                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) }
+                onNewBrowser: { _ = store.newSurface(kind: .browser, inPane: paneId, focus: true) },
+                extensionItems: dockEmptyPaneExtensionItems,
+                onOpenExtension: { DockExtensionsRuntime.shared.openPaneOrBeep(qualifiedId: $0) }
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
     }
 }
 
+/// One installed-extension pane offered in an empty Dock pane.
+struct DockEmptyPaneExtensionItem: Identifiable, Equatable {
+    /// Qualified `<extensionId>.<paneId>` id.
+    let id: String
+    let title: String
+    let iconSystemName: String
+}
+
 /// Shown in an empty Dock pane (initial empty Dock, or a freshly split pane).
-/// Offers the same in-app create affordances as the tab-bar split buttons.
+/// Offers the same in-app create affordances as the tab-bar split buttons,
+/// plus launchers for installed TUI-extension panes.
 private struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
+    let extensionItems: [DockEmptyPaneExtensionItem]
+    let onOpenExtension: (String) -> Void
+
+    /// Keeps the empty-pane affordance compact when many extensions exist.
+    private static let maxExtensionButtons = 4
 
     var body: some View {
         VStack(spacing: 12) {
@@ -185,6 +216,24 @@ private struct DockEmptyPaneView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            if !extensionItems.isEmpty {
+                VStack(spacing: 6) {
+                    Text(String(localized: "dock.emptyPane.extensions", defaultValue: "Extensions"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .textCase(.uppercase)
+                    ForEach(extensionItems.prefix(Self.maxExtensionButtons)) { item in
+                        Button {
+                            onOpenExtension(item.id)
+                        } label: {
+                            Label(item.title, systemImage: item.iconSystemName)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(16)

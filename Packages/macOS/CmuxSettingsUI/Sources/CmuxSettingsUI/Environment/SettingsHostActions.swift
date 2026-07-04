@@ -163,11 +163,20 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// The host-owned view state for the **Extensions** section (Dock TUI
+    /// extensions installed from GitHub), or `nil` when the host has no
+    /// extensions runtime (previews/tests). The host returns the same
+    /// instance every call and keeps its `rows` current.
+    func dockExtensionsSettingsState() -> ExtensionsSettingsState?
 }
 
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default: no extensions runtime, for previews and package-only hosts.
+    func dockExtensionsSettingsState() -> ExtensionsSettingsState? { nil }
 
     func openMobilePairingWindow() {}
 
