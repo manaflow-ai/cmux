@@ -10,7 +10,7 @@ extension GitMetadataService {
     ///   is treated as its containing directory.
     /// - Returns: The resolved repository, or `nil` if the filesystem root is
     ///   reached without finding one.
-    nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
+    public nonisolated func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
         let startURL = URL(fileURLWithPath: directory).standardizedFileURL
         let fileManager = FileManager.default
         var currentURL = startURL
@@ -52,7 +52,7 @@ extension GitMetadataService {
     ///
     /// Stops at the filesystem root, or when the parent no longer differs from
     /// the current directory (so the walk cannot loop forever).
-    nonisolated static func shouldStopGitRepositorySearch(currentURL: URL, parentURL: URL) -> Bool {
+    nonisolated func shouldStopGitRepositorySearch(currentURL: URL, parentURL: URL) -> Bool {
         if parentURL.path == currentURL.path {
             return true
         }
@@ -67,7 +67,7 @@ extension GitMetadataService {
 
     /// Resolves the git directory a `.git` *file* points at via its `gitdir:`
     /// line, relative to the work-tree root when the path is relative.
-    nonisolated static func gitDirectoryFromDotGitFile(
+    nonisolated func gitDirectoryFromDotGitFile(
         _ dotGitURL: URL,
         relativeTo workTreeRootURL: URL
     ) -> String? {
@@ -93,7 +93,7 @@ extension GitMetadataService {
 
     /// Resolves the shared common directory for `gitDirectory` by reading its
     /// `commondir` file, falling back to `gitDirectory` itself.
-    nonisolated static func gitCommonDirectory(gitDirectory: String) -> String {
+    nonisolated func gitCommonDirectory(gitDirectory: String) -> String {
         let gitDirectoryURL = URL(fileURLWithPath: gitDirectory)
         let commonDirURL = gitDirectoryURL.appendingPathComponent("commondir")
         guard let contents = try? String(contentsOf: commonDirURL, encoding: .utf8) else {

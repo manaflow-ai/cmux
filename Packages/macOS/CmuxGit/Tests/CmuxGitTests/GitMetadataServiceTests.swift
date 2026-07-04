@@ -11,14 +11,14 @@ import Testing
         let nested = fixture.root.appendingPathComponent("a/b/c")
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
 
-        let repo = try #require(GitMetadataService.resolveGitRepository(containing: nested.path))
+        let repo = try #require(GitMetadataService().resolveGitRepository(containing: nested.path))
         #expect(repo.workTreeRoot == fixture.root.standardizedFileURL.path)
         #expect(repo.gitDirectory == fixture.gitDirectory.standardizedFileURL.path)
         #expect(repo.commonDirectory == fixture.gitDirectory.standardizedFileURL.path)
     }
 
     @Test func returnsNilOutsideAnyRepository() {
-        let repo = GitMetadataService.resolveGitRepository(
+        let repo = GitMetadataService().resolveGitRepository(
             containing: FileManager.default.temporaryDirectory.path
         )
         // The temp dir (/var/folders/...) is never inside a git repository;
@@ -42,7 +42,7 @@ import Testing
             encoding: .utf8
         )
 
-        let repo = try #require(GitMetadataService.resolveGitRepository(containing: worktree.path))
+        let repo = try #require(GitMetadataService().resolveGitRepository(containing: worktree.path))
         #expect(repo.workTreeRoot == worktree.standardizedFileURL.path)
         #expect(repo.gitDirectory == realGitDir.standardizedFileURL.path)
     }
@@ -55,14 +55,14 @@ import Testing
         ("/..", "/../.."),
     ])
     func rootVariantsStopRepositorySearch(current: String, parent: String) {
-        #expect(GitMetadataService.shouldStopGitRepositorySearch(
+        #expect(GitMetadataService().shouldStopGitRepositorySearch(
             currentURL: URL(fileURLWithPath: current),
             parentURL: URL(fileURLWithPath: parent)
         ))
     }
 
     @Test func nonRootParentDoesNotStopSearch() {
-        #expect(!GitMetadataService.shouldStopGitRepositorySearch(
+        #expect(!GitMetadataService().shouldStopGitRepositorySearch(
             currentURL: URL(fileURLWithPath: "/Users/someone/project"),
             parentURL: URL(fileURLWithPath: "/Users/someone")
         ))
@@ -152,7 +152,7 @@ import Testing
         try fixture.writeBranch("main")
         let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
         try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
@@ -176,7 +176,7 @@ import Testing
         try fixture.writeBranch("main")
         let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
         try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         let fileURL = fixture.root.appendingPathComponent("file.txt")
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
@@ -202,7 +202,7 @@ import Testing
         try fixture.writeBranch("main")
         let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
         try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         let fileURL = fixture.root.appendingPathComponent("file.txt")
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
@@ -229,7 +229,7 @@ import Testing
         try fixture.writeBranch("main")
         let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
         try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         let indexPath = fixture.gitDirectory.appendingPathComponent("index").path
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = CountingGitFileStatusReader()
@@ -392,7 +392,7 @@ import Testing
         // name would resolve to; the lookup must refuse to read it.
         let outside = fixture.root.appendingPathComponent("outside-ref")
         try String(repeating: "e", count: 40).write(to: outside, atomically: true, encoding: .utf8)
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         #expect(GitMetadataService.gitRefValue(repository: repository, refName: "../outside-ref") == nil)
         // Sanity: a legitimate ref still resolves.
         #expect(GitMetadataService.gitRefValue(repository: repository, refName: "refs/heads/main") != nil)

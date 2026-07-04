@@ -6,7 +6,7 @@ extension GitMetadataService {
     ///
     /// Only `(fetch)` lines for `github.com` remotes contribute. Results are
     /// ordered `upstream`, then `origin`, then other remotes alphabetically.
-    nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
+    public nonisolated func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {
         var slugByRemoteName: [String: String] = [:]
 
         for line in output.split(whereSeparator: \.isNewline) {
@@ -46,7 +46,7 @@ extension GitMetadataService {
     }
 
     /// Sort priority for a remote name: `upstream` (0), `origin` (1), other (2).
-    nonisolated static func githubRemotePriority(_ remoteName: String) -> Int {
+    nonisolated func githubRemotePriority(_ remoteName: String) -> Int {
         switch remoteName.lowercased() {
         case "upstream":
             return 0
@@ -59,7 +59,7 @@ extension GitMetadataService {
 
     /// The `owner/name` slug for a GitHub remote URL (SSH, HTTPS, HTTP, git, or
     /// `ssh://` forms), or `nil` for a non-GitHub URL.
-    nonisolated static func githubRepositorySlug(fromRemoteURL remoteURL: String) -> String? {
+    nonisolated func githubRepositorySlug(fromRemoteURL remoteURL: String) -> String? {
         let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
@@ -86,7 +86,7 @@ extension GitMetadataService {
 
     /// The `owner/name` slug for a GitHub pull-request URL, or `nil` for a
     /// non-GitHub URL.
-    nonisolated static func githubRepositorySlug(fromPullRequestURL url: URL) -> String? {
+    nonisolated func githubRepositorySlug(fromPullRequestURL url: URL) -> String? {
         guard let host = url.host?.lowercased(),
               host == "github.com" else {
             return nil
@@ -96,7 +96,7 @@ extension GitMetadataService {
 
     /// Normalizes a `owner/name(...)` path into a `owner/name` slug, dropping a
     /// trailing `.git`, or `nil` when it lacks both components.
-    nonisolated static func normalizedGitHubRepositorySlug(_ rawPath: String) -> String? {
+    nonisolated func normalizedGitHubRepositorySlug(_ rawPath: String) -> String? {
         let trimmedPath = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmedPath.isEmpty else { return nil }
         let components = trimmedPath.split(separator: "/").map(String.init)

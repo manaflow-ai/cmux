@@ -121,6 +121,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // },
 
   // "workspaceColors": {
+  //   "autoColorFromCwd": false,
   //   "colors": {
   //     "Red": "#C0392B",
   //     "Blue": "#1565C0",
@@ -404,6 +405,7 @@ working-directory = ~/code`}</CodeBlock>
                 </p>
                 <CodeBlock lang="json">{`{
   "workspaceColors": {
+    "autoColorFromCwd": true,
     "colors": {
       "Red": "#C0392B",
       "Blue": "#1565C0",

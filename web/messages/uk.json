@@ -836,6 +836,9 @@
             "newWorkspacePlacement": "Перевизначення для cwd, яке задає, куди Cmd-N у групі, кнопка + у заголовку групи та налаштовані дії групи розміщують новий workspace: `afterCurrent` (після активного workspace у групі, з fallback до top), `top` (друга позиція одразу після якоря) або `end` (після останнього учасника). Якщо пропущено, використовується глобальне значення за замовчуванням."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "Коли ввімкнено, нові робочі простори без явно заданого кольору вкладки отримують детермінований колір зі свого cwd або вкладеного репозиторію Git. Кольори робочих просторів, задані вручну, і надалі мають пріоритет."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

@@ -1119,6 +1119,9 @@
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
           "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "When enabled, new workspaces without an explicit tab color receive a deterministic color from their cwd or enclosing Git repository. Manual workspace colors still win."
+        },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
           "byCwd": {

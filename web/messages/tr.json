@@ -836,6 +836,9 @@
             "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair cwd bazlı geçersiz kılma: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra). Atlanırsa genel varsayılan kullanılır."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "Etkinleştirildiğinde, açık bir sekme rengi olmayan yeni çalışma alanları cwd'lerinden veya kapsayan Git deposundan deterministik bir renk alır. Elle ayarlanan çalışma alanı renkleri yine önceliklidir."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

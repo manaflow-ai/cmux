@@ -836,6 +836,9 @@
             "newWorkspacePlacement": "Anulación por cwd para dónde Cmd-N dentro del grupo, el botón + del encabezado del grupo y las acciones de grupo configuradas colocan el nuevo workspace: `afterCurrent` (después del workspace activo dentro del grupo, con top como reserva), `top` (segunda posición, justo después del ancla) o `end` (después del último miembro). Si se omite, usa el valor predeterminado global."
           }
         },
+        "workspaceColors": {
+          "autoColorFromCwd": "Cuando está activado, los espacios de trabajo nuevos sin un color de pestaña explícito reciben un color determinista a partir de su cwd o del repositorio Git contenedor. Los colores manuales del espacio de trabajo siguen teniendo prioridad."
+        },
         "markdown": {
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",

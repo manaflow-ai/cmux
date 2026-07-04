@@ -4,7 +4,7 @@ extension GitMetadataService {
     /// A synthesized `git remote -v`-style listing built by reading remote URLs
     /// straight from the reachable config files (no `git` process). `nil` when
     /// no remote URL is found.
-    nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
+    public nonisolated func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
         var lines: [String] = []
         var seenConfigPaths: Set<String> = []
         for configURL in gitRootConfigURLs(repository: repository) {
@@ -20,7 +20,7 @@ extension GitMetadataService {
 
     /// The repository's top-level config files (common directory, then git
     /// directory).
-    nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+    nonisolated func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
         [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
@@ -29,7 +29,7 @@ extension GitMetadataService {
 
     /// Every config file reachable from the repository roots, following
     /// `include`/`includeIf` directives, de-duplicated by path.
-    nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+    nonisolated func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
         var urls: [URL] = []
         var pendingURLs = gitRootConfigURLs(repository: repository)
         var seenConfigPaths: Set<String> = []
@@ -56,7 +56,7 @@ extension GitMetadataService {
 
     /// Parses a single config string into `git remote -v` fetch lines (used by
     /// the test-only config entry point).
-    nonisolated static func gitRemoteVLines(fromConfig config: String) -> [String] {
+    nonisolated func gitRemoteVLines(fromConfig config: String) -> [String] {
         var currentRemoteName: String?
         var lines: [String] = []
 
@@ -88,7 +88,7 @@ extension GitMetadataService {
     /// Appends `git remote -v` fetch lines from a config file (and its matching
     /// includes) into `lines`, guarding against include cycles via
     /// `seenConfigPaths`.
-    nonisolated static func appendGitRemoteVLines(
+    nonisolated func appendGitRemoteVLines(
         fromConfigURL configURL: URL,
         repository: ResolvedGitRepository,
         seenConfigPaths: inout Set<String>,
@@ -157,7 +157,7 @@ extension GitMetadataService {
 
     /// The config URLs included by `[include]`/`[includeIf "…"]` sections of a
     /// config string, resolved relative to `configURL`.
-    nonisolated static func gitIncludedConfigURLs(
+    nonisolated func gitIncludedConfigURLs(
         fromConfig config: String,
         configURL: URL,
         repository: ResolvedGitRepository
@@ -203,7 +203,7 @@ extension GitMetadataService {
 
     /// Strips surrounding double quotes from a config value, honoring backslash
     /// escapes inside the quotes.
-    nonisolated static func gitConfigUnquotedValue(_ value: String) -> String {
+    nonisolated func gitConfigUnquotedValue(_ value: String) -> String {
         let trimmedValue = value.trimmingCharacters(in: .whitespaces)
         guard trimmedValue.first == "\"",
               trimmedValue.last == "\"",
@@ -236,7 +236,7 @@ extension GitMetadataService {
 
     /// Removes a trailing inline `#`/`;` comment from a config line, ignoring
     /// `#`/`;` inside double-quoted strings.
-    nonisolated static func gitConfigLineRemovingInlineComment(_ line: String) -> String {
+    nonisolated func gitConfigLineRemovingInlineComment(_ line: String) -> String {
         var result = ""
         var isInsideDoubleQuotedString = false
         var isEscaped = false
@@ -280,7 +280,7 @@ extension GitMetadataService {
     /// The remote name from a `[remote "<name>"]` section header, or `nil`.
     /// The section name is case-insensitive per git; the quoted subsection
     /// (the remote name) is case-sensitive and extracted verbatim.
-    nonisolated static func gitConfigRemoteName(fromSectionHeader header: String) -> String? {
+    nonisolated func gitConfigRemoteName(fromSectionHeader header: String) -> String? {
         let prefix = "[remote \""
         let suffix = "\"]"
         guard header.count > prefix.count + suffix.count - 1,
@@ -295,7 +295,7 @@ extension GitMetadataService {
     /// The condition from an `[includeIf "<condition>"]` section header, or `nil`.
     /// The section name is case-insensitive per git; the condition is extracted
     /// verbatim (its own keyword prefixes are matched case-insensitively later).
-    nonisolated static func gitConfigIncludeIfCondition(fromSectionHeader header: String) -> String? {
+    nonisolated func gitConfigIncludeIfCondition(fromSectionHeader header: String) -> String? {
         let prefix = "[includeif \""
         let suffix = "\"]"
         guard header.count > prefix.count + suffix.count - 1,
@@ -309,7 +309,7 @@ extension GitMetadataService {
 
     /// Resolves an include `path` value to a URL, expanding `~`, absolute, and
     /// config-relative forms.
-    nonisolated static func gitConfigIncludeURL(
+    nonisolated func gitConfigIncludeURL(
         fromPathValue pathValue: String,
         relativeTo configURL: URL
     ) -> URL? {
@@ -336,7 +336,7 @@ extension GitMetadataService {
     /// Whether an `includeIf` condition (`gitdir:`, `gitdir/i:`, `onbranch:`)
     /// matches this repository. `configURL` anchors `./`-relative gitdir
     /// patterns to the directory containing the config file, per git.
-    nonisolated static func gitConfigIncludeIfConditionMatches(
+    nonisolated func gitConfigIncludeIfConditionMatches(
         _ condition: String,
         repository: ResolvedGitRepository,
         configURL: URL
@@ -361,7 +361,7 @@ extension GitMetadataService {
             if pattern.hasSuffix("/") {
                 pattern.append("**")
             }
-            guard let branch = gitBranchName(repository: repository) else { return false }
+            guard let branch = Self.gitBranchName(repository: repository) else { return false }
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false
@@ -372,7 +372,7 @@ extension GitMetadataService {
     /// the home directory, `./` is relative to the config file's directory, a
     /// pattern with no leading `~/`, `./`, or `/` gets `**/` prepended, and a
     /// trailing `/` appends `**` (the recursive-directory rule).
-    nonisolated static func gitConfigGitdirPatternMatches(
+    nonisolated func gitConfigGitdirPatternMatches(
         _ pattern: String,
         repository: ResolvedGitRepository,
         caseInsensitive: Bool,
@@ -405,7 +405,7 @@ extension GitMetadataService {
     /// home directory, `./` relative to the config file's directory, absolute
     /// paths standardized, and anything else prefixed with `**/` so a relative
     /// pattern matches at any depth.
-    nonisolated static func gitConfigExpandedPattern(_ pattern: String, configURL: URL) -> String {
+    nonisolated func gitConfigExpandedPattern(_ pattern: String, configURL: URL) -> String {
         if pattern == "~" {
             return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
         }
@@ -435,7 +435,7 @@ extension GitMetadataService {
 
     /// Matches a value against a git glob pattern, falling back to `fnmatch`
     /// when the translated regex cannot be compiled.
-    nonisolated static func gitConfigGlobMatches(
+    nonisolated func gitConfigGlobMatches(
         _ value: String,
         pattern: String,
         caseInsensitive: Bool
@@ -453,7 +453,7 @@ extension GitMetadataService {
 
     /// Translates a git-style glob (`*`, `**`, `?`, `[…]`) into an anchored
     /// regular expression, treating `/` as a path separator.
-    nonisolated static func gitConfigGlobRegexPattern(_ pattern: String) -> String {
+    nonisolated func gitConfigGlobRegexPattern(_ pattern: String) -> String {
         let characters = Array(pattern)
         var regex = "^"
         var index = 0
@@ -507,7 +507,7 @@ extension GitMetadataService {
 
     /// Parses a `[…]` character class out of a glob into a regex class, or `nil`
     /// when the class is not terminated.
-    nonisolated static func gitConfigGlobCharacterClass(
+    nonisolated func gitConfigGlobCharacterClass(
         _ characters: [Character],
         startIndex: Int
     ) -> (regex: String, endIndex: Int)? {

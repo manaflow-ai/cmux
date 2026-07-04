@@ -7,17 +7,17 @@ import Testing
 /// straight from `config`, including the `include`/`includeIf` rules.
 @Suite struct GitConfigIncludeTests {
     private func slugs(fromConfig config: String) -> [String] {
-        GitMetadataService.githubRepositorySlugs(
-            fromGitRemoteVOutput: GitMetadataService.gitRemoteVLines(fromConfig: config).joined()
+        GitMetadataService().githubRepositorySlugs(
+            fromGitRemoteVOutput: GitMetadataService().gitRemoteVLines(fromConfig: config).joined()
         )
     }
 
     private func slugs(forDirectory directory: String) -> [String] {
-        guard let repository = GitMetadataService.resolveGitRepository(containing: directory),
-              let output = GitMetadataService.gitRemoteVOutput(repository: repository) else {
+        guard let repository = GitMetadataService().resolveGitRepository(containing: directory),
+              let output = GitMetadataService().gitRemoteVOutput(repository: repository) else {
             return []
         }
-        return GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output)
+        return GitMetadataService().githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 
     @Test func prioritizesUpstreamThenOriginAndDeduplicates() {
@@ -30,7 +30,7 @@ import Testing
         mirror https://gitlab.com/manaflow-ai/cmux.git (fetch)
         """
         #expect(
-            GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output)
+            GitMetadataService().githubRepositorySlugs(fromGitRemoteVOutput: output)
                 == ["manaflow-ai/cmux", "austinwang/cmux"]
         )
     }
