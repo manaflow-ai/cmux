@@ -1841,8 +1841,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
-            // Skip (not abort): a Mac with no dialable routes (offline, or all
-            // routes filtered by the iroh pin gate) must not block later candidates.
+            // Skip, don't abort: an undialable Mac (offline or pin-filtered) must not block later candidates.
             guard !dialRoutes.isEmpty else { continue }
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             guard generation == storedMacReconnectGeneration, await isScopeCurrent(scope) else { break }
