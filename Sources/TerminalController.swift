@@ -4,6 +4,7 @@ import CmuxRemoteSession
 import CmuxCore
 import CmuxAuthRuntime
 import CmuxFeedback
+import CmuxMacPower
 import CmuxBrowser
 import CmuxControlSocket
 import CmuxFoundation
@@ -13220,6 +13221,12 @@ class TerminalController {
             result = v2MobileNotificationReconcile(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+        case "mac.power.status":
+            result = await v2MacPowerStatus()
+        case "mac.power.sleep":
+            result = await v2MacPowerSleep()
+        case "mac.power.keep_awake.disable":
+            result = await v2MacPowerDisableKeepAwake()
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
@@ -13282,6 +13289,68 @@ class TerminalController {
                 data: nil
             )
         }
+    }
+
+    // MARK: - Mac power control (mobile)
+    //
+    // Lets a paired phone read whether this Mac is being kept awake, put it to
+    // sleep, and disable active keep-awake (caffeinate). The mobile data plane
+    // already restricts callers to this Mac's own Stack account — the same
+    // trust boundary that gates `terminal.input` — so these need no extra gate.
+    // The behavior lives in the unit-tested `CmuxMacPower.MacPowerController`;
+    // these wrappers only map it onto the mobile RPC result type.
+
+    /// `mac.power.status`: report whether the Mac is currently being kept awake
+    /// and by which processes (cmux, caffeinate, or another assertion holder).
+    func v2MacPowerStatus() async -> V2CallResult {
+        guard let status = await MacPowerController().keepAwakeStatus() else {
+            return .err(
+                code: "status_unavailable",
+                message: String(
+                    localized: "mobile.macPower.statusUnavailable",
+                    defaultValue: "Couldn't read Mac power status."
+                ),
+                data: nil
+            )
+        }
+        return .ok(status.jsonObject)
+    }
+
+    /// `mac.power.sleep`: put the whole Mac to sleep now. Fails cleanly when the
+    /// user has not granted cmux Automation access to System Events yet.
+    func v2MacPowerSleep() async -> V2CallResult {
+        let didSleep = await MacPowerController().sleepSystem()
+        guard didSleep else {
+            return .err(
+                code: "sleep_failed",
+                message: String(
+                    localized: "mobile.macPower.sleepFailed",
+                    defaultValue: "macOS couldn't complete the sleep request. Allow cmux in System Settings > Privacy & Security > Automation."
+                ),
+                data: nil
+            )
+        }
+        return .ok(["ok": true])
+    }
+
+    /// `mac.power.keep_awake.disable`: terminate caffeinate, then report the
+    /// fresh keep-awake status so the phone reflects anything still holding the
+    /// Mac awake (e.g. a GUI keep-awake app that cannot be killed safely).
+    func v2MacPowerDisableKeepAwake() async -> V2CallResult {
+        guard let outcome = await MacPowerController().disableKeepAwake() else {
+            return .err(
+                code: "status_unavailable",
+                message: String(
+                    localized: "mobile.macPower.statusUnavailable",
+                    defaultValue: "Couldn't read Mac power status."
+                ),
+                data: nil
+            )
+        }
+        return .ok([
+            "terminated_caffeinate": outcome.terminatedCaffeinate,
+            "status": outcome.status.jsonObject,
+        ])
     }
 
     /// Publish a `terminal.set_font` event to connected iOS device(s) so the

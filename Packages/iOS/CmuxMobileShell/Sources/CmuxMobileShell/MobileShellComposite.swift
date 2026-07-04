@@ -92,6 +92,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceCloseCapability = "workspace.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
+    private static let macPowerControlCapability = "mac.power.control.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
 
     /// How long the render-grid stream may stay silent (no event of any topic)
@@ -311,6 +312,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
+    /// Whether the Mac supports the Mac power controls (sleep / disable
+    /// keep-awake / keep-awake status) exposed in the per-computer detail view.
+    public var supportsMacPowerControl: Bool { supportedHostCapabilities.contains(Self.macPowerControlCapability) }
     /// Bumped whenever the applied terminal theme actually changes (a connect
     /// that reports a different theme than the one currently in
     /// ``TerminalThemeStore``). The mounted terminal representable observes this

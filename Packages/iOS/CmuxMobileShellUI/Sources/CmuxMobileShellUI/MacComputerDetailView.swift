@@ -36,6 +36,15 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomColor: String?
     @State private var pendingCustomIcon: String?
 
+    /// Latest keep-awake status from the connected Mac (nil until first load).
+    @State private var keepAwakeStatus: MobileMacPowerStatus?
+    /// Number of sleep / disable-keep-awake / status requests in flight.
+    @State private var powerBusyOperationCount = 0
+    /// Drives the "Sleep this Mac?" confirmation dialog.
+    @State private var pendingSleep = false
+    /// Transient feedback after a power action (e.g. a refused sleep), if any.
+    @State private var powerMessage: String?
+
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
         "desktopcomputer", "macbook", "laptopcomputer", "server.rack",
@@ -61,12 +70,34 @@ struct MacComputerDetailView: View {
             appearanceSection
             connectionSection
             presenceSection
+            if isForeground && store.supportsMacPowerControl {
+                macPowerSection
+            }
             routesSection
             identitySection
             actionsSection
         }
         .navigationTitle(pairedMac?.resolvedName ?? macDeviceID)
         .navigationBarTitleDisplayMode(.inline)
+        // Key on both gates: capabilities arrive asynchronously from the host
+        // handshake, so a load keyed to `isForeground` alone would miss the case
+        // where `supportsMacPowerControl` flips to true while this view is open
+        // (the section would render but stay stuck on "Checking…").
+        .task(id: powerLoadKey) { await loadPowerStatus() }
+        .confirmationDialog(
+            L10n.string("mobile.computers.power.sleepConfirmTitle", defaultValue: "Sleep this Mac?"),
+            isPresented: $pendingSleep,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("mobile.computers.power.sleep", defaultValue: "Sleep Mac"), role: .destructive) {
+                sleepMac()
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.computers.power.sleepConfirmMessage",
+                defaultValue: "The Mac goes to sleep immediately. Your phone disconnects until it wakes."))
+        }
         .onAppear {
             guard !didLoadEdits else { return }
             didLoadEdits = true
@@ -288,6 +319,180 @@ struct MacComputerDetailView: View {
         } footer: {
             Text(L10n.string("mobile.computers.presenceFooter",
                 defaultValue: "Presence is the Mac's own heartbeat to the presence service, which is currently a DEV-only feature. Stable cmux Macs don't announce it yet, so a Mac you're connected to may show no server heartbeat. If presence says online but This phone is not connected, the Mac is reachable elsewhere but not from your phone, usually a Tailscale or route problem."))
+        }
+    }
+
+    // MARK: - Mac power
+
+    @ViewBuilder
+    private var macPowerSection: some View {
+        Section {
+            LabeledContent(L10n.string("mobile.computers.power.keepAwakeLabel", defaultValue: "Keep-awake")) {
+                Label {
+                    Text(keepAwakeSummary).foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: (keepAwakeStatus?.keptAwake ?? false) ? "bolt.fill" : "moon.zzz")
+                        .foregroundStyle((keepAwakeStatus?.keptAwake ?? false) ? Color.orange : Color.secondary)
+                }
+                .labelStyle(.titleAndIcon)
+                .font(.callout)
+                .accessibilityIdentifier("MobileMacKeepAwakeStatus")
+            }
+
+            if keepAwakeStatus?.keptAwake ?? false {
+                Button {
+                    disableKeepAwake()
+                } label: {
+                    Label(
+                        L10n.string("mobile.computers.power.disableKeepAwake", defaultValue: "Disable keep-awake"),
+                        systemImage: "bolt.slash")
+                }
+                .disabled(isPowerBusy)
+                .accessibilityIdentifier("MobileMacDisableKeepAwakeButton")
+            }
+
+            Button(role: .destructive) {
+                powerMessage = nil
+                pendingSleep = true
+            } label: {
+                Label(L10n.string("mobile.computers.power.sleep", defaultValue: "Sleep Mac"), systemImage: "moon.fill")
+            }
+            .disabled(isPowerBusy)
+            .accessibilityIdentifier("MobileMacSleepButton")
+
+            Button {
+                Task { await loadPowerStatus() }
+            } label: {
+                Label {
+                    Text(L10n.string("mobile.computers.power.refresh", defaultValue: "Refresh status"))
+                } icon: {
+                    if isPowerBusy {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+            }
+            .disabled(isPowerBusy)
+
+            if let powerMessage {
+                Text(powerMessage)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
+        } header: {
+            Text(L10n.string("mobile.computers.section.power", defaultValue: "Mac Power"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.computers.power.footer",
+                defaultValue: "Sleep puts this Mac to sleep now. Disable keep-awake stops caffeinate so the Mac can sleep on its own again."))
+        }
+    }
+
+    /// Localized one-line summary of the keep-awake status.
+    private var keepAwakeSummary: String {
+        guard let status = keepAwakeStatus else {
+            return L10n.string("mobile.computers.power.status.checking", defaultValue: "Checking…")
+        }
+        guard status.keptAwake else {
+            return L10n.string("mobile.computers.power.status.normal", defaultValue: "Sleeps normally")
+        }
+        let names = uniqueHolderNames(status)
+        guard !names.isEmpty else {
+            return L10n.string("mobile.computers.power.status.keptAwake", defaultValue: "Kept awake")
+        }
+        return String(
+            format: L10n.string("mobile.computers.power.byFormat", defaultValue: "Kept awake by %@"),
+            names.joined(separator: ", "))
+    }
+
+    /// Deduplicated holder process names, preserving first-seen order.
+    private func uniqueHolderNames(_ status: MobileMacPowerStatus) -> [String] {
+        var seen = Set<String>()
+        var names: [String] = []
+        for holder in status.holders {
+            let name = holder.processName.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, seen.insert(name).inserted else { continue }
+            names.append(name)
+        }
+        return names
+    }
+
+    /// `.task` identity for the auto-load: reruns when either gate flips, so the
+    /// first status fetch fires whenever the section actually becomes available.
+    private var powerLoadKey: String {
+        "\(isForeground)-\(store.supportsMacPowerControl)"
+    }
+
+    private var isPowerBusy: Bool {
+        powerBusyOperationCount > 0
+    }
+
+    @MainActor
+    private func beginPowerOperation() {
+        powerBusyOperationCount += 1
+    }
+
+    @MainActor
+    private func endPowerOperation() {
+        powerBusyOperationCount = max(0, powerBusyOperationCount - 1)
+    }
+
+    @MainActor
+    private func loadPowerStatus() async {
+        guard isForeground, store.supportsMacPowerControl else { return }
+        beginPowerOperation()
+        defer { endPowerOperation() }
+        let status = await store.macPowerStatus(macDeviceID: macDeviceID)
+        if let status {
+            keepAwakeStatus = status
+            powerMessage = nil
+        } else {
+            keepAwakeStatus = nil
+            powerMessage = L10n.string(
+                "mobile.computers.power.statusUnavailable",
+                defaultValue: "Couldn't read Mac power status.")
+        }
+    }
+
+    @MainActor
+    private func disableKeepAwake() {
+        beginPowerOperation()
+        powerMessage = nil
+        Task { @MainActor in
+            defer { endPowerOperation() }
+            let status = await store.disableMacKeepAwake(macDeviceID: macDeviceID)
+            if let status {
+                keepAwakeStatus = status
+            } else {
+                keepAwakeStatus = nil
+                powerMessage = L10n.string(
+                    "mobile.computers.power.statusUnavailable",
+                    defaultValue: "Couldn't read Mac power status.")
+            }
+        }
+    }
+
+    @MainActor
+    private func sleepMac() {
+        beginPowerOperation()
+        powerMessage = nil
+        Task { @MainActor in
+            defer { endPowerOperation() }
+            let result = await store.sleepMac(macDeviceID: macDeviceID)
+            switch result {
+            case .requested:
+                // The connection drops as the Mac sleeps; nothing to surface.
+                break
+            case .refused:
+                powerMessage = L10n.string(
+                    "mobile.computers.power.sleepRefused",
+                    defaultValue: "Couldn't sleep the Mac. Allow cmux in System Settings › Privacy & Security › Automation.")
+            case .failed:
+                powerMessage = L10n.string(
+                    "mobile.computers.power.sleepFailed",
+                    defaultValue: "Couldn't reach the Mac to sleep it.")
+            }
         }
     }
 

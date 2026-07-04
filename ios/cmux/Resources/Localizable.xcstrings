@@ -8228,6 +8228,261 @@
           }
         }
       }
+    },
+    "mobile.computers.section.power": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Power"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の電源"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.keepAwakeLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep-awake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ防止"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.status.checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認中…"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.status.normal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleeps normally"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常どおりスリープ"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.status.keptAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kept awake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ防止中"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.byFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kept awake by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がスリープを防止中"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.sleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac をスリープ"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.sleepConfirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep this Mac?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac をスリープしますか？"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.sleepConfirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac goes to sleep immediately. Your phone disconnects until it wakes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac はすぐにスリープします。復帰するまで iPhone の接続は切断されます。"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.disableKeepAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable keep-awake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープ防止を解除"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態を更新"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep puts this Mac to sleep now. Disable keep-awake stops caffeinate so the Mac can sleep on its own again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「スリープ」はこの Mac をすぐにスリープさせます。「スリープ防止を解除」は caffeinate を停止し、Mac が自動でスリープできるようにします。"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.sleepRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't sleep the Mac. Allow cmux in System Settings › Privacy & Security › Automation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac をスリープできませんでした。システム設定 > プライバシーとセキュリティ > オートメーション で cmux を許可してください。"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.sleepFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't reach the Mac to sleep it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に接続できず、スリープできませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.computers.power.statusUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read Mac power status."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の電源状態を読み取れませんでした。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
