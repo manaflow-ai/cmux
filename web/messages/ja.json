@@ -43,13 +43,34 @@
     "viewChangelog": "変更履歴を見る",
     "otherPlatforms": "その他のプラットフォーム"
   },
-  "vault": {
+  "dashboard": {
     "nav": {
-      "brand": "cmux Vault",
-      "overview": "概要",
-      "sessions": "セッション",
-      "cliSetup": "CLI設定"
+      "brand": "cmux",
+      "vaultGroup": "vault",
+      "vaultOverview": "概要",
+      "vaultSessions": "セッション",
+      "vaultCliSetup": "CLI設定",
+      "subrouterGroup": "subrouter",
+      "subrouterOverview": "概要"
     },
+    "home": {
+      "title": "ダッシュボード",
+      "description": "プロダクトのダッシュボードを選択します。",
+      "vaultName": "vault",
+      "vaultDescription": "同期済みエージェントセッションの閲覧とCLIアクセスの管理を行います。",
+      "vaultLink": "vaultを開く",
+      "subrouterName": "subrouter",
+      "subrouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "subrouterLink": "subrouterを開く"
+    },
+    "subrouter": {
+      "title": "subrouter",
+      "description": "subrouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "comingSoonTitle": "ダッシュボード統合は準備中です",
+      "comingSoonBody": "バックエンドの接続後、メトリクスとコントロールがここに表示されます。"
+    }
+  },
+  "vault": {
     "overview": {
       "eyebrow": "cmux Vault",
       "title": "Vault概要",

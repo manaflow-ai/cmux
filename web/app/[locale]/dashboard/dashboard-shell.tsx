@@ -5,19 +5,38 @@ import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
-  const t = useTranslations("vault.nav");
+  const t = useTranslations("dashboard.nav");
   const pathname = usePathname();
-  const items = [
-    { href: "/dashboard/vault", label: t("overview"), active: pathname === "/dashboard/vault" },
+  const groups = [
     {
-      href: "/dashboard/vault/sessions",
-      label: t("sessions"),
-      active: pathname.startsWith("/dashboard/vault/sessions"),
+      label: t("vaultGroup"),
+      items: [
+        {
+          href: "/dashboard/vault",
+          label: t("vaultOverview"),
+          active: pathname === "/dashboard/vault",
+        },
+        {
+          href: "/dashboard/vault/sessions",
+          label: t("vaultSessions"),
+          active: pathname.startsWith("/dashboard/vault/sessions"),
+        },
+        {
+          href: "/dashboard/vault/cli-auth",
+          label: t("vaultCliSetup"),
+          active: pathname.startsWith("/dashboard/vault/cli-auth"),
+        },
+      ],
     },
     {
-      href: "/dashboard/vault/cli-auth",
-      label: t("cliSetup"),
-      active: pathname.startsWith("/dashboard/vault/cli-auth"),
+      label: t("subrouterGroup"),
+      items: [
+        {
+          href: "/dashboard/subrouter",
+          label: t("subrouterOverview"),
+          active: pathname.startsWith("/dashboard/subrouter"),
+        },
+      ],
     },
   ];
 
@@ -26,7 +45,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-30 border-b border-border bg-background">
         <div className="flex h-11 items-center justify-between px-3">
           <Link
-            href="/dashboard/vault"
+            href="/dashboard"
             className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           >
             {t("brand")}
@@ -36,19 +55,26 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       </header>
       <div className="grid min-h-[calc(100vh-2.75rem)] grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="border-b border-border px-3 py-3 md:border-b-0 md:border-r">
-          <nav className="flex gap-2 overflow-x-auto md:flex-col">
-            {items.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`whitespace-nowrap border border-border px-3 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-                  item.active
-                    ? "bg-foreground text-background"
-                    : "bg-background text-foreground hover:bg-foreground hover:text-background"
-                }`}
-              >
-                {item.label}
-              </Link>
+          <nav className="flex gap-4 overflow-x-auto md:flex-col">
+            {groups.map((group) => (
+              <div key={group.label} className="flex min-w-max gap-2 md:flex-col">
+                <p className="text-xs text-muted">{group.label}</p>
+                <div className="flex gap-2 md:flex-col">
+                  {group.items.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`whitespace-nowrap border border-border px-3 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
+                        item.active
+                          ? "bg-foreground text-background"
+                          : "bg-background text-foreground hover:bg-foreground hover:text-background"
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
             ))}
           </nav>
         </aside>

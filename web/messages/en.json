@@ -43,13 +43,34 @@
     "viewChangelog": "View Changelog",
     "otherPlatforms": "Other platforms"
   },
-  "vault": {
+  "dashboard": {
     "nav": {
-      "brand": "cmux Vault",
-      "overview": "Overview",
-      "sessions": "Sessions",
-      "cliSetup": "CLI setup"
+      "brand": "cmux",
+      "vaultGroup": "vault",
+      "vaultOverview": "overview",
+      "vaultSessions": "sessions",
+      "vaultCliSetup": "cli setup",
+      "subrouterGroup": "subrouter",
+      "subrouterOverview": "overview"
     },
+    "home": {
+      "title": "dashboard",
+      "description": "choose a product dashboard.",
+      "vaultName": "vault",
+      "vaultDescription": "browse synced agent sessions and manage cli access.",
+      "vaultLink": "open vault",
+      "subrouterName": "subrouter",
+      "subrouterDescription": "route llm requests across provider accounts with failover and usage-aware scheduling.",
+      "subrouterLink": "open subrouter"
+    },
+    "subrouter": {
+      "title": "subrouter",
+      "description": "subrouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "comingSoonTitle": "dashboard integration is coming soon",
+      "comingSoonBody": "metrics and controls will appear here after the backend is wired."
+    }
+  },
+  "vault": {
     "overview": {
       "eyebrow": "cmux Vault",
       "title": "Vault overview",
