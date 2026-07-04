@@ -86,6 +86,28 @@ struct WorkstreamTests {
         #expect(visible.contains { $0.id == created.id })
     }
 
+    @Test func restoringClosedWorkspaceReconcilesDrillInToRestoredWorkstream() throws {
+        let manager = makeTabManager()
+        let restoredWorkstream = manager.createWorkstream(name: "Restored")
+        let otherWorkstream = manager.createWorkstream(name: "Other")
+        manager.drilledInWorkstreamId = otherWorkstream
+        var snapshot = manager.tabs[0].sessionSnapshot(includeScrollback: false)
+        snapshot.workstreamId = restoredWorkstream
+
+        #expect(manager.restoreClosedWorkspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: manager.tabs[0].id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: snapshot
+        )))
+
+        let restoredWorkspace = try #require(manager.selectedWorkspace)
+        #expect(restoredWorkspace.workstreamId == restoredWorkstream)
+        #expect(manager.drilledInWorkstreamId == restoredWorkstream)
+        let visible = manager.tabs.filter { $0.workstreamId == manager.drilledInWorkstreamId }
+        #expect(visible.contains { $0.id == restoredWorkspace.id })
+    }
+
     // MARK: - Persistence round-trip
 
     @Test func sessionSnapshotRoundtripPreservesWorkstreams() throws {
@@ -136,6 +158,25 @@ struct WorkstreamTests {
         restored.restoreSessionSnapshot(snapshot)
         #expect(restored.workstreams.isEmpty)
         #expect(restored.drilledInWorkstreamId == nil)
+    }
+
+    @Test func sessionAutosaveFingerprintTracksWorkstreamState() throws {
+        let manager = makeTabManager()
+        let baseline = manager.sessionAutosaveFingerprint()
+        let id = manager.createWorkstream(name: "WS")
+        let afterCreate = manager.sessionAutosaveFingerprint()
+        #expect(afterCreate != baseline)
+
+        manager.addWorkspaceToWorkstream(workspaceId: manager.tabs[0].id, workstreamId: id)
+        let afterMembership = manager.sessionAutosaveFingerprint()
+        #expect(afterMembership != afterCreate)
+
+        manager.enterWorkstream(id: id)
+        let afterDrillIn = manager.sessionAutosaveFingerprint()
+        #expect(afterDrillIn != afterMembership)
+
+        manager.renameWorkstream(id: id, name: "Renamed")
+        #expect(manager.sessionAutosaveFingerprint() != afterDrillIn)
     }
 
     // MARK: - Rollup render model

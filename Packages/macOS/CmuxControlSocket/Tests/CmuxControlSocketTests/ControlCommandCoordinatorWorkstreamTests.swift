@@ -29,6 +29,7 @@ private final class FakeWorkstreamContext: ControlCommandContext {
     var exitResult: Bool?
     private(set) var lastCreateName: String?
     private(set) var lastCreateWorkspaceIDs: [UUID] = []
+    private(set) var lastRenameName: String?
 
     func controlWorkstreamList(routing: ControlRoutingSelectors) -> ControlWorkstreamListResolution {
         listResolution
@@ -42,7 +43,10 @@ private final class FakeWorkstreamContext: ControlCommandContext {
         lastCreateWorkspaceIDs = workspaceIDs
         return createResolution
     }
-    func controlRenameWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID, name: String) -> Bool? { renameResult }
+    func controlRenameWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID, name: String) -> Bool? {
+        lastRenameName = name
+        return renameResult
+    }
     func controlDeleteWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID) -> Int? { deleteResult }
     func controlAddWorkspaceToWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID, workspaceID: UUID) -> Bool? { addResult }
     func controlRemoveWorkspaceFromWorkstream(routing: ControlRoutingSelectors, workspaceID: UUID) -> Bool? { removeResult }
@@ -143,6 +147,37 @@ struct ControlCommandCoordinatorWorkstreamTests {
             return
         }
         #expect(code == "not_found")
+    }
+
+    @Test func renameTrimsNameBeforeCallingContextAndReturningPayload() throws {
+        let (coordinator, context) = coordinator()
+        context.renameResult = true
+        let id = UUID()
+        let result = coordinator.handle(request("workstream.rename", [
+            "workstream_id": .string(id.uuidString),
+            "name": .string("  New name  "),
+        ]))
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected ok")
+            return
+        }
+        #expect(context.lastRenameName == "New name")
+        #expect(payload["name"] == .string("New name"))
+    }
+
+    @Test func renameRejectsBlankNameWithoutCallingContext() throws {
+        let (coordinator, context) = coordinator()
+        context.renameResult = true
+        let result = coordinator.handle(request("workstream.rename", [
+            "workstream_id": .string(UUID().uuidString),
+            "name": .string("   "),
+        ]))
+        guard case .err(let code, _, _) = result else {
+            Issue.record("expected error")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastRenameName == nil)
     }
 
     @Test func deleteReportsReleasedCount() throws {
