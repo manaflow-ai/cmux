@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
+import { PRO_CHECKOUT_URL } from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { buildAlternates } from "../../../i18n/seo";
 import {
@@ -25,7 +26,6 @@ import {
 // The Pro CTA destination is decided at runtime by the proCheckout PostHog
 // flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
 // link is the safe fallback.
-const PRO_CHECKOUT_URL = "/api/billing/checkout";
 // Team is per-seat ($35/user/month). Install is still the entry point, so the
 // Team CTA points at the download today; swap for the team checkout URL once
 // the billing flow is public.

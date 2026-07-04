@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
+import { APP_PRICING_CHECKOUT_URL } from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
   CurrentPlanBadge,
@@ -20,7 +21,6 @@ import {
   type SizeRow,
 } from "../components/pricing-shared";
 
-const CHECKOUT_URL = "/api/billing/checkout";
 const TEAM_CTA_URL = DOWNLOAD_CONFIRMATION_HREF;
 const SALES_EMAIL = "founders@manaflow.com";
 const pricing = enMessages.pricing;
@@ -95,7 +95,7 @@ export default async function AppPricingPage({
             {snapshot.isPro ? (
               <DisabledButton>Current plan</DisabledButton>
             ) : (
-              <PrimaryLink href={CHECKOUT_URL}>{pricing.pro.cta}</PrimaryLink>
+              <PrimaryLink href={APP_PRICING_CHECKOUT_URL}>{pricing.pro.cta}</PrimaryLink>
             )}
             <p className="mt-5 text-sm font-medium">
               {pricing.pro.featuresLead}

@@ -112,13 +112,22 @@ enum AuthEnvironment {
         return websiteOrigin.appendingPathComponent("app-pricing")
     }
 
+    /// Payment entrypoint used by native app UI. This intentionally does not
+    /// inherit `CMUX_WWW_ORIGIN`: a dev build can render `/app-pricing` from a
+    /// local Next server while still starting checkout on cmux.com so the
+    /// user's default browser cookies and anonymous billing session line up.
     static var billingCheckoutURL: URL {
-        if ProcessInfo.processInfo.environment["CMUX_WWW_ORIGIN"] == nil,
-           let override = devOverride(key: "CMUX_WWW_ORIGIN"),
-           let url = URL(string: override) {
-            return url.appendingPathComponent("api/billing/checkout")
-        }
-        return websiteOrigin.appendingPathComponent("api/billing/checkout")
+        billingCheckoutURL(origin: billingWebsiteOrigin)
+    }
+
+    static func resolvedBillingCheckoutURL(environment: [String: String]) -> URL {
+        billingCheckoutURL(
+            origin: resolvedURL(
+                environmentKey: "CMUX_BILLING_WWW_ORIGIN",
+                fallback: "https://cmux.com",
+                environment: environment
+            )
+        )
     }
 
     static var signInWebsiteOrigin: URL {
@@ -186,6 +195,32 @@ enum AuthEnvironment {
 
     private static var cmuxPort: String {
         resolvedCmuxPort(environment: ProcessInfo.processInfo.environment)
+    }
+
+    private static var billingWebsiteOrigin: URL {
+        if let overridden = ProcessInfo.processInfo.environment["CMUX_BILLING_WWW_ORIGIN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridden.isEmpty,
+           let url = URL(string: overridden) {
+            return url
+        }
+        if let override = devOverride(key: "CMUX_BILLING_WWW_ORIGIN"),
+           let url = URL(string: override) {
+            return url
+        }
+        return URL(string: "https://cmux.com")!
+    }
+
+    private static func billingCheckoutURL(origin: URL) -> URL {
+        var components = URLComponents(
+            url: origin.appendingPathComponent("api/billing/checkout"),
+            resolvingAgainstBaseURL: false
+        )!
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == "cmux_external_browser" }
+        queryItems.append(URLQueryItem(name: "cmux_external_browser", value: "1"))
+        components.queryItems = queryItems
+        return components.url!
     }
 
     private static func resolvedCmuxPort(environment: [String: String]) -> String {

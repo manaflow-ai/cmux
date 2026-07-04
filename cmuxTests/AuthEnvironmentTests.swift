@@ -118,6 +118,31 @@ struct AuthEnvironmentTests {
 
         #expect(russianURL == englishURL)
     }
+
+    @Test("billing checkout ignores website origin unless billing origin is explicit")
+    func billingCheckoutIgnoresWebsiteOriginUnlessBillingOriginIsExplicit() {
+        let defaultURL = AuthEnvironment.resolvedBillingCheckoutURL(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://localhost:4278",
+            ]
+        )
+        #expect(defaultURL.scheme == "https")
+        #expect(defaultURL.host == "cmux.com")
+        #expect(defaultURL.path == "/api/billing/checkout")
+        #expect(URLComponents(url: defaultURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "cmux_external_browser" && $0.value == "1" }) == true)
+
+        let overrideURL = AuthEnvironment.resolvedBillingCheckoutURL(
+            environment: [
+                "CMUX_WWW_ORIGIN": "http://localhost:4278",
+                "CMUX_BILLING_WWW_ORIGIN": "https://billing-preview.example",
+            ]
+        )
+        #expect(overrideURL.scheme == "https")
+        #expect(overrideURL.host == "billing-preview.example")
+        #expect(overrideURL.path == "/api/billing/checkout")
+    }
 }
 
 private func assertNativeSignInURL(_ url: URL) {

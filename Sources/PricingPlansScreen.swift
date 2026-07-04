@@ -26,7 +26,7 @@ enum ProUpgradePresenter {
 
     @MainActor
     static func presentCheckout() {
-        presentBrowserSplit(url: AuthEnvironment.billingCheckoutURL, transparentBackground: false)
+        NSWorkspace.shared.open(AuthEnvironment.billingCheckoutURL)
     }
 
     @MainActor
