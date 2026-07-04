@@ -8,6 +8,7 @@
     "cmux-computer-use-mcp": "cmux-computer-use-mcp.mjs"
   },
   "scripts": {
+    "test": "node scripts/elicitation-smoke.mjs",
     "smoke": "node scripts/smoke.mjs"
   },
   "devDependencies": {

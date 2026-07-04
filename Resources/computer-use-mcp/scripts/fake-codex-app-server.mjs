@@ -85,6 +85,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         });
         return;
       }
+      if (app === "SlowStateApp") {
+        setTimeout(() => {
+          send({
+            id: message.id,
+            result: {
+              content: [{ type: "text", text: "slow state" }],
+              isError: false,
+            },
+          });
+        }, 5000);
+        return;
+      }
       const calls = (stateCallsByApp.get(app) ?? 0) + 1;
       stateCallsByApp.set(app, calls);
       if ((app === "FlakyStateApp" || app === "FlakyScreenshotApp") && calls >= 2) {
@@ -136,6 +148,16 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         id: message.id,
         result: {
           content: [{ type: "text", text: "dragged" }],
+          isError: false,
+        },
+      });
+      return;
+    }
+    if (params.tool === "type_text" || params.tool === "press_key") {
+      send({
+        id: message.id,
+        result: {
+          content: [{ type: "text", text: `${params.tool}:ok` }],
           isError: false,
         },
       });

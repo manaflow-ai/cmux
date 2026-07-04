@@ -19,6 +19,20 @@ import process from "node:process";
 const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "..", "cmux-computer-use-mcp.mjs");
 const fakeCodex = join(here, "fake-codex-app-server.mjs");
+const REQUIRED_TOOLS = [
+  "computer_target",
+  "computer_apps",
+  "computer_open",
+  "computer_state",
+  "computer_screenshot",
+  "computer_click",
+  "computer_type",
+  "computer_key",
+  "computer_scroll",
+  "computer_drag",
+  "computer_action",
+  "computer_windows",
+];
 
 function summarizeResult(res) {
   const text = (res.content ?? [])
@@ -53,6 +67,12 @@ async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv
     });
   }
   await client.connect(transport);
+  const { tools } = await client.listTools();
+  const missing = REQUIRED_TOOLS.filter((name) => !tools.some((tool) => tool.name === name));
+  if (missing.length > 0) {
+    await client.close();
+    throw new Error(`missing required tools: ${missing.join(", ")}`);
+  }
   const results = [];
   for (const call of calls) {
     const res = await client.callTool({ name: call.tool, arguments: call.args ?? {} });
@@ -110,6 +130,30 @@ async function runConcurrentElementRace() {
   return [state, summarizeResult(first), summarizeResult(second)];
 }
 
+async function runCancellationSmoke() {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverPath],
+    env: { ...process.env, CMUX_CU_CODEX: fakeCodex },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
+  await client.connect(transport);
+  const controller = new AbortController();
+  const call = client
+    .callTool(
+      { name: "computer_state", arguments: { app: "SlowStateApp" } },
+      undefined,
+      { signal: controller.signal }
+    )
+    .then((result) => summarizeResult(result))
+    .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+  setTimeout(() => controller.abort("cancel smoke"), 25);
+  const result = await call;
+  await client.close();
+  return result;
+}
+
 const accepted = await run({ withElicitation: true, expectMessage: "Allow Codex to use TestApp?" });
 console.log(`with elicitation support -> isError=${accepted.isError} text=${accepted.text}`);
 if (accepted.isError || !accepted.text.includes("elicitation:accept")) {
@@ -132,6 +176,13 @@ const unknownRequest = await run({
 console.log(`unknown app-server request -> isError=${unknownRequest.isError}`);
 if (unknownRequest.isError || !unknownRequest.text.includes("unknown-request:rejected")) {
   console.error("FAIL: unknown app-server requests should fail closed with a JSON-RPC error");
+  process.exit(1);
+}
+
+const cancelled = await runCancellationSmoke();
+console.log(`cancelled tool call -> isError=${cancelled.isError}`);
+if (!cancelled.isError) {
+  console.error("FAIL: cancelled tool call should not complete successfully");
   process.exit(1);
 }
 
@@ -232,6 +283,44 @@ if (
   !staleAfterOpen.text.includes("run computer_state first")
 ) {
   console.error("FAIL: computer_open should revoke old element indices before the next input");
+  process.exit(1);
+}
+
+const [typeWithoutSnapshot] = await runCalls({
+  withElicitation: false,
+  calls: [{ tool: "computer_type", args: { app: "TypingApp", text: "hello" } }],
+});
+console.log(`type without visible snapshot -> type=${typeWithoutSnapshot.isError}`);
+if (!typeWithoutSnapshot.isError || !typeWithoutSnapshot.text.includes("visible snapshot")) {
+  console.error("FAIL: typing should require a visible state/screenshot snapshot");
+  process.exit(1);
+}
+
+const [typingState, firstType, staleType] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_state", args: { app: "TypingApp" } },
+    { tool: "computer_type", args: { app: "TypingApp", text: "hello" } },
+    { tool: "computer_type", args: { app: "TypingApp", text: "again" } },
+  ],
+});
+console.log(`type from visible snapshot -> state=${typingState.isError} type=${firstType.isError} stale=${staleType.isError}`);
+if (typingState.isError || firstType.isError || !staleType.isError || !staleType.text.includes("visible snapshot")) {
+  console.error("FAIL: typing should consume the visible snapshot before another input");
+  process.exit(1);
+}
+
+const [keyScreenshot, firstKey, staleKey] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_screenshot", args: { app: "KeyApp" } },
+    { tool: "computer_key", args: { app: "KeyApp", key: "Return" } },
+    { tool: "computer_key", args: { app: "KeyApp", key: "Return" } },
+  ],
+});
+console.log(`key from screenshot -> screenshot=${keyScreenshot.isError} key=${firstKey.isError} stale=${staleKey.isError}`);
+if (keyScreenshot.isError || firstKey.isError || !staleKey.isError || !staleKey.text.includes("visible snapshot")) {
+  console.error("FAIL: key input should consume the visible screenshot snapshot");
   process.exit(1);
 }
 
