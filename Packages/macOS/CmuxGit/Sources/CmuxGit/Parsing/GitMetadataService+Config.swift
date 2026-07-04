@@ -361,7 +361,7 @@ extension GitMetadataService {
             if pattern.hasSuffix("/") {
                 pattern.append("**")
             }
-            guard let branch = gitBranchName(repository: repository) else { return false }
+            guard let branch = Self.gitBranchName(repository: repository) else { return false }
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false
