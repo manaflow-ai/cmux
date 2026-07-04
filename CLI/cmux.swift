@@ -7006,8 +7006,9 @@ struct CMUXCLI {
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
         let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+        let (enabledOpt, rem6) = parseOption(rem5, name: "--enabled")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -7055,6 +7056,17 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-action set-description requires --description <text> (or trailing text)")
         }
 
+        var broadcastEnabled: Bool?
+        if action == "set_broadcast" {
+            let raw = enabledOpt ?? (inferredPositional.isEmpty ? nil : inferredPositional)
+            guard let raw, let parsed = parseBoolString(raw) else {
+                throw CLIError(message: "workspace-action set-broadcast requires --enabled <true|false> (or a trailing true/false)")
+            }
+            broadcastEnabled = parsed
+        } else if enabledOpt != nil {
+            throw CLIError(message: "workspace-action: --enabled only applies to set-broadcast")
+        }
+
         var params: [String: Any] = ["action": action]
         if let windowHandle {
             params["window_id"] = windowHandle
@@ -7070,6 +7082,9 @@ struct CMUXCLI {
         }
         if let description, !description.isEmpty {
             params["description"] = description
+        }
+        if let broadcastEnabled {
+            params["enabled"] = broadcastEnabled
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -7088,6 +7103,9 @@ struct CMUXCLI {
         }
         if let color = payload["color"] as? String {
             summaryParts.append("color=\(color)")
+        }
+        if let broadcast = payload["broadcast_input"] {
+            summaryParts.append("broadcast_input=\(broadcast)")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
@@ -14724,6 +14742,7 @@ struct CMUXCLI {
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
+              toggle-broadcast | set-broadcast
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -14732,6 +14751,7 @@ struct CMUXCLI {
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
+              --enabled <true|false>       Broadcast state for set-broadcast
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -14747,6 +14767,8 @@ struct CMUXCLI {
               cmux workspace-action --action set-description --description "Ship checklist"
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
+              cmux workspace-action --action toggle-broadcast
+              cmux workspace-action --action set-broadcast --enabled true
             """
         case "tab-action":
             return """
