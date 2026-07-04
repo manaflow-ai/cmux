@@ -8,18 +8,20 @@ const teamCustomer = {
 const signedInUser = {
   id: "user-signed-in",
   createCheckoutUrl: mock(async () => "https://checkout.test/signed-in"),
+  listProducts: mock(async () => emptyProductsPage()),
+  update: mock(async () => undefined),
   selectedTeam: null as null | typeof teamCustomer,
 };
 const anonymousUser = {
   id: "user-anonymous",
   isAnonymous: true,
   createCheckoutUrl: mock(async () => "https://checkout.test/anonymous"),
+  listProducts: mock(async () => emptyProductsPage()),
+  update: mock(async () => undefined),
 };
 
 let userResponses: unknown[] = [];
 const getUser = mock(async () => userResponses.shift() ?? null);
-const hasActiveProSubscription = mock(async () => false);
-const syncProPlanMetadata = mock(async () => undefined);
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -27,28 +29,26 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
-mock.module("../services/billing/pro", () => ({
-  PRO_PRODUCT_ID: "pro",
-  TEAM_PRODUCT_ID: "team",
-  hasActiveProSubscription,
-  syncProPlanMetadata,
-}));
-
 const { GET } = await import("../app/api/billing/checkout/route");
 
 describe("billing checkout route", () => {
   beforeEach(() => {
     getUser.mockClear();
-    hasActiveProSubscription.mockClear();
-    syncProPlanMetadata.mockClear();
     signedInUser.createCheckoutUrl.mockClear();
+    signedInUser.listProducts.mockClear();
+    signedInUser.update.mockClear();
     teamCustomer.createCheckoutUrl.mockClear();
     anonymousUser.createCheckoutUrl.mockClear();
+    anonymousUser.listProducts.mockClear();
+    anonymousUser.update.mockClear();
     signedInUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/signed-in");
+    signedInUser.listProducts.mockResolvedValue(emptyProductsPage());
+    signedInUser.update.mockResolvedValue(undefined);
     teamCustomer.createCheckoutUrl.mockResolvedValue("https://checkout.test/team");
     anonymousUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/anonymous");
+    anonymousUser.listProducts.mockResolvedValue(emptyProductsPage());
+    anonymousUser.update.mockResolvedValue(undefined);
     signedInUser.selectedTeam = null;
-    hasActiveProSubscription.mockResolvedValue(false);
     userResponses = [];
   });
 
@@ -95,7 +95,7 @@ describe("billing checkout route", () => {
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://checkout.test/team");
-    expect(hasActiveProSubscription).not.toHaveBeenCalled();
+    expect(signedInUser.listProducts).not.toHaveBeenCalled();
     expect(signedInUser.createCheckoutUrl).not.toHaveBeenCalled();
     expect(teamCustomer.createCheckoutUrl).toHaveBeenCalledWith({
       productId: "team",
@@ -115,3 +115,7 @@ describe("billing checkout route", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 });
+
+function emptyProductsPage() {
+  return Object.assign([], { nextCursor: null });
+}
