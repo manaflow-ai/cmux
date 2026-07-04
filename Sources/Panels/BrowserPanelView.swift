@@ -411,6 +411,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.shortcuts.showCommandHoldHints) private var showCommandHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
     @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
     @State private var suggestionTask: Task<Void, Never>?
@@ -793,11 +794,18 @@ struct BrowserPanelView: View {
     private var shouldShowBrowserFocusModeShortcutHint: Bool {
         panel.isBrowserFocusModeActive &&
             panel.canToggleBrowserFocusMode &&
-            (ShortcutHintDebugSettings().alwaysShowHints || (showModifierHoldHints && focusModeShortcutHintMonitor.isModifierPressed))
+            (
+                ShortcutHintDebugSettings().alwaysShowHints ||
+                    (commandHoldHintsEnabled && focusModeShortcutHintMonitor.isModifierPressed)
+            )
+    }
+
+    private var commandHoldHintsEnabled: Bool {
+        showModifierHoldHints && showCommandHoldHints
     }
 
     private func startFocusModeShortcutHintMonitorIfNeeded() {
-        if showModifierHoldHints {
+        if commandHoldHintsEnabled {
             focusModeShortcutHintMonitor.start()
         } else {
             focusModeShortcutHintMonitor.stop()
@@ -1199,6 +1207,9 @@ struct BrowserPanelView: View {
         .onChange(of: showModifierHoldHints) { _, _ in
             startFocusModeShortcutHintMonitorIfNeeded()
         }
+        .onChange(of: showCommandHoldHints) { _, _ in
+            startFocusModeShortcutHintMonitorIfNeeded()
+        }
     }
 
     var body: some View {
@@ -1274,8 +1285,8 @@ struct BrowserPanelView: View {
             }
         }
         .background(
-            WindowAccessor(refreshID: showModifierHoldHints) { window in
-                focusModeShortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
+            WindowAccessor(refreshID: commandHoldHintsEnabled) { window in
+                focusModeShortcutHintMonitor.setHostWindow(commandHoldHintsEnabled ? window : nil)
             }
         )
         .background {

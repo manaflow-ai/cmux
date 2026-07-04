@@ -1340,6 +1340,12 @@
           "description": "Show shortcut-hint chips while holding Cmd or Control.",
           "descriptionKey": "schemaDescriptions.shortcuts.showModifierHoldHints"
         },
+        "showCommandHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut-hint chips while holding Cmd. shortcuts.showModifierHoldHints must also be enabled.",
+          "descriptionKey": "schemaDescriptions.shortcuts.showCommandHoldHints"
+        },
         "bindings": {
           "type": "object",
           "default": {},

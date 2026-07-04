@@ -88,6 +88,12 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
+    @Test func commandHoldHintSynonymsFindKeyboardShortcutSetting() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = index.match("cmd hint chips")
+        #expect(result.contains { $0.id == "setting:keyboardShortcuts:command-hold-hints" })
+    }
+
     @Test(arguments: [
         ("naming", "setting:automation:workspace-auto-naming"),
         ("nmaing", "setting:automation:workspace-auto-naming"),

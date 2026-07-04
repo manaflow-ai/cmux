@@ -5,6 +5,40 @@ import Testing
 
 @Suite("UserDefaultsSettingsStore observation")
 struct UserDefaultsSettingsStoreObservationTests {
+    @Test func storagePostsSyntheticDidChangeThroughInjectedCenter() {
+        let observedDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
+        let notificationCenter = NotificationCenter()
+        let storage = UserDefaultsSettingsStorage(
+            defaults: observedDefaults,
+            notificationCenter: notificationCenter
+        )
+        let injectedCenterReceivedNotification = NotificationBoolRecorder()
+        let defaultCenterReceivedNotification = NotificationBoolRecorder()
+        let injectedToken = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: observedDefaults,
+            queue: nil
+        ) { _ in
+            injectedCenterReceivedNotification.setTrue()
+        }
+        let defaultToken = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: observedDefaults,
+            queue: nil
+        ) { _ in
+            defaultCenterReceivedNotification.setTrue()
+        }
+        defer {
+            notificationCenter.removeObserver(injectedToken)
+            NotificationCenter.default.removeObserver(defaultToken)
+        }
+
+        storage.postDidChangeNotification()
+
+        #expect(injectedCenterReceivedNotification.value)
+        #expect(!defaultCenterReceivedNotification.value)
+    }
+
     @Test func storageChangeObserverClassifiesDefaultsNotifications() async {
         let observedDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
         let otherDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!

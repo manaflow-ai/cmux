@@ -993,7 +993,16 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("showModifierHoldHints") {
             logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
         }
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
+        if let value = jsonBool(section["showCommandHoldHints"]) {
+            snapshot.managedUserDefaults[SettingCatalog().shortcuts.showCommandHoldHints.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("showCommandHoldHints") {
+            logInvalid("shortcuts.showCommandHoldHints", sourcePath: sourcePath)
+        }
+        for (key, rawValue) in section
+            where key != "bindings" &&
+            key != "showModifierHoldHints" &&
+            key != "showCommandHoldHints" &&
+            key != "when" {
             bindings[key] = rawValue
         }
 

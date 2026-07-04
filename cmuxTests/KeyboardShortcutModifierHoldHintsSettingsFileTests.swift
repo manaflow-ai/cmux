@@ -45,6 +45,37 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
     }
 
     @Test
+    func settingsFileStoreAppliesShowCommandHoldHintsSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = ShortcutHintDebugSettings.showCommandHoldHintsKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "shortcuts": {
+                "showCommandHoldHints": false,
+                "openBrowser": "cmd+3"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.object(forKey: key) as? Bool == false)
+            #expect(!ShortcutHintDebugSettings(defaults: defaults).commandHoldHintsEnabled)
+            #expect(store.override(for: .openBrowser) == StoredShortcut(key: "3", command: true, shift: false, option: false, control: false))
+        }
+    }
+
+    @Test
     func settingsFileStoreAppliesPaneChromeColorSettings() throws {
         let defaults = UserDefaults.standard
         let paneBorderKey = PaneChromeSettings.paneBorderColorKey
@@ -86,6 +117,28 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
     func focusControllerSeedsBonsplitHintEligibilityFromDisabledSetting() throws {
         let defaults = UserDefaults.standard
         let key = ShortcutHintDebugSettings.showModifierHoldHintsKey
+        try preservingDefaults(keys: [key]) {
+            defaults.set(false, forKey: key)
+
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let workspace = manager.addWorkspace(select: true)
+            workspace.bonsplitController.tabShortcutHintsEnabled = true
+
+            _ = MainWindowFocusController(
+                windowId: UUID(),
+                window: nil,
+                tabManager: manager,
+                fileExplorerState: FileExplorerState()
+            )
+
+            #expect(!workspace.bonsplitController.tabShortcutHintsEnabled)
+        }
+    }
+
+    @Test @MainActor
+    func focusControllerSeedsBonsplitHintEligibilityFromDisabledCommandSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = ShortcutHintDebugSettings.showCommandHoldHintsKey
         try preservingDefaults(keys: [key]) {
             defaults.set(false, forKey: key)
 

@@ -857,6 +857,7 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @AppStorage(PaneChromeSettings.activePaneBorderColorKey) private var activePaneBorderColorHex = PaneChromeSettings.defaultColorHex
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.shortcuts.showCommandHoldHints) private var showCommandHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
@@ -2566,6 +2567,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: showModifierHoldHints) { _, _ in
+            AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+        })
+
+        view = AnyView(view.onChange(of: showCommandHoldHints) { _, _ in
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
         })
 
@@ -10010,6 +10015,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.shortcuts.showCommandHoldHints) private var showCommandHoldHints
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -10234,6 +10240,21 @@ struct VerticalTabsSidebar: View {
 
     private var sidebarBottomScrimHeight: CGFloat {
         SidebarWorkspaceListMetrics.bottomScrimHeight
+    }
+
+    private var showCommandModifierHoldHints: Bool {
+        showModifierHoldHints && showCommandHoldHints
+    }
+
+    private func syncModifierKeyMonitorAvailability() {
+        if showCommandModifierHoldHints {
+            modifierKeyMonitor.setHostWindow(observedWindow)
+            modifierKeyMonitor.start()
+        } else {
+            modifierKeyMonitor.stop()
+            frozenShortcutHintsTabId = nil
+            frozenShortcutHintsValue = false
+        }
     }
 
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
@@ -10472,18 +10493,13 @@ struct VerticalTabsSidebar: View {
             )
         }
         .background(
-            WindowAccessor(refreshID: showModifierHoldHints) { window in
-                modifierKeyMonitor.setHostWindow(showModifierHoldHints ? window : nil)
+            WindowAccessor(refreshID: showCommandModifierHoldHints) { window in
+                modifierKeyMonitor.setHostWindow(showCommandModifierHoldHints ? window : nil)
             }
             .frame(width: 0, height: 0)
         )
         .onAppear {
-            if showModifierHoldHints {
-                modifierKeyMonitor.setHostWindow(observedWindow)
-                modifierKeyMonitor.start()
-            } else {
-                modifierKeyMonitor.stop()
-            }
+            syncModifierKeyMonitorAvailability()
             dragState.clearDrag()
             isBonsplitWorkspaceDropTargetCollectionActive = false
             isWorkspaceReorderDropTargetCollectionActive = false
@@ -10518,15 +10534,11 @@ struct VerticalTabsSidebar: View {
                 reason: "sidebar_disappear"
             )
         }
-        .onChange(of: showModifierHoldHints) { _, enabled in
-            if enabled {
-                modifierKeyMonitor.setHostWindow(observedWindow)
-                modifierKeyMonitor.start()
-            } else {
-                modifierKeyMonitor.stop()
-                frozenShortcutHintsTabId = nil
-                frozenShortcutHintsValue = false
-            }
+        .onChange(of: showModifierHoldHints) { _, _ in
+            syncModifierKeyMonitorAvailability()
+        }
+        .onChange(of: showCommandHoldHints) { _, _ in
+            syncModifierKeyMonitorAvailability()
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
             SidebarDragLifecycleNotification().postStateDidChange(
@@ -11878,7 +11890,8 @@ struct VerticalTabsSidebar: View {
                         group: group,
                         memberWorkspaceIds: memberWorkspaceIds,
                         renderContext: renderContext,
-                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets, showModifierHoldHints: showModifierHoldHints
+                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+                        showModifierHoldHints: showCommandModifierHoldHints
                     )
                 case .workspace(let tab):
                     workspaceRow(
@@ -12292,7 +12305,7 @@ struct VerticalTabsSidebar: View {
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
-        let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+        let liveShowsModifierShortcutHints = showCommandModifierHoldHints && modifierKeyMonitor.isModifierPressed
         let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
             live: liveShowsModifierShortcutHints,
             currentTabId: tab.id,
