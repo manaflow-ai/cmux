@@ -4093,12 +4093,29 @@ final class TextBoxInputTextView: NSTextView {
         return onInsertFileURLs(urls, self)
     }
 
+    /// True when this text view currently owns first responder. Gates the
+    /// standard editing shortcuts handled in `performKeyEquivalent`, which is
+    /// broadcast to the whole view tree and must not act for a background
+    /// text box (manaflow-ai/cmux#6380).
+    private var isFirstResponderForEditingShortcuts: Bool {
+        window?.firstResponder === self
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
         if handleConfiguredTextBoxShortcut(event) {
             return true
+        }
+        // `performKeyEquivalent` is broadcast to every view in the window, not
+        // just the first responder. Standard editing shortcuts (Cmd+C/X/V and
+        // undo/redo) must only be claimed while this text view is the focused
+        // editor; otherwise an unfocused text box (text box beta) steals
+        // copy/cut/paste/undo from the focused browser or terminal pane
+        // (manaflow-ai/cmux#6380).
+        guard isFirstResponderForEditingShortcuts else {
+            return super.performKeyEquivalent(with: event)
         }
         if handleStandardEditShortcut(event) {
             return true
