@@ -4757,26 +4757,47 @@ class TerminalController {
 
     func readTerminalTextRawSnapshot(
         terminalPanel: TerminalPanel,
-        includeScrollback: Bool
+        includeScrollback: Bool,
+        lineLimit: Int? = nil
     ) -> TerminalTextRawSnapshot? {
         guard terminalPanel.surface.surface != nil else { return nil }
         if includeScrollback {
             return TerminalTextRawSnapshot(
                 viewport: nil,
-                screen: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SCREEN),
-                history: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_SURFACE),
-                active: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_ACTIVE)
+                screen: readTerminalSelectionText(
+                    terminalPanel: terminalPanel,
+                    pointTag: GHOSTTY_POINT_SCREEN,
+                    lineLimit: lineLimit
+                ),
+                history: readTerminalSelectionText(
+                    terminalPanel: terminalPanel,
+                    pointTag: GHOSTTY_POINT_SURFACE,
+                    lineLimit: lineLimit
+                ),
+                active: readTerminalSelectionText(
+                    terminalPanel: terminalPanel,
+                    pointTag: GHOSTTY_POINT_ACTIVE,
+                    lineLimit: lineLimit
+                )
             )
         }
         return TerminalTextRawSnapshot(
-            viewport: readTerminalSelectionText(terminalPanel: terminalPanel, pointTag: GHOSTTY_POINT_VIEWPORT),
+            viewport: readTerminalSelectionText(
+                terminalPanel: terminalPanel,
+                pointTag: GHOSTTY_POINT_VIEWPORT,
+                lineLimit: lineLimit
+            ),
             screen: nil,
             history: nil,
             active: nil
         )
     }
 
-    private func readTerminalSelectionText(terminalPanel: TerminalPanel, pointTag: ghostty_point_tag_e) -> String? {
+    private func readTerminalSelectionText(
+        terminalPanel: TerminalPanel,
+        pointTag: ghostty_point_tag_e,
+        lineLimit: Int? = nil
+    ) -> String? {
         guard let surface = terminalPanel.surface.surface else { return nil }
         let topLeft = ghostty_point_s(
             tag: pointTag,
@@ -4807,8 +4828,48 @@ class TerminalController {
         guard let ptr = text.text, text.text_len > 0 else {
             return ""
         }
-        let rawData = Data(bytes: ptr, count: Int(text.text_len))
+        // Ghostty returns one buffer for the selected region. For `--lines`
+        // tail reads, scan that buffer in-place and decode only the suffix so
+        // the main actor does not copy or materialize the full scrollback text
+        // into Swift-owned storage.
+        let byteCount = Int(text.text_len)
+        let bytes = UnsafeBufferPointer(
+            start: UnsafeRawPointer(ptr).assumingMemoryBound(to: UInt8.self),
+            count: byteCount
+        )
+        if let lineLimit {
+            let start = Self.tailTerminalTextByteStart(bytes, maxLines: lineLimit)
+            guard let baseAddress = bytes.baseAddress else { return "" }
+            return String(
+                decoding: UnsafeBufferPointer(
+                    start: baseAddress.advanced(by: start),
+                    count: byteCount - start
+                ),
+                as: UTF8.self
+            )
+        }
+        let rawData = Data(bytes: ptr, count: byteCount)
         return String(decoding: rawData, as: UTF8.self)
+    }
+
+    nonisolated private static func tailTerminalTextByteStart(
+        _ bytes: UnsafeBufferPointer<UInt8>,
+        maxLines: Int
+    ) -> Int {
+        guard maxLines > 0 else { return bytes.count }
+        var newlineCount = 0
+        var index = bytes.count
+        while index > 0 {
+            let previous = index - 1
+            if bytes[previous] == 0x0A {
+                newlineCount += 1
+                if newlineCount == maxLines {
+                    return index
+                }
+            }
+            index = previous
+        }
+        return 0
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
@@ -4817,7 +4878,8 @@ class TerminalController {
         }
         guard let snapshot = readTerminalTextRawSnapshot(
             terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
         ) else {
             return "ERROR: Terminal surface not found"
         }
@@ -4901,12 +4963,13 @@ class TerminalController {
     /// on the main actor, so under heavy agent load one large scrollback read
     /// stalled the run loop and serialized every other client behind it.
     ///
-    /// This splits the work: only the routing resolution and the Ghostty FFI
-    /// capture take a (minimal) `v2MainSync` hop, populating the captured
-    /// snapshot/identity vars below; the expensive `terminalTextPayload`
-    /// formatting then runs here on the socket-worker thread. The response shape,
-    /// error codes, and routing precedence are byte-faithful to the coordinator
-    /// witness this replaces.
+    /// This splits the work: routing resolution and the Ghostty FFI capture take
+    /// a `v2MainSync` hop, but `lines` is applied while copying the returned
+    /// Ghostty buffers so common tail reads do not materialize full scrollback
+    /// strings on the main actor. The remaining payload scoring/base64 work then
+    /// runs here on the socket-worker thread. The response shape, error codes,
+    /// and routing precedence are byte-faithful to the coordinator witness this
+    /// replaces.
     private nonisolated func v2SurfaceReadText(params: [String: Any]) -> V2CallResult {
         var includeScrollback = v2Bool(params, "scrollback") ?? false
         let lineLimit = v2Int(params, "lines")
@@ -4979,7 +5042,8 @@ class TerminalController {
                 }
                 guard let rawSnapshot = self.readTerminalTextRawSnapshot(
                     terminalPanel: terminalPanel,
-                    includeScrollback: includeScrollback
+                    includeScrollback: includeScrollback,
+                    lineLimit: lineLimit
                 ) else {
                     return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
                 }
@@ -5017,7 +5081,8 @@ class TerminalController {
             }
             guard let rawSnapshot = self.readTerminalTextRawSnapshot(
                 terminalPanel: terminalPanel,
-                includeScrollback: includeScrollback
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
             ) else {
                 return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
             }
@@ -5039,7 +5104,10 @@ class TerminalController {
             return .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
         }
 
-        // The full-scrollback formatting stays off the main actor.
+        // Candidate scoring and base64 encoding stay off the main actor. When
+        // `lines` is present, each raw region was already tailed while copying
+        // Ghostty's buffer, so this second tail preserves legacy merge semantics
+        // without re-reading or materializing full scrollback.
         switch Self.terminalTextPayload(
             from: capturedSnapshot,
             includeScrollback: includeScrollback,

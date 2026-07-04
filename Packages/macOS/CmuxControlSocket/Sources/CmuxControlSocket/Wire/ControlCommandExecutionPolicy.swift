@@ -76,10 +76,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // and formats it (line tailing, candidate scoring, base64 encoding). On
         // the main actor that formatting stalls the run loop under heavy agent
         // load (https://github.com/manaflow-ai/cmux/issues/5757), so it runs on
-        // the worker lane: only the Ghostty FFI capture takes a minimal
-        // `v2MainSync` hop while the formatting stays off the main actor. The
-        // @MainActor ControlCommandCoordinator seam cannot host that split, so
-        // the method stays app-side like the browser.* lane.
+        // the worker lane: the `v2MainSync` hop resolves UI state and copies at
+        // most the requested tail into Swift strings, then candidate scoring and
+        // base64 encoding stay off the main actor. The @MainActor
+        // ControlCommandCoordinator seam cannot host that split, so the method
+        // stays app-side like the browser.* lane.
         "surface.read_text",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
