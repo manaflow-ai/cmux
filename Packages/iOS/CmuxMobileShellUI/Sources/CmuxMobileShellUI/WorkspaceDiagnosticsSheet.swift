@@ -83,6 +83,7 @@ struct WorkspaceDiagnosticsSheet: View {
     @MainActor
     private func buildReport() async -> String {
         let generatedAt = Date()
+        let assembler = WorkspaceDiagnosticsReportAssembler()
         let (_, debugLog) = await MobileDebugLog.shared.sink.snapshotWithCount()
         // The process-wide structured `diagnosticLog` is a flight recorder created
         // once in AppCompositionRoot and never reset at the account boundary, so it is
@@ -102,7 +103,7 @@ struct WorkspaceDiagnosticsSheet: View {
         // for a report nothing will consume.
         if Task.isCancelled { return "" }
         let osLogEntries = await Task.detached(priority: .utility) {
-            recentWorkspaceDiagnosticsOSLogEntries(generatedAt: generatedAt)
+            assembler.recentOSLogEntries(generatedAt: generatedAt)
         }.value
         if Task.isCancelled { return "" }
         let app = MobileDiagnosticsAppInfoResolver().current()
@@ -111,12 +112,12 @@ struct WorkspaceDiagnosticsSheet: View {
             lastError: authManager.lastAuthError
         )
         let connection = MobileDiagnosticsConnectionState(
-            state: workspaceDiagnosticsConnectionStateLabel(store.connectionState),
+            state: assembler.connectionStateLabel(store.connectionState),
             host: store.connectedHostName,
             lastError: store.lastConnectionError
         )
         return await Task.detached(priority: .utility) {
-            assembleWorkspaceDiagnosticsReport(
+            assembler.assembleReport(
                 generatedAt: generatedAt,
                 app: app,
                 auth: auth,
@@ -132,55 +133,6 @@ struct WorkspaceDiagnosticsSheet: View {
     private func copy(_ report: String) {
         UIPasteboard.general.string = report
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-    }
-}
-
-private func assembleWorkspaceDiagnosticsReport(
-    generatedAt: Date,
-    app: MobileDiagnosticsAppInfo,
-    auth: MobileDiagnosticsAuthState,
-    connection: MobileDiagnosticsConnectionState,
-    events: [MobileDiagnosticsEvent],
-    debugLog: String,
-    osLogEntries: [MobileDiagnosticsOSLogEntry]
-) -> String {
-    return MobileDiagnosticsReportBuilder().buildReport(
-        generatedAt: generatedAt,
-        app: app,
-        auth: auth,
-        connection: connection,
-        events: events,
-        structuredEventLog: nil,
-        debugLog: debugLog,
-        osLogEntries: osLogEntries
-    )
-}
-
-private func workspaceDiagnosticsConnectionStateLabel(_ state: MobileConnectionState) -> String {
-    switch state {
-    case .connected:
-        return L10n.string("mobile.connection.connected", defaultValue: "Connected")
-    case .disconnected:
-        return L10n.string("mobile.connection.unavailable", defaultValue: "Disconnected")
-    }
-}
-
-private func recentWorkspaceDiagnosticsOSLogEntries(generatedAt: Date) -> [MobileDiagnosticsOSLogEntry] {
-    do {
-        return try MobileDiagnosticsOSLogStoreReader().recentEntries(
-            since: generatedAt.addingTimeInterval(-15 * 60),
-            limit: 120
-        )
-    } catch {
-        return [
-            MobileDiagnosticsOSLogEntry(
-                unavailableStatusAt: generatedAt,
-                message: L10n.string(
-                    "mobile.diagnostics.report.osLogUnavailable",
-                    defaultValue: "OSLog unavailable"
-                )
-            ),
-        ]
     }
 }
 #endif
