@@ -14,6 +14,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    let infoFeedURLProvider: () -> String?
     /// Whether the running build is a cmux DEV/staging build that is not on the public release
     /// train. When `true`, the driver must never surface the public appcast's update pill (see
     /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
@@ -29,10 +30,19 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private(set) var lastFeedURLString: String?
     private var pendingPromptDismissCallbacks: [UUID] = []
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
+    init(
+        model: UpdateStateModel,
+        log: any UpdateLogging,
+        clock: any UpdateClock,
+        isDevLikeBundle: Bool = false,
+        infoFeedURLProvider: @escaping () -> String? = {
+            Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        }
+    ) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.infoFeedURLProvider = infoFeedURLProvider
         self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
@@ -298,8 +308,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     // MARK: - Feed URL tracking
 
+    /// Returns the last feed URL reported through Sparkle, or resolves the build-time feed URL
+    /// without logging or registering test URL protocols when no delegate callback has run yet.
     func resolvedFeedURLString() -> String? {
-        lastFeedURLString
+        if let lastFeedURLString {
+            return lastFeedURLString
+        }
+        return UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).url
     }
 
     func recordFeedURLString(_ feedURLString: String, usedFallback: Bool) {

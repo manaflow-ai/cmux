@@ -156,6 +156,33 @@ import Testing
         #expect(sparkleNightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos.dmg"))
     }
 
+    /// The watchdog can fire before Sparkle asks its delegate for a feed URL; in that passive path
+    /// the driver still needs to recover the build's appcast channel so NIGHTLY installs offer the
+    /// nightly DMG instead of downgrading to stable.
+    @Test func unresolvedDelegateFeedStillRoutesWatchdogRecoveryToNightly() throws {
+        let nightlyFeed = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+        let driver = UpdateDriver(
+            model: UpdateStateModel(),
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false,
+            infoFeedURLProvider: { nightlyFeed }
+        )
+
+        #expect(driver.resolvedFeedURLString() == nightlyFeed)
+
+        let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
+        let recoveryURL = try #require(UpdateManualDownloadRecovery().url(
+            for: didNotStart,
+            feedURLString: driver.resolvedFeedURLString()
+        ))
+        #expect(recoveryURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg")
+
+        let recordedFeed = "https://example.com/other/appcast.xml"
+        driver.recordFeedURLString(recordedFeed, usedFallback: false)
+        #expect(driver.resolvedFeedURLString() == recordedFeed)
+    }
+
     /// An unrecognized cmux.update code renders the generic failure title instead of silently
     /// masquerading as "Updater Not Ready".
     @Test func unknownCmuxUpdateCodeFallsBackToGenericTitle() {
