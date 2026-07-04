@@ -132,6 +132,13 @@ struct SettingsSearchIndexTests {
             "setting:app:canvas-snapping",
             "setting:keyboardShortcuts:shortcuts",
         ]),
+        ("pane border", [
+            "setting:workspaceColors:pane-divider",
+            "setting:workspaceColors:focused-pane-border",
+        ]),
+        ("activePaneBorderColor", [
+            "setting:workspaceColors:focused-pane-border",
+        ]),
     ])
     func fuzzyKeywordQueriesSurfaceRelatedSettings(query: String, expectedIDs: [String]) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())

@@ -245,6 +245,22 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: "Workspace Color Indicator", synonyms: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "selection", title: "Selection Highlight", synonyms: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: "Notification Badge", synonyms: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
+            .init(
+                section: .workspaceColors,
+                id: "pane-divider",
+                title: String(localized: "settings.workspaceColors.paneBorderColor", defaultValue: "Pane Divider"),
+                detailText: String(localized: "settings.workspaceColors.paneBorderColor.subtitle", defaultValue: "Color of the divider between split workspace panes."),
+                paths: ["paneBorderColor"],
+                synonyms: "paneBorderColor pane border divider split workspace color chrome boundary"
+            ),
+            .init(
+                section: .workspaceColors,
+                id: "focused-pane-border",
+                title: String(localized: "settings.workspaceColors.activePaneBorderColor", defaultValue: "Focused Pane Border"),
+                detailText: String(localized: "settings.workspaceColors.activePaneBorderColor.subtitle", defaultValue: "Color drawn around the focused pane in split workspaces. Default keeps the focused border off."),
+                paths: ["activePaneBorderColor"],
+                synonyms: "activePaneBorderColor active focused focus pane border split workspace color chrome outline"
+            ),
             .init(section: .workspaceColors, id: "palette", title: "Reset Palette", synonyms: "reset palette named colors restore built-in custom remove default"),
 
             // cmux.json

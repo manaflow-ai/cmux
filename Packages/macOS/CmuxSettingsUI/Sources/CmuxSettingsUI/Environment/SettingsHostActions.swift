@@ -163,11 +163,21 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// Runs host-owned live-refresh side effects after pane chrome settings change.
+    ///
+    /// The package persists `paneBorderColor` and `activePaneBorderColor`; the
+    /// host app owns notifying open workspace and dock views to redraw pane
+    /// dividers and focused-pane borders.
+    func paneChromeSettingsDidChange()
 }
 
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for hosts with no live pane chrome.
+    func paneChromeSettingsDidChange() {}
 
     func openMobilePairingWindow() {}
 
