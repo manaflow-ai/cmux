@@ -55,12 +55,11 @@ final class SharedLiveAgentIndex: ObservableObject {
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
-        guard hasFreshForkAvailabilityProbe else {
+        guard forkAvailabilityProbeCompletedAt != nil else {
             requestForkAvailabilityRefresh()
             return nil
         }
         requestForkAvailabilityRefresh()
-        guard forkAvailabilityRefreshTask == nil else { return nil }
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
@@ -72,7 +71,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     func scheduleRefreshIfStale() {
         ensureWatchingHookStoreDirectory()
-        guard refreshTask == nil else { return }
+        guard refreshTask == nil, forkAvailabilityRefreshTask == nil else { return }
         if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.cacheTTL {
             return
         }
@@ -97,6 +96,10 @@ final class SharedLiveAgentIndex: ObservableObject {
                 self.forkAvailabilityProbeCompletedAt = Date()
             }
             self.forkAvailabilityRefreshTask = nil
+            if self.changePending {
+                self.changePending = false
+                self.handleHookStoreChange()
+            }
         }
     }
 
@@ -154,7 +157,7 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 
     private func handleHookStoreChange() {
-        if refreshTask != nil {
+        if refreshTask != nil || forkAvailabilityRefreshTask != nil {
             changePending = true
             return
         }
@@ -195,7 +198,7 @@ final class SharedLiveAgentIndex: ObservableObject {
         directoryWatchSource = source
         if index == nil, refreshTask == nil {
             startReload()
-        } else if refreshTask != nil {
+        } else if refreshTask != nil || forkAvailabilityRefreshTask != nil {
             changePending = true
         }
     }
