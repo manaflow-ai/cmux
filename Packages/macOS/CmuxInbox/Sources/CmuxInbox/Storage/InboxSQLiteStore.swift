@@ -14,10 +14,19 @@ public actor InboxSQLiteStore {
         let url = databaseURL ?? Self.defaultDatabaseURL()
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
         database = try InboxDatabase(path: url.path)
         try Self.migrate(database)
+        // The store holds normalized message bodies; keep the database and its
+        // WAL/SHM siblings owner-only regardless of the process umask.
+        for suffix in ["", "-wal", "-shm"] {
+            let path = url.path + suffix
+            if FileManager.default.fileExists(atPath: path) {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+            }
+        }
     }
 
     deinit {

@@ -94,20 +94,42 @@ public actor SlackConnector: InboxConnector {
         )
         for channelID in window {
             let channelFloor = cursors[channelID] ?? legacyFloor
-            let response = try await httpClient.data(for: Self.conversationsHistoryRequest(
-                token: token,
-                channelID: channelID,
-                cursor: channelFloor
-            ))
-            if let status = statusOverride(from: response) {
-                return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
+            // History pages arrive newest-first; the floor..now interval must
+            // fully drain (following response_metadata.next_cursor) before the
+            // watermark can advance, or the skipped pages become permanent
+            // gaps. Pages per channel per pass stay bounded; an undrained
+            // interval keeps its floor and continues on the next pass.
+            var channelLatestTS: String?
+            var pageCursor: String?
+            var drained = false
+            for _ in 0..<Self.historyPagesPerChannel {
+                let response = try await httpClient.data(for: Self.conversationsHistoryRequest(
+                    token: token,
+                    channelID: channelID,
+                    cursor: channelFloor,
+                    pageCursor: pageCursor
+                ))
+                if let status = statusOverride(from: response) {
+                    return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
+                }
+                let parsed = try parseHistory(data: response.data, channelID: channelID, channelName: channelNames[channelID])
+                threads.append(contentsOf: parsed.threads)
+                items.append(contentsOf: parsed.items)
+                if let latestTS = parsed.latestTS,
+                   (Double(latestTS) ?? 0) > (Double(channelLatestTS ?? channelFloor ?? "") ?? 0) {
+                    channelLatestTS = latestTS
+                }
+                guard let nextPage = parsed.nextPageCursor else {
+                    drained = true
+                    break
+                }
+                pageCursor = nextPage
             }
-            let parsed = try parseHistory(data: response.data, channelID: channelID, channelName: channelNames[channelID])
-            threads.append(contentsOf: parsed.threads)
-            items.append(contentsOf: parsed.items)
-            if let latestTS = parsed.latestTS, (Double(latestTS) ?? 0) > (Double(channelFloor ?? "") ?? 0) {
-                cursors[channelID] = latestTS
+            if drained, let channelLatestTS {
+                cursors[channelID] = channelLatestTS
             } else {
+                // Empty interval, or not fully drained: keep the floor so the
+                // next pass resumes; dedupe absorbs any re-fetched page.
                 cursors[channelID] = channelFloor ?? "0"
             }
         }
@@ -160,6 +182,9 @@ public actor SlackConnector: InboxConnector {
     public static let rotationKey = "__rotation"
     /// Max history fetches per sync pass, sized for Slack's per-minute limits.
     public static let historyFetchesPerSync = 10
+    /// Max pagination pages drained per channel per pass before deferring the
+    /// rest of the interval to the next pass.
+    public static let historyPagesPerChannel = 5
     private static let discoveryPageLimit = 3
 
     public struct DiscoveredConversation: Equatable, Sendable {
@@ -256,10 +281,11 @@ public actor SlackConnector: InboxConnector {
     /// Builds the Web API history request. The cursor is this channel's
     /// message-timestamp high-watermark passed as `oldest` so each sync
     /// fetches only messages newer than the last one already ingested.
-    public static func conversationsHistoryRequest(token: String, channelID: String, cursor: String?) -> URLRequest {
+    public static func conversationsHistoryRequest(token: String, channelID: String, cursor: String?, pageCursor: String? = nil) -> URLRequest {
         var components = URLComponents(string: "https://slack.com/api/conversations.history")!
         var query = [URLQueryItem(name: "channel", value: channelID), URLQueryItem(name: "limit", value: "100")]
         if let cursor { query.append(URLQueryItem(name: "oldest", value: cursor)) }
+        if let pageCursor, !pageCursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: pageCursor)) }
         components.queryItems = query
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -307,13 +333,17 @@ public actor SlackConnector: InboxConnector {
         )
     }
 
-    private func parseHistory(data: Data, channelID: String, channelName: String? = nil) throws -> (threads: [InboxThread], items: [InboxItem], latestTS: String?) {
+    private func parseHistory(data: Data, channelID: String, channelName: String? = nil) throws -> (threads: [InboxThread], items: [InboxItem], latestTS: String?, nextPageCursor: String?) {
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard (object["ok"] as? Bool) != false else {
             throw InboxError.connectorUnavailable((object["error"] as? String) ?? "Slack API error")
         }
         let messages = (object["messages"] as? [[String: Any]]) ?? []
         let latestTS = messages.compactMap { $0["ts"] as? String }.max { (Double($0) ?? 0) < (Double($1) ?? 0) }
+        let hasMore = (object["has_more"] as? Bool) == true
+        let nextPageCursor = hasMore
+            ? ((object["response_metadata"] as? [String: Any])?["next_cursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            : nil
         var threadsByID: [String: InboxThread] = [:]
         var items: [InboxItem] = []
         for message in messages {
@@ -347,7 +377,7 @@ public actor SlackConnector: InboxConnector {
                 isUnread: (message["unread"] as? Bool) ?? true
             ))
         }
-        return (Array(threadsByID.values), items, latestTS)
+        return (Array(threadsByID.values), items, latestTS, nextPageCursor)
     }
 
     private func statusOverride(from response: InboxHTTPResponse) -> InboxConnectorStatus? {

@@ -3,6 +3,7 @@ import CmuxInbox
 import CryptoKit
 import Foundation
 import Network
+import Security
 
 /// Runs the real Google sign-in for Gmail: loopback redirect (RFC 8252) with
 /// PKCE, browser consent, code exchange, and vault storage of a refreshable
@@ -163,7 +164,14 @@ final class GmailOAuthCoordinator {
               components.path == "/callback" else {
             return .failure(OAuthError.browserRejected)
         }
-        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        // Duplicate keys must fail cleanly, not trap: any local request (or a
+        // page redirecting the browser to the loopback port) could send
+        // /callback?state=x&state=y during sign-in.
+        var query: [String: String] = [:]
+        for item in components.queryItems ?? [] {
+            guard query[item.name] == nil else { return .failure(OAuthError.browserRejected) }
+            query[item.name] = item.value ?? ""
+        }
         guard query["state"] == expectedState else { return .failure(OAuthError.stateMismatch) }
         guard let code = query["code"], !code.isEmpty else { return .failure(OAuthError.browserRejected) }
         return .success(code)
