@@ -209,6 +209,66 @@ struct MovedPanelSidebarStatusRoutingTests {
         }
     }
 
+    @Test func panelScopedShellMetadataRoutesMovedSurfaceToCurrentWorkspace() throws {
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let panel = moved.panelID.uuidString
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_pwd Project --path=/tmp/cmux-moved-panel --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelDirectories[moved.panelID] == nil)
+            #expect(moved.destination.panelDirectories[moved.panelID] == "/tmp/cmux-moved-panel")
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_tty ttys123 --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.surfaceTTYNames[moved.panelID] == nil)
+            #expect(moved.destination.surfaceTTYNames[moved.panelID] == "ttys123")
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_shell_state running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelShellActivityStates[moved.panelID] == nil)
+            #expect(moved.destination.panelShellActivityStates[moved.panelID] == .commandRunning)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_ports 3010 3011 --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.surfaceListeningPorts[moved.panelID] == nil)
+            #expect(moved.destination.surfaceListeningPorts[moved.panelID] == [3010, 3011])
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_ports --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.surfaceListeningPorts[moved.panelID] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_pr 123 https://github.com/manaflow-ai/cmux/pull/123 --label=PR --state=open --branch=feature/moved-panel --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelPullRequests[moved.panelID] == nil)
+            #expect(moved.destination.panelPullRequests[moved.panelID]?.number == 123)
+        }
+    }
+
     private struct MovedPanelTestContext {
         let manager: TabManager
         let source: Workspace
