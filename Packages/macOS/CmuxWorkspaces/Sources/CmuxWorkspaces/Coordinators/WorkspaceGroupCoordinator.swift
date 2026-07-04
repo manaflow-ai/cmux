@@ -290,7 +290,6 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// Dissolve a group while preserving every member workspace (including its
     /// anchor). If the group has a parent folder, direct members and child folders
     /// are promoted into that parent; otherwise they become top-level rows.
-    /// Nothing is closed.
     public func ungroupWorkspaceGroup(groupId: UUID) {
         let parentGroupId = model.workspaceGroups.first(where: { $0.id == groupId })?.parentGroupId
         let movedIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
@@ -299,11 +298,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         for id in memberIds {
             model.assignGroup(workspaceId: id, groupId: parentGroupId)
         }
-        for index in model.workspaceGroups.indices where model.workspaceGroups[index].parentGroupId == groupId {
+        let childGroupIndices = model.workspaceGroups.indices.filter { model.workspaceGroups[$0].parentGroupId == groupId }
+        for index in childGroupIndices {
             model.workspaceGroups[index].parentGroupId = parentGroupId
         }
         model.workspaceGroups.removeAll { $0.id == groupId }
-        if parentGroupId != nil {
+        if parentGroupId != nil || !childGroupIndices.isEmpty {
             model.normalizeWorkspaceGroupContiguity()
         }
         host?.workspaceOrderDidChange(movedWorkspaceIds: movedIds)
