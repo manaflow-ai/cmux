@@ -757,80 +757,6 @@ class TabManager: ObservableObject {
         selectedWorkspace?.panels.values.compactMap { $0 as? TerminalPanel } ?? []
     }
 
-    var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil
-            || focusedBrowserPanel?.searchState != nil
-            || focusedFindablePanel?.isFindVisible == true
-    }
-
-    var canUseSelectionForFind: Bool {
-        selectedTerminalPanel?.hasSelection() == true
-            || focusedFindablePanel?.hasSelectionForFind == true
-    }
-
-    @discardableResult
-    func startSearch() -> Bool {
-        if let panel = selectedTerminalPanel {
-            let hadExistingSearch = panel.searchState != nil
-            panel.hostedView.preparePanelFocusIntentForActivation(.findField)
-            let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
-            let handled = startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle) { surface in
-                NotificationCenter.default.post(
-                    name: .ghosttySearchFocus,
-                    object: surface,
-                    userInfo: [FindFocusNotificationKey.selectAll: !hadExistingSearch && !recoveredNeedle.isEmpty]
-                )
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-                "panel=\(panel.id.uuidString.prefix(5)) existing=\(hadExistingSearch ? "yes" : "no") " +
-                "handled=\(handled ? 1 : 0) " +
-                "firstResponder=\(String(describing: panel.surface.uiWindow?.firstResponder))"
-            )
-#endif
-            return handled
-        }
-        return startFindInFocusedNonTerminalPanel()
-    }
-
-    func searchSelection() {
-        if let panel = selectedTerminalPanel {
-            if panel.searchState == nil {
-                panel.searchState = TerminalSurface.SearchState()
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
-                "panel=\(panel.id.uuidString.prefix(5))"
-            )
-#endif
-            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-            _ = panel.performBindingAction("search_selection")
-            return
-        }
-
-        focusedFindablePanel?.useSelectionForFind()
-    }
-
-    func findNext() {
-        if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:next")
-            return
-        }
-
-        findNextInFocusedNonTerminalPanel()
-    }
-
-    func findPrevious() {
-        if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:previous")
-            return
-        }
-
-        findPreviousInFocusedNonTerminalPanel()
-    }
-
     @discardableResult
     func toggleFocusedTerminalCopyMode() -> Bool {
         guard let panel = selectedTerminalPanel else { return false }
@@ -919,15 +845,6 @@ class TabManager: ObservableObject {
         for panel in selectedWorkspaceTerminalPanels {
             panel.clearTextBoxHideEscapeArm()
         }
-    }
-
-    func hideFind() {
-        if let panel = selectedTerminalPanel {
-            panel.searchState = nil
-            return
-        }
-
-        hideFindInFocusedNonTerminalPanel()
     }
 
     func makeWorkspaceForCreation(
@@ -6126,7 +6043,91 @@ extension Workspace: WorkspaceTabRepresenting {}
 
 // MARK: - Find routing for non-terminal panels
 
+@MainActor
 extension TabManager {
+    var isFindVisible: Bool {
+        selectedTerminalPanel?.searchState != nil
+            || focusedBrowserPanel?.searchState != nil
+            || focusedFindablePanel?.isFindVisible == true
+    }
+
+    var canUseSelectionForFind: Bool {
+        selectedTerminalPanel?.hasSelection() == true
+            || focusedFindablePanel?.hasSelectionForFind == true
+    }
+
+    @discardableResult
+    func startSearch() -> Bool {
+        if let panel = selectedTerminalPanel {
+            let hadExistingSearch = panel.searchState != nil
+            panel.hostedView.preparePanelFocusIntentForActivation(.findField)
+            let recoveredNeedle = hadExistingSearch ? "" : panel.surface.lastSearchNeedle
+            let handled = startOrFocusTerminalSearch(panel.surface, initialNeedle: recoveredNeedle) { surface in
+                NotificationCenter.default.post(
+                    name: .ghosttySearchFocus,
+                    object: surface,
+                    userInfo: [FindFocusNotificationKey.selectAll: !hadExistingSearch && !recoveredNeedle.isEmpty]
+                )
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5)) existing=\(hadExistingSearch ? "yes" : "no") " +
+                "handled=\(handled ? 1 : 0) " +
+                "firstResponder=\(String(describing: panel.surface.uiWindow?.firstResponder))"
+            )
+#endif
+            return handled
+        }
+        return startFindInFocusedNonTerminalPanel()
+    }
+
+    func searchSelection() {
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panel.id.uuidString.prefix(5))"
+            )
+#endif
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return
+        }
+
+        focusedFindablePanel?.useSelectionForFind()
+    }
+
+    func findNext() {
+        if let panel = selectedTerminalPanel {
+            _ = panel.performBindingAction("search:next")
+            return
+        }
+
+        findNextInFocusedNonTerminalPanel()
+    }
+
+    func findPrevious() {
+        if let panel = selectedTerminalPanel {
+            _ = panel.performBindingAction("search:previous")
+            return
+        }
+
+        findPreviousInFocusedNonTerminalPanel()
+    }
+
+    func hideFind() {
+        if let panel = selectedTerminalPanel {
+            panel.searchState = nil
+            return
+        }
+
+        hideFindInFocusedNonTerminalPanel()
+    }
+
     /// The focused panel if it participates in global find commands.
     var focusedFindablePanel: FindablePanel? {
         guard let tab = selectedWorkspace,
