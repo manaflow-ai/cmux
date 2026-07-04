@@ -13628,7 +13628,11 @@ class TerminalController {
         if let error = mobileTerminalAliasValidationError(params: params) {
             return error
         }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: params,
+            requireTerminal: true,
+            materializeLazyTerminal: false
+        ),
               let surfaceId = resolved.surfaceId,
               resolved.workspace.terminalPanel(for: surfaceId) != nil else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
@@ -14238,7 +14242,8 @@ class TerminalController {
 
     func mobileResolveWorkspaceAndSurface(
         params: [String: Any],
-        requireTerminal: Bool
+        requireTerminal: Bool,
+        materializeLazyTerminal: Bool = true
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID?)? {
         guard let tabManager = v2ResolveTabManager(params: params),
               let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -14271,6 +14276,7 @@ class TerminalController {
         // headlessly so attaching alone loads it. Idempotent and a no-op once
         // the surface exists.
         if requireTerminal,
+           materializeLazyTerminal,
            let surfaceId,
            let panel = workspace.terminalPanel(for: surfaceId) {
             panel.surface.requestBackgroundSurfaceStartIfNeeded()

@@ -1764,6 +1764,65 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 }
 
+@MainActor
+@Suite struct MobileTerminalCloseLazyStartupTests {
+    @Test func closeLazyTerminalDoesNotRequestBackgroundStart() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let createResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-create",
+                method: "terminal.create",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = createResponse,
+              let payload = rawPayload as? [String: Any],
+              let terminalID = payload["created_terminal_id"] as? String,
+              let terminalUUID = UUID(uuidString: terminalID) else {
+            Issue.record("Expected mobile terminal.create to return the created terminal ID")
+            return
+        }
+        let terminalPanel = try #require(workspace.terminalPanel(for: terminalUUID))
+        defer {
+            terminalPanel.surface.teardownSurface()
+        }
+
+        #expect(!terminalPanel.surface.debugBackgroundSurfaceStartQueuedForTesting())
+        #expect(terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+
+        let closeResponse = TerminalController.shared.v2MobileTerminalClose(params: [
+            "workspace_id": workspace.id.uuidString,
+            "terminal_id": terminalUUID.uuidString,
+        ])
+
+        guard case let .ok(rawClosePayload) = closeResponse,
+              let closePayload = rawClosePayload as? [String: Any] else {
+            Issue.record("Expected mobile terminal.close to close the terminal")
+            return
+        }
+
+        #expect(closePayload["closed"] as? Bool == true)
+        #expect(workspace.terminalPanel(for: terminalUUID) == nil)
+        #expect(
+            !terminalPanel.surface.debugBackgroundSurfaceStartQueuedForTesting(),
+            "Closing a lazy terminal must not enqueue a background start first."
+        )
+        #expect(
+            terminalPanel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0,
+            "Closing a lazy terminal must not create its runtime surface first."
+        )
+    }
+}
+
 final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     func testCopyModeBypassAllowsOnlyCommandShortcuts() {
         XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command]))

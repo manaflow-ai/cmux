@@ -23,6 +23,7 @@ struct TerminalPickerSheet: View {
     let openFeedbackComposer: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @State private var terminalPendingCloseID: MobileTerminalPreview.ID?
 
     var body: some View {
         NavigationStack {
@@ -42,6 +43,22 @@ struct TerminalPickerSheet: View {
                     .accessibilityIdentifier("MobileTerminalPickerDoneButton")
                 }
             }
+        }
+        .confirmationDialog(
+            L10n.string("mobile.terminal.delete.confirmTitle", defaultValue: "Delete Terminal?"),
+            isPresented: terminalCloseConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("mobile.common.delete", defaultValue: "Delete"), role: .destructive) {
+                confirmTerminalClose()
+            }
+            .accessibilityIdentifier("MobileTerminalDeleteConfirmButton")
+
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                terminalPendingCloseID = nil
+            }
+        } message: {
+            Text(L10n.string("mobile.terminal.delete.confirmMessage", defaultValue: "This will close the terminal on your Mac."))
         }
     }
 
@@ -63,7 +80,7 @@ struct TerminalPickerSheet: View {
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     if canDeleteTerminalRows {
                         Button(role: .destructive) {
-                            closeTerminal(terminal.id)
+                            terminalPendingCloseID = terminal.id
                         } label: {
                             Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
                         }
@@ -199,6 +216,23 @@ struct TerminalPickerSheet: View {
         #else
         return false
         #endif
+    }
+
+    private var terminalCloseConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { terminalPendingCloseID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    terminalPendingCloseID = nil
+                }
+            }
+        )
+    }
+
+    private func confirmTerminalClose() {
+        guard let terminalID = terminalPendingCloseID else { return }
+        terminalPendingCloseID = nil
+        closeTerminal(terminalID)
     }
 
     private var readStateActionTitle: String {

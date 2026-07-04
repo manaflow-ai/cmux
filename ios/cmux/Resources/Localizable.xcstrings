@@ -6155,6 +6155,40 @@
         }
       }
     },
+    "mobile.terminal.delete.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close the terminal on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上のターミナルを閉じます。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.delete.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Terminal?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを削除しますか？"
+          }
+        }
+      }
+    },
     "mobile.terminal.select": {
       "extractionState": "manual",
       "localizations": {
