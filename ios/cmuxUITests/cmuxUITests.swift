@@ -29,13 +29,12 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testAddDeviceManualHostValidationUsesStableIdentifiers() throws {
         let invalidHostApp = launchAddDeviceApp(environment: [
-            "CMUX_UITEST_ADD_DEVICE_HOST": "dev/path.local"
+            "CMUX_UITEST_ADD_DEVICE_ADDRESS": "dev/path.local"
         ])
 
         XCTAssertTrue(invalidHostApp.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
         XCTAssertTrue(invalidHostApp.textFields["MobileAddDeviceNameField"].exists)
-        XCTAssertTrue(invalidHostApp.textFields["MobileAddDeviceHostField"].exists)
-        XCTAssertTrue(invalidHostApp.textFields["MobileAddDevicePortField"].exists)
+        XCTAssertTrue(invalidHostApp.textFields["MobileAddDeviceAddressField"].exists)
         XCTAssertTrue(invalidHostApp.staticTexts["MobileAddDeviceSignedInAccount"].exists)
         XCTAssertTrue(invalidHostApp.staticTexts["MobileAddDeviceSignedInAccount"].label.contains("uitest@cmux.local"))
         XCTAssertTrue(invalidHostApp.buttons["MobileScanQRCodeButton"].exists)
@@ -49,8 +48,7 @@ final class cmuxUITests: XCTestCase {
         invalidHostApp.terminate()
 
         let invalidPortApp = launchAddDeviceApp(environment: [
-            "CMUX_UITEST_ADD_DEVICE_HOST": "127.0.0.1",
-            "CMUX_UITEST_ADD_DEVICE_PORT": "70000",
+            "CMUX_UITEST_ADD_DEVICE_ADDRESS": "127.0.0.1:70000",
         ])
         defer { invalidPortApp.terminate() }
         let invalidPortPairButton = invalidPortApp.buttons["MobilePairButton"]
@@ -1727,14 +1725,14 @@ final class cmuxUITests: XCTestCase {
     func testAddDevicePairButtonStaysVisibleWhenKeyboardOpens() throws {
         let app = launchAddDeviceApp()
 
-        let hostField = app.textFields["MobileAddDeviceHostField"]
-        XCTAssertTrue(hostField.waitForExistence(timeout: 4))
+        let addressField = app.textFields["MobileAddDeviceAddressField"]
+        XCTAssertTrue(addressField.waitForExistence(timeout: 4))
         let pairButton = app.buttons["MobilePairButton"]
         XCTAssertTrue(pairButton.waitForExistence(timeout: 4))
 
-        hostField.tap()
+        addressField.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4),
-                      "Tapping the host field should bring up the keyboard")
+                      "Tapping the address field should bring up the keyboard")
 
         // The pair button stays in the hierarchy when the keyboard is up,
         // proving the .safeAreaInset placement survives keyboard avoidance.

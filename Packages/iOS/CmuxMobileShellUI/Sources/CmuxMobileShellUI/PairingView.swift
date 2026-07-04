@@ -28,8 +28,7 @@ struct PairingView: View {
     @State private var isShowingScanner = false
     @State private var deviceName = UITestConfig.addDeviceName
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
-    @State private var host = UITestConfig.addDeviceHost ?? ""
-    @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
+    @State private var address = UITestConfig.addDeviceAddress ?? ""
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
@@ -61,26 +60,17 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileAddDeviceNameField")
 
                     TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "your-mac.tailnet.ts.net"),
-                        text: $host
+                        L10n.string("mobile.addDevice.addressPlaceholder", defaultValue: "your-mac.tailnet.ts.net:58465"),
+                        text: $address
                     )
-                    .focused($focusedField, equals: .host)
-                    .submitLabel(.next)
-                    .addDeviceInputBehavior(.url)
-                    .accessibilityIdentifier("MobileAddDeviceHostField")
-
-                    TextField(
-                        L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "58465"),
-                        text: $port
-                    )
-                    .focused($focusedField, equals: .port)
+                    .focused($focusedField, equals: .address)
                     .submitLabel(.done)
-                    .addDeviceInputBehavior(.number)
-                    .accessibilityIdentifier("MobileAddDevicePortField")
+                    .addDeviceInputBehavior(.url)
+                    .accessibilityIdentifier("MobileAddDeviceAddressField")
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."))
+                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Paste the address from the Mac's pairing window (Copy Address). The port is optional. QR/link pairing from that computer is still the safest setup path."))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG
@@ -211,7 +201,7 @@ struct PairingView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.blue)
-                .disabled(isPairing || host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isPairing || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("MobilePairButton")
                 .padding(.horizontal)
                 .padding(.bottom, 8)
@@ -277,10 +267,11 @@ struct PairingView: View {
     }
 
     private var manualRouteWarningText: String? {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedHost.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
-              MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAddress.isEmpty,
+              !CmxPairingURLScheme.hasPairingScheme(trimmedAddress),
+              let entry = CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort),
+              MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(entry.host) else {
             return nil
         }
         return L10n.string(
@@ -312,30 +303,31 @@ struct PairingView: View {
 
     private func pair() {
         validationError = nil
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedHost.isEmpty else {
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAddress.isEmpty else {
             validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
-        if CmxPairingURLScheme.hasPairingScheme(trimmedHost) {
-            pairingCode = trimmedHost
+        if CmxPairingURLScheme.hasPairingScheme(trimmedAddress) {
+            pairingCode = trimmedAddress
             startPairingTask {
                 await connectPairingCode()
             }
             return
         }
-        guard MobileShellRouteAuthPolicy.normalizedManualHost(trimmedHost) != nil else {
-            validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
+        guard let entry = CmxManualPairingEntry.parse(trimmedAddress, defaultPort: CmxMobileDefaults.defaultHostPort) else {
+            // The only parse failures are a bad port suffix or malformed
+            // brackets; a bare host always parses with the default port.
+            validationError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             return
         }
-        guard let parsedPort = Int(port.trimmingCharacters(in: .whitespacesAndNewlines)),
-              (1...65535).contains(parsedPort) else {
-            validationError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
+        guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(entry.host) else {
+            validationError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             return
         }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort)
+            await connectManualHost(deviceName, normalizedHost, entry.port)
         }
     }
 
@@ -360,6 +352,5 @@ struct PairingView: View {
 
 private enum AddDeviceField: Hashable {
     case name
-    case host
-    case port
+    case address
 }

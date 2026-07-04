@@ -4,7 +4,8 @@ import Testing
 @testable import CMUXMobileCore
 
 /// Coverage for the manual-entry route selection behind the pairing window's
-/// "Copy IP" / "Copy Port" buttons.
+/// "Copy Address" button, and for the `host:port` display/parse round trip
+/// shared with the phone's address box.
 @Suite struct CmxManualPairingEntryTests {
     private func route(
         id: String,
@@ -68,5 +69,62 @@ import Testing
 
     @Test func emptyRoutesYieldNothing() {
         #expect(CmxManualPairingEntry.best(in: []) == nil)
+    }
+
+    @Test func displayStringJoinsHostAndPort() {
+        #expect(CmxManualPairingEntry(host: "100.64.0.5", port: 58465).displayString == "100.64.0.5:58465")
+        #expect(CmxManualPairingEntry(host: "mac.tail1234.ts.net", port: 1).displayString == "mac.tail1234.ts.net:1")
+    }
+
+    @Test func displayStringBracketsIPv6Hosts() {
+        #expect(CmxManualPairingEntry(host: "fd7a:115c:a1e0::1", port: 58465).displayString == "[fd7a:115c:a1e0::1]:58465")
+    }
+
+    @Test func parseRoundTripsDisplayString() {
+        let entries = [
+            CmxManualPairingEntry(host: "100.64.0.5", port: 58465),
+            CmxManualPairingEntry(host: "mac.tail1234.ts.net", port: 443),
+            CmxManualPairingEntry(host: "fd7a:115c:a1e0::1", port: 58465),
+        ]
+        for entry in entries {
+            #expect(CmxManualPairingEntry.parse(entry.displayString, defaultPort: 1) == entry)
+        }
+    }
+
+    @Test func parseDefaultsPortWhenAbsent() {
+        #expect(
+            CmxManualPairingEntry.parse("  100.64.0.5  ", defaultPort: 58465)
+                == CmxManualPairingEntry(host: "100.64.0.5", port: 58465)
+        )
+        #expect(
+            CmxManualPairingEntry.parse("[fd7a::1]", defaultPort: 58465)
+                == CmxManualPairingEntry(host: "fd7a::1", port: 58465)
+        )
+    }
+
+    @Test func parseTreatsBracketlessIPv6AsHostOnly() {
+        // Two or more colons can never be a host:port split, so the whole
+        // string is the host and the port falls back to the default.
+        #expect(
+            CmxManualPairingEntry.parse("fd7a:115c:a1e0::1", defaultPort: 58465)
+                == CmxManualPairingEntry(host: "fd7a:115c:a1e0::1", port: 58465)
+        )
+    }
+
+    @Test func parseRejectsBadPorts() {
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:70000", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:0", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("100.64.0.5:abc", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("[fd7a::1]:99999", defaultPort: 1) == nil)
+    }
+
+    @Test func parseRejectsMalformedShapes() {
+        #expect(CmxManualPairingEntry.parse("", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("   ", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("[fd7a::1", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("[]:58465", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse(":58465", defaultPort: 1) == nil)
+        #expect(CmxManualPairingEntry.parse("[fd7a::1]58465", defaultPort: 1) == nil)
     }
 }

@@ -19,14 +19,9 @@ public struct UITestConfig {
         value(for: "CMUX_UITEST_ADD_DEVICE_NAME")
     }
 
-    /// The host to prefill on the Add Device form, if injected.
-    public static var addDeviceHost: String? {
-        value(for: "CMUX_UITEST_ADD_DEVICE_HOST")
-    }
-
-    /// The port to prefill on the Add Device form, if injected.
-    public static var addDevicePort: String? {
-        value(for: "CMUX_UITEST_ADD_DEVICE_PORT")
+    /// The `host[:port]` address to prefill on the Add Device form, if injected.
+    public static var addDeviceAddress: String? {
+        value(for: "CMUX_UITEST_ADD_DEVICE_ADDRESS")
     }
 
     /// The attach URL to auto-open, if injected.

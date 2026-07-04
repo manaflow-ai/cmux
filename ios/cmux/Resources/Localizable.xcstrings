@@ -392,6 +392,23 @@
         }
       }
     },
+    "mobile.addDevice.addressPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your-mac.tailnet.ts.net:58465"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your-mac.tailnet.ts.net:58465"
+          }
+        }
+      }
+    },
     "mobile.addDevice.another": {
       "extractionState": "manual",
       "localizations": {
@@ -432,13 +449,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."
+            "value": "Paste the address from the Mac's pairing window (Copy Address). The port is optional. QR/link pairing from that computer is still the safest setup path."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale、LAN、またはローカルのホストとポートを入力してください。そのコンピュータからの QR/リンクでのペアリングが最も安全な設定方法です。"
+            "value": "Mac のペアリングウィンドウの「アドレスをコピー」からアドレスを貼り付けてください。ポートは省略できます。その Mac からの QR/リンクペアリングが最も安全なセットアップ方法です。"
           }
         }
       }
@@ -456,23 +473,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ホスト"
-          }
-        }
-      }
-    },
-    "mobile.addDevice.hostPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "your-mac.tailnet.ts.net"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "your-mac.tailnet.ts.net"
           }
         }
       }
@@ -609,23 +609,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート"
-          }
-        }
-      }
-    },
-    "mobile.addDevice.portPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "58465"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "58465"
           }
         }
       }

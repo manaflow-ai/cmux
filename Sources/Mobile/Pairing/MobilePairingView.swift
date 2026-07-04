@@ -275,8 +275,8 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
-        // Manual entry sits above the QR so Copy IP / Copy Port are reachable
-        // without scrolling (they used to sit below the steps, below the fold).
+        // Manual entry sits above the QR so Copy Address is reachable
+        // without scrolling (it used to sit below the steps, below the fold).
         if ready.reachableViaTailscale {
             manualFallback(ready)
         }
@@ -380,16 +380,10 @@ struct MobilePairingView: View {
                     .foregroundStyle(.secondary)
             }
             if let entry = ready.manualEntry {
-                HStack(spacing: 8) {
-                    copyButton(
-                        label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"),
-                        value: entry.host
-                    )
-                    copyButton(
-                        label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
-                        value: String(entry.port)
-                    )
-                }
+                copyButton(
+                    label: String(localized: "mobile.pairing.manual.copyAddress", defaultValue: "Copy Address"),
+                    value: entry.displayString
+                )
                 .padding(.top, 2)
             }
         }
@@ -398,8 +392,8 @@ struct MobilePairingView: View {
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    /// One of the two manual-entry copy controls. Copies `value` to the
-    /// general pasteboard and briefly swaps its label to a "Copied" check.
+    /// The manual-entry copy control. Copies `value` to the general
+    /// pasteboard and briefly swaps its label to a "Copied" check.
     private func copyButton(label: String, value: String) -> some View {
         Button {
             let pasteboard = NSPasteboard.general
