@@ -10397,18 +10397,6 @@ struct VerticalTabsSidebar: View {
         canMarkAllReadByGroupId: [UUID: Bool],
         canMarkAllUnreadByGroupId: [UUID: Bool]
     ) {
-        struct GroupAggregate {
-            var memberCount: Int = 0
-            var unreadWorkspaceCount: Int = 0
-            var unreadNotificationCount: Int = 0
-
-            mutating func add(_ other: GroupAggregate) {
-                memberCount += other.memberCount
-                unreadWorkspaceCount += other.unreadWorkspaceCount
-                unreadNotificationCount += other.unreadNotificationCount
-            }
-        }
-
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let knownGroupIds = Set(groupsById.keys)
         var childGroupIdsByParentId: [UUID: [UUID]] = [:]
@@ -10421,27 +10409,27 @@ struct VerticalTabsSidebar: View {
             childGroupIdsByParentId[parentGroupId, default: []].append(group.id)
         }
 
-        var directAggregateByGroupId: [UUID: GroupAggregate] = [:]
+        var directAggregateByGroupId: [UUID: WorkspaceGroupNotificationAggregate] = [:]
         for workspace in tabs {
             guard let groupId = workspace.groupId,
                   groupsById[groupId] != nil else { continue }
             let unreadCount = sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
-            directAggregateByGroupId[groupId, default: GroupAggregate()].memberCount += 1
-            directAggregateByGroupId[groupId, default: GroupAggregate()].unreadNotificationCount += unreadCount
+            directAggregateByGroupId[groupId, default: WorkspaceGroupNotificationAggregate()].memberCount += 1
+            directAggregateByGroupId[groupId, default: WorkspaceGroupNotificationAggregate()].unreadNotificationCount += unreadCount
             if unreadCount > 0 {
-                directAggregateByGroupId[groupId, default: GroupAggregate()].unreadWorkspaceCount += 1
+                directAggregateByGroupId[groupId, default: WorkspaceGroupNotificationAggregate()].unreadWorkspaceCount += 1
             }
         }
 
-        var subtreeAggregateByGroupId: [UUID: GroupAggregate] = [:]
-        func subtreeAggregate(for groupId: UUID, visiting: inout Set<UUID>) -> GroupAggregate {
+        var subtreeAggregateByGroupId: [UUID: WorkspaceGroupNotificationAggregate] = [:]
+        func subtreeAggregate(for groupId: UUID, visiting: inout Set<UUID>) -> WorkspaceGroupNotificationAggregate {
             if let cached = subtreeAggregateByGroupId[groupId] {
                 return cached
             }
             guard visiting.insert(groupId).inserted else {
-                return directAggregateByGroupId[groupId] ?? GroupAggregate()
+                return directAggregateByGroupId[groupId] ?? WorkspaceGroupNotificationAggregate()
             }
-            var aggregate = directAggregateByGroupId[groupId] ?? GroupAggregate()
+            var aggregate = directAggregateByGroupId[groupId] ?? WorkspaceGroupNotificationAggregate()
             for childGroupId in childGroupIdsByParentId[groupId] ?? [] {
                 aggregate.add(subtreeAggregate(for: childGroupId, visiting: &visiting))
             }

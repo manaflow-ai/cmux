@@ -3,19 +3,6 @@ import Testing
 @testable import CmuxWorkspaces
 
 @MainActor
-private final class UngroupPromotionTab: WorkspaceTabRepresenting {
-    let id = UUID()
-    var groupId: UUID?
-    var isPinned: Bool
-    let currentDirectory = "/tmp"
-
-    init(groupId: UUID?, isPinned: Bool = false) {
-        self.groupId = groupId
-        self.isPinned = isPinned
-    }
-}
-
-@MainActor
 @Suite struct WorkspaceGroupUngroupPromotionTests {
     @Test func ungroupRootNormalizesPinnedChildFolderPromotedToRoot() throws {
         let rootId = UUID()

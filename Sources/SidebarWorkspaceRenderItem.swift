@@ -90,11 +90,6 @@ enum SidebarWorkspaceRenderItem {
             return count
         }
 
-        enum ChildRow {
-            case group(WorkspaceGroup)
-            case workspace(Workspace)
-        }
-
         func normalizedRenderableParentGroupId(for groupId: UUID) -> UUID? {
             var visited: Set<UUID> = [groupId]
             var cursor = parentGroupIdByGroupId[groupId] ?? nil
@@ -108,7 +103,7 @@ enum SidebarWorkspaceRenderItem {
             return nil
         }
 
-        var childRowsByParentId: [UUID?: [ChildRow]] = [:]
+        var childRowsByParentId: [UUID?: [SidebarWorkspaceRenderChildRow]] = [:]
         for tab in tabs {
             if let anchoredGroup = anchorGroupByWorkspaceId[tab.id] {
                 childRowsByParentId[
