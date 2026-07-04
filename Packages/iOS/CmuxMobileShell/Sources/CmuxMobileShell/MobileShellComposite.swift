@@ -1043,6 +1043,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func shutdown() {
         cancelBackgroundWorkAndDisconnect()
         invalidatePairingAttempt()
+        connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
         // `shutdown()` runs from the reversible SwiftUI `onDisappear`. If SwiftUI
         // reuses this view's identity and re-appears with the same `@State` store,
         // the reconnect-on-appear gate (`MobileRootAuthGate.shouldReconnectStoredMac`)

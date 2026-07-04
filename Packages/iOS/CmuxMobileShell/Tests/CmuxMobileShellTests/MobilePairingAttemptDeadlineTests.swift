@@ -151,6 +151,7 @@ import Testing
         await transport.releaseConnects()
         let result = await pairingTask.value
         #expect(result == .superseded)
+        #expect(store.connectionState == .disconnected)
         #expect(store.pairingChecklist == .idle)
     }
 
