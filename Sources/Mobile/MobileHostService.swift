@@ -37,8 +37,8 @@ private enum MobileHostEventSubscriptionTracker {
     private static let lock = NSLock()
     // Protected by `lock`; static emitters query subscription state from nonisolated contexts.
     private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
-    // Protected by `lock`; constrained delivery matches a connection's union of subscribed streams.
-    private nonisolated(unsafe) static var connectionTopicSetCounts: [Set<String>: Int] = [:]
+    private nonisolated(unsafe) static var bytesOnlyConnectionCount = 0
+    private nonisolated(unsafe) static var hybridConnectionCount = 0
 
     static func hasSubscribers(topic: String) -> Bool {
         lock.lock()
@@ -49,17 +49,15 @@ private enum MobileHostEventSubscriptionTracker {
     static func hasSubscribers(topic: String, requiringTopics requiredTopics: Set<String>) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return connectionTopicSetCounts.contains { topics, count in
-            count > 0 && topics.contains(topic) && requiredTopics.isSubset(of: topics)
-        }
+        guard topic == "terminal.bytes", requiredTopics == ["terminal.render_grid"] else { return false }
+        return hybridConnectionCount > 0
     }
 
     static func hasSubscribers(topic: String, excludingTopics excludedTopics: Set<String>) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return connectionTopicSetCounts.contains { topics, count in
-            count > 0 && topics.contains(topic) && topics.isDisjoint(with: excludedTopics)
-        }
+        guard topic == "terminal.bytes", excludedTopics == ["terminal.render_grid"] else { return false }
+        return bytesOnlyConnectionCount > 0
     }
 
     static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
@@ -125,36 +123,25 @@ private enum MobileHostEventSubscriptionTracker {
         let previousTopics = previousTopics ?? []
         let nextTopics = nextTopics ?? []
         guard previousTopics != nextTopics else { return [] }
-        updateSetCounts(
-            &connectionTopicSetCounts,
-            previousTopics: previousTopics,
-            nextTopics: nextTopics
-        )
+        adjustTerminalByteConnectionCount(topics: previousTopics, delta: -1)
+        adjustTerminalByteConnectionCount(topics: nextTopics, delta: 1)
         return previousTopics.union(nextTopics)
     }
 
-    private static func updateSetCounts(
-        _ counts: inout [Set<String>: Int],
-        previousTopics: Set<String>,
-        nextTopics: Set<String>
-    ) {
-        if !previousTopics.isEmpty {
-            let nextCount = max(0, (counts[previousTopics] ?? 0) - 1)
-            if nextCount == 0 {
-                counts.removeValue(forKey: previousTopics)
-            } else {
-                counts[previousTopics] = nextCount
-            }
-        }
-        if !nextTopics.isEmpty {
-            counts[nextTopics] = (counts[nextTopics] ?? 0) + 1
+    private static func adjustTerminalByteConnectionCount(topics: Set<String>, delta: Int) {
+        guard topics.contains("terminal.bytes") else { return }
+        if topics.contains("terminal.render_grid") {
+            hybridConnectionCount = max(0, hybridConnectionCount + delta)
+        } else {
+            bytesOnlyConnectionCount = max(0, bytesOnlyConnectionCount + delta)
         }
     }
 
     static func reset() {
         lock.lock()
         topicCounts.removeAll()
-        connectionTopicSetCounts.removeAll()
+        bytesOnlyConnectionCount = 0
+        hybridConnectionCount = 0
         lock.unlock()
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,

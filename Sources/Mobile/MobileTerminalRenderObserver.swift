@@ -271,13 +271,8 @@ final class MobileTerminalRenderObserver {
                        hasTerminalSurface(surfaceID: surfaceID) {
                         if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
                             deferredHybridByteSurfaceIDs.insert(surfaceID)
-                        } else if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
-                            orderedEvents.append((
-                                topic: "terminal.bytes",
-                                payload: payload,
-                                requiredTopics: ["terminal.render_grid"],
-                                excludedTopics: []
-                            ))
+                        } else {
+                            pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
                         }
                     } else {
                         pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
@@ -303,13 +298,8 @@ final class MobileTerminalRenderObserver {
                 if hasTerminalSurface(surfaceID: surfaceID) {
                     if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
                         deferredHybridByteSurfaceIDs.insert(surfaceID)
-                    } else if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
-                        orderedEvents.append((
-                            topic: "terminal.bytes",
-                            payload: payload,
-                            requiredTopics: ["terminal.render_grid"],
-                            excludedTopics: []
-                        ))
+                    } else {
+                        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
                     }
                 } else {
                     pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
