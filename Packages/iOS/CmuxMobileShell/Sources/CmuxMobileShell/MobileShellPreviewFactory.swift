@@ -1,4 +1,4 @@
-public import CMUXMobileCore
+public import CmuxMobileRPC
 public import CmuxMobileShellModel
 
 /// Builds preview and test shell stores with explicit preview-only dependencies.

@@ -65,6 +65,16 @@ import Testing
         #expect(pick?.0 == "127.0.0.1")
     }
 
+    @Test func physicalManualHostEntryDoesNotTrustLoopbackAlias() throws {
+        let route = try MobileShellRouteSelection().manualHostRoute(
+            host: "127.1",
+            port: 50906,
+            isPhysicalDevice: true
+        )
+        #expect(route.kind == .manualHost)
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(route))
+    }
+
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
         // A MagicDNS hostname route, advertised BEFORE the IP route by priority.
         try CmxAttachRoute(

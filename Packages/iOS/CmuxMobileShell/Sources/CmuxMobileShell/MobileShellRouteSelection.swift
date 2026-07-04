@@ -104,8 +104,15 @@ struct MobileShellRouteSelection: Sendable {
         #endif
     }
 
-    func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
-        let routeKind = routeAuthPolicy.manualRouteKind(for: host)
+    func manualHostRoute(
+        host: String,
+        port: Int,
+        isPhysicalDevice: Bool? = nil
+    ) throws -> CmxAttachRoute {
+        let routeKind = routeAuthPolicy.manualRouteKind(
+            for: host,
+            allowsDebugLoopback: !(isPhysicalDevice ?? self.isPhysicalDevice)
+        )
         return try CmxAttachRoute(
             id: routeKind.rawValue,
             kind: routeKind,

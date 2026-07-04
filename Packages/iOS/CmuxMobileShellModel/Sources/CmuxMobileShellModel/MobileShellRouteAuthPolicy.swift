@@ -41,14 +41,21 @@ public struct MobileShellRouteAuthPolicy: Sendable {
     }
 
     /// Maps a manually typed host to the transport kind that should be used.
-    /// - Parameter host: The host to classify.
-    /// - Returns: `.debugLoopback` for loopback hosts, `.tailscale` for
+    /// - Parameters:
+    ///   - host: The host to classify.
+    ///   - allowsDebugLoopback: Whether loopback aliases should become
+    ///     `.debugLoopback`. Keep this `false` for physical-device manual entry:
+    ///     loopback dials the phone itself there, not the Mac.
+    /// - Returns: `.debugLoopback` for allowed loopback hosts, `.tailscale` for
     ///   Tailscale IP/MagicDNS hosts, otherwise `.manualHost`.
-    public func manualRouteKind(for host: String) -> CmxAttachTransportKind {
+    public func manualRouteKind(
+        for host: String,
+        allowsDebugLoopback: Bool = true
+    ) -> CmxAttachTransportKind {
         let normalizedHost = (normalizedManualRouteHost(host) ?? host)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        if isLoopbackHost(normalizedHost) {
+        if allowsDebugLoopback, isLoopbackHost(normalizedHost) {
             return .debugLoopback
         }
         if isTailscaleHost(normalizedHost) {
@@ -161,13 +168,19 @@ public struct MobileShellRouteAuthPolicy: Sendable {
     }
 
     /// Whether a manual host should warn the user that it is neither loopback nor Tailscale.
-    /// - Parameter host: The manually typed host.
+    /// - Parameters:
+    ///   - host: The manually typed host.
+    ///   - allowsDebugLoopback: Whether loopback aliases are trusted debug hosts
+    ///     for this caller.
     /// - Returns: `true` when the host is valid but outside the loopback/Tailscale trust set.
-    public func manualHostNeedsTrustWarning(_ host: String) -> Bool {
+    public func manualHostNeedsTrustWarning(
+        _ host: String,
+        allowsDebugLoopback: Bool = true
+    ) -> Bool {
         guard normalizedManualNetworkHost(host) != nil else {
             return false
         }
-        return manualRouteKind(for: host) == .manualHost
+        return manualRouteKind(for: host, allowsDebugLoopback: allowsDebugLoopback) == .manualHost
     }
 
     private func normalizedManualNetworkHost(_ host: String) -> String? {
