@@ -120,28 +120,64 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
-        if backButtonConfiguration != nil {
-            ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
-                workspaceBackToolbarButton
-            }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-            }
+        ToolbarItem(id: "workspace-toolbar", placement: .principal) {
+            workspaceToolbarContainer
         }
-        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
+    }
+
+    @ViewBuilder
+    private var workspaceToolbarContainer: some View {
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer {
+                workspaceToolbarLayout
+            }
+        } else {
+            workspaceToolbarLayout
+        }
+    }
+
+    private var workspaceToolbarLayout: some View {
+        HStack(spacing: workspaceToolbarIslandSpacing) {
+            if backButtonConfiguration != nil {
+                workspaceBackToolbarIsland
+            }
+
             workspaceTitleToolbarMenu
+                .layoutPriority(0)
+
+            Spacer(minLength: 0)
+
+            workspaceTrailingToolbarIsland
+                .layoutPriority(1)
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+        .frame(width: workspaceToolbarWidth, alignment: .leading)
+    }
+
+    private var workspaceBackToolbarIsland: some View {
+        workspaceBackToolbarButton
+            .mobileGlassCircle()
+            .layoutPriority(1)
+    }
+
+    @ViewBuilder
+    private var workspaceTrailingToolbarIsland: some View {
+        if #available(iOS 26.0, *) {
+            toolbarTrailingCluster
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        } else {
             toolbarTrailingCluster
         }
     }
 
+    private var workspaceToolbarWidth: CGFloat? {
+        contentWidth > 0 ? contentWidth : nil
+    }
+
+    private var workspaceToolbarIslandSpacing: CGFloat { 10 }
+
     private var workspaceTitleToolbarMenu: some View {
         WorkspaceTitleMenu(
-            contentWidth: contentWidth,
-            hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {

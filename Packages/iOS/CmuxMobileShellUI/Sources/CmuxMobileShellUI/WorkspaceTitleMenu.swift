@@ -1,10 +1,7 @@
+import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
-    let contentWidth: CGFloat
-    let hasBackButton: Bool
-    let hasTrailingCluster: Bool
-    let hasChatToggle: Bool
     var isEnabled = true
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
@@ -15,32 +12,23 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
             Menu {
                 menuContent()
             } label: {
-                fittedLabel
+                menuLabel
             }
+            .mobileGlassCompactToolbarControl()
             .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         } else {
             Button {} label: {
-                fittedLabel
+                menuLabel
             }
+            .mobileGlassCompactToolbarControl()
             .allowsHitTesting(false)
             .accessibilityRemoveTraits(.isButton)
             .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         }
     }
 
-    private var fittedLabel: some View {
-        let cap = MobileLeadingToolbarTitleWidth(
-            contentWidth: contentWidth,
-            hasBackButton: hasBackButton,
-            hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
-        ).cap
-
-        return label()
-            .frame(
-                minWidth: min(MobileLeadingToolbarTitleWidth.floor, cap),
-                maxWidth: cap,
-                alignment: .leading
-            )
+    private var menuLabel: some View {
+        label()
+            .frame(minWidth: 0, alignment: .leading)
     }
 }

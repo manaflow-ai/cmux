@@ -14,7 +14,6 @@ struct AgentChatDemoScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
-    @State private var contentWidth: CGFloat = 0
 
     init(style: AgentChatDemoScreenStyle = .standalone) {
         self.style = style
@@ -60,7 +59,6 @@ struct AgentChatDemoScreen: View {
                 }
         case .inlineWorkspace:
             baseChatScreen(for: stack)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         WorkspaceBackButton(
@@ -70,12 +68,7 @@ struct AgentChatDemoScreen: View {
                         )
                     }
                     ToolbarItem(placement: .principal) {
-                        WorkspaceTitleMenu(
-                            contentWidth: contentWidth,
-                            hasBackButton: true,
-                            hasTrailingCluster: true,
-                            hasChatToggle: true
-                        ) {
+                        WorkspaceTitleMenu {
                             Button(L10n.string("mobile.workspace.rename.title", defaultValue: "Rename Workspace")) {}
                                 .accessibilityIdentifier("MobileWorkspaceTitleRenameMenuItem")
                             Button(L10n.string("mobile.workspace.markRead", defaultValue: "Mark as Read")) {}
