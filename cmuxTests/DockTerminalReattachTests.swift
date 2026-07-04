@@ -50,6 +50,7 @@ extension DockSocketLifecycleTests {
         restorableAgentResumeState: Workspace.RestoredAgentResumeState? = nil,
         restoredResumeSessionWorkingDirectory: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
+        resumeBindingHistory: [SurfaceResumeBindingSnapshot] = [],
         agentRuntime: Workspace.DetachedAgentRuntimeState? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
@@ -74,6 +75,7 @@ extension DockSocketLifecycleTests {
             restorableAgentResumeState: restorableAgentResumeState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            resumeBindingHistory: resumeBindingHistory,
             agentRuntime: agentRuntime,
             isRemoteTerminal: false,
             remoteRelayPort: nil,

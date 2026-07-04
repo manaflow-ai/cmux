@@ -135,6 +135,25 @@ final class DockSplitStore: BonsplitDelegate {
         panels[panelId] as? BrowserPanel
     }
 
+    /// The active resume binding carried for a Dock terminal (set when a surface
+    /// with a binding is transferred in). Mirrors `Workspace.surfaceResumeBinding`.
+    func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        guard let resumeBinding = detachedSurfaceTransfersByPanelId[panelId]?.resumeBinding,
+              !resumeBinding.isProcessDetected else {
+            return nil
+        }
+        return resumeBinding
+    }
+
+    /// Newest-first recoverable resume history for a Dock terminal, including the
+    /// active binding. Mirrors `Workspace.surfaceResumeBindingHistory`.
+    func surfaceResumeBindingHistory(panelId: UUID) -> [SurfaceResumeBindingSnapshot] {
+        guard let detached = detachedSurfaceTransfersByPanelId[panelId] else { return [] }
+        Workspace.normalizedSurfaceResumeBindingHistory(
+            [detached.resumeBinding].compactMap { $0 } + detached.resumeBindingHistory
+        )
+    }
+
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
         guard let responder, let window else { return nil }
         if let focused = focusedPanelId,

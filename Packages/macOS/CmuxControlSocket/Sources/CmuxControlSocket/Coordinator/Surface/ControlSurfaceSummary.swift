@@ -3,9 +3,10 @@ public import Foundation
 /// A read-only snapshot of one surface row for the `surface.list` payload, as the
 /// app target exposes it to ``ControlCommandCoordinator``.
 ///
-/// Mirrors the legacy per-surface dictionary the `v2SurfaceList` body built. The
-/// coordinator mints the surface and pane refs itself and writes the optional
-/// fields with `null` defaults exactly as the legacy `v2OrNull` writes did. The
+/// Mirrors the legacy per-surface dictionary the `v2SurfaceList` body built, with
+/// additive recoverable resume history for terminal surfaces. The coordinator
+/// mints the surface and pane refs itself and writes the optional fields with
+/// `null` defaults exactly as the legacy `v2OrNull` writes did. The
 /// browser/terminal-only extras are carried as optionals: they are emitted only
 /// when present, matching the legacy `if let` conditional key writes.
 public struct ControlSurfaceSummary: Sendable, Equatable {
@@ -40,6 +41,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     /// For terminal surfaces, the resume binding, else `nil`. Emitted as the
     /// `resume_binding` value (a `null` binding still emits the key).
     public let resumeBinding: ControlSurfaceResumeBinding?
+    /// For terminal surfaces, the newest-first recoverable resume bindings.
+    public let resumeBindingHistory: [ControlSurfaceResumeBinding]
 
     /// Creates a surface summary.
     ///
@@ -57,6 +60,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - tmuxStartCommand: For terminals, the tmux start command.
     ///   - isTerminal: Whether this is a terminal surface.
     ///   - resumeBinding: For terminals, the resume binding.
+    ///   - resumeBindingHistory: For terminals, recoverable resume bindings.
     public init(
         surfaceID: UUID,
         typeRawValue: String,
@@ -70,7 +74,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         initialCommand: String?,
         tmuxStartCommand: String?,
         isTerminal: Bool,
-        resumeBinding: ControlSurfaceResumeBinding?
+        resumeBinding: ControlSurfaceResumeBinding?,
+        resumeBindingHistory: [ControlSurfaceResumeBinding] = []
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
@@ -85,5 +90,6 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.tmuxStartCommand = tmuxStartCommand
         self.isTerminal = isTerminal
         self.resumeBinding = resumeBinding
+        self.resumeBindingHistory = resumeBindingHistory
     }
 }

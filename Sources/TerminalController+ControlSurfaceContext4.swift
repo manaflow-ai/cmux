@@ -67,7 +67,7 @@ extension TerminalController {
         return (fallbackTabManager, workspace, surfaceId)
     }
 
-    /// Builds the resume snapshot the seam returns, mirroring `v2SurfaceResumeResult`.
+    /// Builds the resume snapshot the seam returns for `surface.resume.*`.
     private func surfaceResumeSnapshot(
         tabManager: TabManager,
         workspace: Workspace,
@@ -75,13 +75,18 @@ extension TerminalController {
         binding: SurfaceResumeBindingSnapshot?,
         cleared: Bool
     ) -> ControlSurfaceResumeSnapshot {
+        let approvalRecords = SurfaceResumeApprovalStore.validRecords()
         ControlSurfaceResumeSnapshot(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: workspace.id,
             paneID: workspace.paneId(forPanelId: surfaceId)?.id,
             surfaceID: surfaceId,
             cleared: cleared,
-            binding: controlResumeBinding(from: binding)
+            binding: controlResumeBinding(from: binding, approvalRecords: approvalRecords),
+            bindingHistory: controlResumeBindingHistory(
+                from: workspace.surfaceResumeBindingHistory(panelId: surfaceId, including: binding),
+                approvalRecords: approvalRecords
+            )
         )
     }
 

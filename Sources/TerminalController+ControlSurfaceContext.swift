@@ -58,10 +58,19 @@ extension TerminalController: ControlSurfaceContext {
     /// `internal` (not `private`) so the resume witnesses in the sibling
     /// `+ControlSurfaceContext3` file share it.
     func controlResumeBinding(
-        from binding: SurfaceResumeBindingSnapshot?
+        from binding: SurfaceResumeBindingSnapshot?,
+        approvalRecords: [SurfaceResumeApprovalRecord]? = nil
     ) -> ControlSurfaceResumeBinding? {
         guard let binding else { return nil }
-        let effective = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        let effective: SurfaceResumeBindingSnapshot
+        if let approvalRecords {
+            effective = SurfaceResumeApprovalStore.applyingStoredApproval(
+                to: binding,
+                using: approvalRecords
+            )
+        } else {
+            effective = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        }
         return ControlSurfaceResumeBinding(
             name: effective.name,
             kind: effective.kind,
@@ -75,6 +84,13 @@ extension TerminalController: ControlSurfaceContext {
             approvalRecordID: effective.approvalRecordId,
             updatedAt: effective.updatedAt
         )
+    }
+
+    func controlResumeBindingHistory(
+        from bindings: [SurfaceResumeBindingSnapshot],
+        approvalRecords: [SurfaceResumeApprovalRecord]? = nil
+    ) -> [ControlSurfaceResumeBinding] {
+        bindings.compactMap { controlResumeBinding(from: $0, approvalRecords: approvalRecords) }
     }
 
     // MARK: - list
@@ -102,8 +118,12 @@ extension TerminalController: ControlSurfaceContext {
             }
         }
 
+        let panels = orderedPanels(in: ws)
+        let approvalRecords = panels.contains { $0 is TerminalPanel }
+            ? SurfaceResumeApprovalStore.validRecords()
+            : []
         let focusedSurfaceId = ws.focusedPanelId
-        let surfaces: [ControlSurfaceSummary] = orderedPanels(in: ws).map { panel in
+        let surfaces: [ControlSurfaceSummary] = panels.map { panel in
             let terminalPanel = panel as? TerminalPanel
             return ControlSurfaceSummary(
                 surfaceID: panel.id,
@@ -125,8 +145,17 @@ extension TerminalController: ControlSurfaceContext {
                 },
                 isTerminal: terminalPanel != nil,
                 resumeBinding: terminalPanel != nil
-                    ? controlResumeBinding(from: ws.surfaceResumeBinding(panelId: panel.id))
-                    : nil
+                    ? controlResumeBinding(
+                        from: ws.surfaceResumeBinding(panelId: panel.id),
+                        approvalRecords: approvalRecords
+                    )
+                    : nil,
+                resumeBindingHistory: terminalPanel != nil
+                    ? controlResumeBindingHistory(
+                        from: ws.surfaceResumeBindingHistory(panelId: panel.id),
+                        approvalRecords: approvalRecords
+                    )
+                    : []
             )
         }
 
@@ -155,8 +184,12 @@ extension TerminalController: ControlSurfaceContext {
             }
         }
 
+        let panels = orderedPanels(in: dock)
+        let approvalRecords = panels.contains { $0 is TerminalPanel }
+            ? SurfaceResumeApprovalStore.validRecords()
+            : []
         let focusedSurfaceId = dock.focusedPanelId
-        let surfaces: [ControlSurfaceSummary] = orderedPanels(in: dock).map { panel in
+        let surfaces: [ControlSurfaceSummary] = panels.map { panel in
             let terminalPanel = panel as? TerminalPanel
             return ControlSurfaceSummary(
                 surfaceID: panel.id,
@@ -177,7 +210,18 @@ extension TerminalController: ControlSurfaceContext {
                     v2NonEmptyString($0.surface.debugTmuxStartCommand())
                 },
                 isTerminal: terminalPanel != nil,
-                resumeBinding: nil
+                resumeBinding: terminalPanel != nil
+                    ? controlResumeBinding(
+                        from: dock.surfaceResumeBinding(panelId: panel.id),
+                        approvalRecords: approvalRecords
+                    )
+                    : nil,
+                resumeBindingHistory: terminalPanel != nil
+                    ? controlResumeBindingHistory(
+                        from: dock.surfaceResumeBindingHistory(panelId: panel.id),
+                        approvalRecords: approvalRecords
+                    )
+                    : []
             )
         }
 

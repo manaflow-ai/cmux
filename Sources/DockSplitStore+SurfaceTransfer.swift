@@ -136,6 +136,9 @@ extension DockSplitStore {
         let transferTitle = trimmedCustomTitle?.isEmpty == false
             ? preservedTransfer?.customTitle
             : panel.displayTitle
+        let resumeBindingHistory = Workspace.normalizedSurfaceResumeBindingHistory(
+            [resumeBinding].compactMap { $0 } + (preservedTransfer?.resumeBindingHistory ?? [])
+        )
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
@@ -181,6 +184,7 @@ extension DockSplitStore {
             restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
+            resumeBindingHistory: resumeBindingHistory,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
