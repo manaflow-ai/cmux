@@ -7105,9 +7105,6 @@ final class Workspace: Identifiable, ObservableObject {
         if let requested = Self.normalizedTerminalWorkingDirectory(requestedWorkingDirectory) {
             return requested
         }
-        if let defaultWorkingDirectory = Self.normalizedTerminalWorkingDirectory(defaultWorkingDirectory) {
-            return defaultWorkingDirectory
-        }
         if let sourcePanelId,
            let rescued = resumedAgentPaneWorkingDirectoryRescue(panelId: sourcePanelId) {
             return rescued
@@ -7115,6 +7112,7 @@ final class Workspace: Identifiable, ObservableObject {
         return [
             sourcePanelId.flatMap { panelDirectories[$0] },
             sourcePanelId.flatMap { terminalPanel(for: $0)?.requestedWorkingDirectory },
+            defaultWorkingDirectory,
             currentDirectory,
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
