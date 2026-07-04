@@ -1,17 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { randomBytes } from "node:crypto";
-import * as zlib from "node:zlib";
 import {
-  decompressZstdPreviewStream,
   extractTranscriptMessages,
-  fetchTranscriptPreview,
+  TranscriptLineParser,
+  type TranscriptMessage,
 } from "../services/vault/transcript";
 
-const { zstdCompressSync } = zlib as typeof zlib & {
-  readonly zstdCompressSync: (input: Uint8Array) => Buffer;
-};
-
-describe("vault transcript preview extraction", () => {
+describe("vault transcript JSONL parsing", () => {
   test("extracts claude, codex, and pi style JSONL messages while skipping garbage", () => {
     const jsonl = [
       "not-json",
@@ -39,110 +33,51 @@ describe("vault transcript preview extraction", () => {
       }),
     ].join("\n");
 
-    expect(extractTranscriptMessages(jsonl).messages).toEqual([
+    expect(extractTranscriptMessages(jsonl)).toEqual([
       { role: "assistant", text: "Claude answer" },
       { role: "user", text: "Run the tests" },
       { role: "assistant", text: "Pi first line\nPi second line" },
     ]);
   });
 
-  test("stops at the message cap", () => {
-    const jsonl = [
-      JSON.stringify({ role: "user", content: "one" }),
-      JSON.stringify({ role: "assistant", content: "two" }),
-      JSON.stringify({ role: "user", content: "three" }),
-    ].join("\n");
+  test("handles messages split across chunks", () => {
+    const messages: TranscriptMessage[] = [];
+    const parser = new TranscriptLineParser((message) => messages.push(message));
 
-    const preview = extractTranscriptMessages(jsonl, { maxMessages: 2 });
+    parser.feed('{"role":"user","content":"hel');
+    parser.feed('lo"}\n{"message":{"role":"assistant","content":[{"text":"wor');
+    parser.feed('ld"}]}}\n');
+    parser.finish();
 
-    expect(preview.messages).toEqual([
+    expect(messages).toEqual([
+      { role: "user", text: "hello" },
+      { role: "assistant", text: "world" },
+    ]);
+  });
+
+  test("handles CRLF line endings across chunk boundaries", () => {
+    const messages: TranscriptMessage[] = [];
+    const parser = new TranscriptLineParser((message) => messages.push(message));
+
+    parser.feed(`${JSON.stringify({ role: "user", content: "one" })}\r`);
+    parser.feed(`\n${JSON.stringify({ role: "assistant", content: "two" })}\r\n`);
+    parser.finish();
+
+    expect(messages).toEqual([
       { role: "user", text: "one" },
       { role: "assistant", text: "two" },
     ]);
-    expect(preview.messageLimitReached).toBe(true);
   });
 
-  test("fetches transcript previews from a streamed zstd response", async () => {
-    const originalFetch = globalThis.fetch;
-    const compressed = zstdCompressSync(
-      Buffer.from(`${JSON.stringify({ role: "assistant", content: "streamed preview" })}\n`),
-    );
+  test("handles a giant single line when the stream finishes", () => {
+    const text = "x".repeat(128 * 1024);
+    const messages: TranscriptMessage[] = [];
+    const parser = new TranscriptLineParser((message) => messages.push(message));
 
-    globalThis.fetch = (() =>
-      Promise.resolve(
-        new Response(chunkedStream(compressed, 3), {
-          status: 200,
-        }),
-      )) as typeof fetch;
+    parser.feed(JSON.stringify({ role: "assistant", content: text }).slice(0, 8192));
+    parser.feed(JSON.stringify({ role: "assistant", content: text }).slice(8192));
+    parser.finish();
 
-    try {
-      const preview = await fetchTranscriptPreview("https://vault.example/transcript.zst");
-
-      expect(preview.messages).toEqual([{ role: "assistant", text: "streamed preview" }]);
-      expect(preview.capped).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("streams zstd data and cancels when the decompressed preview cap is reached", async () => {
-    const jsonl = Array.from({ length: 4096 }, (_, index) =>
-      JSON.stringify({
-        role: index % 2 === 0 ? "user" : "assistant",
-        content: `${index} ${randomBytes(96).toString("base64")}`,
-      }),
-    ).join("\n");
-    const compressed = zstdCompressSync(Buffer.from(jsonl));
-    let canceled = false;
-
-    const preview = await decompressZstdPreviewStream(
-      chunkedStream(compressed, 1024, () => {
-        canceled = true;
-      }),
-      8192,
-      1024 * 1024,
-    );
-
-    expect(preview.bytes.length).toBe(8192);
-    expect(preview.capped).toBe(true);
-    expect(canceled).toBe(true);
-  });
-
-  test("streams zstd data and stops at the compressed byte budget", async () => {
-    const compressed = zstdCompressSync(randomBytes(128 * 1024));
-    let canceled = false;
-
-    const preview = await decompressZstdPreviewStream(
-      chunkedStream(compressed, 1024, () => {
-        canceled = true;
-      }),
-      8 * 1024 * 1024,
-      4096,
-    );
-
-    expect(preview.capped).toBe(true);
-    expect(canceled).toBe(true);
+    expect(messages).toEqual([{ role: "assistant", text }]);
   });
 });
-
-function chunkedStream(
-  bytes: Uint8Array,
-  chunkSize: number,
-  onCancel?: () => void,
-): ReadableStream<Uint8Array> {
-  let offset = 0;
-  return new ReadableStream<Uint8Array>({
-    pull(controller) {
-      if (offset >= bytes.length) {
-        controller.close();
-        return;
-      }
-      const end = Math.min(bytes.length, offset + chunkSize);
-      controller.enqueue(bytes.subarray(offset, end));
-      offset = end;
-    },
-    cancel() {
-      onCancel?.();
-    },
-  });
-}
