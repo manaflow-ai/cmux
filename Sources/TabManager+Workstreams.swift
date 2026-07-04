@@ -62,14 +62,21 @@ extension TabManager {
         let visibleIds = sidebarScopedWorkspaceRowIds()
         guard delta != 0, let visibleIndex = visibleIds.firstIndex(of: tabId),
               visibleIds.indices.contains(visibleIndex + delta) else { return false }
-        let peerId = visibleIds[visibleIndex + delta]
-        return delta < 0
-            ? reorderWorkspace(tabId: tabId, before: peerId)
-            : reorderWorkspace(tabId: tabId, after: peerId)
+        let peerIndex = visibleIndex + delta
+        let peerId = visibleIds[peerIndex]
+        if delta < 0 {
+            return reorderWorkspace(tabId: tabId, before: peerId)
+        }
+        if visibleIds.indices.contains(peerIndex + 1) {
+            return reorderWorkspace(tabId: tabId, before: visibleIds[peerIndex + 1])
+        }
+        return reorderWorkspace(tabId: tabId, after: peerId)
     }
 
     func workspaceIdsForClosingOtherSidebarRows(keeping keepIds: Set<UUID>) -> [UUID] {
-        sidebarScopedWorkspaceRowIds().filter { !keepIds.contains($0) }
+        let visibleIds = sidebarScopedWorkspaceRowIds()
+        guard !keepIds.isDisjoint(with: Set(visibleIds)) else { return [] }
+        return visibleIds.filter { !keepIds.contains($0) }
     }
 
     func workspaceIdsForClosingSidebarRowsBelow(tabId: UUID) -> [UUID] {

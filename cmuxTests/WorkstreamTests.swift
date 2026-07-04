@@ -301,6 +301,32 @@ struct WorkstreamTests {
         #expect(manager.tabs.contains { $0.id == hiddenId })
     }
 
+    @Test func sidebarScopedMoveDownOnlyMovesOneVisibleRow() throws {
+        let manager = makeTabManager(workspaceCount: 4)
+        let firstScopedId = manager.tabs[0].id
+        let secondScopedId = manager.tabs[1].id
+        let thirdScopedId = manager.tabs[2].id
+        let workstreamId = manager.createWorkstream(
+            name: "WS",
+            memberWorkspaceIds: [firstScopedId, secondScopedId, thirdScopedId]
+        )
+        manager.enterWorkstream(id: workstreamId)
+
+        #expect(manager.moveWorkspaceInSidebarScope(tabId: firstScopedId, by: 1))
+
+        #expect(manager.sidebarScopedWorkspaceRowIds() == [secondScopedId, firstScopedId, thirdScopedId])
+    }
+
+    @Test func sidebarScopedCloseOtherIgnoresKeepIdsOutsideScope() throws {
+        let manager = makeTabManager()
+        let hiddenId = manager.tabs[0].id
+        _ = manager.createWorkstream(name: "WS", memberWorkspaceIds: [hiddenId])
+
+        let closeTargets = manager.workspaceIdsForClosingOtherSidebarRows(keeping: [hiddenId])
+
+        #expect(closeTargets.isEmpty)
+    }
+
     @Test func restoringClosedWorkspaceReconcilesDrillInToRestoredWorkstream() throws {
         let manager = makeTabManager()
         let restoredWorkstream = manager.createWorkstream(name: "Restored")

@@ -1350,7 +1350,7 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherSelectedWorkspacePeers(in: manager)
         }
-        .disabled(workspace == nil || scopedWorkspaceCount <= 1)
+        .disabled(workspaceIndex == nil || scopedWorkspaceCount <= 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeSelectedWorkspacesBelow(in: manager)
