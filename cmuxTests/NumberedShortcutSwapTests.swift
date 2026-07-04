@@ -32,6 +32,7 @@ struct NumberedShortcutSwapTests {
 
         let workspaceDefault = KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut
         let surfaceDefault = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .selectWorkspaceByNumber) == .unbound)
 
         let presentation = try #require(ShortcutRecorderValidationPresentation(
             attempt: ShortcutRecorderRejectedAttempt(
@@ -57,5 +58,6 @@ struct NumberedShortcutSwapTests {
         )
         #expect(KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber) == surfaceDefault)
         #expect(KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber) == workspaceDefault)
+        #expect(KeyboardShortcutSettings.menuShortcut(for: .selectWorkspaceByNumber) == surfaceDefault)
     }
 }
