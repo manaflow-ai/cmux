@@ -26,6 +26,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case browser
     case browserImport
     case globalHotkey
+    /// Appshots: capture the frontmost window (screenshot + text) into the agent.
+    case appshots
     case keyboardShortcuts
     case workspaceColors
     case settingsJSON
@@ -49,6 +51,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browser: return "Browser"
         case .browserImport: return "Import Browser Data"
         case .globalHotkey: return "Global Hotkey"
+        case .appshots: return String(localized: "settings.section.appshots", defaultValue: "Appshots")
         case .keyboardShortcuts: return "Keyboard Shortcuts"
         case .workspaceColors: return "Workspace Colors"
         case .settingsJSON: return "cmux.json"
@@ -72,6 +75,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browser: return "globe"
         case .browserImport: return "square.and.arrow.down"
         case .globalHotkey: return "keyboard.badge.ellipsis"
+        case .appshots: return "camera.viewfinder"
         case .keyboardShortcuts: return "keyboard"
         case .workspaceColors: return "paintpalette"
         case .settingsJSON: return "doc.text"
@@ -97,6 +101,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"
+        case .appshots: return "appshot screenshot capture frontmost window accessibility screen recording agent context hotkey permissions"
         case .keyboardShortcuts: return "keybindings commands chords"
         case .workspaceColors: return "palette tabs indicator"
         case .settingsJSON: return "config file preferences editor schema jsonc reload"

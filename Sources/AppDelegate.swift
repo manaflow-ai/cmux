@@ -1465,6 +1465,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             GlobalSearchCoordinator.shared.start()
             sentryStartMemoryContextRefresh()
+            // Appshots installs an app-active observer that resolves window
+            // context on resign; it has no reason to run under XCTest and is
+            // gated here so it can't perturb the app-host unit-test process.
+            AppshotController.shared.start()
         }
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
@@ -9237,6 +9241,71 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
     }
 
+    // MARK: - Appshot delivery
+
+    /// Resolves the agent surface the user is currently working with — the
+    /// focused terminal panel of the front cmux window's selected workspace.
+    /// Used by ``AppshotController`` to anchor the 60-second recency rule.
+    func appshotFocusedAgentRef() -> (workspaceId: UUID, panelId: UUID)? {
+        guard let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "appshot.focusedAgent"),
+              let workspace = context.tabManager.selectedWorkspace,
+              let panel = workspace.focusedTerminalPanel else { return nil }
+        return (workspace.id, panel.id)
+    }
+
+    /// Whether the given terminal surface still exists (used before routing an
+    /// appshot to a remembered surface).
+    func appshotSurfaceExists(workspaceId: UUID, panelId: UUID) -> Bool {
+        guard let manager = tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.terminalPanel(for: panelId) != nil
+    }
+
+    /// Stages the appshot context in an existing agent surface. Returns `false`
+    /// if the surface vanished before delivery could be scheduled; `onStaged`
+    /// fires only after the terminal surface accepts the text.
+    ///
+    /// The text is typed but NOT auto-submitted (no trailing Return): the prompt
+    /// embeds the frontmost window's title, which is attacker-influenceable, and
+    /// cmux cannot verify the focused surface is an agent rather than a plain
+    /// shell. Staging lets the user review and submit, so a hostile title can
+    /// never be auto-executed as a shell command. Deliberately does not steal
+    /// focus from the frontmost app, so consecutive appshots keep capturing it.
+    @discardableResult
+    func sendAppshotText(_ text: String, workspaceId: UUID, panelId: UUID,
+                         onStaged: (() -> Void)? = nil, onFailure: (() -> Void)? = nil) -> Bool {
+        guard let manager = tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
+              workspace.terminalPanel(for: panelId) != nil else { return false }
+        manager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
+        sendTextWhenReady(text, to: workspace, preferredPanelId: panelId, onSuccess: onStaged, onFailure: onFailure)
+        return true
+    }
+
+    /// Last-resort fallback (no terminal surface exists): opens a fresh workspace
+    /// with the appshot context staged in its terminal (no trailing Return, so a
+    /// plain shell does not execute it). Does not bring cmux to the front.
+    /// Returns the new surface, or `nil` if no workspace could be created (so the
+    /// caller signals failure). The caller does not record this as the appshot
+    /// route — it's a fresh shell, not a confirmed agent.
+    func openAppshotInNewWorkspace(_ text: String) -> (workspaceId: UUID, panelId: UUID)? {
+        guard let workspace = addWorkspaceInPreferredMainWindow(
+            initialTerminalInput: text,
+            shouldBringToFront: false,
+            debugSource: "appshot.newThread"
+        ) else { return nil }
+        guard let panelId = workspace.focusedPanelId else {
+            // A new workspace is created with a focused terminal, so this is not
+            // expected; log it so a staged-but-untracked workspace is visible
+            // rather than silently accumulating on repeated hotkey presses.
+            #if DEBUG
+            cmuxDebugLog("appshot.newThread workspace=\(workspace.id.uuidString.prefix(5)) created without focusedPanelId")
+            #endif
+            return nil
+        }
+        return (workspace.id, panelId)
+    }
+
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
         let browserPanelId = notification.userInfo?[ReactGrabPastebackNotificationKey.browserPanelId] as? UUID
         guard let workspaceId = notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID,
@@ -9316,9 +9385,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         to tab: Tab,
         preferredPanelId: UUID? = nil,
         beforeSend: (() -> Void)? = nil,
+        onSuccess: (() -> Void)? = nil,
         onFailure: (() -> Void)? = nil
     ) {
         let isReactGrabPasteback = preferredPanelId != nil
+        func finishSend(_ didSend: Bool) {
+            if didSend { onSuccess?() } else { onFailure?() }
+        }
 #if DEBUG
         let initialTargetPanel = Self.resolveTerminalPanelForTextSend(
             in: tab,
@@ -9342,9 +9415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ),
            terminalPanel.isAgentHibernated {
             beforeSend?()
-            if !terminalPanel.sendText(text) {
-                onFailure?()
-            }
+            finishSend(terminalPanel.sendText(text))
             return
         }
 
@@ -9373,9 +9444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 #endif
-            if !didSend {
-                onFailure?()
-            }
+            finishSend(didSend)
             return
         }
 
@@ -9432,9 +9501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 #endif
-            if !didSend {
-                onFailure?()
-            }
+            finishSend(didSend)
         }
 
         panelsCancellable = tab.panelsPublisher
@@ -12382,13 +12449,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
         KeyboardShortcutSettings.Action.allCases.filter { action in
-            // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
-            // and never routed through AppKit's local key handler. If a managed
-            // cmux.json entry somehow stores one as a chord, arming the prefix
-            // here would swallow the first stroke and leave the second one
-            // orphaned, breaking that keystroke for the focused terminal/browser
-            // input.
-            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
+            // System-wide hotkeys (Show/Hide, Global Search, Send Appshot) are
+            // dispatched via Carbon RegisterEventHotKey and never routed through
+            // AppKit's local key handler. If a managed cmux.json entry somehow
+            // stores one as a chord, arming the prefix here would swallow the
+            // first stroke and leave the second one orphaned, breaking that
+            // keystroke for the focused terminal/browser input.
+            guard !action.isSystemWideHotkey && action.allowsChordShortcut else { return false }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -15392,8 +15459,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows
-            && action != .globalSearch
+        // System-wide Carbon hotkeys (Show/Hide, Global Search, Send Appshot)
+        // have no AppKit menu item backing them, so they can never produce a
+        // stale menu key equivalent to suppress.
+        !action.isSystemWideHotkey
             && action != .clearScreenKeepScrollback
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias

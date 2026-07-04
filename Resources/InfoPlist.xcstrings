@@ -2,6 +2,119 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "NSScreenCaptureUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux captures the frontmost window as an \"appshot\" — a screenshot it sends to your agent as context."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は最前面のウィンドウを「アプリショット」としてキャプチャし、スクリーンショットをコンテキストとしてエージェントに送信します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 将最前面的窗口捕获为“appshot”——把截图作为上下文发送给你的智能体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會將最前面的視窗擷取為「appshot」——把截圖作為上下文傳送給你的代理程式。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux는 맨 앞 창을 \"appshot\"으로 캡처하여 스크린샷을 컨텍스트로 에이전트에 보냅니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux erfasst das vorderste Fenster als „Appshot“ – einen Screenshot, den es als Kontext an deinen Agenten sendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux captura la ventana frontal como un «appshot»: una captura de pantalla que envía a tu agente como contexto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux capture la fenêtre au premier plan sous forme d’« appshot » : une capture d’écran qu’il envoie à votre agent comme contexte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cattura la finestra in primo piano come «appshot»: uno screenshot che invia al tuo agente come contesto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tager det forreste vindue som et “appshot” – et skærmbillede, det sender til din agent som kontekst."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux przechwytuje okno na pierwszym planie jako „appshot” — zrzut ekranu wysyłany do Twojego agenta jako kontekst."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux захватывает переднее окно как «appshot» — снимок экрана, который отправляется вашему агенту в качестве контекста."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux captures the frontmost window as an \"appshot\" — a screenshot it sends to your agent as context."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux captures the frontmost window as an \"appshot\" — a screenshot it sends to your agent as context."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tar det fremste vinduet som et «appshot» – et skjermbilde det sender til agenten din som kontekst."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux captura a janela em primeiro plano como um “appshot” — uma captura de tela que ele envia ao seu agente como contexto."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux captures the frontmost window as an \"appshot\" — a screenshot it sends to your agent as context."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, en öndeki pencereyi bir “appshot” olarak yakalar; bunu bağlam olarak aracınıza gönderdiği bir ekran görüntüsüdür."
+          }
+        }
+      }
+    },
     "NSBluetoothAlwaysUsageDescription": {
       "extractionState": "manual",
       "localizations": {

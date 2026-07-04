@@ -29,6 +29,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.browserImport", defaultValue: "chrome safari firefox brave edge arc bookmarks history cookies profiles")
         case .globalHotkey:
             return localized("settings.search.alias.section.globalHotkey", defaultValue: "system shortcut global keyboard show hide bring forward")
+        case .appshots:
+            return localized("settings.search.alias.section.appshots", defaultValue: "appshot screenshot capture frontmost window accessibility screen recording agent context hotkey permissions")
         case .keyboardShortcuts:
             return localized("settings.search.alias.section.keyboardShortcuts", defaultValue: "keybinds key bindings hotkeys chords accelerators commands")
         case .workspaceColors:
