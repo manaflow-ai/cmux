@@ -237,24 +237,15 @@ extension TerminalController {
         directory: String,
         displayLabel: String?
     ) {
-        if tab.isRemoteTerminalSurface(surfaceId) {
-            if let tabManager {
-                tabManager.updateRemoteSurfaceDirectory(
-                    tabId: tab.id,
-                    surfaceId: surfaceId,
-                    directory: directory,
-                    displayLabel: displayLabel
-                )
-            } else {
-                _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
-            }
-        } else if let tabManager {
-            tabManager.updateSurfaceDirectory(
+        if let tabManager {
+            tabManager.updateReportedSurfaceDirectory(
                 tabId: tab.id,
                 surfaceId: surfaceId,
                 directory: directory,
                 displayLabel: displayLabel
             )
+        } else if tab.isRemoteTerminalSurface(surfaceId) {
+            _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
         } else {
             _ = tab.updatePanelDirectory(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
         }

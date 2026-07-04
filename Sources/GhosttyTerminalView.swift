@@ -2892,7 +2892,7 @@ class GhosttyApp {
                   let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
             DispatchQueue.main.async {
-                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateSurfaceDirectory(
+                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateReportedSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     directory: pwd

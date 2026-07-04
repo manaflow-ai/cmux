@@ -341,14 +341,10 @@ extension TerminalController {
             return .surfaceNotFound
         }
 
-        if tab.isRemoteTerminalSurface(surfaceId) {
-            if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
-                tabManager.updateRemoteSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
-            } else {
-                _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: path)
-            }
-        } else if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
-            tabManager.updateSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
+        if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
+            tabManager.updateReportedSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
+        } else if tab.isRemoteTerminalSurface(surfaceId) {
+            _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: path)
         } else {
             _ = tab.updatePanelDirectory(panelId: surfaceId, directory: path)
         }
