@@ -703,6 +703,7 @@
 		C0DE70590000000000000002 /* MenuBarProfilingSubmissionActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */; };
 		3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0033865B0033865B003 /* MenubarSearchPopover.swift */; };
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
+		70799A9AD1874CA3B5191F67 /* MessagesOneTimeCodeAutoFillOptOutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1177610CC1124DE49D2DA794 /* MessagesOneTimeCodeAutoFillOptOutTests.swift */; };
 		5732A0015732A0015732A001 /* MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0015732B0015732B001 /* MinimalModeInvalidationProbe.swift */; };
 		5732A0085732A0085732A008 /* MinimalModeInvalidationProbeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0085732B0085732B008 /* MinimalModeInvalidationProbeKey.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
@@ -2017,6 +2018,7 @@
 		C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingSubmissionActions.swift; sourceTree = "<group>"; };
 		3865B0033865B0033865B003 /* MenubarSearchPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/MenubarSearchPopover.swift; sourceTree = "<group>"; };
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
+		1177610CC1124DE49D2DA794 /* MessagesOneTimeCodeAutoFillOptOutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesOneTimeCodeAutoFillOptOutTests.swift; sourceTree = "<group>"; };
 		5732B0015732B0015732B001 /* MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/MinimalModeInvalidationProbe.swift; sourceTree = "<group>"; };
 		5732B0085732B0085732B008 /* MinimalModeInvalidationProbeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/MinimalModeInvalidationProbeKey.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
@@ -3929,6 +3931,7 @@
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
+				1177610CC1124DE49D2DA794 /* MessagesOneTimeCodeAutoFillOptOutTests.swift */,
 				5830CA11BAC0000000000001 /* SocketCallbackAwaiterMainThreadTests.swift */,
 				5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */,
 				C0793DC7D7B61CF54886EC36 /* RemoteTmuxControlParserTests.swift */,
@@ -5537,6 +5540,7 @@
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
 				606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */,
 					C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */,
+				70799A9AD1874CA3B5191F67 /* MessagesOneTimeCodeAutoFillOptOutTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
 				B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
