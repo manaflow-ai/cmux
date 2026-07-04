@@ -130,20 +130,21 @@ extension CMUXCLI {
             countFailure = false
             return
         }
-        if action.shouldApply {
-            let applyResult = applyAutoNamingTitle(
-                action.title,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                agent: resolution.agent,
-                client: client,
-                panelTitleTarget: panelTitleTarget,
-                telemetryKey: telemetryKey,
-                telemetry: telemetry
-            )
-            confirmedTitle = applyResult.confirmedTitle
-            countFailure = applyResult.countsTowardBackoff
-        } else {
+        let applyResult = applyAutoNamingTitle(
+            action.title,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            agent: resolution.agent,
+            client: client,
+            panelTitleTarget: panelTitleTarget,
+            telemetryKey: telemetryKey,
+            telemetry: telemetry
+        )
+        confirmedTitle = applyResult.confirmedTitle
+        countFailure = applyResult.countsTowardBackoff
+        if confirmedTitle == nil,
+           action.verifyNoOpOnRejectedApply,
+           !applyResult.countsTowardBackoff {
             let noOpResult = confirmAutoNamingNoOpTitle(
                 action.title,
                 workspaceId: workspaceId,

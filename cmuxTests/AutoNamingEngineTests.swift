@@ -363,13 +363,14 @@ import Testing
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 
-    @Test func unchangedTitleActionUsesVerifiedNoOpConfirmation() throws {
+    @Test func unchangedTitleActionAllowsIdempotentApplyAndVerifiedNoOpFallback() throws {
         let action = try #require(
             engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug").sanitizedAction
         )
 
         #expect(action.title == "Fix auth bug")
-        #expect(!action.shouldApply)
+        #expect(action.shouldApply)
+        #expect(action.verifyNoOpOnRejectedApply)
     }
 
     // MARK: - Environment policy
