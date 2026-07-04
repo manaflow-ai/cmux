@@ -8,9 +8,23 @@ struct TerminalPickerMenuRow: Identifiable, Equatable {
         id = terminal.id
         name = terminal.name
     }
+
+    static func == (lhs: TerminalPickerMenuRow, rhs: TerminalPickerMenuRow) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func displayName(liveNamesByID: [MobileTerminalPreview.ID: String]) -> String {
+        liveNamesByID[id] ?? name
+    }
 }
 
 extension Collection where Element == TerminalPickerMenuRow {
+    var namesByID: [MobileTerminalPreview.ID: String] {
+        reduce(into: [:]) { result, row in
+            result[row.id] = row.name
+        }
+    }
+
     func resolvedTerminalPickerSelection(
         selectedID: MobileTerminalPreview.ID?
     ) -> (id: MobileTerminalPreview.ID, name: String)? {
@@ -26,6 +40,10 @@ extension Collection where Element == TerminalPickerMenuRow {
 extension WorkspaceDetailView {
     var terminalPickerLiveRows: [TerminalPickerMenuRow] {
         workspace.terminals.map(TerminalPickerMenuRow.init)
+    }
+
+    var terminalPickerLiveRowIDs: [MobileTerminalPreview.ID] {
+        workspace.terminals.map(\.id)
     }
 
     var hasTitleMenuActions: Bool {

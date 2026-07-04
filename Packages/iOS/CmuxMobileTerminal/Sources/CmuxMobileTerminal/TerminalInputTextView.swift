@@ -256,7 +256,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// glass capsule grows to fill the full strip height. The horizontal inset is
     /// trimmed so the capsule hugs its glyph.
     private static let accessoryButtonContentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-    private static let accessoryButtonCornerRadius: CGFloat = 6
     /// Button height. Equal to ``dockedNubSize`` so the capsule fills the strip
     /// vertically: the buttons are as tall as the section, with the breathing
     /// room living BELOW the strip (``dockedBottomPadding``) instead of inside it.
@@ -295,7 +294,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// hug their icon tightly; the taller capsule supplies the tap area that a
     /// wider button used to.
     private static let accessoryButtonMinWidth: CGFloat = 32
-    private static let accessoryButtonNormalBackground = UIColor(white: 0.35, alpha: 1)
+    private let accessoryButtonAppearance = AccessoryButtonAppearance()
     private var accessoryBackgroundLeadingConstraint: NSLayoutConstraint?
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
     private var accessoryDismissLeadingConstraint: NSLayoutConstraint?
@@ -563,7 +562,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 // (it stays in the saved order, just unrendered, so flipping the
                 // remote re-shows it in place).
                 if action == .command && !isMacRemote { continue }
-                stack.addArrangedSubview(makeAccessoryButton(for: action))
+                stack.addArrangedSubview(
+                    makeAccessoryButton(for: action, usesStableScrollableAppearance: true)
+                )
             case let .custom(custom):
                 stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
             }
@@ -878,8 +879,14 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return true
     }
 
-    private func makeAccessoryButton(for action: TerminalInputAccessoryAction) -> AccessoryActionButton {
-        let button = AccessoryActionButton(item: .builtin(action))
+    private func makeAccessoryButton(
+        for action: TerminalInputAccessoryAction,
+        usesStableScrollableAppearance: Bool = false
+    ) -> AccessoryActionButton {
+        let button = AccessoryActionButton(
+            item: .builtin(action),
+            usesStableScrollableAppearance: usesStableScrollableAppearance
+        )
         button.translatesAutoresizingMaskIntoConstraints = false
         button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = action.accessibilityIdentifier
@@ -899,7 +906,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private func makeCustomAccessoryButton(for custom: CustomToolbarAction) -> AccessoryActionButton {
-        let button = AccessoryActionButton(item: .custom(custom))
+        let button = AccessoryActionButton(
+            item: .custom(custom),
+            usesStableScrollableAppearance: true
+        )
         button.translatesAutoresizingMaskIntoConstraints = false
         button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = "terminal.inputAccessory.custom.\(custom.id.uuidString)"
@@ -973,18 +983,24 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     /// Build (or rebuild) a button's configuration for `item` and its current
-    /// armed/sticky state. On iOS 26 the bar uses real Liquid Glass
-    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); earlier OSes keep
-    /// the flat gray/blue fill the bar shipped with. Built-in modifier titles
-    /// follow `isMacRemote`; custom actions render their saved title/icon and
-    /// never arm.
+    /// armed/sticky state. Pinned controls can use iOS 26 Liquid Glass
+    /// (`.glass()` resting, `.prominentGlass()` armed/sticky); scroll-hosted
+    /// buttons and earlier OSes keep the stable flat gray/blue fill the bar
+    /// shipped with. Built-in modifier titles follow `isMacRemote`; custom
+    /// actions render their saved title/icon and never arm.
     private func applyAccessoryButtonStyle(
         _ button: UIButton,
         item: ResolvedToolbarItem,
         armed: Bool,
         sticky: Bool
     ) {
-        var config = Self.accessoryButtonConfiguration(armed: armed, sticky: sticky)
+        let usesStableScrollableAppearance = (button as? AccessoryActionButton)?
+            .usesStableScrollableAppearance ?? true
+        var config = accessoryButtonAppearance.configuration(
+            armed: armed,
+            sticky: sticky,
+            useLiquidGlass: !usesStableScrollableAppearance
+        )
         let symbolName: String?
         let title: String
         switch item {
@@ -1026,38 +1042,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // flat style already renders the locked white stroke through the
             // background configuration, so the layer border stays off to avoid
             // a doubled stroke.
-            if #available(iOS 26.0, *) {
+            if #available(iOS 26.0, *), !actionButton.usesStableScrollableAppearance {
                 actionButton.isStickyLocked = sticky
             } else {
                 actionButton.isStickyLocked = false
             }
         }
-    }
-
-    private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
-        if #available(iOS 26.0, *) {
-            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
-            config.baseForegroundColor = .white
-            if armed || sticky {
-                config.baseBackgroundColor = .systemBlue
-            }
-            return config
-        }
-        var config = UIButton.Configuration.plain()
-        var background = UIBackgroundConfiguration.clear()
-        if sticky {
-            background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
-            background.strokeColor = .white
-            background.strokeWidth = 2
-        } else if armed {
-            background.backgroundColor = .systemBlue
-        } else {
-            background.backgroundColor = accessoryButtonNormalBackground
-        }
-        background.cornerRadius = accessoryButtonCornerRadius
-        config.background = background
-        config.baseForegroundColor = .white
-        return config
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {

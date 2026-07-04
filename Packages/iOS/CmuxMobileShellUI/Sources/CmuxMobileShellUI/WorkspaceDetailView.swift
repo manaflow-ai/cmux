@@ -366,11 +366,12 @@ struct WorkspaceDetailView: View {
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
     var terminalPickerToolbarButton: some View {
         let liveRows = terminalPickerLiveRows
+        let liveNamesByID = liveRows.namesByID
         let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
-        let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
+        let selection = liveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID) ?? rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
 
         return Menu {
-            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
+            terminalPickerMenuContent(rows: rows, liveNamesByID: liveNamesByID, selectedID: selection?.id)
         } label: {
             Label(
                 selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
@@ -383,25 +384,18 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(selection?.name ?? "")
         .onAppear(perform: syncTerminalPickerRows)
-        .onChange(of: liveRows) { _, _ in syncTerminalPickerRows() }
+        .onChange(of: terminalPickerLiveRowIDs) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
-    private func terminalPickerMenuContent(
-        rows: [TerminalPickerMenuRow],
-        selectedID: MobileTerminalPreview.ID?
-    ) -> some View {
+    private func terminalPickerMenuContent(rows: [TerminalPickerMenuRow], liveNamesByID: [MobileTerminalPreview.ID: String], selectedID: MobileTerminalPreview.ID?) -> some View {
         Section(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals")) {
             ForEach(rows) { terminal in
+                let terminalName = terminal.displayName(liveNamesByID: liveNamesByID)
                 Button {
                     selectTerminalFromPicker(terminal.id)
                 } label: {
-                    Label(
-                        terminal.name,
-                        systemImage: terminal.id == selectedID && activeBrowser == nil
-                            ? "checkmark.circle.fill"
-                            : "terminal"
-                    )
+                    Label(terminalName, systemImage: terminal.id == selectedID && activeBrowser == nil ? "checkmark.circle.fill" : "terminal")
                 }
                 .accessibilityIdentifier("MobileTerminalMenuItem-\(terminal.id.rawValue)")
             }
