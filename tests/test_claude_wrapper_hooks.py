@@ -17,6 +17,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
+APP_SERVER_CODEX_STUB = """#!/usr/bin/env bash
+if [[ "${1:-}" == "app-server" && "${2:-}" == "--help" ]]; then
+  echo "codex app-server"
+  exit 0
+fi
+exit 0
+"""
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -907,7 +914,7 @@ def computer_use_sandbox(
         if codex_on_path:
             codex_dir = tmp / "codex-bin"
             codex_dir.mkdir(parents=True, exist_ok=True)
-            make_executable(codex_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
+            make_executable(codex_dir / "codex", APP_SERVER_CODEX_STUB)
             env["PATH"] = f"{codex_dir}:{env['PATH']}"
         if legacy_codex_first:
             # A codex that rejects `app-server` (like a stray v0.2.x): the
@@ -967,17 +974,25 @@ exit 88
             if codex_override == "<sandbox-codex>":
                 override_dir = tmp / "codex-override"
                 override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
+                make_executable(override_dir / "codex", APP_SERVER_CODEX_STUB)
                 env["CMUX_CU_CODEX"] = str(override_dir / "codex")
             elif codex_override == "<sandbox-codex-with-tab>":
                 override_dir = tmp / "codex\toverride"
                 override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
+                make_executable(override_dir / "codex", APP_SERVER_CODEX_STUB)
                 env["CMUX_CU_CODEX"] = str(override_dir / "codex")
             elif codex_override == "<sandbox-legacy-codex>":
                 override_dir = tmp / "codex-override"
                 override_dir.mkdir(parents=True, exist_ok=True)
                 make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 1\n")
+                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
+            elif codex_override == "<sandbox-legacy-zero-codex>":
+                override_dir = tmp / "codex-override"
+                override_dir.mkdir(parents=True, exist_ok=True)
+                make_executable(
+                    override_dir / "codex",
+                    "#!/usr/bin/env bash\necho 'codex does not accept arguments: app-server'\nexit 0\n",
+                )
                 env["CMUX_CU_CODEX"] = str(override_dir / "codex")
             else:
                 env["CMUX_CU_CODEX"] = codex_override
@@ -1185,6 +1200,18 @@ def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use broken override: expected no injection, got {real_argv}",
+        failures,
+    )
+
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-legacy-zero-codex>"),
+    )
+    expect(code == 0, f"computer use legacy-zero override: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use legacy-zero override: expected no injection, got {real_argv}",
         failures,
     )
 

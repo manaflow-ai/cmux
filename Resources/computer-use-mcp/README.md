@@ -18,8 +18,9 @@ guessing pixels.
 
 Exactly what Codex Computer Use requires — nothing else:
 
-- A Codex install that bundles the computer-use plugin: `codex` on PATH
-  (`npm i -g @openai/codex`) or `/Applications/Codex.app`.
+- A trusted Codex install that bundles the computer-use plugin:
+  `/Applications/Codex.app`, or a current Codex CLI path set explicitly through
+  `CMUX_CU_CODEX`.
 - A logged-in Codex: `codex login` must have produced `~/.codex/auth.json`.
   The codex app-server fails tool calls when auth is missing or revoked.
 - macOS permissions for the Codex Computer Use helper app (Accessibility /
@@ -49,7 +50,8 @@ into codex launches.
 Claude Code:
 
 ```bash
-claude mcp add cmux-computer-use -- node /path/to/cmux-computer-use-mcp.mjs
+CMUX_CU_CODEX=/absolute/path/to/codex \
+  claude mcp add cmux-computer-use -- node /path/to/cmux-computer-use-mcp.mjs
 ```
 
 Codex (only needed for older versions without native computer use), in
@@ -59,6 +61,8 @@ Codex (only needed for older versions without native computer use), in
 [mcp_servers.cmux_computer_use]
 command = "node"
 args = ["/path/to/cmux-computer-use-mcp.mjs"]
+[mcp_servers.cmux_computer_use.env]
+CMUX_CU_CODEX = "/absolute/path/to/codex"
 ```
 
 Inside the cmux app bundle the script is at
@@ -84,12 +88,10 @@ on-screen window", "launch or focus <app>") before touching
 
 ## Config (env)
 
-- `CMUX_CU_CODEX` — path to the codex binary. In the MCP server's manual mode,
-  the default is `codex` on PATH (skipping cmux's own per-surface shims), then
-  `/Applications/Codex.app/Contents/Resources/codex`. When set it decides
-  alone — no fallback. For automatic Claude injection, cmux-claude-wrapper only
-  probes this explicit path or Codex.app; it does not execute PATH candidates
-  during ordinary agent startup. The wrapper also pins a trusted absolute `node`
+- `CMUX_CU_CODEX` — path to the codex binary. When set it decides alone — no
+  fallback. When unset, the server and cmux-claude-wrapper only probe
+  `/Applications/Codex.app/Contents/Resources/codex`; they do not execute PATH
+  candidates during ordinary agent startup. The wrapper also pins a trusted absolute `node`
   command instead of relying on the MCP client's runtime PATH. The wrapper pins
   its trusted Codex result into the injected config as `CMUX_CU_CODEX`, so the
   availability gate and the spawned engine always agree on one binary.

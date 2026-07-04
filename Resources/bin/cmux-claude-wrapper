@@ -843,9 +843,19 @@ cmux_computer_use_codex_supports_app_server() {
         [[ -n "${!key+x}" ]] && env_args+=("$key=${!key}")
     done
     # Subshell so the parent shell's signal-death notice ("Alarm clock") for a
-    # timed-out probe is captured by the redirect instead of leaking to the
-    # user's terminal.
-    (env -i "${env_args[@]}" "$perl_bin" -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help) >/dev/null 2>&1
+    # timed-out probe is captured instead of leaking to the user's terminal.
+    local output lower
+    output="$((env -i "${env_args[@]}" "$perl_bin" -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help) 2>&1)" || return 1
+    lower="$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')"
+    case "$lower" in
+        *app-server*) ;;
+        *) return 1 ;;
+    esac
+    case "$lower" in
+        *"does not accept"*|*unknown*|*unrecognized*|*invalid*|*"error:"*|*unsupported*)
+            return 1
+            ;;
+    esac
 }
 
 cmux_computer_use_resolve_codex() {

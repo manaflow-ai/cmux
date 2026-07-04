@@ -9,8 +9,8 @@
 // `computer-use` MCP server (initialize -> thread/start -> mcpServer/tool/call).
 //
 // Requirements (exactly what Codex Computer Use requires):
-//   - a Codex install that bundles the computer-use plugin: `codex` on PATH
-//     (@openai/codex npm package) or /Applications/Codex.app
+//   - a trusted Codex install that bundles the computer-use plugin:
+//     CMUX_CU_CODEX or /Applications/Codex.app
 //   - a logged-in Codex (~/.codex/auth.json)
 //   - macOS permissions granted to the Codex Computer Use helper app
 //     (Codex prompts for Accessibility/Screen Recording on first use)
@@ -20,7 +20,7 @@
 //
 // Config (env):
 //   CMUX_CU_CODEX       path to the codex binary
-//                       (default: `codex` on PATH, then Codex.app's bundled codex)
+//                       (default: Codex.app's bundled codex)
 //   CMUX_CU_TIMEOUT_MS  per-command timeout (default 180000)
 //   CMUX_CU_MAX_TREE    max AX-tree chars returned by computer_state (default 60000)
 
@@ -29,7 +29,7 @@ import { constants as fsConstants, rmSync } from "node:fs";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import process from "node:process";
 
@@ -97,33 +97,37 @@ async function isExecutable(path) {
   }
 }
 
-// cmux prepends a per-surface shim dir to PATH whose `codex` entry re-execs
-// cmux's codex wrapper (for hook injection). That shim is not a codex install
-// signal and must never be spawned as the app-server binary.
-function isCmuxShimDir(dir) {
-  const normalized = dir.replace(/\/+$/, "");
-  for (const key of ["CMUX_CODEX_WRAPPER_SHIM_ROOT", "CMUX_CLAUDE_WRAPPER_SHIM_ROOT"]) {
-    const root = (process.env[key] || "").replace(/\/+$/, "");
-    if (root && normalized === root) return true;
-  }
-  return /(^|\/)cmux-cli-shims(\/|$)/.test(normalized);
-}
-
 // A codex only counts if it speaks the app-server protocol — legacy CLIs
 // (e.g. a stray v0.2.x in /usr/local/bin) reject the subcommand, and picking
 // one would break every tool while a working Codex.app sits ignored.
+function appServerHelpLooksSupported(output) {
+  const lower = String(output).toLowerCase();
+  return (
+    lower.includes("app-server") &&
+    !/(does not accept|unknown|unrecognized|invalid|error:|unsupported)/.test(lower)
+  );
+}
+
 function supportsAppServer(binary) {
   return new Promise((resolve) => {
     let child;
     try {
       child = spawn(binary, ["app-server", "--help"], {
-        stdio: ["ignore", "ignore", "ignore"],
+        stdio: ["ignore", "pipe", "pipe"],
         env: childEnv(),
       });
     } catch {
       resolve(false);
       return;
     }
+    let output = "";
+    const collect = (chunk) => {
+      if (output.length < 8192) output += chunk;
+    };
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
     const timer = setTimeout(() => {
       child.kill();
       resolve(false);
@@ -134,7 +138,7 @@ function supportsAppServer(binary) {
     });
     child.on("exit", (code) => {
       clearTimeout(timer);
-      resolve(code === 0);
+      resolve(code === 0 && appServerHelpLooksSupported(output));
     });
   });
 }
@@ -150,17 +154,11 @@ async function resolveCodexBinary() {
     }
     return override;
   }
-  for (const dir of (process.env.PATH || "").split(delimiter)) {
-    if (!dir || isCmuxShimDir(dir)) continue;
-    const candidate = join(dir, "codex");
-    if ((await isExecutable(candidate)) && (await supportsAppServer(candidate))) return candidate;
-  }
   if ((await isExecutable(CODEX_APP_BINARY)) && (await supportsAppServer(CODEX_APP_BINARY))) {
     return CODEX_APP_BINARY;
   }
   throw new Error(
-    "no codex with app-server support found. Install a current Codex CLI " +
-      "(npm i -g @openai/codex) or Codex.app, or point CMUX_CU_CODEX at one."
+    "no trusted codex with app-server support found. Install Codex.app or point CMUX_CU_CODEX at a current Codex CLI."
   );
 }
 

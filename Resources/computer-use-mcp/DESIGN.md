@@ -30,8 +30,8 @@ server** that any MCP client can attach to. `cmux-computer-use-mcp.mjs` is that 
 It talks **directly to the standard Codex machinery** — no third-party bridge, no cmux
 infrastructure:
 
-- spawn `codex app-server` (its default `stdio://` transport) from the user's own Codex
-  install (`codex` on PATH, else Codex.app),
+- spawn `codex app-server` (its default `stdio://` transport) from a trusted Codex
+  install (`CMUX_CU_CODEX`, else Codex.app),
 - speak its JSON-RPC protocol: `initialize` (with `experimentalApi`) → `initialized` →
   `thread/start` (one ephemeral thread per MCP session, so the engine's element-index
   table persists across calls exactly like a native Codex Computer Use session) →
