@@ -475,7 +475,9 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           # Build the app + cmuxTests bundle once. The focused gates and shard
           # run below all use test-without-building against these products.
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/xcodebuild_noninteractive.py \
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
             -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
@@ -552,6 +554,15 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          APP_HOST_LOG_NAME="cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}-attempt-*.log"
+          find "$RUNNER_TEMP" -maxdepth 1 -name "$APP_HOST_LOG_NAME" -delete 2>/dev/null || true
+          APP_HOST_LOGS=()
+          collect_app_host_logs() {
+            APP_HOST_LOGS=()
+            while IFS= read -r log_path; do
+              APP_HOST_LOGS+=("$log_path")
+            done < <(find "$RUNNER_TEMP" -maxdepth 1 -name "$APP_HOST_LOG_NAME" -print 2>/dev/null | sort)
+          }
           SHARD_ARGS="$RUNNER_TEMP/cmux-unit-shard-${{ matrix.shard }}.args"
           python3 scripts/ci/cmux_unit_test_shard.py \
             --shard-index "${{ matrix.shard }}" \
@@ -603,12 +614,14 @@ jobs:
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
           OUTPUT=$(cat "$TEST_OUTPUT")
+          collect_app_host_logs
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] && grep -q "Could not resolve package dependencies" <<< "$OUTPUT"; then
+          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] \
+             && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT" "${APP_HOST_LOGS[@]}" 2>/dev/null; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -630,7 +643,9 @@ jobs:
               echo "Retry-path package resolution failed on attempt $attempt, retrying..."
               sleep $((attempt * 5))
             done
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
@@ -641,6 +656,7 @@ jobs:
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat "$TEST_OUTPUT")
+            collect_app_host_logs
             set -e
           fi
 
@@ -651,13 +667,14 @@ jobs:
 
           # A shard must actually execute tests. If selectors match nothing,
           # xcodebuild can still exit 0 and silently drop coverage.
-          if ! grep -qE "Executed [1-9][0-9]* test|Test run with [1-9][0-9]* test" <<< "$OUTPUT"; then
+          TEST_SUMMARY_RE="Executed [1-9][0-9]* test|Test run with [1-9][0-9]* test"
+          if ! grep -qE "$TEST_SUMMARY_RE" "$TEST_OUTPUT" "${APP_HOST_LOGS[@]}" 2>/dev/null; then
             echo "ERROR: app-host unit test shard ${{ matrix.shard }}/4 executed 0 tests but selected ${#ONLY_TESTING_ARGS[@]} selectors" >&2
             exit 1
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(grep "Executed.*tests.*with.*failures" <<< "$OUTPUT" | tail -1 || true)
+            SUMMARY=$(grep "Executed.*tests.*with.*failures" "$TEST_OUTPUT" "${APP_HOST_LOGS[@]}" 2>/dev/null | tail -1 || true)
             if grep -q "(0 unexpected)" <<< "$SUMMARY"; then
               echo "All failures are expected, treating as pass"
             else

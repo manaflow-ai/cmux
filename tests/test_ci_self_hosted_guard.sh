@@ -119,6 +119,35 @@ check_app_host_deriveddata_cache_path() {
   echo "PASS: app-host-unit-tests DerivedData cache path matches xcodebuild path"
 }
 
+check_app_host_build_for_testing_and_summary_guard() {
+  if ! awk '
+    /^  app-host-unit-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Build for testing/ { in_build=1; next }
+    in_build && /^[[:space:]]*- name:/ { in_build=0 }
+    in_build && /scripts\/ci\/run-in-console-session\.sh/ { saw_build_console=1 }
+    in_build && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_build_noninteractive=1 }
+    in_build && /build-for-testing/ { saw_build_for_testing=1 }
+
+    in_job && /- name: Run unit tests/ { in_unit=1; next }
+    in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
+    in_unit && /APP_HOST_LOG_NAME=/ { saw_log_name=1 }
+    in_unit && /collect_app_host_logs/ { saw_log_collection=1 }
+    in_unit && /TEST_SUMMARY_RE=/ { saw_summary_re=1 }
+    in_unit && index($0, "grep -qE \"$TEST_SUMMARY_RE\" \"$TEST_OUTPUT\" \"${APP_HOST_LOGS[@]}\"") { saw_summary_logs=1 }
+
+    END {
+      exit !(saw_build_console && saw_build_noninteractive && saw_build_for_testing && saw_log_name && saw_log_collection && saw_summary_re && saw_summary_logs)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: app-host-unit-tests must run build-for-testing through the console-session path and validate zero-test coverage from the full wrapper logs"
+    exit 1
+  fi
+
+  echo "PASS: app-host-unit-tests build/test split preserves console-session execution and full-log summary checks"
+}
+
 check_e2e_runner_fallbacks() {
   if ! awk '
     /^run-name:/ {
@@ -830,6 +859,7 @@ check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
 check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
 check_app_host_deriveddata_cache_path
+check_app_host_build_for_testing_and_summary_guard
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
