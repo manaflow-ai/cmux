@@ -189,7 +189,7 @@ extension TerminalController {
         return .done
     }
 
-    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String) {
+    func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
         TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
@@ -198,11 +198,21 @@ extension TerminalController {
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            tabManager.updateSurfaceDirectory(tabId: scope.workspaceID, surfaceId: scope.panelID, directory: directory)
+            tabManager.updateSurfaceDirectory(
+                tabId: scope.workspaceID,
+                surfaceId: scope.panelID,
+                directory: directory,
+                displayLabel: displayLabel
+            )
         }
     }
 
-    func controlSidebarUpdateDirectory(tabArg: String?, panelArg: String?, directory: String) -> ControlSidebarPanelWriteResolution {
+    func controlSidebarUpdateDirectory(
+        tabArg: String?,
+        panelArg: String?,
+        directory: String,
+        displayLabel: String?
+    ) -> ControlSidebarPanelWriteResolution {
         guard let tabManager else { return .tabNotFound }
         return controlSidebarResolvePanelWrite(
             tabArg: tabArg,
@@ -210,7 +220,12 @@ extension TerminalController {
             prune: true,
             requireLiveSurface: true
         ) { tab, surfaceId in
-            tabManager.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
+            tabManager.updateSurfaceDirectory(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
         }
     }
 

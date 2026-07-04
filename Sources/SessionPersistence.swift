@@ -1301,10 +1301,7 @@ nonisolated enum TerminalStartupReturnShellScript {
             #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"esac"#,
         ] + zshIntegrationReentryLines
-        // The resume command's `cd` runs inside the child shell above, so after the resumed agent
-        // exits the outer login shell would otherwise land in this script's launch cwd (the surface
-        // default), not the session's directory. Return the outer shell to the session's working
-        // directory so killing a resumed agent leaves you where the session lived.
+        // Return the outer login shell to the session cwd after the child resume command exits.
         if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
             lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
@@ -1342,13 +1339,7 @@ enum SurfaceResumeBindingScriptStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                // The binding's own `cwd` is the primary post-exit return target; when it carries
-                // none, fall back to the resolved session directory so the OUTER login shell never
-                // lands at the surface default ($HOME / `/`). https://github.com/manaflow-ai/cmux/issues/7031
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
-                    command: inlineInput,
-                    workingDirectory: binding.cwd ?? returnWorkingDirectory
-                ))
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput, workingDirectory: binding.cwd ?? returnWorkingDirectory))
             } else {
                 lines.append(inlineInput)
             }

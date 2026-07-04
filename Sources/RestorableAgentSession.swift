@@ -36,7 +36,12 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
-        return "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && "
+        // No POSIX `{ …; }` grouping: this runs verbatim in the user's login shell
+        // (cmux spawns via `/usr/bin/login → $SHELL`), which may be fish — fish has no
+        // brace grouping and errors before the agent launches (issue #6285). `&&`/`||`
+        // are a left-associative, equal-precedence AND-OR list in sh/bash/zsh/fish, so
+        // `cd … || [ ! -d … ] && cmd` == `(cd || test) && cmd` in every shell.
+        return "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && "
     }
 
     static func prefix(_ command: String, workingDirectory: String?) -> String {
@@ -92,6 +97,7 @@ nonisolated enum TerminalStartupWorkingDirectoryPrefix {
         var seen = Set<String>()
         for quoted in quotedCandidates where seen.insert(quoted).inserted {
             let prefixes = [
+                "cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ] && ",
                 "{ cd -- \(quoted) 2>/dev/null || [ ! -d \(quoted) ]; } && ",
                 "{ [ ! -d \(quoted) ] || cd -- \(quoted); } && ",
                 "cd -- \(quoted) && ",
@@ -516,63 +522,20 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
-        switch launchCommand?.launcher {
-        case "claudeTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "claude-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: args) else { return nil }
-            return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
-        case "codexTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "codex-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "fork", sessionId] + preserved
-        case "omo":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "omo" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
-            return [original.executable, "omo", "--session", sessionId, "--fork"] + preserved
-        case "omx", "omc":
-            return nil
-        default:
+        let forkArgv = AgentForkArgv()
+        switch forkArgv.launcherResolution(
+            launcher: launchCommand?.launcher,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let argv):
+            return argv
+        case .passthrough:
             break
         }
 
-        switch kind {
-        case .claude:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            // Mirror the resume path: route through the `claude` wrapper (not the
-            // captured real binary) so cmux hooks fire on the forked session.
-            // See https://github.com/manaflow-ai/cmux/issues/5427.
-            return ["claude", "--resume", sessionId, "--fork-session"] + preserved
-        case .codex:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "fork", sessionId] + preserved
-        case .opencode:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
-            return [original.executable, "--session", sessionId, "--fork"] + preserved
-        case .custom:
+        if case .custom = kind {
             guard let customRegistration else { return nil }
             let arguments = customForkArguments(
                 registration: customRegistration,
@@ -581,9 +544,14 @@ enum AgentResumeCommandBuilder {
                 workingDirectory: workingDirectory
             )
             return arguments.isEmpty ? nil : arguments
-        default:
-            return nil
         }
+
+        return forkArgv.builtInKind(
+            kind: kind.rawValue,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        )
     }
 
     private static func customResumeArguments(
@@ -816,28 +784,13 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   returnToLoginShell: true,
-                  workingDirectory: postExitReturnWorkingDirectory(fallback: returnWorkingDirectory)
+                  workingDirectory: registration?.cwd == .ignore
+                      ? returnWorkingDirectory
+                      : (workingDirectory ?? launchCommand?.workingDirectory ?? returnWorkingDirectory)
               ) else {
             return nil
         }
         return "/bin/zsh \(shellSingleQuoted(scriptURL.path))"
-    }
-
-    /// The directory the OUTER login shell must return to after a resumed agent exits.
-    ///
-    /// The resume command's own `cd` runs inside the `-lic` child shell, so the outer `exec -l`
-    /// would otherwise land in the surface's spawn cwd — the surface default, which is `$HOME` on the
-    /// auto-resume path and `/` for a Finder/Dock launch. Prefer the agent's own launch/session cwd;
-    /// when that is missing — including the `.ignore` cwd policy, which only suppresses the *resume
-    /// command's* own `cd` (not the post-exit return) — fall back to the resolved session working
-    /// directory the restore already computed, so killing a resumed agent never drops the shell at the
-    /// surface default. See https://github.com/manaflow-ai/cmux/issues/7031 (auto-resume → `~`) and
-    /// https://github.com/manaflow-ai/cmux/issues/5391 (Finder/Dock launch → `/`).
-    private func postExitReturnWorkingDirectory(fallback: String?) -> String? {
-        let agentWorkingDirectory = registration?.cwd == .ignore
-            ? nil
-            : (workingDirectory ?? launchCommand?.workingDirectory)
-        return agentWorkingDirectory ?? fallback
     }
 
     func forkStartupInput(
@@ -1184,21 +1137,24 @@ struct RestorableAgentSessionIndex: Sendable {
                     updatedAt: effectiveRecord.updatedAt,
                     processIDs: liveProcessID.map { [$0] } ?? []
                 )
-                let previousPanelKindUpdatedAt =
-                    hookCandidatesByPanelAndKind[panelKindKey]?.updatedAt ?? -Double.infinity
-                if previousPanelKindUpdatedAt <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesByPanelAndKind[panelKindKey],
+                    incoming: entry
+                ) {
                     hookCandidatesByPanelAndKind[panelKindKey] = entry
                 }
-                if hookCandidatesBySession[sessionKey]?.updatedAt ?? -Double.infinity <= effectiveRecord.updatedAt {
+                if shouldReplaceHookEntry(
+                    existing: hookCandidatesBySession[sessionKey],
+                    incoming: entry
+                ) {
                     hookCandidatesBySession[sessionKey] = entry
                 }
-                guard effectiveRecord.pid == nil || liveProcessID != nil else {
-                    continue
+                // A saved PID is liveness evidence only. It can go stale while the
+                // transcript and hook record are still restorable, so keep the
+                // snapshot and leave processIDs empty when the process is gone.
+                if shouldReplaceHookEntry(existing: resolved[key], incoming: entry) {
+                    resolved[key] = entry
                 }
-                if let existing = resolved[key], existing.updatedAt > effectiveRecord.updatedAt {
-                    continue
-                }
-                resolved[key] = entry
             }
         }
 
@@ -1255,6 +1211,19 @@ struct RestorableAgentSessionIndex: Sendable {
                     $0.snapshot.sessionId == snapshot.sessionId
             }
             .max { $0.updatedAt < $1.updatedAt }
+    }
+
+    private static func shouldReplaceHookEntry(existing: Entry?, incoming: Entry) -> Bool {
+        guard let existing else {
+            return true
+        }
+        if existing.processIDs.isEmpty && !incoming.processIDs.isEmpty {
+            return true
+        }
+        if !existing.processIDs.isEmpty && incoming.processIDs.isEmpty {
+            return false
+        }
+        return existing.updatedAt <= incoming.updatedAt
     }
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
@@ -1323,7 +1292,7 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager,
             lookup: lookup
         )
-        guard let resolved = newestClaudeSiblingTranscript(
+        guard let resolved = singleClaudeSiblingTranscript(
             in: candidateProjectDirs,
             excludingSessionId: sessionId,
             fileManager: fileManager
@@ -1379,32 +1348,34 @@ struct RestorableAgentSessionIndex: Sendable {
         return projectDirs
     }
 
-    private static func newestClaudeSiblingTranscript(
+    private static func singleClaudeSiblingTranscript(
         in projectDirs: [String],
         excludingSessionId excludedSessionId: String,
         fileManager: FileManager
     ) -> (sessionId: String, path: String)? {
-        var best: (sessionId: String, path: String, modifiedAt: TimeInterval)?
+        var matches: [(sessionId: String, path: String)] = []
         for projectDir in projectDirs {
-            newestClaudeTranscript(
+            guard matches.count < 2 else { break }
+            collectClaudeTranscripts(
                 inDirectory: projectDir,
                 excludingSessionId: excludedSessionId,
                 remainingDirectoryDepth: 4,
                 fileManager: fileManager,
-                best: &best
+                matches: &matches
             )
         }
-        guard let best else { return nil }
-        return (best.sessionId, best.path)
+        guard matches.count == 1, let match = matches.first else { return nil }
+        return match
     }
 
-    private static func newestClaudeTranscript(
+    private static func collectClaudeTranscripts(
         inDirectory directory: String,
         excludingSessionId excludedSessionId: String,
         remainingDirectoryDepth: Int,
         fileManager: FileManager,
-        best: inout (sessionId: String, path: String, modifiedAt: TimeInterval)?
+        matches: inout [(sessionId: String, path: String)]
     ) {
+        guard matches.count < 2 else { return }
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
               isDirectory.boolValue,
@@ -1420,19 +1391,17 @@ struct RestorableAgentSessionIndex: Sendable {
                       regularNonEmptyFileExists(atPath: childPath, fileManager: fileManager) else {
                     continue
                 }
-                let modifiedAt = ((try? fileManager.attributesOfItem(atPath: childPath)[.modificationDate]) as? Date)?
-                    .timeIntervalSince1970 ?? 0
-                if best == nil || modifiedAt > best!.modifiedAt {
-                    best = (sessionId, childPath, modifiedAt)
-                }
+                matches.append((sessionId, childPath))
+                if matches.count >= 2 { return }
             } else if remainingDirectoryDepth > 0 {
-                newestClaudeTranscript(
+                collectClaudeTranscripts(
                     inDirectory: childPath,
                     excludingSessionId: excludedSessionId,
                     remainingDirectoryDepth: remainingDirectoryDepth - 1,
                     fileManager: fileManager,
-                    best: &best
+                    matches: &matches
                 )
+                if matches.count >= 2 { return }
             }
         }
     }
