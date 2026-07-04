@@ -68,6 +68,7 @@ jobs:
       - name: Checkout source ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
 
@@ -95,12 +96,14 @@ jobs:
       - name: Build tagged macOS app
         if: ${{ inputs.platform == 'macos' }}
         id: build_macos
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           # Per-run log path: /tmp/reload.log collides across tenants on the
           # multi-tenant self-hosted fleet Macs (tee: Permission denied).
           log="$RUNNER_TEMP/reload.log"
-          ./scripts/reload.sh --tag "${{ inputs.tag }}" --swift-frontend-workaround 2>&1 | tee "$log"
+          ./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround 2>&1 | tee "$log"
           app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
@@ -173,28 +176,43 @@ jobs:
 
       - name: Write timings.json
         if: ${{ always() }}
+        env:
+          TIMINGS_TAG: ${{ inputs.tag }}
+          TIMINGS_PLATFORM: ${{ inputs.platform }}
+          TIMINGS_RUNNER: ${{ inputs.runner }}
+          TIMINGS_REF: ${{ inputs.ref }}
+          T0_EPOCH: ${{ steps.t0.outputs.epoch }}
+          T1_EPOCH: ${{ steps.t1.outputs.epoch || 0 }}
         run: |
           set -euo pipefail
           mkdir -p artifact
           now=$(date +%s)
-          t0=${{ steps.t0.outputs.epoch }}
-          t1=${{ steps.t1.outputs.epoch || 0 }}
-          cat > artifact/timings.json <<JSON
-          {
-            "tag": "${{ inputs.tag }}",
-            "platform": "${{ inputs.platform }}",
-            "runner": "${{ inputs.runner }}",
-            "ref": "${{ inputs.ref }}",
-            "deps_seconds": $(( t1 > t0 ? t1 - t0 : 0 )),
-            "build_seconds": $(( t1 > 0 ? now - t1 : 0 )),
-            "post_checkout_total_seconds": $(( now - t0 ))
+          t0=${T0_EPOCH:-0}
+          t1=${T1_EPOCH:-0}
+          python3 - <<'PY' "$now" "$t0" "$t1" > artifact/timings.json
+          import json
+          import os
+          import sys
+
+          now = int(sys.argv[1])
+          t0 = int(sys.argv[2] or 0)
+          t1 = int(sys.argv[3] or 0)
+          timings = {
+              "tag": os.environ["TIMINGS_TAG"],
+              "platform": os.environ["TIMINGS_PLATFORM"],
+              "runner": os.environ["TIMINGS_RUNNER"],
+              "ref": os.environ["TIMINGS_REF"],
+              "deps_seconds": t1 - t0 if t1 > t0 else 0,
+              "build_seconds": now - t1 if t1 > 0 else 0,
+              "post_checkout_total_seconds": now - t0,
           }
-          JSON
+          print(json.dumps(timings, indent=2))
+          PY
           {
             echo "### reload-build timings"
             echo ""
-            echo "- runner: \`${{ inputs.runner }}\`"
-            echo "- platform: \`${{ inputs.platform }}\`"
+            echo "- runner: \`$TIMINGS_RUNNER\`"
+            echo "- platform: \`$TIMINGS_PLATFORM\`"
             echo "- deps: $(( t1 > t0 ? t1 - t0 : 0 ))s"
             echo "- build: $(( t1 > 0 ? now - t1 : 0 ))s"
             echo "- post-checkout total: $(( now - t0 ))s"

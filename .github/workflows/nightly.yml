@@ -17,9 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  attestations: write
-  id-token: write
+  contents: read
 
 env:
   CREATE_DMG_VERSION: 8.0.0
@@ -110,6 +108,10 @@ jobs:
     # Xcode 26. The helper build remains required and lipo-verified below.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 30
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -126,16 +128,19 @@ jobs:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
 
       - name: Check whether build commit is still current main HEAD before build
         if: needs.decide.outputs.should_publish == 'true'
         id: current_head_prebuild
+        env:
+          BUILD_SHA: ${{ needs.decide.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          CURRENT_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-          BUILD_SHA="${{ needs.decide.outputs.head_sha }}"
+          CURRENT_MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           if [ "$CURRENT_MAIN_SHA" = "$BUILD_SHA" ]; then
             STILL_CURRENT=true
           else
@@ -166,10 +171,11 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
+          package-manager-cache: false
 
       - name: Install build deps
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
-        run: |
+        run: | # zizmor: ignore[adhoc-packages] create-dmg is pinned by CREATE_DMG_VERSION and guarded by tests/test_ci_create_dmg_pinned.sh.
           ./scripts/install-rust-ci.sh
           ./scripts/install-zig-ci.sh
           CMUX_NODE_BIN="$(command -v node)"
@@ -192,6 +198,7 @@ jobs:
 
       - name: Cache Swift packages
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        # zizmor: ignore[cache-poisoning] Protected release/nightly refs; cache is sanitized before use.
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
@@ -207,6 +214,7 @@ jobs:
         with:
           go-version-file: daemon/remote/go.mod
           cache-dependency-path: daemon/remote/go.sum
+          cache: false
 
       - name: Derive Sparkle public key from private key
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
@@ -310,10 +318,12 @@ jobs:
       - name: Check whether build commit is still current main HEAD after build
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true'
         id: current_head_postbuild
+        env:
+          BUILD_SHA: ${{ needs.decide.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          CURRENT_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-          BUILD_SHA="${{ needs.decide.outputs.head_sha }}"
+          CURRENT_MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           if [ "$CURRENT_MAIN_SHA" = "$BUILD_SHA" ]; then
             STILL_CURRENT=true
           else
@@ -330,9 +340,10 @@ jobs:
 
       - name: Inject nightly identities and metadata
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        env:
+          SHORT_SHA: ${{ needs.decide.outputs.short_sha }}
         run: |
           set -euo pipefail
-          SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
           APP_DIR="build-universal/Build/Products/Release"
 
           BASE_MARKETING=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_DIR}/cmux.app/Contents/Info.plist")
@@ -666,12 +677,13 @@ jobs:
       - name: Move nightly tag to built commit
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
         env:
+          BUILD_SHA: ${{ needs.decide.outputs.head_sha }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f nightly "${{ needs.decide.outputs.head_sha }}"
+          git tag -f nightly "$BUILD_SHA"
           # Push via a tokenized URL so we neither rely on the persisted
           # checkout credentials (which intermittently fail with "Device not
           # configured" on self-hosted runners) nor overlay a second
@@ -694,6 +706,7 @@ jobs:
 
       - name: Publish nightly release assets
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        # zizmor: ignore[superfluous-actions] Pinned release action preserves existing asset overwrite semantics.
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: nightly

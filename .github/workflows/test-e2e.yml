@@ -38,6 +38,9 @@ on:
           - depot-macos-latest
           - depot-macos-14
 
+permissions:
+  contents: read
+
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
@@ -83,6 +86,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
 
@@ -445,6 +449,8 @@ jobs:
           COMMIT_SHA: ${{ steps.sha.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
           RECORD_VIDEO: ${{ inputs.record_video }}
+          REF_DISPLAY: ${{ inputs.ref || github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -455,13 +461,12 @@ jobs:
             STATUS_EMOJI="FAILED"
           fi
 
-          REF_DISPLAY="${{ inputs.ref || github.ref_name }}"
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
+          RUN_URL="https://github.com/$REPOSITORY/actions/runs/$RUN_ID"
           ARTIFACT_URL="$RUN_URL#artifacts"
 
           BODY="**Status:** $STATUS_EMOJI
           **Ref:** \`$REF_DISPLAY\`
-          **SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)
+          **SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/$REPOSITORY/commit/$COMMIT_SHA)
           **Test:** \`$TEST_FILTER\`
           **Workflow run:** $RUN_URL"
 
