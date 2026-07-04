@@ -949,6 +949,7 @@
 		D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000002 /* SettingsWindowPresenter.swift */; };
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
+		F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */; };
 		C0F16A000000000000000001 /* ShellStartupMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */; };
 		C0F16C000000000000000001 /* ShellStartupMissingBundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */; };
 		1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */; };
@@ -2256,6 +2257,7 @@
 		D36090010000000000000002 /* SettingsWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowPresenter.swift; sourceTree = "<group>"; };
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
+		F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoader.swift; sourceTree = "<group>"; };
 		C0F16A000000000000000002 /* ShellStartupMatrixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellStartupMatrixTests.swift; sourceTree = "<group>"; };
 		C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellStartupMissingBundleTests.swift; sourceTree = "<group>"; };
 		6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAndCommandPaletteTests.swift; sourceTree = "<group>"; };
@@ -3133,6 +3135,7 @@
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
 				D36A00030000000000000002 /* AgentHibernationLifecycleState.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
+				F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */,
 				B35750000000000000000001 /* VaultAgentRegistry.swift */,
 				D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */,
 				77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */,
@@ -4999,6 +5002,7 @@
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
 				D36090030000000000000001 /* SettingsWindowOpenOutcome.swift in Sources */,
 				D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */,
+				F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */,
 				76027A12C93B4538BF22C71E /* ShortcutBareStartRouting.swift in Sources */,
 				125BAEF2FE3B454547B964D1 /* ShortcutHintPill.swift in Sources */,
 				6042C0046042C0046042C004 /* ShortcutHintTitlebarPolicy.swift in Sources */,
