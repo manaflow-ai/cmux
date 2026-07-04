@@ -117,11 +117,11 @@ private final class OmnibarInlineDeletionSwiftHarness {
     }
 
     private func deleteSingleCharacterBeforeInlineCompletion() {
-        guard let inlineCompletion else { return }
-        let updated = String(inlineCompletion.typedText.dropLast())
+        guard let currentInlineCompletion = inlineCompletion else { return }
+        let updated = String(currentInlineCompletion.typedText.dropLast())
         let effects = omnibarReduce(state: &state, event: .bufferChanged(updated))
         #expect(effects.shouldRefreshSuggestions)
-        inlineCompletion = omnibarInlineCompletionForDisplay(
+        self.inlineCompletion = omnibarInlineCompletionForDisplay(
             typedText: state.buffer,
             suggestions: state.suggestions,
             isFocused: state.isFocused,

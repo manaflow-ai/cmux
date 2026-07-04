@@ -1396,14 +1396,14 @@ jobs:
   ui-regressions:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'depot-macos-latest' }}
+    runs-on: ${{ startsWith(vars.MACOS_RUNNER_DISPLAY, 'depot-') && vars.MACOS_RUNNER_DISPLAY || 'depot-macos-latest' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'depot-macos-latest' }}
+          REQUESTED_RUNNER: ${{ startsWith(vars.MACOS_RUNNER_DISPLAY, 'depot-') && vars.MACOS_RUNNER_DISPLAY || 'depot-macos-latest' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail

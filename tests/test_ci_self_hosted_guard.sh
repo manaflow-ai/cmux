@@ -54,8 +54,8 @@ check_ui_regressions_display_runner_fail_closed() {
   if ! awk '
     /^  ui-regressions:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_DISPLAY/ && /depot-macos-latest/ { saw_runs_on=1 }
-    in_job && /REQUESTED_RUNNER:/ && /vars\.MACOS_RUNNER_DISPLAY/ && /depot-macos-latest/ { saw_requested=1 }
+    in_job && /runs-on:/ && /startsWith\(vars\.MACOS_RUNNER_DISPLAY, '\''depot-'\''\)/ && /depot-macos-latest/ { saw_runs_on=1 }
+    in_job && /REQUESTED_RUNNER:/ && /startsWith\(vars\.MACOS_RUNNER_DISPLAY, '\''depot-'\''\)/ && /depot-macos-latest/ { saw_requested=1 }
     in_job && /case "\$REQUESTED_RUNNER" in/ { saw_case=1 }
     in_job && /depot-\*\)/ { saw_depot_case=1 }
     in_job && /ui-regressions requires a display-capable Depot runner/ { saw_non_depot_error=1 }
