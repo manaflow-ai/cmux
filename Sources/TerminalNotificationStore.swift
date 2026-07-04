@@ -884,7 +884,19 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
+        // Hook-driven notifications (claude-hook, codex-hook, `cmux notify`)
+        // target the workspace UUID captured in the pane's spawn environment
+        // (CMUX_WORKSPACE_ID). That value goes stale once the pane is moved to
+        // another workspace, so prefer the workspace that currently owns the
+        // surface and only fall back to the caller-supplied workspace.
+        let requestedTabId = tabId
+        let tabId = Self.owningTabId(forSurfaceId: surfaceId, fallbackTabId: requestedTabId)
 #if DEBUG
+        if tabId != requestedTabId {
+            cmuxDebugLog(
+                "notification.store.add.reroute surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") from=\(requestedTabId.uuidString.prefix(8)) to=\(tabId.uuidString.prefix(8))"
+            )
+        }
         cmuxDebugLog(
             "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
         )
@@ -974,6 +986,49 @@ final class TerminalNotificationStore: ObservableObject {
                 self.reportNotificationHookFailure(failure)
             }
         }
+    }
+
+    /// Resolves the workspace that currently owns `surfaceId`, falling back to
+    /// the caller-supplied tab when the surface cannot be located (for example
+    /// when delivery races a pane close, or for workspace-level notifications
+    /// with no surface).
+    @MainActor
+    private static func owningTabId(forSurfaceId surfaceId: UUID?, fallbackTabId: UUID) -> UUID {
+        guard let surfaceId, let appDelegate = AppDelegate.shared else {
+            return fallbackTabId
+        }
+        if let resolved = appDelegate.workspaceContainingPanel(
+            panelId: surfaceId,
+            preferredWorkspaceId: fallbackTabId
+        )?.workspace.id {
+            return resolved
+        }
+        // Callers pass either a panel UUID (hooks, CLI) or a bonsplit surface
+        // UUID (ghostty callbacks); resolve the latter to its owning workspace.
+        if let resolved = appDelegate.locateSurfaceTab(surfaceTabId: surfaceId)?.workspaceId {
+            return resolved
+        }
+        return fallbackTabId
+    }
+
+    /// Ownership can change while async policy hooks are evaluated, so the
+    /// final apply path re-resolves the owning workspace before recording.
+    private func reresolvedOwnerRequest(
+        _ request: TerminalNotificationPolicyRequest
+    ) -> TerminalNotificationPolicyRequest {
+        let tabId = Self.owningTabId(forSurfaceId: request.surfaceId, fallbackTabId: request.tabId)
+        guard tabId != request.tabId else { return request }
+        return TerminalNotificationPolicyRequest(
+            tabId: tabId,
+            surfaceId: request.surfaceId,
+            panelId: request.panelId,
+            title: request.title,
+            subtitle: request.subtitle,
+            body: request.body,
+            cwd: request.cwd,
+            isAppFocused: request.isAppFocused,
+            isFocusedPanel: request.isFocusedPanel
+        )
     }
 
     private struct NotificationCooldownReservation: Sendable {
@@ -1093,6 +1148,7 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
     ) {
+        let request = reresolvedOwnerRequest(request)
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId

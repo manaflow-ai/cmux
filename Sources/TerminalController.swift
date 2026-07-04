@@ -11522,16 +11522,33 @@ class TerminalController {
            let panelId = UUID(uuidString: panelArg) {
             var result = "OK"
             v2MainSync {
-                guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
-                    result = "ERROR: Tab not found"
-                    return
-                }
-                guard tab.panels[panelId] != nil else {
-                    result = "ERROR: Panel not found"
-                    return
+                // The caller-supplied workspace ID may be stale (it usually
+                // comes from CMUX_WORKSPACE_ID captured in the pane's spawn
+                // environment, which does not track pane moves), so route to
+                // the workspace that currently owns the surface. When the
+                // surface cannot be resolved (or AppDelegate is unavailable
+                // during startup/teardown), fall back to validating the
+                // caller-supplied target directly, preserving the original
+                // error semantics.
+                let resolvedTabId: UUID
+                if let resolved = AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: panelId,
+                    preferredWorkspaceId: workspaceId
+                ) {
+                    resolvedTabId = resolved.workspace.id
+                } else {
+                    guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
+                        result = "ERROR: Tab not found"
+                        return
+                    }
+                    guard tab.panels[panelId] != nil else {
+                        result = "ERROR: Panel not found"
+                        return
+                    }
+                    resolvedTabId = workspaceId
                 }
                 deliverNotificationSynchronously(
-                    tabId: workspaceId,
+                    tabId: resolvedTabId,
                     surfaceId: panelId,
                     title: title,
                     subtitle: subtitle,
@@ -11553,13 +11570,27 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            guard let panelId = UUID(uuidString: panelArg),
-                  tab.panels[panelId] != nil else {
+            guard let panelId = UUID(uuidString: panelArg) else {
                 result = "ERROR: Panel not found"
                 return
             }
+            // Same stale-workspace consideration as the UUID fast path above.
+            // Fall back to the resolved tab when AppDelegate is unavailable.
+            let resolvedTabId: UUID
+            if let resolved = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: panelId,
+                preferredWorkspaceId: tab.id
+            ) {
+                resolvedTabId = resolved.workspace.id
+            } else {
+                guard tab.panels[panelId] != nil else {
+                    result = "ERROR: Panel not found"
+                    return
+                }
+                resolvedTabId = tab.id
+            }
             deliverNotificationSynchronously(
-                tabId: tab.id,
+                tabId: resolvedTabId,
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
