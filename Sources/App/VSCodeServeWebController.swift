@@ -36,6 +36,11 @@ final class VSCodeServeWebController {
     private var lifecycleGeneration: UInt64 = 0
     private var nextTerminationWaitID: UInt64 = 0
     private var terminationWaits: [UInt64: TerminationWait] = [:]
+    private var isWaitingForStoppedProcesses = false
+    private var terminationBarrierCompletions: [() -> Void] = []
+    private var deferredServeWebRequests: [
+        (vscodeApplicationURL: URL, requiredLifecycleGeneration: UInt64?, completion: (URL?) -> Void)
+    ] = []
 
     // Internal (not private) so tests can inject `launchProcessOverride` via
     // `@testable import` instead of a `#if DEBUG` production test seam.
@@ -75,6 +80,15 @@ final class VSCodeServeWebController {
                 DispatchQueue.main.async {
                     completion(url)
                 }
+                return
+            }
+
+            if self.isWaitingForStoppedProcesses {
+                self.deferredServeWebRequests.append((
+                    vscodeApplicationURL: vscodeApplicationURL,
+                    requiredLifecycleGeneration: requiredLifecycleGeneration,
+                    completion: completion
+                ))
                 return
             }
 
@@ -160,7 +174,13 @@ final class VSCodeServeWebController {
         // The connection-token file is now persisted under the stable server data
         // dir and reused across launches, so stop() must NOT delete it — doing so
         // would change the server URL and drop VS Code Web auth/Settings Sync.
-        let (stoppedGeneration, processes, completions): (UInt64, [Process], [(URL?) -> Void]) = queue.sync {
+        let (
+            _,
+            processes,
+            completions,
+            shouldInstallTerminationWait,
+            immediateTerminationCompletion
+        ): (UInt64, [Process], [(URL?) -> Void], Bool, (() -> Void)?) = queue.sync {
             self.lifecycleGeneration &+= 1
             self.isLaunching = false
             self.activeLaunchGeneration = nil
@@ -176,19 +196,45 @@ final class VSCodeServeWebController {
             self.launchingProcess = nil
             self.serveWebURL = nil
             let completions = self.pendingCompletions.map(\.completion)
+                + self.deferredServeWebRequests.map(\.completion)
             self.pendingCompletions.removeAll()
-            return (self.lifecycleGeneration, processes, completions)
+            self.deferredServeWebRequests.removeAll()
+
+            let runningProcesses = processes.filter(\.isRunning)
+            if self.isWaitingForStoppedProcesses || !runningProcesses.isEmpty {
+                if let completion {
+                    let stoppedGeneration = self.lifecycleGeneration
+                    self.terminationBarrierCompletions.append {
+                        completion(stoppedGeneration)
+                    }
+                }
+                if !runningProcesses.isEmpty {
+                    self.isWaitingForStoppedProcesses = true
+                    return (self.lifecycleGeneration, processes, completions, true, nil)
+                }
+                return (self.lifecycleGeneration, processes, completions, false, nil)
+            }
+
+            let immediateCompletion: (() -> Void)? = completion.map { completion in
+                let stoppedGeneration = self.lifecycleGeneration
+                return {
+                    completion(stoppedGeneration)
+                }
+            }
+            return (self.lifecycleGeneration, processes, completions, false, immediateCompletion)
         }
 
-        if let completion {
-            notifyAfterTermination(of: processes) {
-                completion(stoppedGeneration)
+        if shouldInstallTerminationWait {
+            notifyAfterTermination(of: processes) { [weak self] in
+                self?.finishStopTerminationBarrier()
             }
         }
 
         for process in processes where process.isRunning {
             process.terminate()
         }
+
+        immediateTerminationCompletion?()
 
         if !completions.isEmpty {
             DispatchQueue.main.async {
@@ -508,6 +554,25 @@ final class VSCodeServeWebController {
                 wait.completion()
             } else {
                 self.terminationWaits[waitID] = wait
+            }
+        }
+    }
+
+    private func finishStopTerminationBarrier() {
+        queue.async {
+            self.isWaitingForStoppedProcesses = false
+            let barrierCompletions = self.terminationBarrierCompletions
+            self.terminationBarrierCompletions.removeAll()
+            let deferredRequests = self.deferredServeWebRequests
+            self.deferredServeWebRequests.removeAll()
+
+            barrierCompletions.forEach { $0() }
+            for request in deferredRequests {
+                self.ensureServeWebURL(
+                    vscodeApplicationURL: request.vscodeApplicationURL,
+                    requiredLifecycleGeneration: request.requiredLifecycleGeneration,
+                    completion: request.completion
+                )
             }
         }
     }
