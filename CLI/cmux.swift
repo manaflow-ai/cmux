@@ -1117,8 +1117,9 @@ final class ClaudeHookSessionStore {
         workspaceIsAuthoritative: Bool? = nil,
         now: TimeInterval
     ) {
+        let workspaceChanged = record.workspaceId != workspaceId
         record.workspaceId = workspaceId
-        if let workspaceIsAuthoritative { record.workspaceIsAuthoritative = workspaceIsAuthoritative }
+        if let workspaceIsAuthoritative { record.workspaceIsAuthoritative = workspaceIsAuthoritative } else if workspaceChanged { record.workspaceIsAuthoritative = nil }
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
         }
