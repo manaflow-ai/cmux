@@ -227,8 +227,7 @@ public final class UpdateStateModel {
     }
 
     /// Mutes the update-ready toast (for any staged version) for `duration`, persisting the
-    /// deadline across relaunches. The pill keeps showing the staged install. An expired mute
-    /// re-surfaces the toast on the next update-state change or launch.
+    /// deadline across relaunches. The pill keeps showing the staged install.
     public func muteUpdateReadyToast(for duration: TimeInterval) {
         let until = now().addingTimeInterval(duration)
         updateReadyToastMutedUntil = until
@@ -236,10 +235,18 @@ public final class UpdateStateModel {
         notifyStateChanged()
     }
 
+    /// Clears an expired mute deadline and emits a change so observers recompute the toast.
+    public func expireUpdateReadyToastMuteIfNeeded() {
+        guard let mutedUntil = updateReadyToastMutedUntil, now() >= mutedUntil else { return }
+        clearUpdateReadyToastMute()
+    }
+
     /// Clears any toast mute (used by test scaffolding for deterministic launches).
     public func clearUpdateReadyToastMute() {
+        guard updateReadyToastMutedUntil != nil else { return }
         updateReadyToastMutedUntil = nil
         defaults.removeObject(forKey: Self.toastMuteDefaultsKey)
+        notifyStateChanged()
     }
 
     /// Hides the update-ready toast for the currently staged version. It re-shows only when a

@@ -55,6 +55,7 @@ public final class UpdateController {
     var silentDownloadKickedVersion: String?
     var backgroundRetryTask: Task<Void, Never>?
     var restartWhenIdleTask: Task<Void, Never>?
+    var toastMuteExpiryTask: Task<Void, Never>?
     /// How many silent-download retries were scheduled after transient background failures;
     /// bounded so a persistent outage falls back to Sparkle's scheduled hourly check.
     var backgroundRetryCount = 0
@@ -62,7 +63,6 @@ public final class UpdateController {
     let backgroundRetryDelay: Duration = .seconds(5 * 60)
     /// How often the deferred "restart when idle" loop re-evaluates the host's idle signal.
     let restartWhenIdlePollInterval: Duration = .seconds(30)
-
     // Readiness retry. Sparkle's `canCheckForUpdates` exposes no push signal usable under
     // Swift 6 strict concurrency (KVO on the @MainActor `SPUUpdater` "sends" a non-Sendable
     // value into the change handler, and `addObserver(_:forKeyPath:)` is forbidden), so
@@ -149,8 +149,7 @@ public final class UpdateController {
         readyCheckTask?.cancel()
         recheckTask?.cancel()
         silentDownloadKickTask?.cancel()
-        backgroundRetryTask?.cancel()
-        restartWhenIdleTask?.cancel()
+        backgroundRetryTask?.cancel(); restartWhenIdleTask?.cancel(); toastMuteExpiryTask?.cancel()
     }
 
     // MARK: - Reaction stream
@@ -176,6 +175,7 @@ public final class UpdateController {
         if attemptCoordinator.isMonitoring {
             performAttemptAction(attemptCoordinator.handleStateChange(state))
         }
+        scheduleToastMuteExpiryIfNeeded()
         scheduleNoUpdateDismiss(for: state, overrideState: overrideState)
         if state.isIdle, overrideState == nil {
             startSilentDownloadIfKickPending()

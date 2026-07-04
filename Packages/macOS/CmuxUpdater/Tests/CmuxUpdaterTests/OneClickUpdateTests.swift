@@ -168,6 +168,24 @@ import Testing
         #expect(defaults.object(forKey: UpdateStateModel.toastMuteDefaultsKey) == nil)
     }
 
+    @Test func muteExpiryReEmitsToastWhileAppStaysOpen() async throws {
+        let controller = try makeController(clock: YieldClock())
+        var currentDate = Date(timeIntervalSince1970: 2_000_000)
+        controller.model.now = { currentDate }
+        controller.model.setState(.installing(stagedInstalling()))
+        controller.model.muteUpdateReadyToast(for: 60 * 60)
+        #expect(controller.model.updateReadyToastInstalling == nil)
+
+        currentDate = currentDate.addingTimeInterval((60 * 60) + 1)
+        for _ in 0..<100 {
+            await Task.yield()
+            if controller.model.updateReadyToastMutedUntil == nil { break }
+        }
+
+        #expect(controller.model.updateReadyToastInstalling != nil)
+        #expect(controller.model.updateReadyToastMutedUntil == nil)
+    }
+
     @Test func stagedInstallingPillTextOffersRestart() {
         let model = UpdateStateModel()
         model.setState(.installing(stagedInstalling()))

@@ -112,4 +112,21 @@ extension UpdateController {
         restartWhenIdleTask?.cancel()
         restartWhenIdleTask = nil
     }
+
+    // MARK: - Toast mute expiry
+
+    func scheduleToastMuteExpiryIfNeeded() {
+        toastMuteExpiryTask?.cancel()
+        toastMuteExpiryTask = nil
+
+        guard let mutedUntil = model.updateReadyToastMutedUntil else { return }
+        let delay = max(0, mutedUntil.timeIntervalSince(model.now()))
+        toastMuteExpiryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await self.clock.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            self.model.expireUpdateReadyToastMuteIfNeeded()
+            self.toastMuteExpiryTask = nil
+        }
+    }
 }
