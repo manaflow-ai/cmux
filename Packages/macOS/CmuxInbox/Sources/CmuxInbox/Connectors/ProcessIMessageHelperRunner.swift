@@ -24,14 +24,30 @@ public struct ProcessIMessageHelperRunner: IMessageHelperRunning {
             } else {
                 try process.run()
             }
+            // Drain both pipes while the helper runs. Waiting for exit before
+            // reading deadlocks once either stream exceeds the ~64 KB pipe
+            // buffer: the child blocks in write while the parent blocks in
+            // waitUntilExit().
+            async let drainedOutput = Self.drain(output.fileHandleForReading)
+            async let drainedError = Self.drain(errorPipe.fileHandleForReading)
+            let data = await drainedOutput
+            let errorData = await drainedError
             process.waitUntilExit()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             guard process.terminationStatus == 0 else {
                 let message = String(data: errorData, encoding: .utf8) ?? "cmux-imsg failed"
                 throw InboxError.connectorUnavailable(message)
             }
             return data
         }.value
+    }
+
+    /// Reads a pipe to end-of-file off the cooperative pool so both helper
+    /// streams drain concurrently while the process is still running.
+    private static func drain(_ handle: FileHandle) async -> Data {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: handle.readDataToEndOfFile())
+            }
+        }
     }
 }

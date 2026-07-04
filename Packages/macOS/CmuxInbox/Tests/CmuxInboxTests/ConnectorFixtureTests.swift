@@ -16,6 +16,32 @@ import CmuxInbox
         #expect(result.items.first?.isActionable == true)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func helperRunnerDrainsStdoutLargerThanThePipeBufferWithoutDeadlock() async throws {
+        // 256 KB is well past the ~64 KB pipe buffer; before the concurrent
+        // drain fix this hung forever in waitUntilExit().
+        let runner = ProcessIMessageHelperRunner()
+        let data = try await runner.run(
+            helperURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "dd if=/dev/zero bs=1024 count=256 2>/dev/null | tr '\\0' 'a'"],
+            stdin: nil
+        )
+        #expect(data.count == 262_144)
+        #expect(data.allSatisfy { $0 == UInt8(ascii: "a") })
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func helperRunnerSurfacesFailureWithStderrLargerThanThePipeBuffer() async throws {
+        let runner = ProcessIMessageHelperRunner()
+        await #expect(throws: InboxError.self) {
+            _ = try await runner.run(
+                helperURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "dd if=/dev/zero bs=1024 count=256 2>/dev/null | tr '\\0' 'e' 1>&2; exit 3"],
+                stdin: nil
+            )
+        }
+    }
+
     @Test func slackBackfillEventsRateLimitAndTokenExpiryAreModeled() async throws {
         let tokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
         let http = StubHTTPClient(responses: [
