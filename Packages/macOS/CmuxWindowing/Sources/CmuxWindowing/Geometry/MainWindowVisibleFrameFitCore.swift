@@ -79,7 +79,7 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
 
         let usableDisplays = displays.filter { isUsableRect($0.visibleFrame) }
         guard !usableDisplays.isEmpty else { return nil }
-        if usableDisplays.contains(where: { contains($0.visibleFrame, standardizedFrame) }) {
+        if isFullyCovered(standardizedFrame, by: usableDisplays.map(\.visibleFrame)) {
             return nil
         }
 
@@ -147,11 +147,61 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
         return (dx * dx) + (dy * dy)
     }
 
-    private func contains(_ outer: CGRect, _ inner: CGRect) -> Bool {
-        outer.minX <= inner.minX
-            && outer.minY <= inner.minY
-            && outer.maxX >= inner.maxX
-            && outer.maxY >= inner.maxY
+    private func isFullyCovered(_ frame: CGRect, by visibleFrames: [CGRect]) -> Bool {
+        var uncovered = [frame]
+        for visibleFrame in visibleFrames {
+            uncovered = uncovered.flatMap { rect in
+                uncoveredPieces(of: rect, afterCoveringWith: visibleFrame)
+            }
+            if uncovered.isEmpty { return true }
+        }
+        return false
+    }
+
+    private func uncoveredPieces(of rect: CGRect, afterCoveringWith cover: CGRect) -> [CGRect] {
+        let intersection = rect.intersection(cover)
+        guard isUsableRect(intersection) else { return [rect] }
+
+        var pieces: [CGRect] = []
+        if intersection.minY > rect.minY {
+            pieces.append(CGRect(
+                x: rect.minX,
+                y: rect.minY,
+                width: rect.width,
+                height: intersection.minY - rect.minY
+            ))
+        }
+        if intersection.maxY < rect.maxY {
+            pieces.append(CGRect(
+                x: rect.minX,
+                y: intersection.maxY,
+                width: rect.width,
+                height: rect.maxY - intersection.maxY
+            ))
+        }
+
+        let middleMinY = max(rect.minY, intersection.minY)
+        let middleMaxY = min(rect.maxY, intersection.maxY)
+        if middleMaxY > middleMinY {
+            if intersection.minX > rect.minX {
+                pieces.append(CGRect(
+                    x: rect.minX,
+                    y: middleMinY,
+                    width: intersection.minX - rect.minX,
+                    height: middleMaxY - middleMinY
+                ))
+            }
+            if intersection.maxX < rect.maxX {
+                pieces.append(CGRect(
+                    x: intersection.maxX,
+                    y: middleMinY,
+                    width: rect.maxX - intersection.maxX,
+                    height: middleMaxY - middleMinY
+                ))
+            }
+        }
+
+        return pieces.filter { isUsableRect($0) }
     }
 
     private func isUsableRect(_ rect: CGRect) -> Bool {

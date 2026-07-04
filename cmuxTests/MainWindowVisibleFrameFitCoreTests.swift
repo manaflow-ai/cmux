@@ -117,8 +117,21 @@ struct MainWindowVisibleFrameFitCoreTests {
         ) == nil)
     }
 
-    @Test func straddlingFrameTargetsGreatestVisibleOverlapDisplay() throws {
-        let straddling = CGRect(x: 1_300, y: 80, width: 900, height: 600)
+    @Test func fullyVisibleFrameSpanningAdjacentDisplaysReturnsNil() {
+        let spanning = CGRect(x: 1_300, y: 80, width: 900, height: 600)
+
+        let fitted = core.fittedFrame(
+            for: spanning,
+            displays: [Self.builtInDisplay, Self.rightDisplay],
+            minimumWidth: Self.minimumWidth,
+            minimumHeight: Self.minimumHeight
+        )
+
+        #expect(fitted == nil)
+    }
+
+    @Test func cutOffStraddlingFrameTargetsGreatestVisibleOverlapDisplay() throws {
+        let straddling = CGRect(x: 1_300, y: -80, width: 900, height: 600)
 
         let fitted = try #require(core.fittedFrame(
             for: straddling,
@@ -128,6 +141,7 @@ struct MainWindowVisibleFrameFitCoreTests {
         ))
 
         #expect(Self.rightDisplay.visibleFrame.contains(fitted))
+        #expect(fitted.minY == Self.rightDisplay.visibleFrame.minY)
     }
 
     @Test func noOverlapFallbackTargetsNearestVisibleFrameEdge() throws {
