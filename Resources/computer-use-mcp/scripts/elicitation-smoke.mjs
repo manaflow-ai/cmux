@@ -20,6 +20,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "..", "cmux-computer-use-mcp.mjs");
 const fakeCodex = join(here, "fake-codex-app-server.mjs");
 
+function summarizeResult(res) {
+  const text = (res.content ?? [])
+    .filter((c) => c.type === "text")
+    .map((c) => c.text)
+    .join("\n");
+  return { isError: !!res.isError, text };
+}
+
 async function runCalls({ withElicitation, calls, expectMessage = null }) {
   // Hermetic env: pin the fake codex and strip any ambient auto-approve so a
   // developer shell with CMUX_CU_AUTO_APPROVE=1 cannot bypass the very
@@ -48,11 +56,7 @@ async function runCalls({ withElicitation, calls, expectMessage = null }) {
   const results = [];
   for (const call of calls) {
     const res = await client.callTool({ name: call.tool, arguments: call.args ?? {} });
-    const text = (res.content ?? [])
-      .filter((c) => c.type === "text")
-      .map((c) => c.text)
-      .join("\n");
-    results.push({ isError: !!res.isError, text });
+    results.push(summarizeResult(res));
   }
   await client.close();
   return results;
@@ -65,6 +69,26 @@ async function run({ withElicitation, tool = "computer_apps", args = {}, expectM
     expectMessage,
   });
   return result;
+}
+
+async function runConcurrentElementRace() {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverPath],
+    env: { ...process.env, CMUX_CU_CODEX: fakeCodex },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
+  await client.connect(transport);
+  const state = summarizeResult(
+    await client.callTool({ name: "computer_state", arguments: { app: "TestApp" } })
+  );
+  const [first, second] = await Promise.all([
+    client.callTool({ name: "computer_click", arguments: { app: "TestApp", element: 0 } }),
+    client.callTool({ name: "computer_click", arguments: { app: "TestApp", element: 0 } }),
+  ]);
+  await client.close();
+  return [state, summarizeResult(first), summarizeResult(second)];
 }
 
 const accepted = await run({ withElicitation: true, expectMessage: "Allow Codex to use TestApp?" });
@@ -156,6 +180,20 @@ if (stateResult.isError || firstClick.isError) {
 }
 if (!staleClick.isError || !staleClick.text.includes("run computer_state first")) {
   console.error("FAIL: stale element action should require a fresh computer_state snapshot");
+  process.exit(1);
+}
+
+const [raceState, raceA, raceB] = await runConcurrentElementRace();
+const raceFailures = [raceA, raceB].filter((result) => result.isError);
+console.log(
+  `concurrent element race -> state=${raceState.isError} first=${raceA.isError} second=${raceB.isError}`
+);
+if (raceState.isError) {
+  console.error("FAIL: expected race setup computer_state to succeed");
+  process.exit(1);
+}
+if (raceFailures.length !== 1 || !raceFailures[0].text.includes("run computer_state first")) {
+  console.error("FAIL: exactly one concurrent element action should consume the snapshot");
   process.exit(1);
 }
 

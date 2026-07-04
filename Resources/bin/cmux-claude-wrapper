@@ -774,8 +774,22 @@ cmux_computer_use_resolve_node() {
     local node_bin
     node_bin="$(command -v node 2>/dev/null)" || return 1
     [[ "$node_bin" = /* && -x "$node_bin" ]] || return 1
+    if [[ -n "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}" ]]; then
+        case "$node_bin" in
+            "${CMUX_CODEX_WRAPPER_SHIM_ROOT%/}"/*)
+                return 1
+                ;;
+        esac
+    fi
+    if [[ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ]]; then
+        case "$node_bin" in
+            "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT%/}"/*)
+                return 1
+                ;;
+        esac
+    fi
     case "$node_bin" in
-        "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}"/*|"${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"/*|*/cmux-cli-shims/*)
+        */cmux-cli-shims/*)
             return 1
             ;;
     esac

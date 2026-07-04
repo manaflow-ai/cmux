@@ -471,11 +471,8 @@ async function callInputTool(tool, args) {
     }
     s.boundApps.add(app);
   }
-  try {
-    return await s.callTool(tool, args);
-  } finally {
-    s.snapshotApps.delete(app);
-  }
+  s.snapshotApps.delete(app);
+  return s.callTool(tool, args);
 }
 
 const text = (value) => ({ type: "text", text: String(value) });
