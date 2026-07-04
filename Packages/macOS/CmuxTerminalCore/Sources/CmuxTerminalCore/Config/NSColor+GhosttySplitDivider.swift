@@ -1,9 +1,9 @@
 public import AppKit
 public import CmuxFoundation
 
-public extension NSColor {
+extension NSColor {
     /// The high-contrast split-divider color cmux derives for this terminal background.
-    var ghosttyDefaultSplitDividerColor: NSColor {
+    public var ghosttyDefaultSplitDividerColor: NSColor {
         let color = usingColorSpace(.sRGB) ?? self
         var red: CGFloat = 0
         var green: CGFloat = 0
