@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
 import { Link } from "../../../../i18n/navigation";
+import { buildAlternates } from "../../../../i18n/seo";
 
 export async function generateMetadata({
   params,
@@ -13,7 +14,7 @@ export async function generateMetadata({
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: { canonical: "https://cmux.com/support" },
+    alternates: buildAlternates(locale, "/support"),
   };
 }
 

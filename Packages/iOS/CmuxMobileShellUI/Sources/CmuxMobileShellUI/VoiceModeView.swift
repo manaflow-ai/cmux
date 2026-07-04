@@ -159,15 +159,24 @@ struct VoiceModeView: View {
                     .foregroundStyle(.white)
             }
         }
-        .disabled(!canStartListening && !isListening)
+        // Keep the button tappable while starting: the action path treats a tap
+        // during `isStarting` as cancel, so disabling it there would leave the
+        // user with no way to abort a hung permission prompt or engine spin-up.
+        .disabled(!hasVoiceTarget && !isListening && !isStarting)
         .accessibilityLabel(isListening
             ? L10n.string("mobile.voiceMode.stopListening", defaultValue: "Stop Listening")
             : L10n.string("mobile.voiceMode.startListening", defaultValue: "Start Listening"))
         .accessibilityIdentifier("MobileVoiceModeMicButton")
     }
 
+    /// Whether the Mac currently offers a valid Voice Mode target, independent
+    /// of this view's own start-in-progress state.
+    private var hasVoiceTarget: Bool {
+        store.supportsVoiceMode && store.voiceFocusSnapshot?.isTerminal == true
+    }
+
     private var canStartListening: Bool {
-        store.supportsVoiceMode && store.voiceFocusSnapshot?.isTerminal == true && !isStarting
+        hasVoiceTarget && !isStarting
     }
 
     @MainActor
@@ -189,6 +198,13 @@ struct VoiceModeView: View {
         // A stop (or a newer start) may have superseded this attempt while the
         // permission prompt was up; it must not spin up a session.
         guard generation == sessionGeneration, isStarting else { return }
+        // The focus target can also change while the prompt is up (Mac focus
+        // moved off a terminal, host switched, capabilities dropped); starting
+        // anyway would record against no valid target.
+        guard hasVoiceTarget else {
+            isStarting = false
+            return
+        }
         guard permitted else {
             isStarting = false
             errorMessage = L10n.string("mobile.voiceMode.permissionDenied", defaultValue: "Microphone or speech recognition permission is not available.")
@@ -283,15 +299,35 @@ struct VoiceModeView: View {
                     submit: voiceSettings.voiceModeAutoSubmit
                 )
                 let title = response.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal")
-                sendConfirmation = String(
-                    format: L10n.string("mobile.voiceMode.sentToFormat", defaultValue: "Sent to %@"),
+                sendConfirmation = String.localizedStringWithFormat(
+                    L10n.string("mobile.voiceMode.sentToFormat", defaultValue: "Sent to %@"),
                     title
                 )
                 errorMessage = nil
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = Self.sendErrorMessage(error)
             }
         }
+    }
+
+    /// User-facing copy for a failed voice send. Mac-authored RPC and auth
+    /// messages are already localized UI copy and pass through; anything else
+    /// (transport, decode) is internal detail and maps to generic copy.
+    private static func sendErrorMessage(_ error: any Error) -> String {
+        if let connectionError = error as? MobileShellConnectionError {
+            switch connectionError {
+            case .rpcError(_, let message),
+                 .authorizationFailed(let message),
+                 .accountMismatch(let message):
+                return message
+            default:
+                break
+            }
+        }
+        return L10n.string(
+            "mobile.voiceMode.sendFailed",
+            defaultValue: "Couldn't send to the Mac. Check the connection and try again."
+        )
     }
 }
 #endif

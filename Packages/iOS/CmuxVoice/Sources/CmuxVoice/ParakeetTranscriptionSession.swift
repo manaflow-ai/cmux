@@ -43,7 +43,7 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
         self.stream = stream
         self.continuation = continuation
         self.audioContinuation = audioContinuation
-        self.startupTask = Task {
+        let startupTask = Task {
             do {
                 let models = try await AsrModels.downloadAndLoad(
                     to: modelDirectory,
@@ -67,8 +67,9 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
                 return false
             }
         }
+        self.startupTask = startupTask
         self.updateTask = Self.makeUpdateTask(manager: manager, continuation: continuation)
-        self.audioTask = Self.makeAudioTask(manager: manager, audioStream: audioStream)
+        self.audioTask = Self.makeAudioTask(manager: manager, audioStream: audioStream, startupTask: startupTask)
     }
 
     /// Incremental recognition updates.
@@ -180,9 +181,15 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
 
     private static func makeAudioTask(
         manager: SlidingWindowAsrManager,
-        audioStream: AsyncStream<AudioBufferBox>
+        audioStream: AsyncStream<AudioBufferBox>,
+        startupTask: Task<Bool, Never>
     ) -> Task<Void, Never> {
         Task {
+            // Hold audio in this session's BOUNDED stream until the ASR pipeline
+            // is actually up: the manager's own input stream is unbounded, so
+            // forwarding during a multi-second CoreML load would just move the
+            // unbounded backlog into FluidAudio.
+            guard await startupTask.value else { return }
             for await box in audioStream {
                 guard !Task.isCancelled else { break }
                 await manager.streamAudio(box.buffer)

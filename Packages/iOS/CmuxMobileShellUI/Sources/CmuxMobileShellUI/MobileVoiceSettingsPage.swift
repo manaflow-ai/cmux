@@ -99,8 +99,11 @@ struct MobileVoiceSettingsPage: View {
                 )
                 Spacer()
                 Button(role: .destructive) {
-                    try? parakeetModelStore.deleteModel()
-                    if voiceSettings.selectedEngine == .parakeetV3 {
+                    // Only flip the engine back to Apple when the files are
+                    // actually gone; a failed delete leaves the model installed
+                    // and the selection must keep matching reality.
+                    if (try? parakeetModelStore.deleteModel()) != nil,
+                       voiceSettings.selectedEngine == .parakeetV3 {
                         voiceSettings.selectedEngine = .apple
                     }
                 } label: {

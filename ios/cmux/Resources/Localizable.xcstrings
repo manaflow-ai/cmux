@@ -9028,6 +9028,23 @@
         }
       }
     },
+    "mobile.voiceMode.sendFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't send to the Mac. Check the connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に送信できませんでした。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.voiceMode.sentToFormat": {
       "extractionState": "manual",
       "localizations": {
