@@ -12,8 +12,15 @@ import Foundation
 /// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` so end-to-end tests can substitute a
 /// shim that strips the ssh framing and execs the remote command locally —
 /// the full mirror stack then runs hermetically (no sshd, no network).
-enum RemoteTmuxSSHBinary {
-    static var path: String {
+struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
+    /// The ssh executable used when the caller doesn't inject one (the
+    /// connection and transport inits both take `sshExecutablePath`).
+    ///
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` because the
+    /// sizing UI tests exercise the REAL app process, and a launch
+    /// environment variable is the only injection channel that crosses the
+    /// XCUITest process boundary — the same seam `CMUX_SOCKET_PATH` uses.
+    static func defaultSSHExecutablePath() -> String {
         #if DEBUG
         if let override = ProcessInfo.processInfo.environment["CMUX_REMOTE_TMUX_SSH_FOR_TESTING"],
            !override.isEmpty {
@@ -22,9 +29,7 @@ enum RemoteTmuxSSHBinary {
         #endif
         return "/usr/bin/ssh"
     }
-}
 
-struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// The SSH destination: a `~/.ssh/config` alias or `user@host`.
     let destination: String
 
@@ -271,7 +276,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   end-of-options guard precedes the destination so a dash-prefixed
     ///   destination can never be parsed as an ssh option.
     func interactiveAuthInvocation(
-        sshExecutablePath: String = RemoteTmuxSSHBinary.path,
+        sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
         controlPersistSeconds: Int = 180
     ) -> [String] {
         [sshExecutablePath]
