@@ -1,5 +1,6 @@
 import { locales } from "../../i18n/routing";
 import { comparePages, comparePath } from "./compare-pages";
+import type { ComparePageKey } from "./compare-pages";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -30,28 +31,30 @@ const englishOnlyPages = [
   "/eula",
 ] as const;
 
+const comparePageTitles = {
+  bestTerminalForAgents: "Best terminal for AI coding agents",
+  cmuxVsAlacritty: "cmux vs Alacritty",
+  cmuxVsConductor: "cmux vs Conductor",
+  cmuxVsCursor: "cmux vs Cursor",
+  cmuxVsDevin: "cmux vs Devin",
+  cmuxVsGhostty: "cmux vs Ghostty",
+  cmuxVsHerdr: "cmux vs Herdr",
+  cmuxVsIterm2: "cmux vs iTerm2",
+  cmuxVsKitty: "cmux vs Kitty",
+  cmuxVsOpencode: "cmux vs OpenCode",
+  cmuxVsSuperset: "cmux vs Superset",
+  cmuxVsTmux: "cmux vs tmux",
+  cmuxVsVscode: "cmux vs VS Code",
+  cmuxVsWarp: "cmux vs Warp",
+  cmuxVsWezterm: "cmux vs WezTerm",
+  cmuxVsWindsurf: "cmux vs Windsurf",
+  cmuxVsZed: "cmux vs Zed",
+  multipleClaudeAgents: "How to run multiple Claude Code agents in parallel",
+} satisfies Record<ComparePageKey, string>;
+
 const agentReadableComparePages = comparePages.map((page) => ({
   path: comparePath(page.slug),
-  title: {
-    bestTerminalForAgents: "Best terminal for AI coding agents",
-    cmuxVsAlacritty: "cmux vs Alacritty",
-    cmuxVsConductor: "cmux vs Conductor",
-    cmuxVsCursor: "cmux vs Cursor",
-    cmuxVsDevin: "cmux vs Devin",
-    cmuxVsGhostty: "cmux vs Ghostty",
-    cmuxVsHerdr: "cmux vs Herdr",
-    cmuxVsIterm2: "cmux vs iTerm2",
-    cmuxVsKitty: "cmux vs Kitty",
-    cmuxVsOpencode: "cmux vs OpenCode",
-    cmuxVsSuperset: "cmux vs Superset",
-    cmuxVsTmux: "cmux vs tmux",
-    cmuxVsVscode: "cmux vs VS Code",
-    cmuxVsWarp: "cmux vs Warp",
-    cmuxVsWezterm: "cmux vs WezTerm",
-    cmuxVsWindsurf: "cmux vs Windsurf",
-    cmuxVsZed: "cmux vs Zed",
-    multipleClaudeAgents: "How to run multiple Claude Code agents in parallel",
-  }[page.key],
+  title: comparePageTitles[page.key],
 }));
 
 export const agentReadablePages = [
