@@ -36,8 +36,7 @@ export default function GettingStartedPage() {
       <p>{t("dmgDesc")}</p>
 
       <DocsHeading level={3} id="homebrew">{t("homebrew")}</DocsHeading>
-      <CodeBlock lang="bash">{`brew tap manaflow-ai/cmux
-brew install --cask cmux`}</CodeBlock>
+      <CodeBlock lang="bash">{`brew install --cask cmux`}</CodeBlock>
       <p>{t("updateLater")}</p>
       <CodeBlock lang="bash">{`brew upgrade --cask cmux`}</CodeBlock>
 
