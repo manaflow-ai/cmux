@@ -10,8 +10,7 @@ extension Workspace {
     }
 
     private var reportedRemoteCurrentDirectory: String? {
-        if let focusedPanelId,
-           isRemoteTerminalSurface(focusedPanelId) {
+        if let focusedPanelId {
             return reportedPanelDirectory(panelId: focusedPanelId)
         }
         let activeRemotePanelIds = panels.keys.filter { isRemoteTerminalSurface($0) }

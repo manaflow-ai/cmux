@@ -347,6 +347,7 @@ struct WindowTitleTemplateTests {
 
         workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
         workspace.focusPanel(localPanel.id)
+        #expect(workspace.presentedCurrentDirectory == localTerminalDirectory)
         manager.refreshWindowTitle()
         #expect(window.title == "[cmux:01234567] \(localTerminalDirectory)")
 
