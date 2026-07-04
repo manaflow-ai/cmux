@@ -2882,20 +2882,17 @@ class GhosttyApp {
             let rawTitle = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
             // Capture the emitting surface now (the view may be reused before the
-            // deferred post runs). The post is deferred onto the main actor so it
-            // can't re-enter layout while the per-surface filter drops spinner
+            // deferred post runs). Enqueue on the main actor synchronously so
+            // title bursts keep callback order, then drain later so the post
+            // cannot re-enter layout while the per-surface filter drops spinner
             // churn at the source (#6507, #4735).
             guard let tabId = surfaceView.tabId,
                   let sourceSurface = surfaceView.terminalSurface else { return true }
-            Task { @MainActor [weak surfaceView] in
-                guard let surfaceView,
-                      let stableTitle = surfaceView.titleToDispatch(for: rawTitle, surfaceID: sourceSurface.id)
-                else { return }
-                let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: stableTitle)
-                NotificationCenter.default.post(
-                    name: .ghosttyDidSetTitle,
-                    object: sourceSurface,
-                    userInfo: change.userInfo
+            performOnMain {
+                surfaceView.enqueueTitleDispatch(
+                    rawTitle: rawTitle,
+                    tabId: tabId,
+                    sourceSurface: sourceSurface
                 )
             }
             return true
@@ -3361,9 +3358,52 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Per-surface spinner-frame title dedup (``TerminalTitleChurnFilter``;
     /// #6507 / #4735). Main-actor only, used in the deferred title post below.
     private var titleChurnFilter = TerminalTitleChurnFilter()
+    private var pendingTitleDispatches: [
+        (rawTitle: String, tabId: UUID, sourceSurface: TerminalSurface)
+    ] = []
+    private var titleDispatchDrainScheduled = false
 
     fileprivate func titleToDispatch(for rawTitle: String, surfaceID: UUID) -> String? {
         titleChurnFilter.titleToDispatch(for: rawTitle, surfaceID: surfaceID)
+    }
+
+    fileprivate func enqueueTitleDispatch(rawTitle: String, tabId: UUID, sourceSurface: TerminalSurface) {
+        pendingTitleDispatches.append((
+            rawTitle: rawTitle,
+            tabId: tabId,
+            sourceSurface: sourceSurface
+        ))
+        guard !titleDispatchDrainScheduled else { return }
+        titleDispatchDrainScheduled = true
+        // One task drains the FIFO; individual title events are not scheduled
+        // as separate tasks, so executor ordering cannot reorder a burst.
+        Task { @MainActor [weak self] in
+            self?.drainPendingTitleDispatches()
+        }
+    }
+
+    private func drainPendingTitleDispatches() {
+        while !pendingTitleDispatches.isEmpty {
+            let batch = pendingTitleDispatches
+            pendingTitleDispatches.removeAll(keepingCapacity: true)
+            for pending in batch {
+                guard let stableTitle = titleToDispatch(
+                    for: pending.rawTitle,
+                    surfaceID: pending.sourceSurface.id
+                ) else { continue }
+                let change = GhosttyTitleChange(
+                    tabId: pending.tabId,
+                    surfaceId: pending.sourceSurface.id,
+                    title: stableTitle
+                )
+                NotificationCenter.default.post(
+                    name: .ghosttyDidSetTitle,
+                    object: pending.sourceSurface,
+                    userInfo: change.userInfo
+                )
+            }
+        }
+        titleDispatchDrainScheduled = false
     }
 
     private static let focusDebugEnabled: Bool = {
