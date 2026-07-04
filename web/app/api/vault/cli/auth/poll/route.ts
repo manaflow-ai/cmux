@@ -4,6 +4,7 @@ import {
   drizzleCliAuthRepository,
   type CliAuthTokens,
 } from "../../../../../../services/vault/cliAuth";
+import { isVaultConfigured } from "../../../../../../services/vault/config";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 import { getStackServerApp } from "../../../../../lib/stack";
@@ -26,6 +27,7 @@ async function mintStackTokens(userId: string): Promise<CliAuthTokens | null> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (!isVaultConfigured()) return jsonResponse({ error: "vault_not_configured" }, 503);
   const body = await readVaultJsonObject(request);
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);

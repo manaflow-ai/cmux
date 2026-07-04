@@ -38,7 +38,9 @@ func (r *Restorer) Resume(ctx context.Context, sessionID string, opts Options) (
 	if err != nil {
 		return "", err
 	}
-	if local != nil {
+	// --force means "replace whatever is on disk from the vault", so skip the
+	// local fast path and let the cloud restore overwrite it.
+	if local != nil && !opts.Force {
 		agent, _ := agentdirs.ByName(local.AgentName)
 		hint := agent.ResumeHint(agentdirs.SessionRef{
 			AgentName:      local.AgentName,

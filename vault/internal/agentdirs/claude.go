@@ -74,7 +74,9 @@ func (Claude) RestorePath(env Environ, s SessionRef) (string, error) {
 }
 
 func (Claude) ResumeHint(s SessionRef) string {
-	if strings.TrimSpace(s.CWD) == "" {
+	// CWD can be a lossy munged-directory fallback; only emit a cd for a real
+	// absolute path.
+	if !filepath.IsAbs(strings.TrimSpace(s.CWD)) {
 		return "claude --resume " + s.AgentSessionID
 	}
 	return "cd " + shellQuote(s.CWD) + " && claude --resume " + s.AgentSessionID

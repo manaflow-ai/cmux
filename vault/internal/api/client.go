@@ -152,13 +152,18 @@ func (c *Client) FindSession(ctx context.Context, agent, agentSessionID string) 
 		values.Set("agent", agent)
 	}
 	values.Set("agentSessionId", agentSessionID)
-	values.Set("limit", "1")
+	// Ask for two rows so an id shared by multiple agents is detected instead
+	// of restoring an arbitrary one.
+	values.Set("limit", "2")
 	var out SessionsResponse
 	if err := c.doJSON(ctx, "GET", "/api/vault/sessions?"+values.Encode(), nil, true, &out); err != nil {
 		return nil, err
 	}
 	if len(out.Sessions) == 0 {
 		return nil, nil
+	}
+	if len(out.Sessions) > 1 {
+		return nil, fmt.Errorf("session %s exists for multiple agents in cmux vault; pass --agent to disambiguate", agentSessionID)
 	}
 	return &out.Sessions[0], nil
 }

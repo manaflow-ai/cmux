@@ -1,6 +1,8 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
+import { lt } from "drizzle-orm";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
+import { isVaultConfigured } from "../../../../../../services/vault/config";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
@@ -12,6 +14,7 @@ const EXPIRES_IN_SECONDS = 15 * 60;
 const INTERVAL_SECONDS = 3;
 
 export async function POST(request: Request): Promise<Response> {
+  if (!isVaultConfigured()) return jsonResponse({ error: "vault_not_configured" }, 503);
   const body = await readVaultJsonObject(request);
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
@@ -23,7 +26,14 @@ export async function POST(request: Request): Promise<Response> {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + EXPIRES_IN_SECONDS * 1000);
 
-  await cloudDb().insert(vaultCliAuthRequests).values({
+  const db = cloudDb();
+  // Opportunistic GC so this unauthenticated endpoint cannot accumulate rows
+  // beyond one expiry window (see DESIGN.md for the full rate-limit plan).
+  await db
+    .delete(vaultCliAuthRequests)
+    .where(lt(vaultCliAuthRequests.expiresAt, new Date(now.getTime() - 60 * 1000)));
+
+  await db.insert(vaultCliAuthRequests).values({
     deviceCodeHash,
     userCode,
     status: "pending",

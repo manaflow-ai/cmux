@@ -69,7 +69,9 @@ func (Pi) RestorePath(env Environ, s SessionRef) (string, error) {
 }
 
 func (Pi) ResumeHint(s SessionRef) string {
-	if strings.TrimSpace(s.CWD) == "" {
+	// CWD can be a lossy munged-directory fallback; only emit a cd for a real
+	// absolute path.
+	if !filepath.IsAbs(strings.TrimSpace(s.CWD)) {
 		return "open pi and resume session " + s.AgentSessionID
 	}
 	return "cd " + shellQuote(s.CWD) + " && open pi to resume session " + s.AgentSessionID

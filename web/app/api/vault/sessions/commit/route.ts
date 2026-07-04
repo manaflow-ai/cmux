@@ -36,7 +36,9 @@ export async function POST(request: Request): Promise<Response> {
       results.push(itemResult(item, "error", "object_missing"));
       continue;
     }
-    if (object.contentLength !== item.compressedSizeBytes) {
+    // Some S3-compatible stores omit Content-Length on HEAD; only enforce the
+    // size check when the store reports one.
+    if (object.contentLength != null && object.contentLength !== item.compressedSizeBytes) {
       results.push(itemResult(item, "error", "size_mismatch"));
       continue;
     }
