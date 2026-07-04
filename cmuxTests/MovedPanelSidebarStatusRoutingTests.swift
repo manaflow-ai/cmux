@@ -12,149 +12,149 @@ import Testing
 @Suite(.serialized)
 struct MovedPanelSidebarStatusRoutingTests {
     @Test func panelScopedMutationsRouteMovedSurfaceToCurrentWorkspace() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let panel = moved.panelID.uuidString
 
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let moved = try makeMovedTerminalSurface(in: manager)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status codex Running --icon=bolt.fill --color=#4C8DFF --tab=\(staleTab) --panel=\(panel) --pid=111"
+                ) == "OK"
+            )
             TerminalMutationBus.shared.drainForTesting()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            #expect(moved.source.statusEntries["codex"] == nil)
+            #expect(moved.destination.statusEntries["codex"]?.value == "Running")
+            #expect(moved.destination.agentPIDs["codex"].map(Int.init) == 111)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_meta build compiling --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["build"] == nil)
+            #expect(moved.destination.statusEntries["build"]?.value == "compiling")
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_pid codex.session 222 --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.agentPIDs["codex.session"] == nil)
+            #expect(moved.destination.agentPIDs["codex.session"].map(Int.init) == 222)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_lifecycle codex running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.agentLifecycleStatesByPanelId[moved.panelID]?["codex"] == nil)
+            #expect(moved.destination.agentLifecycleStatesByPanelId[moved.panelID]?["codex"] == .running)
+
+            let customAgentRoot = try makeCustomAgentConfigRoot(agentID: "local-agent")
+            defer { try? FileManager.default.removeItem(at: customAgentRoot) }
+            moved.destination.panelDirectories[moved.panelID] = customAgentRoot.path
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_agent_lifecycle local-agent idle --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.agentLifecycleStatesByPanelId[moved.panelID]?["local-agent"] == nil)
+            #expect(moved.destination.agentLifecycleStatesByPanelId[moved.panelID]?["local-agent"] == .idle)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_agent_pid codex.session --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.agentPIDs["codex.session"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "clear_status build --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["build"] == nil)
         }
-        TerminalController.shared.setActiveTabManager(manager)
-
-        let staleTab = moved.source.id.uuidString
-        let panel = moved.panelID.uuidString
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_status codex Running --icon=bolt.fill --color=#4C8DFF --tab=\(staleTab) --panel=\(panel) --pid=111"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.statusEntries["codex"] == nil)
-        #expect(moved.destination.statusEntries["codex"]?.value == "Running")
-        #expect(moved.destination.agentPIDs["codex"].map(Int.init) == 111)
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "report_meta build compiling --tab=\(staleTab) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.statusEntries["build"] == nil)
-        #expect(moved.destination.statusEntries["build"]?.value == "compiling")
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_agent_pid codex.session 222 --tab=\(staleTab) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.agentPIDs["codex.session"] == nil)
-        #expect(moved.destination.agentPIDs["codex.session"].map(Int.init) == 222)
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_agent_lifecycle codex running --tab=\(staleTab) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.agentLifecycleStatesByPanelId[moved.panelID]?["codex"] == nil)
-        #expect(moved.destination.agentLifecycleStatesByPanelId[moved.panelID]?["codex"] == .running)
-
-        let customAgentRoot = try makeCustomAgentConfigRoot(agentID: "local-agent")
-        defer { try? FileManager.default.removeItem(at: customAgentRoot) }
-        moved.destination.panelDirectories[moved.panelID] = customAgentRoot.path
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_agent_lifecycle local-agent idle --tab=\(staleTab) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.agentLifecycleStatesByPanelId[moved.panelID]?["local-agent"] == nil)
-        #expect(moved.destination.agentLifecycleStatesByPanelId[moved.panelID]?["local-agent"] == .idle)
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "clear_agent_pid codex.session --tab=\(staleTab) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.destination.agentPIDs["codex.session"] == nil)
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "clear_status build --tab=\(staleTab) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.destination.statusEntries["build"] == nil)
     }
 
     @Test func panelScopedMutationsDoNotFallbackForImplicitOrNonWorkspaceTargets() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousAppDelegate }
+        try withMovedPanelTestContext { moved in
+            let unrelated = moved.manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+            let panel = moved.panelID.uuidString
 
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let moved = try makeMovedTerminalSurface(in: manager)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status selected Running --panel=\(panel)"
+                ) == "OK"
+            )
             TerminalMutationBus.shared.drainForTesting()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            #expect(moved.source.statusEntries["selected"] == nil)
+            #expect(moved.destination.statusEntries["selected"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status indexed Running --tab=0 --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["indexed"] == nil)
+            #expect(moved.destination.statusEntries["indexed"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status unrelated Running --tab=\(unrelated.id.uuidString) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["unrelated"] == nil)
+            #expect(moved.destination.statusEntries["unrelated"] == nil)
+            #expect(unrelated.statusEntries["unrelated"] == nil)
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status unknown Running --tab=\(UUID().uuidString) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["unknown"] == nil)
+            #expect(moved.destination.statusEntries["unknown"] == nil)
         }
-        TerminalController.shared.setActiveTabManager(manager)
-
-        let unrelated = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
-        let panel = moved.panelID.uuidString
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_status selected Running --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.statusEntries["selected"] == nil)
-        #expect(moved.destination.statusEntries["selected"] == nil)
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_status indexed Running --tab=0 --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.statusEntries["indexed"] == nil)
-        #expect(moved.destination.statusEntries["indexed"] == nil)
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_status unrelated Running --tab=\(unrelated.id.uuidString) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.statusEntries["unrelated"] == nil)
-        #expect(moved.destination.statusEntries["unrelated"] == nil)
-        #expect(unrelated.statusEntries["unrelated"] == nil)
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_status unknown Running --tab=\(UUID().uuidString) --panel=\(panel)"
-            ) == "OK"
-        )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.source.statusEntries["unknown"] == nil)
-        #expect(moved.destination.statusEntries["unknown"] == nil)
     }
 
     @Test func panelScopedMutationsRouteMovedSurfaceAfterSourceWorkspaceCloses() throws {
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let panel = moved.panelID.uuidString
+            moved.manager.closeWorkspace(moved.source, recordHistory: false)
+            #expect(!moved.manager.tabs.contains { $0.id == moved.source.id })
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status closed-source Running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.destination.statusEntries["closed-source"]?.value == "Running")
+        }
+    }
+
+    private struct MovedPanelTestContext {
+        let manager: TabManager
+        let source: Workspace
+        let destination: Workspace
+        let panelID: UUID
+    }
+
+    private func withMovedPanelTestContext(
+        _ body: (_ moved: MovedPanelTestContext) throws -> Void
+    ) throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousAppDelegate }
@@ -170,18 +170,14 @@ struct MovedPanelSidebarStatusRoutingTests {
         }
         TerminalController.shared.setActiveTabManager(manager)
 
-        let staleTab = moved.source.id.uuidString
-        let panel = moved.panelID.uuidString
-        manager.closeWorkspace(moved.source, recordHistory: false)
-        #expect(!manager.tabs.contains { $0.id == moved.source.id })
-
-        #expect(
-            TerminalController.shared.handleSocketLine(
-                "set_status closed-source Running --tab=\(staleTab) --panel=\(panel)"
-            ) == "OK"
+        try body(
+            MovedPanelTestContext(
+                manager: manager,
+                source: moved.source,
+                destination: moved.destination,
+                panelID: moved.panelID
+            )
         )
-        TerminalMutationBus.shared.drainForTesting()
-        #expect(moved.destination.statusEntries["closed-source"]?.value == "Running")
     }
 
     private func makeMovedTerminalSurface(
