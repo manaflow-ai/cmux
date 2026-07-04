@@ -34,6 +34,7 @@ final class GmailOAuthCoordinator {
         case browserRejected
         case stateMismatch
         case cancelled
+        case entropyUnavailable
     }
 
     private var listener: NWListener?
@@ -42,8 +43,8 @@ final class GmailOAuthCoordinator {
     /// Runs the full sign-in and returns the credential JSON for the vault.
     func signIn(configuration: ClientConfiguration) async throws -> String {
         defer { stop() }
-        let verifier = Self.randomURLSafeString(length: 64)
-        let state = Self.randomURLSafeString(length: 32)
+        let verifier = try Self.randomURLSafeString(length: 64)
+        let state = try Self.randomURLSafeString(length: 32)
         let challenge = GmailOAuthCredential.codeChallenge(for: verifier)
 
         // Loopback interface only (RFC 8252 section 7.3): binding to all
@@ -93,15 +94,16 @@ final class GmailOAuthCoordinator {
                     // Other requests (favicon, wrong path) keep the listener alive.
                 }
             }
-            listener.stateUpdateHandler = { listenerState in
-                if case .failed = listenerState { finish(.failure(OAuthError.listenerFailed)) }
-            }
-            listener.start(queue: .main)
-
-            Task { @MainActor in
-                // The listener publishes its port asynchronously; poll briefly.
-                for _ in 0..<50 {
-                    if let port = listener.port?.rawValue, port > 0 {
+            // The port is published exactly when the listener reaches .ready;
+            // launching the browser from there avoids polling.
+            listener.stateUpdateHandler = { [weak self] listenerState in
+                switch listenerState {
+                case .ready:
+                    Task { @MainActor in
+                        guard let self, let port = listener.port?.rawValue, port > 0 else {
+                            finish(.failure(OAuthError.listenerFailed))
+                            return
+                        }
                         let redirect = "http://127.0.0.1:\(port)/callback"
                         self.pendingRedirectURI = redirect
                         let url = GmailOAuthCredential.authorizationURL(
@@ -111,12 +113,14 @@ final class GmailOAuthCoordinator {
                             codeChallenge: challenge
                         )
                         NSWorkspace.shared.open(url)
-                        return
                     }
-                    try? await Task.sleep(nanoseconds: 100_000_000)
+                case .failed, .cancelled:
+                    finish(.failure(OAuthError.listenerFailed))
+                default:
+                    break
                 }
-                finish(.failure(OAuthError.listenerFailed))
             }
+            listener.start(queue: .main)
         }
 
         guard let redirectURI = pendingRedirectURI else { throw OAuthError.listenerFailed }
@@ -165,9 +169,13 @@ final class GmailOAuthCoordinator {
         return .success(code)
     }
 
-    nonisolated static func randomURLSafeString(length: Int) -> String {
+    /// Fails closed: a zeroed buffer would make the PKCE verifier and state
+    /// predictable, so an entropy failure aborts the sign-in.
+    nonisolated static func randomURLSafeString(length: Int) throws -> String {
         var bytes = [UInt8](repeating: 0, count: length)
-        _ = SecRandomCopyBytes(kSecRandomDefault, length, &bytes)
+        guard SecRandomCopyBytes(kSecRandomDefault, length, &bytes) == errSecSuccess else {
+            throw OAuthError.entropyUnavailable
+        }
         return Data(bytes).base64URLEncoded().prefix(length).description
     }
 }
