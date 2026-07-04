@@ -18,12 +18,12 @@ public struct SystemMacPowerCommandRunner: MacPowerCommandRunning {
     /// Runs a command and returns whether it exited with status 0.
     @discardableResult
     public func run(_ tool: String, _ arguments: [String]) async -> Bool {
-        await macPowerRunProcess(tool, arguments, captureOutput: false, timeout: timeout).success
+        await MacPowerProcessLauncher().run(tool, arguments, captureOutput: false, timeout: timeout).success
     }
 
     /// Runs a command and captures stdout when it exits with status 0.
     public func capture(_ tool: String, _ arguments: [String]) async -> String? {
-        let result = await macPowerRunProcess(tool, arguments, captureOutput: true, timeout: timeout)
+        let result = await MacPowerProcessLauncher().run(tool, arguments, captureOutput: true, timeout: timeout)
         return result.success ? result.output : nil
     }
 }
