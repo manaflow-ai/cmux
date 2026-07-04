@@ -4183,16 +4183,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @discardableResult
-    private func ensureSurfaceReadyForInput() -> ghostty_surface_t? {
+    private func ensureSurfaceReadyForInput(reassertInputFocus: Bool = true) -> ghostty_surface_t? {
         if let surface = surface {
-            _ = reassertTerminalFocusForInputIfFirstResponder()
+            if reassertInputFocus { _ = reassertTerminalFocusForInputIfFirstResponder() }
             return surface
         }
         guard window != nil else { return nil }
         terminalSurface?.attachToViewForInputDemand(self)
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
-        _ = reassertTerminalFocusForInputIfFirstResponder()
+        if reassertInputFocus { _ = reassertTerminalFocusForInputIfFirstResponder() }
         return surface
     }
     private func reassertTerminalFocusForInputIfFirstResponder(forceNative: Bool = false) -> Bool {
@@ -5326,7 +5326,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
-        if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
+        if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
