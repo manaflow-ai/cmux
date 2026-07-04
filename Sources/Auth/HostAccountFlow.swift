@@ -65,7 +65,7 @@ final class HostAccountFlow: AccountFlow {
     }
 
     func openProUpgrade() {
-        NSWorkspace.shared.open(AuthEnvironment.pricingURL)
+        ProUpgradePresenter.present()
     }
 
     var isProUpgradeAvailable: Bool {

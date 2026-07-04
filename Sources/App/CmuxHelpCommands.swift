@@ -24,7 +24,9 @@ extension cmuxApp {
             helpResourceButton(.githubIssues)
             helpResourceButton(.discord)
             if CmuxFeatureFlags.shared.isProUpgradeUIEnabled {
-                helpResourceButton(.upgradeToPro)
+                Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
+                    ProUpgradePresenter.present()
+                }
             }
 
             Divider()

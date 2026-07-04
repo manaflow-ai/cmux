@@ -32,7 +32,7 @@ extension ContentView {
 #if DEBUG
             cmuxDebugLog("palette.pro.upgrade.invoke")
 #endif
-            NSWorkspace.shared.open(AuthEnvironment.pricingURL)
+            ProUpgradePresenter.present()
         }
     }
 }

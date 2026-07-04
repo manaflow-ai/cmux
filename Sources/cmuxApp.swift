@@ -544,6 +544,9 @@ struct cmuxApp: App {
                     Button("Background Debug…") {
                         BackgroundDebugWindowController.shared.show()
                     }
+                    Button("Pro Badge Style…") {
+                        ProBadgeDebugWindowController.shared.show()
+                    }
                     Button(
                         String(
                             localized: "debug.menu.bonsplitTabBarDebug",

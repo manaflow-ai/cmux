@@ -31,6 +31,15 @@ final class CmuxFeatureFlags {
 
     private static let proUpgradeUIKey = "pro-upgrade-ui-enabled-release"
 
+    // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+    // Shows the top-right iPhone button that opens the Mobile Connect
+    // (phone pairing) window. Default keeps it visible when flags are
+    // unavailable; the window it opens ships in every build.
+    private(set) var isMobileConnectButtonEnabled = true
+
+    private static let mobileConnectButtonKey = "mobile-connect-button-enabled-release"
+
     private var flagsObserver: (any NSObjectProtocol)?
 
     /// Called once from AppDelegate after PostHog analytics starts. Safe when
@@ -52,5 +61,7 @@ final class CmuxFeatureFlags {
     private func applyLoadedFlags() {
         isProUpgradeUIEnabled =
             PostHogSDK.shared.getFeatureFlag(Self.proUpgradeUIKey) as? Bool ?? false
+        isMobileConnectButtonEnabled =
+            PostHogSDK.shared.getFeatureFlag(Self.mobileConnectButtonKey) as? Bool ?? false
     }
 }
