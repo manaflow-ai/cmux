@@ -197,10 +197,8 @@ public final class MobilePushCoordinator {
         let generation = claimNotificationSettingsSyncGeneration()
         await registration.setEnabled(true)
         let currentPreferences = notificationPreferences
-        let storedForwardingMode = forwardingMode ?? currentPreferences.forwardingModeForPhoneOptIn
-        let storedHidesContent = storedHideContentPreference
-        let authoritativeForwardingMode = storedForwardingMode
-        let authoritativeHidesContent = hidesContent ?? storedHidesContent
+        let authoritativeForwardingMode = forwardingMode ?? currentPreferences.forwardingModeForPhoneOptIn
+        let authoritativeHidesContent = hidesContent
         defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
         defaults.set(true, forKey: MobileNotificationPreferences.forwardingEnabledKey)
         defaults.set(authoritativeForwardingMode.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
@@ -218,8 +216,9 @@ public final class MobilePushCoordinator {
         await syncExplicitNotificationPreferencesToMac(
             preferences,
             generation: generation,
-            hasAuthoritativeForwardingMode: true,
-            hasAuthoritativeHidesContent: authoritativeHidesContent != nil
+            hasAuthoritativeForwardingMode: forwardingMode != nil,
+            hasAuthoritativeHidesContent: hidesContent != nil,
+            usePhoneOptInForwardingDefault: true
         )
         return true
     }
@@ -241,7 +240,6 @@ public final class MobilePushCoordinator {
         _ mode: MobileNotificationForwardingMode
     ) async -> MobileNotificationPreferences {
         let generation = claimNotificationSettingsSyncGeneration()
-        let hasAuthoritativeHidesContent = storedHideContentPreference != nil
         defaults.set(mode.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
         var preferences = notificationPreferences
         preferences.forwardingMode = mode
@@ -249,7 +247,7 @@ public final class MobilePushCoordinator {
             preferences,
             generation: generation,
             hasAuthoritativeForwardingMode: true,
-            hasAuthoritativeHidesContent: hasAuthoritativeHidesContent
+            hasAuthoritativeHidesContent: false
         ) ?? preferences
     }
 
@@ -257,14 +255,13 @@ public final class MobilePushCoordinator {
     @discardableResult
     public func setHidesContent(_ hidesContent: Bool) async -> MobileNotificationPreferences {
         let generation = claimNotificationSettingsSyncGeneration()
-        let hasAuthoritativeForwardingMode = storedForwardingModePreference != nil
         defaults.set(hidesContent, forKey: MobileNotificationPreferences.hideContentKey)
         var preferences = notificationPreferences
         preferences.hidesContent = hidesContent
         return await syncExplicitNotificationPreferencesToMac(
             preferences,
             generation: generation,
-            hasAuthoritativeForwardingMode: hasAuthoritativeForwardingMode,
+            hasAuthoritativeForwardingMode: false,
             hasAuthoritativeHidesContent: true
         ) ?? preferences
     }
@@ -505,7 +502,8 @@ public final class MobilePushCoordinator {
         _ preferences: MobileNotificationPreferences,
         generation: UInt64,
         hasAuthoritativeForwardingMode: Bool = true,
-        hasAuthoritativeHidesContent: Bool = true
+        hasAuthoritativeHidesContent: Bool = true,
+        usePhoneOptInForwardingDefault: Bool = false
     ) async -> MobileNotificationPreferences? {
         defaults.set(true, forKey: Self.forwardingSyncPendingKey)
         var preferencesForMac = preferences
@@ -517,7 +515,9 @@ public final class MobilePushCoordinator {
                 return nil
             }
             if !hasAuthoritativeForwardingMode {
-                preferencesForMac.forwardingMode = macPreferences.forwardingMode
+                preferencesForMac.forwardingMode = usePhoneOptInForwardingDefault
+                    ? macPreferences.forwardingModeForPhoneOptIn
+                    : macPreferences.forwardingMode
             }
             if !hasAuthoritativeHidesContent {
                 preferencesForMac.hidesContent = macPreferences.hidesContent
