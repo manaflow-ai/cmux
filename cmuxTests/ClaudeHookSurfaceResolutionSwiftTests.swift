@@ -426,6 +426,266 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
+    @Test func geminiIdlessAfterAgentMarksOriginalSessionIdle() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop")
+        defer { context.cleanup() }
+
+        _ = startGeminiSurfaceResolutionServer(context: context)
+        let sessionId = "gemini-session-with-idless-afteragent"
+        let environment = geminiHookEnvironment(context: context)
+
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment
+        ))
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"BeforeAgent","prompt":"fix it"}"#,
+            environment: environment
+        ))
+
+        let stopCommandStart = context.state.snapshot().count
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"done"}"#,
+            environment: environment
+        ))
+
+        let stopCommands = Array(context.state.snapshot().dropFirst(stopCommandStart))
+        #expect(
+            stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle gemini idle --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "Gemini AfterAgent must emit idle for hibernation, saw \(stopCommands)"
+        )
+
+        let sessions = try readGeminiSessions(context: context)
+        let original = try #require(sessions[sessionId])
+        #expect(original["agentLifecycle"] as? String == "idle")
+        #expect(original["lastNotificationStatus"] as? String == "idle")
+        #expect(
+            sessions[context.surfaceId] == nil,
+            "Id-less Gemini turn hooks must resolve to the original session record instead of creating a surface-id fallback record"
+        )
+    }
+
+    @Test func geminiIdlessAfterAgentPrefersNewestStartedSessionOverLateOlderWrite() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-prefers-new-start")
+        defer { context.cleanup() }
+
+        _ = startGeminiSurfaceResolutionServer(context: context)
+        let olderSessionId = "gemini-older-session"
+        let newerSessionId = "gemini-newer-session"
+        let environment = geminiHookEnvironment(context: context)
+
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment
+        ))
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment
+        ))
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"older done"}"#,
+            environment: environment
+        ))
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"newer done"}"#,
+            environment: environment
+        ))
+
+        let sessions = try readGeminiSessions(context: context)
+        let newer = try #require(sessions[newerSessionId])
+        #expect(newer["agentLifecycle"] as? String == "idle")
+        #expect(newer["lastNotificationStatus"] as? String == "idle")
+        #expect(
+            sessions[context.surfaceId] == nil,
+            "Late writes from an older Gemini session must not make the new id-less Stop create a surface-id fallback record"
+        )
+    }
+
+    @Test func geminiIdlessAfterAgentUsesHookPIDInsteadOfNewerActiveSession() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-pid-bound")
+        defer { context.cleanup() }
+
+        _ = startGeminiSurfaceResolutionServer(context: context)
+        let olderSessionId = "gemini-older-pid-session"
+        let newerSessionId = "gemini-newer-pid-session"
+        let olderEnvironment = geminiHookEnvironment(context: context, pid: 44_001)
+        let newerEnvironment = geminiHookEnvironment(context: context, pid: Int(getpid()))
+
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: olderEnvironment
+        ))
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: newerEnvironment
+        ))
+
+        let stopCommandStart = context.state.snapshot().count
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"older done"}"#,
+            environment: olderEnvironment
+        ))
+
+        let stopCommands = Array(context.state.snapshot().dropFirst(stopCommandStart))
+        #expect(
+            !stopCommands.contains {
+                $0.hasPrefix("notify_target") || ($0.hasPrefix("set_status gemini ") && $0.contains(" Idle "))
+            },
+            "A stale id-less Stop from the older Gemini PID must not notify or mark the active newer process idle, saw \(stopCommands)"
+        )
+        #expect(
+            !stopCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle gemini idle --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+            },
+            "A stale id-less Stop from the older Gemini PID must not set the pane lifecycle idle while the newer PID is running, saw \(stopCommands)"
+        )
+
+        let sessions = try readGeminiSessions(context: context)
+        let newer = try #require(sessions[newerSessionId])
+        #expect(
+            newer["agentLifecycle"] as? String != "idle",
+            "A stale id-less Stop from the older Gemini PID must not rewrite the newer active session"
+        )
+        #expect(
+            sessions[context.surfaceId] == nil,
+            "A PID-matched id-less Stop must not create a surface-id fallback record"
+        )
+    }
+
+    @Test func geminiIdlessAfterAgentDropsWhenNoAuthoritativeSurface() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-no-surface")
+        defer { context.cleanup() }
+
+        _ = startGeminiSurfaceResolutionServer(context: context)
+        let sessionId = "gemini-session-with-stale-surface-env"
+        let staleSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let environment = geminiHookEnvironment(context: context)
+
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment
+        ))
+
+        var staleSurfaceEnvironment = environment
+        staleSurfaceEnvironment["CMUX_SURFACE_ID"] = staleSurfaceId
+        let stopCommandStart = context.state.snapshot().count
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"done"}"#,
+            environment: staleSurfaceEnvironment
+        ))
+
+        let stopCommands = Array(context.state.snapshot().dropFirst(stopCommandStart))
+        #expect(
+            !stopCommands.contains {
+                $0.hasPrefix("notify_target") || $0.hasPrefix("set_status gemini ") || $0.hasPrefix("set_agent_lifecycle gemini ")
+            },
+            "An id-less Gemini Stop without an authoritative surface must no-op instead of mutating the default pane, saw \(stopCommands)"
+        )
+
+        let sessions = try readGeminiSessions(context: context)
+        let original = try #require(sessions[sessionId])
+        #expect(
+            original["agentLifecycle"] as? String != "idle",
+            "A stale ambient surface must not let an id-less Stop mark the original/default pane idle"
+        )
+        #expect(
+            sessions[staleSurfaceId] == nil,
+            "A stale ambient surface must not create the surface-id fallback record"
+        )
+    }
+
+    @Test func geminiIdlessAfterAgentIgnoresStaleDuplicateOlderSessionStart() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-ignores-stale-start")
+        defer { context.cleanup() }
+
+        _ = startGeminiSurfaceResolutionServer(context: context)
+        let olderSessionId = "gemini-older-session"
+        let newerSessionId = "gemini-newer-session"
+        let environment = geminiHookEnvironment(context: context)
+
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment
+        ))
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment
+        ))
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment
+        ))
+
+        let activeAfterStaleStart = try activeGeminiSlotSessionIds(context: context)
+        #expect(!activeAfterStaleStart.isEmpty, "Gemini SessionStart must populate a pane-scoped active session slot")
+        #expect(
+            !activeAfterStaleStart.contains(olderSessionId),
+            "A stale duplicate older Gemini SessionStart must not steal the active slot from the newer session, saw \(activeAfterStaleStart)"
+        )
+        #expect(
+            activeAfterStaleStart.allSatisfy { $0 == newerSessionId },
+            "The active slot must remain the newer session after a stale older SessionStart, saw \(activeAfterStaleStart)"
+        )
+
+        assertSuccessfulHook(runGeminiHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"newer done"}"#,
+            environment: environment
+        ))
+
+        let sessions = try readGeminiSessions(context: context)
+        let newer = try #require(sessions[newerSessionId])
+        #expect(
+            newer["agentLifecycle"] as? String == "idle",
+            "Id-less Gemini Stop must resolve to the newest session even after a stale duplicate older SessionStart"
+        )
+        #expect(newer["lastNotificationStatus"] as? String == "idle")
+        let older = try #require(sessions[olderSessionId])
+        #expect(
+            older["agentLifecycle"] as? String != "idle",
+            "A stale duplicate older SessionStart must not capture the id-less Stop meant for the newer session"
+        )
+        #expect(
+            sessions[context.surfaceId] == nil,
+            "Id-less Gemini Stop must not create a surface-id fallback record when a stale older SessionStart arrives late"
+        )
+    }
+
     struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
     typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
 
@@ -777,6 +1037,84 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             },
             "Claude visible status should target \(expected), saw \(context.state.snapshot())"
         )
+    }
+
+    func startGeminiSurfaceResolutionServer(context: ClaudeHookContext) -> DispatchSemaphore {
+        startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-unused-gemini",
+            ttySurfaceId: context.surfaceId
+        )
+    }
+
+    func geminiHookEnvironment(
+        context: ClaudeHookContext,
+        surfaceId: String? = nil,
+        pid: Int? = nil
+    ) -> [String: String] {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": context.root.path,
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": surfaceId ?? context.surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "gemini",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/gemini",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/gemini"]),
+        ]
+        if let pid {
+            environment["CMUX_GEMINI_PID"] = "\(pid)"
+        }
+        return environment
+    }
+
+    func runGeminiHook(
+        context: ClaudeHookContext,
+        subcommand: String,
+        standardInput: String,
+        environment: [String: String]
+    ) -> ProcessRunResult {
+        runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "gemini", subcommand],
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    func readGeminiSessions(context: ClaudeHookContext) throws -> [String: [String: Any]] {
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let data = try Data(contentsOf: storeURL)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessions = json["sessions"] as? [String: [String: Any]] else {
+            throw NSError(domain: "cmux.tests", code: Int(EINVAL))
+        }
+        return sessions
+    }
+
+    func activeGeminiSlotSessionIds(context: ClaudeHookContext) throws -> [String] {
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let data = try Data(contentsOf: storeURL)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(domain: "cmux.tests", code: Int(EINVAL))
+        }
+        var ids: [String] = []
+        for key in ["activeSessionsBySurface", "activeSessionsByWorkspace"] {
+            guard let map = json[key] as? [String: Any] else { continue }
+            for value in map.values {
+                if let record = value as? [String: Any],
+                   let sessionId = record["sessionId"] as? String {
+                    ids.append(sessionId)
+                }
+            }
+        }
+        return ids
     }
 
     func assertSuccessfulHook(_ result: ProcessRunResult) {
