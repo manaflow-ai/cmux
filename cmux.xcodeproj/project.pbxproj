@@ -1522,7 +1522,7 @@
 		C7A531000000000000000001 /* AgentChatObservationHandle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationHandle.swift"; sourceTree = "<group>"; };
 		C7A532000000000000000001 /* AgentChatObservationInFlight.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationInFlight.swift"; sourceTree = "<group>"; };
 		C7A530000000000000000001 /* AgentChatObservationScope.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationScope.swift"; sourceTree = "<group>"; };
-		CDFE000000000000000000A2 /* AgentChatProseStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Mobile/AgentChat/AgentChatProseStreamer.swift"; sourceTree = "<group>"; };
+		CDFE000000000000000000A2 /* AgentChatProseStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatProseStreamer.swift"; sourceTree = "<group>"; };
 		CDFE000000000000000000C2 /* AgentChatProseStreamerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatProseStreamerTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
 		C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+Lifecycle.swift"; sourceTree = "<group>"; };
