@@ -243,6 +243,76 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testClaudeNestedTranscriptCreatedWithoutProjectRootMtimeChangeIsFound() throws {
+        let fm = FileManager.default
+        let sessionId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        let fixture = try makeClaudeTranscriptCacheFixture(
+            prefix: "cmux-claude-cache-nested-create",
+            sessionId: sessionId
+        )
+        defer { try? fm.removeItem(at: fixture.root) }
+
+        // Pre-create the nested `<sessionId>/messages/` layout so writing the transcript
+        // later only bumps the inner directory's mtime, never the project root's.
+        let messagesDir = fixture.projectDir
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("messages", isDirectory: true)
+        try fm.createDirectory(at: messagesDir, withIntermediateDirectories: true)
+        let nestedTranscriptURL = messagesDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+
+        let pinnedDirectoryDate = Date(timeIntervalSince1970: 7_000)
+        try setDirectoryModificationDate(pinnedDirectoryDate, for: fixture.projectDir)
+        let firstIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
+        XCTAssertNil(
+            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId),
+            "The first load should see no transcript for the session."
+        )
+
+        try writeClaudeTranscript(sessionId: sessionId, transcriptURL: nestedTranscriptURL, cwd: fixture.cwd)
+        try setDirectoryModificationDate(pinnedDirectoryDate, for: fixture.projectDir)
+        let secondIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
+
+        XCTAssertEqual(
+            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId,
+            sessionId,
+            "A nested messages/ transcript must be found even when the project root mtime is unchanged."
+        )
+    }
+
+    func testClaudeNestedTranscriptDeletedWithoutProjectRootMtimeChangeStopsResolving() throws {
+        let fm = FileManager.default
+        let sessionId = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        let fixture = try makeClaudeTranscriptCacheFixture(
+            prefix: "cmux-claude-cache-nested-delete",
+            sessionId: sessionId
+        )
+        defer { try? fm.removeItem(at: fixture.root) }
+
+        let messagesDir = fixture.projectDir
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("messages", isDirectory: true)
+        try fm.createDirectory(at: messagesDir, withIntermediateDirectories: true)
+        let nestedTranscriptURL = messagesDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(sessionId: sessionId, transcriptURL: nestedTranscriptURL, cwd: fixture.cwd)
+
+        let pinnedDirectoryDate = Date(timeIntervalSince1970: 8_000)
+        try setDirectoryModificationDate(pinnedDirectoryDate, for: fixture.projectDir)
+        let firstIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
+        XCTAssertEqual(
+            firstIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId,
+            sessionId
+        )
+
+        try fm.removeItem(at: nestedTranscriptURL)
+        try setDirectoryModificationDate(pinnedDirectoryDate, for: fixture.projectDir)
+        let secondIndex = RestorableAgentSessionIndex.load(homeDirectory: fixture.root.path, fileManager: fm)
+
+        XCTAssertNil(
+            secondIndex.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId),
+            "Deleting a nested messages/ transcript must stop resolving even when the project root mtime is unchanged."
+        )
+    }
+
     func testPanelFallbackUsesLatestHookRecord() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory

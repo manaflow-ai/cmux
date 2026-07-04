@@ -1615,19 +1615,37 @@ struct RestorableAgentSessionIndex: Sendable {
             break
         }
 
-        let nestedMessagesPath = (((projectRoot as NSString)
-            .appendingPathComponent(sessionId) as NSString)
+        let sessionDirPath = (projectRoot as NSString).appendingPathComponent(sessionId)
+        let nestedMessagesPath = ((sessionDirPath as NSString)
             .appendingPathComponent("messages") as NSString)
             .appendingPathComponent("\(sessionId).jsonl")
         switch regularFileState(atPath: nestedMessagesPath, fileManager: fileManager) {
         case .nonEmpty:
-            return .present(nestedMessagesPath)
+            // The nested candidate lives under `<projectRoot>/<sessionId>/messages/`;
+            // deleting or replacing it bumps that inner directory's mtime, not the
+            // project root's, so this positive cannot be trusted across loads on the
+            // project-root stamp alone.
+            return .presentNested(nestedMessagesPath)
         case .emptyFile:
             sawEmptyFile = true
         case .missing:
             break
         }
-        return sawEmptyFile ? .emptyFile : .missing
+        if sawEmptyFile {
+            return .emptyFile
+        }
+        // If the session subdirectory already exists, a nested transcript can appear
+        // later without ever touching the project root's mtime (only `<sessionId>/` or
+        // `<sessionId>/messages/` gets bumped), so the negative must be rechecked each
+        // load. When the subdirectory does not exist, any future nested transcript
+        // requires creating it, which does bump the project root mtime, so the plain
+        // negative is safe under the project-root stamp.
+        var sessionDirIsDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: sessionDirPath, isDirectory: &sessionDirIsDirectory),
+           sessionDirIsDirectory.boolValue {
+            return .missingVolatile
+        }
+        return .missing
     }
 
     private struct ClaudeTranscriptDirectoryStamp: Equatable, Sendable {
@@ -1646,20 +1664,45 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private enum ClaudeTranscriptLookupResult: Equatable, Sendable {
+        // The direct `<projectRoot>/<sessionId>.jsonl` candidate. Deleting or renaming
+        // it bumps the project root mtime, so this positive is stable under the stamp.
         case present(String)
-        // No candidate file exists, so the negative is safe while the containing
-        // directory mtime is unchanged.
+        // No candidate file exists and neither does the `<projectRoot>/<sessionId>/`
+        // subdirectory. A nested transcript can only appear by first creating that
+        // subdirectory (which bumps the project root mtime), so the negative is safe
+        // while the project root mtime is unchanged.
         case missing
         // A candidate file exists but is zero bytes. Claude can create then append
         // without changing the directory mtime, so this negative is rechecked once
         // per load instead of being trusted across loads.
         case emptyFile
+        // The nested `<projectRoot>/<sessionId>/messages/<sessionId>.jsonl` candidate.
+        // Create/delete inside `messages/` bumps only that inner directory's mtime, so
+        // this positive is rechecked once per load instead of being trusted across loads.
+        case presentNested(String)
+        // No candidate file exists but `<projectRoot>/<sessionId>/` does, so a nested
+        // transcript can appear without bumping the project root mtime; rechecked once
+        // per load.
+        case missingVolatile
 
         var path: String? {
-            if case .present(let path) = self {
+            switch self {
+            case .present(let path), .presentNested(let path):
                 return path
+            case .missing, .emptyFile, .missingVolatile:
+                return nil
             }
-            return nil
+        }
+
+        // True for results whose truth can change without the project-root mtime
+        // moving; these are memoized within a load but re-probed on every new load.
+        var requiresPerLoadRecheck: Bool {
+            switch self {
+            case .present, .missing:
+                return false
+            case .emptyFile, .presentNested, .missingVolatile:
+                return true
+            }
         }
     }
 
@@ -1684,6 +1727,10 @@ struct RestorableAgentSessionIndex: Sendable {
     // The cache answers existence/path only: appends to an existing transcript file do
     // not change the parent directory mtime and do not matter here, while create,
     // delete, and rename change the containing directory mtime and invalidate entries.
+    // Only the project root's mtime is stamped, so results whose truth depends on the
+    // nested `<sessionId>/messages/` layout (or on zero-byte files growing in place)
+    // are marked `requiresPerLoadRecheck` and re-probed once per load instead of being
+    // trusted across loads.
     private nonisolated static let claudeTranscriptSharedStore = OSAllocatedUnfairLock(
         initialState: ClaudeTranscriptSharedStore()
     )
@@ -1698,7 +1745,7 @@ struct RestorableAgentSessionIndex: Sendable {
         private var projectDirsByConfigRoot: [String: [String]] = [:]
         private var transcriptPathByProjectRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
-        private var emptyTranscriptPathByProjectRootAndSessionCheckedThisLoad: Set<String> = []
+        private var volatileTranscriptLookupCheckedThisLoad: Set<String> = []
         private var transcriptPathByConfigRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
 
@@ -1823,18 +1870,15 @@ struct RestorableAgentSessionIndex: Sendable {
             if let cached = RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock({ store in
                 store.projectRootCaches[projectRoot]?.lookups[sessionId]
             }) {
-                switch cached {
-                case .present(let path):
-                    return path
-                case .missing:
-                    return nil
-                case .emptyFile:
-                    // A zero-byte transcript can grow by append/truncate without changing
-                    // the parent directory mtime. Keep the per-load memo, but re-probe this
-                    // negative on each new load so create-then-append writers become visible.
-                    if emptyTranscriptPathByProjectRootAndSessionCheckedThisLoad.contains(key) {
-                        return nil
-                    }
+                if !cached.requiresPerLoadRecheck {
+                    return cached.path
+                }
+                // Volatile results (zero-byte files, nested `messages/` transcripts,
+                // negatives with an existing session subdirectory) can change without
+                // the project-root mtime moving. Keep the per-load memo, but re-probe
+                // once per new load so those changes become visible.
+                if volatileTranscriptLookupCheckedThisLoad.contains(key) {
+                    return cached.path
                 }
             }
 
@@ -1843,8 +1887,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 sessionId: sessionId,
                 fileManager: fileManager
             )
-            if result == .emptyFile {
-                emptyTranscriptPathByProjectRootAndSessionCheckedThisLoad.insert(key)
+            if result.requiresPerLoadRecheck {
+                volatileTranscriptLookupCheckedThisLoad.insert(key)
             }
             RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
                 var cache = store.projectRootCaches[projectRoot] ?? ClaudeTranscriptProjectRootCache(stamp: stamp)
