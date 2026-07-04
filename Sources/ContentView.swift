@@ -14068,6 +14068,13 @@ struct TabItemView: View, Equatable {
             tabManager.selectedTabIdPublisher
                 .map { $0 == tab.id }
                 .removeDuplicates()
+                // The CurrentValueSubject replays synchronously on subscribe —
+                // which happens while the LazyVStack realizes this row, inside
+                // an in-flight layout transaction — and emits during willSet.
+                // Hop to RunLoop.main so the @State write below never lands in
+                // the transaction being laid out (#2586/#6556 livelock family);
+                // first render is covered by the live selectedTabId fallback.
+                .receive(on: RunLoop.main)
         ) { isSelected in
             updateObservedActiveState(isSelected)
         }
