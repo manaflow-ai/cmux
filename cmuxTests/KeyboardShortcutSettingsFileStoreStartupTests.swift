@@ -678,9 +678,9 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
-    func testManagedSidebarBoolUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
+    func testManagedBoolUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
-        let key = SidebarWorkspaceDetailDefaults.showPullRequestCIStatusKey
+        let key = AppCatalogSection().warnBeforeQuit.userDefaultsKey
 
         try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
             defaults.removeObject(forKey: key)
@@ -694,8 +694,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             try writeSettingsFile(
                 """
                 {
-                  "sidebar": {
-                    "showPullRequestCIStatus": true
+                  "app": {
+                    "warnBeforeQuit": true
                   }
                 }
                 """,
@@ -721,8 +721,8 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 try writeSettingsFile(
                     """
                     {
-                      "sidebar": {
-                        "showPullRequestCIStatus": false
+                      "app": {
+                        "warnBeforeQuit": false
                       }
                     }
                     """,

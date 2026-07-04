@@ -45,6 +45,34 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
     }
 
     @Test
+    func settingsFileStoreAppliesPullRequestCIStatusSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = SidebarWorkspaceDetailDefaults.showPullRequestCIStatusKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "sidebar": {
+                "showPullRequestCIStatus": true
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.object(forKey: key) as? Bool == true)
+        }
+    }
+
+    @Test
     func settingsFileStoreAppliesPaneChromeColorSettings() throws {
         let defaults = UserDefaults.standard
         let paneBorderKey = PaneChromeSettings.paneBorderColorKey

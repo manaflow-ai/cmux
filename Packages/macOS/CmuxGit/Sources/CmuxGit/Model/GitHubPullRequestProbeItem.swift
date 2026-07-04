@@ -48,6 +48,7 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
         case number, state, url, updatedAt, mergedAt, headRefName, baseRefName, ciStatus
     }
 
+    /// Decodes a cached probe item, defaulting missing CI state to ``PullRequestCIStatus/neutral``.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(

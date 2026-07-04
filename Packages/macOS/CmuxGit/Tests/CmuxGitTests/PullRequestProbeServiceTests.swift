@@ -240,7 +240,8 @@ import Testing
                 "feat/other": item(number: 9, state: "OPEN", updatedAt: nil),
             ]
         )
-        #expect(PullRequestProbeService.openPullRequestNumbers(
+        let service = PullRequestProbeService()
+        #expect(service.openPullRequestNumbers(
             in: entry,
             candidateBranches: ["feat/open", "feat/merged", "feat/missing"]
         ) == Set([7]))
@@ -255,16 +256,17 @@ import Testing
             includesCIStatus: true,
             ciStatusByPullRequestNumber: [7: .success]
         )
-        #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(plain, now: now, includeCIStatus: false))
-        #expect(!PullRequestProbeService.cachedEntrySatisfiesRequest(plain, now: now, includeCIStatus: true))
-        #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(withCI, now: now, includeCIStatus: true))
-        #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(
+        let service = PullRequestProbeService()
+        #expect(service.cachedEntrySatisfiesRequest(plain, now: now, includeCIStatus: false))
+        #expect(!service.cachedEntrySatisfiesRequest(plain, now: now, includeCIStatus: true))
+        #expect(service.cachedEntrySatisfiesRequest(withCI, now: now, includeCIStatus: true))
+        #expect(service.cachedEntrySatisfiesRequest(
             withCI,
             now: now,
             includeCIStatus: true,
             pullRequestNumbers: [7]
         ))
-        #expect(!PullRequestProbeService.cachedEntrySatisfiesRequest(
+        #expect(!service.cachedEntrySatisfiesRequest(
             withCI,
             now: now,
             includeCIStatus: true,
@@ -305,7 +307,7 @@ import Testing
         #expect(cacheEntry.includesCIStatus)
         #expect(cacheEntry.ciStatusByPullRequestNumber[7] == .neutral)
         #expect(cacheEntry.pullRequestsByBranch["feat/x"]?.ciStatus == .neutral)
-        #expect(PullRequestProbeService.cachedEntrySatisfiesRequest(cacheEntry, now: now, includeCIStatus: true))
+        #expect(service.cachedEntrySatisfiesRequest(cacheEntry, now: now, includeCIStatus: true))
     }
 
     @Test func ciCacheEntryKeepsExistingStatusesAndFillsNewMissingNumbersNeutral() async {
@@ -395,62 +397,5 @@ import Testing
         }
         #expect(resolved.statusRawValue == PullRequestStatus.merged.rawValue)
         #expect(resolved.ciStatus == .neutral)
-    }
-}
-
-private final class PullRequestCIMockURLProtocol: URLProtocol {
-    // Test-only URLProtocol hook; each test clears it before returning.
-    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        true
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        guard let handler = Self.handler else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-
-        do {
-            let (response, data) = try handler(request)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        } catch {
-            client?.urlProtocol(self, didFailWithError: error)
-        }
-    }
-
-    override func stopLoading() {}
-
-    static func bodyData(from request: URLRequest) -> Data {
-        if let body = request.httpBody {
-            return body
-        }
-        guard let stream = request.httpBodyStream else {
-            return Data()
-        }
-
-        stream.open()
-        defer { stream.close() }
-
-        var data = Data()
-        let bufferSize = 1024
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer { buffer.deallocate() }
-
-        while stream.hasBytesAvailable {
-            let count = stream.read(buffer, maxLength: bufferSize)
-            guard count > 0 else {
-                break
-            }
-            data.append(buffer, count: count)
-        }
-        return data
     }
 }

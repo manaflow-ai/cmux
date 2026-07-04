@@ -99,7 +99,7 @@ extension PullRequestProbeService {
                     session: session,
                     authHeader: authHeader,
                     includeCIStatus: includeCIStatus,
-                    pullRequestNumbers: Self.openPullRequestNumbers(
+                    pullRequestNumbers: openPullRequestNumbers(
                         in: cachedEntry,
                         candidateBranches: normalizedCandidateBranches
                     )
@@ -126,7 +126,7 @@ extension PullRequestProbeService {
                 session: session,
                 authHeader: authHeader,
                 includeCIStatus: includeCIStatus,
-                pullRequestNumbers: Self.openPullRequestNumbers(
+                pullRequestNumbers: openPullRequestNumbers(
                     in: lookupOutcome.cacheEntry,
                     candidateBranches: normalizedCandidateBranches
                 )
@@ -203,7 +203,7 @@ extension PullRequestProbeService {
             session: session,
             authHeader: authHeader,
             includeCIStatus: includeCIStatus,
-            pullRequestNumbers: Self.openPullRequestNumbers(
+            pullRequestNumbers: openPullRequestNumbers(
                 in: lookupOutcome.cacheEntry,
                 candidateBranches: normalizedCandidateBranches
             )

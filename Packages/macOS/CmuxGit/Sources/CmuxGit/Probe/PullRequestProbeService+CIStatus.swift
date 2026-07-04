@@ -15,7 +15,7 @@ extension PullRequestProbeService {
         guard !numbers.isEmpty else {
             return [:]
         }
-        guard let repository = Self.repositoryParts(repoSlug: repoSlug) else {
+        guard let repository = repositoryParts(repoSlug: repoSlug) else {
             return nil
         }
 
@@ -65,7 +65,7 @@ extension PullRequestProbeService {
     }
 
     /// Open pull-request numbers that are actually needed for the current candidate branches.
-    nonisolated static func openPullRequestNumbers(
+    nonisolated func openPullRequestNumbers(
         in entry: WorkspacePullRequestRepoCacheEntry,
         candidateBranches: Set<String>
     ) -> Set<Int> {
@@ -109,7 +109,7 @@ extension PullRequestProbeService {
             }
         }
 
-        return Self.repoCacheEntry(
+        return repoCacheEntry(
             cacheEntry,
             applyingCIStatuses: ciStatusesByNumber,
             fetchedAt: fetchTimestamp
@@ -117,7 +117,7 @@ extension PullRequestProbeService {
     }
 
     /// Marks a repo cache entry as carrying CI rollups and applies those rollups to cached PR items.
-    nonisolated static func repoCacheEntry(
+    nonisolated func repoCacheEntry(
         _ entry: WorkspacePullRequestRepoCacheEntry,
         applyingCIStatuses ciStatusesByNumber: [Int: PullRequestCIStatus],
         fetchedAt: Date
@@ -134,7 +134,7 @@ extension PullRequestProbeService {
     }
 
     /// Whether a fresh cache entry can satisfy a request with or without CI data.
-    nonisolated static func cachedEntrySatisfiesRequest(
+    nonisolated func cachedEntrySatisfiesRequest(
         _ entry: WorkspacePullRequestRepoCacheEntry,
         now: Date,
         includeCIStatus: Bool,
@@ -153,7 +153,7 @@ extension PullRequestProbeService {
         return requestedNumbers.isSubset(of: Set(entry.ciStatusByPullRequestNumber.keys))
     }
 
-    private nonisolated static func repositoryParts(repoSlug: String) -> (owner: String, name: String)? {
+    private nonisolated func repositoryParts(repoSlug: String) -> (owner: String, name: String)? {
         let parts = repoSlug.split(separator: "/", maxSplits: 1).map(String.init)
         guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else {
             return nil
@@ -189,110 +189,5 @@ extension PullRequestProbeService {
         } catch {
             return nil
         }
-    }
-}
-
-private struct GitHubGraphQLRequest: Encodable {
-    let query: String
-    let variables: [String: String]
-}
-
-private struct GitHubPullRequestCIStatusGraphQLResponse: Decodable, Sendable {
-    struct DataContainer: Decodable, Sendable {
-        let repository: Repository?
-    }
-
-    struct GraphQLErrorEntry: Decodable, Sendable {
-        let message: String
-    }
-
-    struct Repository: Decodable, Sendable {
-        let pullRequestsByAlias: [String: PullRequestNode?]
-
-        init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: DynamicCodingKey.self)
-            var pullRequestsByAlias: [String: PullRequestNode?] = [:]
-            for key in container.allKeys {
-                pullRequestsByAlias[key.stringValue] = try container.decodeIfPresent(
-                    PullRequestNode.self,
-                    forKey: key
-                )
-            }
-            self.pullRequestsByAlias = pullRequestsByAlias
-        }
-    }
-
-    struct PullRequestNode: Decodable, Sendable {
-        let number: Int
-        let commits: CommitConnection?
-    }
-
-    struct CommitConnection: Decodable, Sendable {
-        let nodes: [CommitNode?]
-
-        private enum CodingKeys: String, CodingKey {
-            case nodes
-        }
-
-        init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            nodes = try container.decodeIfPresent([CommitNode?].self, forKey: .nodes) ?? []
-        }
-    }
-
-    struct CommitNode: Decodable, Sendable {
-        let commit: Commit
-    }
-
-    struct Commit: Decodable, Sendable {
-        let statusCheckRollup: StatusCheckRollup?
-    }
-
-    struct StatusCheckRollup: Decodable, Sendable {
-        let state: String?
-    }
-
-    let data: DataContainer?
-    let errors: [GraphQLErrorEntry]
-
-    private enum CodingKeys: String, CodingKey {
-        case data, errors
-    }
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        data = try container.decodeIfPresent(DataContainer.self, forKey: .data)
-        errors = try container.decodeIfPresent([GraphQLErrorEntry].self, forKey: .errors) ?? []
-    }
-
-    var ciStatusesByPullRequestNumber: [Int: PullRequestCIStatus] {
-        var statuses: [Int: PullRequestCIStatus] = [:]
-        guard let pullRequests = data?.repository?.pullRequestsByAlias.values else {
-            return statuses
-        }
-        for pullRequest in pullRequests {
-            guard let pullRequest else {
-                continue
-            }
-            let latestCommitNode = pullRequest.commits?.nodes.compactMap { $0 }.last
-            let state = latestCommitNode?.commit.statusCheckRollup?.state
-            statuses[pullRequest.number] = PullRequestCIStatus(statusCheckRollupState: state)
-        }
-        return statuses
-    }
-}
-
-private struct DynamicCodingKey: CodingKey {
-    let stringValue: String
-    let intValue: Int?
-
-    init(stringValue: String) {
-        self.stringValue = stringValue
-        self.intValue = nil
-    }
-
-    init?(intValue: Int) {
-        self.stringValue = String(intValue)
-        self.intValue = intValue
     }
 }
