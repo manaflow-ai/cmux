@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code เป็นผู้จัดการ Worktree ที่ดีที่สุด",
-      "metaDescription": "เหตุใดตัวแทน, super repos, คำสั่งแบบกำหนดเอง cmux และเทอร์มินัลดั้งเดิมที่ตั้งโปรแกรมได้จึงเหนือกว่าตัวจัดการ worktree ในตัวสำหรับโค้ดเบสจริง"
+      "metaDescription": "เหตุใดตัวแทน, super repos, คำสั่งแบบกำหนดเอง cmux และเทอร์มินัลดั้งเดิมที่ตั้งโปรแกรมได้จึงเหนือกว่าตัวจัดการ worktree ในตัวสำหรับโค้ดเบสจริง",
+      "metaKeywords": [
+        "ตัวจัดการ worktree ของ Claude Code",
+        "git worktrees",
+        "cmux super repo",
+        "เอเจนต์เขียนโค้ด AI",
+        "Codex",
+        "คำสั่งกำหนดเองของ cmux",
+        "cmux skills",
+        "เวิร์กโฟลว์เทอร์มินัล",
+        "การพัฒนาแบบ agentic"
+      ]
     }
   },
   "docs": {

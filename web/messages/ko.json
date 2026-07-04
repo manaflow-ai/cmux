@@ -523,7 +523,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code는 최고의 Worktree 관리자입니다",
-      "metaDescription": "에이전트, 수퍼 저장소, cmux 사용자 정의 명령 및 프로그래밍 가능한 터미널 프리미티브가 실제 코드베이스에 대해 내장된 작업 트리 관리자를 능가하는 이유."
+      "metaDescription": "에이전트, 수퍼 저장소, cmux 사용자 정의 명령 및 프로그래밍 가능한 터미널 프리미티브가 실제 코드베이스에 대해 내장된 작업 트리 관리자를 능가하는 이유.",
+      "metaKeywords": [
+        "Claude Code worktree 관리자",
+        "git worktree",
+        "cmux 슈퍼 repo",
+        "AI 코딩 에이전트",
+        "Codex",
+        "cmux 사용자 지정 명령",
+        "cmux skills",
+        "터미널 워크플로",
+        "에이전트 개발"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -1788,16 +1799,58 @@
                 "macOS 전용"
               ],
               [
+                "Conductor",
+                "Mac의 코딩 에이전트 팀",
+                "Claude Code, Codex, Cursor, OpenCode harnesses",
+                "격리된 task workspace에 더 의견이 강함"
+              ],
+              [
                 "Superset",
                 "worktree 기반 에이전트 오케스트레이션",
                 "여러 CLI 에이전트",
-                "Electron 앱이며 더 의견이 강한 워크플로"
+                "소스 공개 Electron 앱이며 더 의견이 강한 워크플로"
+              ],
+              [
+                "Herdr",
+                "터미널 네이티브 에이전트 멀티플렉싱",
+                "여러 CLI 에이전트",
+                "Mac 앱이 아니라 다른 터미널 안에서 실행"
+              ],
+              [
+                "OpenCode",
+                "Open source 코딩 에이전트",
+                "터미널, 데스크톱, IDE의 OpenCode 자체",
+                "터미널 제어면이 아니라 에이전트"
+              ],
+              [
+                "Cursor",
+                "AI 편집 및 hosted agent workflows",
+                "Cursor 중심 에이전트 워크플로와 통합",
+                "에디터와 계정 중심 워크플로"
+              ],
+              [
+                "Devin Desktop",
+                "IDE와 agent command center",
+                "Devin 및 Windsurf 계열",
+                "에디터와 계정 중심 워크플로"
+              ],
+              [
+                "VS Code",
+                "범용 에디터 및 확장 플랫폼",
+                "에디터 통합 에이전트와 확장",
+                "터미널 에이전트 감독이 에디터 화면 안에 머묾"
+              ],
+              [
+                "Zed",
+                "빠른 협업 편집",
+                "에디터 통합 AI 워크플로",
+                "터미널 에이전트 감독이 에디터에 묶임"
               ],
               [
                 "Warp",
                 "관리형 제품 안의 AI 터미널 기능",
-                "Warp 중심 AI 워크플로",
-                "플랫폼 락인이 더 큼"
+                "내장 및 외부 에이전트 워크플로",
+                "오픈 소스 클라이언트와 관리형 제품 서비스"
               ],
               [
                 "Ghostty",
@@ -1810,6 +1863,24 @@
                 "성숙한 macOS 터미널 워크플로",
                 "모든 CLI 에이전트",
                 "에이전트 상태 추적이 수동"
+              ],
+              [
+                "Kitty",
+                "빠르고 기능 많은 GPU 터미널",
+                "모든 CLI 에이전트",
+                "내장 에이전트 리뷰 큐 없음"
+              ],
+              [
+                "Alacritty",
+                "빠르고 단순한 OpenGL 터미널",
+                "모든 CLI 에이전트",
+                "앱 수준 워크플로 기능이 최소"
+              ],
+              [
+                "WezTerm",
+                "크로스 플랫폼 터미널 및 멀티플렉서",
+                "모든 CLI 에이전트",
+                "에이전트 주의 관리는 여전히 custom wiring 필요"
               ],
               [
                 "tmux",
@@ -1834,7 +1905,11 @@
             },
             {
               "title": "키보드 우선 감독",
-              "body": "cmux는 주의가 필요한 상태를 일급 워크플로로 다룹니다. 최신 읽지 않음으로 이동 같은 단축키로 모든 탭을 훑거나 데스크톱 알림을 해석하지 않고도 결정이 필요한 패널로 바로 이동할 수 있습니다."
+              "body": "cmux는 주의가 필요한 상태를 일급 워크플로로 다룹니다. Cmd+Shift+U는 가장 최근의 읽지 않은 패널로 이동하고, Cmd+Control+U는 읽지 않음 상태를 지우지 않고 unread work를 순환합니다. 이 단축키들은 수동으로 탭을 훑기 어려울 만큼 많은 에이전트를 실행하는 사람을 위해 만들어졌습니다."
+            },
+            {
+              "title": "Worktree 지원은 제품 상자가 아니라 primitive",
+              "body": "내장 worktree 지원은 실제 팀에서 금방 한계에 닿습니다. backend와 frontend repo가 다른 위치에 있고, setup script, remote machine, no-git project, 가끔은 main에 바로 작업하는 흐름도 있기 때문입니다. cmux는 programmable 상태를 유지해 Claude Code, Codex, custom command, repo script가 코드베이스에 맞는 workspace 형태를 만들 수 있게 합니다."
             }
           ],
           "faqTitle": "FAQ",
@@ -2115,6 +2190,11 @@
                 "관리형 워크스페이스 안의 여러 CLI 에이전트"
               ],
               [
+                "소스 모델",
+                "무료 오픈 소스 GPL 앱",
+                "Elastic License 2.0으로 소스 공개"
+              ],
+              [
                 "정리",
                 "세로 워크스페이스, 분할, 읽지 않음 상태, 알림 링",
                 "작업, worktree, 리뷰 화면"
@@ -2147,6 +2227,10 @@
             {
               "title": "프로그래밍 가능성은 탈출구",
               "body": "cmux는 CLI와 socket API를 통해 워크스페이스, 패널, 화면 읽기, 스크린샷, 브라우저 자동화를 노출합니다. 고급 사용자는 하나의 제품 워크플로에 맞추지 않고 그 위에 자신만의 오케스트레이션을 만들 수 있습니다."
+            },
+            {
+              "title": "Worktree 지원은 결코 보편적이지 않음",
+              "body": "내장 worktree manager는 repo 형태가 복잡해지기 전까지만 유용합니다. backend/frontend repo 분리, generated setup step, Git 없음, remote host, main에서 바로 작업하려는 팀 같은 경우가 있습니다. cmux는 terminal primitive를 programmable하게 유지해 Claude Code, Codex, script, custom command가 필요한 workspace 형태를 정확히 만들 수 있게 합니다."
             }
           ],
           "faqTitle": "FAQ",
@@ -2190,6 +2274,11 @@
                 "락인",
                 "자신의 에이전트와 키 사용",
                 "Cursor 계정, 요금제, 플랫폼 기능"
+              ],
+              [
+                "소스 모델",
+                "무료 오픈 소스 GPL 앱",
+                "폐쇄형 에디터 제품"
               ],
               [
                 "성능 프로필",
@@ -2963,9 +3052,19 @@
                 "오픈 소스 터미널 클라이언트, Electron/Tauri 셸 아님"
               ],
               [
+                "렌더링 엔진",
+                "터미널 렌더링을 위해 libghostty 기반",
+                "Warp 터미널 클라이언트 렌더링"
+              ],
+              [
                 "에이전트 선택",
                 "모든 shell 기반 에이전트",
                 "Warp 제품 워크플로"
+              ],
+              [
+                "소스 모델",
+                "무료 오픈 소스 GPL 앱",
+                "오픈 소스 클라이언트와 관리형 제품 및 클라우드 서비스"
               ],
               [
                 "정리",

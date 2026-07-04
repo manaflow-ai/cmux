@@ -425,7 +425,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code Is The Best Worktree Manager",
-      "metaDescription": "Why agents, super repos, cmux custom commands, and programmable terminal primitives beat built-in worktree managers for real codebases."
+      "metaDescription": "Why agents, super repos, cmux custom commands, and programmable terminal primitives beat built-in worktree managers for real codebases.",
+      "metaKeywords": [
+        "Claude Code worktree manager",
+        "git worktrees",
+        "cmux super repo",
+        "AI coding agents",
+        "Codex",
+        "cmux custom commands",
+        "cmux skills",
+        "terminal workflow",
+        "agentic development"
+      ]
     },
     "cmuxClaudeTeams": {
       "metaTitle": "Claude Code teammate agents as native cmux panes",

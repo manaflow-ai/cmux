@@ -523,7 +523,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code er den beste worktree-manageren",
-      "metaDescription": "Hvorfor agenter, super-repoer, cmux-egendefinerte kommandoer og programmerbare terminalprimitiver slår innebygde worktree-managere i virkelige kodebaser."
+      "metaDescription": "Hvorfor agenter, super-repoer, cmux-egendefinerte kommandoer og programmerbare terminalprimitiver slår innebygde worktree-managere i virkelige kodebaser.",
+      "metaKeywords": [
+        "Claude Code worktree-manager",
+        "git worktrees",
+        "cmux super repo",
+        "AI-kodeagenter",
+        "Codex",
+        "cmux egendefinerte kommandoer",
+        "cmux skills",
+        "terminalarbeidsflyt",
+        "agentisk utvikling"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -1929,10 +1940,52 @@
                 "Kun macOS"
               ],
               [
+                "Conductor",
+                "Coding-agent-team på Mac",
+                "Claude Code-, Codex-, Cursor- og OpenCode-harnesser",
+                "Mer tydelig rundt isolerte task-workspaces"
+              ],
+              [
                 "Superset",
                 "Worktree-basert agentorkestrering",
                 "Mange CLI-agenter",
                 "Electron-app og mer bestemt arbeidsflyt"
+              ],
+              [
+                "Herdr",
+                "Terminalnær agentmultipleksing",
+                "Mange CLI-agenter",
+                "Kjører inne i en annen terminal i stedet for å være en Mac-app"
+              ],
+              [
+                "OpenCode",
+                "Open source coding agent",
+                "OpenCode selv på tvers av terminal, desktop og IDE",
+                "Det er agenten, ikke terminalens kontrollplan"
+              ],
+              [
+                "Cursor",
+                "AI-redigering og hosted agent-workflows",
+                "Cursor-sentrert agent-workflow pluss integrasjoner",
+                "Workflow sentrert rundt editor og konto"
+              ],
+              [
+                "Devin Desktop",
+                "IDE pluss agent command center",
+                "Devin- og Windsurf-linje",
+                "Workflow sentrert rundt editor og konto"
+              ],
+              [
+                "VS Code",
+                "Generell editor og extension-plattform",
+                "Editorintegrerte agenter og extensions",
+                "Overvåking av terminalagenter blir inne i editorflater"
+              ],
+              [
+                "Zed",
+                "Rask samarbeidsredigering",
+                "Editorintegrerte AI-workflows",
+                "Overvåking av terminalagenter forblir knyttet til editoren"
               ],
               [
                 "Warp",
@@ -1951,6 +2004,24 @@
                 "Modne macOS-terminalarbeidsflyter",
                 "Enhver CLI-agent",
                 "Agentstatus forblir manuell"
+              ],
+              [
+                "Kitty",
+                "Rask GPU-terminal med mange funksjoner",
+                "Enhver CLI-agent",
+                "Ingen innebygd review-kø for agenter"
+              ],
+              [
+                "Alacritty",
+                "Rask enkel OpenGL-terminal",
+                "Enhver CLI-agent",
+                "Minimale workflow-funksjoner på appnivå"
+              ],
+              [
+                "WezTerm",
+                "Cross-platform terminal og multiplexer",
+                "Enhver CLI-agent",
+                "Agentoppmerksomhet trenger fortsatt custom wiring"
               ],
               [
                 "tmux",
@@ -1976,6 +2047,10 @@
             {
               "title": "Tastaturførst overvåking",
               "body": "cmux behandler oppmerksomhet som en del av workflowen. Cmd+Shift+U hopper til nyeste unread pane, og Cmd+Control+U blar gjennom unread arbeid uten å tømme det. Snarveiene er laget for folk som kjører nok agenter til at manuell tab-skanning slutter å fungere."
+            },
+            {
+              "title": "Worktree-støtte er et primitiv, ikke en produktboks",
+              "body": "Innebygd worktree-støtte blir garantert begrenset fordi ekte team har backend- og frontend-repoer på ulike steder, setup-skript, eksterne maskiner, prosjekter uten Git og av og til arbeid rett på main. cmux forblir programmerbar, slik at Claude Code, Codex, custom commands og repo-skript kan bygge workspace-formen kodebasen faktisk trenger."
             }
           ],
           "faqTitle": "FAQ",
@@ -2009,6 +2084,11 @@
                 "Skrivebordsstack",
                 "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
                 "Rust/OpenGL-terminalemulator, ikke Electron/Tauri"
+              ],
+              [
+                "Renderingsmotor",
+                "Bygget på libghostty for moderne GPU-akselerert terminalrendering",
+                "OpenGL-terminalrenderer"
               ],
               [
                 "Agentsynlighet",
@@ -2048,6 +2128,10 @@
             {
               "title": "Verktøyvalget forblir ditt",
               "body": "cmux erstatter ikke agenten eller editoren. Det fungerer ved siden av Claude Code, Codex, OpenCode, IDE-er, shell-verktøy og eksterne maskiner."
+            },
+            {
+              "title": "Programmerbarhet når browsersjekker",
+              "body": "cmux eksponerer terminalkontroll og browser-automatisering gjennom samme socket-API, så agenter kan kjøre kommandoer, inspisere nettsider, ta screenshots og rapportere status fra ett workspace."
             }
           ],
           "faqTitle": "FAQ",
@@ -2088,6 +2172,11 @@
                 "Avhenger av verktøyets workflow"
               ],
               [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Proprietært produkt med tredjeparts open source-komponenter"
+              ],
+              [
                 "Oppmerksomhetsmodell",
                 "Notification rings, Cmd+Shift+U for nyeste unread og Cmd+Control+U for å bla gjennom unread arbeid",
                 "For det meste manuelt eller bundet til produktet"
@@ -2120,6 +2209,10 @@
             {
               "title": "Verktøyvalget forblir ditt",
               "body": "cmux erstatter ikke agenten eller editoren. Det fungerer ved siden av Claude Code, Codex, OpenCode, IDE-er, shell-verktøy og eksterne maskiner."
+            },
+            {
+              "title": "Innebygde worktrees treffer alltid et tak",
+              "body": "Noen team har backend- og frontend-repoer på ulike steder. Noen bruker ikke Git. Noen vil ha raskt lokalt arbeid direkte på main. cmux følger Zen of cmux: eksponer primitiver, og la deretter utviklere og agenter utforske workflow-rommet i stedet for å tvinge én innebygd worktree-modell."
             }
           ],
           "faqTitle": "FAQ",
@@ -2238,6 +2331,11 @@
                 "Mange CLI-agenter i et administrert arbeidsområde"
               ],
               [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Source-available under Elastic License 2.0"
+              ],
+              [
                 "Organisering",
                 "Vertikale arbeidsområder, splitter, unread-tilstand, varslingsringer",
                 "Oppgaver, worktrees, review-flater"
@@ -2270,6 +2368,10 @@
             {
               "title": "Programmerbarhet er utveien",
               "body": "cmux eksponerer arbeidsområder, paneler, skjermlesing, screenshots og browser-automatisering gjennom CLI og socket-API. Det lar avanserte brukere bygge sin egen orkestrering oppå, i stedet for å vente på at én produktflyt skal passe."
+            },
+            {
+              "title": "Worktree-støtte er aldri universell",
+              "body": "Innebygde worktree-managere er nyttige til repo-formen blir rar: delt backend/frontend, genererte setup-trinn, ingen Git, remote hosts eller et team som vil kode direkte på main. cmux holder terminalprimitivet programmerbart, slik at Claude Code, Codex, skript og custom commands kan lage akkurat den workspace-formen du trenger."
             }
           ],
           "faqTitle": "FAQ",
@@ -2313,6 +2415,11 @@
                 "Lock-in",
                 "Ta med egne agenter og nøkler",
                 "Cursor-konto, planer og plattformfunksjoner"
+              ],
+              [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Closed-source editorprodukt"
               ],
               [
                 "Ytelsesprofil",
@@ -2382,6 +2489,11 @@
                 "Avhenger av verktøyets workflow"
               ],
               [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Lukket administrert agentplattform"
+              ],
+              [
                 "Oppmerksomhetsmodell",
                 "Notification rings, Cmd+Shift+U for nyeste unread og Cmd+Control+U for å bla gjennom unread arbeid",
                 "For det meste manuelt eller bundet til produktet"
@@ -2414,6 +2526,10 @@
             {
               "title": "Verktøyvalget forblir ditt",
               "body": "cmux erstatter ikke agenten eller editoren. Det fungerer ved siden av Claude Code, Codex, OpenCode, IDE-er, shell-verktøy og eksterne maskiner."
+            },
+            {
+              "title": "Programmerbarhet holder workflows inspiserbare",
+              "body": "cmux CLI og socket-API eksponerer panes, workspaces, skjermlesing, screenshots, browser-automatisering, hooks og custom commands. Team kan skripte akkurat den workflowen de trenger rundt lokale agenter."
             }
           ],
           "faqTitle": "FAQ",
@@ -2454,6 +2570,11 @@
                 "Avhenger av verktøyets workflow"
               ],
               [
+                "Renderingsmotor",
+                "Bygget på libghostty med GPU-akselerert moderne terminalrendering",
+                "iTerm2-terminalrenderer"
+              ],
+              [
                 "Oppmerksomhetsmodell",
                 "Notification rings, Cmd+Shift+U for nyeste unread og Cmd+Control+U for å bla gjennom unread arbeid",
                 "For det meste manuelt eller bundet til produktet"
@@ -2486,6 +2607,10 @@
             {
               "title": "Verktøyvalget forblir ditt",
               "body": "cmux erstatter ikke agenten eller editoren. Det fungerer ved siden av Claude Code, Codex, OpenCode, IDE-er, shell-verktøy og eksterne maskiner."
+            },
+            {
+              "title": "Programmerbarhet når appen",
+              "body": "Skript og agenter kan opprette workspaces, splitte panes, sende input, lese skjermer, ta screenshots og styre browsere gjennom cmux. Terminalen blir kontrollerbar infrastruktur."
             }
           ],
           "faqTitle": "FAQ",
@@ -2521,6 +2646,11 @@
                 "Innebygd kompilert GPU-terminalemulator, ikke Electron/Tauri"
               ],
               [
+                "Renderingsmotor",
+                "Bygget på libghostty for moderne GPU-akselerert terminalrendering",
+                "Kitty-terminalrenderer og protokolløkosystem"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -2558,6 +2688,10 @@
             {
               "title": "Verktøyvalget forblir ditt",
               "body": "cmux erstatter ikke agenten eller editoren. Det fungerer ved siden av Claude Code, Codex, OpenCode, IDE-er, shell-verktøy og eksterne maskiner."
+            },
+            {
+              "title": "Programmerbarhet inkluderer app-skallet",
+              "body": "cmux CLI og socket-API kan opprette workspaces, splitte panes, sende input, lese skjermer, styre browser panes og oppdatere sidebar-tilstand fra skript eller agenter."
             }
           ],
           "faqTitle": "FAQ",
@@ -2593,6 +2727,11 @@
                 "Rust terminalnær binær, ikke Electron/Tauri-skrivebordsapp"
               ],
               [
+                "Runtime-modell",
+                "Lokale app-workspaces, panes, browserflater, socket-API",
+                "Bakgrunnsserver, persistente PTY-er, attach/detach"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -2606,6 +2745,11 @@
                 "Automatisering",
                 "CLI, Unix socket API, browser automation og hooks",
                 "Egne konfigurasjoner, extensions eller API-er"
+              ],
+              [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Open source AGPL med kommersiell lisensiering tilgjengelig"
               ],
               [
                 "Best for",
@@ -2742,6 +2886,11 @@
                 "Avhenger av verktøyets workflow"
               ],
               [
+                "Renderingsmotor",
+                "Bygget på libghostty for terminalrendering",
+                "Bruker renderingen til den ytre terminalemulatoren"
+              ],
+              [
                 "Oppmerksomhetsmodell",
                 "Notification rings, Cmd+Shift+U for nyeste unread og Cmd+Control+U for å bla gjennom unread arbeid",
                 "For det meste manuelt eller bundet til produktet"
@@ -2774,6 +2923,10 @@
             {
               "title": "Verktøyvalget forblir ditt",
               "body": "cmux erstatter ikke agenten eller editoren. Det fungerer ved siden av Claude Code, Codex, OpenCode, IDE-er, shell-verktøy og eksterne maskiner."
+            },
+            {
+              "title": "Socket-API-et er automasjon på appnivå",
+              "body": "tmux kan skriptes inne i terminalen. cmux eksponerer også appen rundt terminalen: workspaces, browser panes, skjermlesing, screenshots og varslingsmetadata."
             }
           ],
           "faqTitle": "FAQ",
@@ -2807,6 +2960,11 @@
                 "Skrivebordsstack",
                 "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
                 "Electron-skrivebordseditor"
+              ],
+              [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Code OSS er MIT; Microsoft VS Code-distribusjonen har Microsoft-produktlisensiering"
               ],
               [
                 "Agentsynlighet",
@@ -2886,6 +3044,11 @@
                 "Avhenger av verktøyets workflow"
               ],
               [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Lukket editorlinje"
+              ],
+              [
                 "Oppmerksomhetsmodell",
                 "Notification rings, Cmd+Shift+U for nyeste unread og Cmd+Control+U for å bla gjennom unread arbeid",
                 "For det meste manuelt eller bundet til produktet"
@@ -2951,6 +3114,11 @@
                 "Skrivebordsstack",
                 "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
                 "Innebygd Rust/GPUI-editor, ikke Electron/Tauri"
+              ],
+              [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Open source-editor"
               ],
               [
                 "Agentsynlighet",
@@ -3025,9 +3193,19 @@
                 "Open source-terminalklient; skrivebordsstacken er ikke spesifisert her"
               ],
               [
+                "Renderingsmotor",
+                "Bygget på libghostty for terminalrendering",
+                "Rendering i Warp-terminalklienten"
+              ],
+              [
                 "Agentvalg",
                 "Enhver shell-basert agent",
                 "Warp-produktarbeidsflyt"
+              ],
+              [
+                "Kildemodell",
+                "Gratis GPL-app med åpen kildekode",
+                "Open source-klient pluss administrert produkt og skytjenester"
               ],
               [
                 "Organisering",
@@ -3097,6 +3275,11 @@
                 "Rust GPU-terminalemulator og multiplekser"
               ],
               [
+                "Renderingsmotor",
+                "Bygget på libghostty for moderne GPU-akselerert terminalrendering",
+                "WezTerm-terminalrenderer og multiplexer"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -3134,6 +3317,10 @@
             {
               "title": "Verktøyvalget forblir ditt",
               "body": "cmux erstatter ikke agenten eller editoren. Det fungerer ved siden av Claude Code, Codex, OpenCode, IDE-er, shell-verktøy og eksterne maskiner."
+            },
+            {
+              "title": "Browser-automatisering lever ved siden av terminaler",
+              "body": "cmux kan splitte browser panes ved siden av terminaler og eksponere browser-automatisering gjennom samme socket-API, så agenter kan verifisere lokale webapper uten å forlate workspace."
             }
           ],
           "faqTitle": "FAQ",

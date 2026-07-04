@@ -14,20 +14,14 @@ export async function generateMetadata({
     locale,
     namespace: "blog.claudeCodeBestWorktreeManager",
   });
+  const rawKeywords = t.raw("metaKeywords");
+  const keywords = Array.isArray(rawKeywords)
+    ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
+    : [];
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    keywords: [
-      "Claude Code worktree manager",
-      "git worktrees",
-      "cmux super repo",
-      "AI coding agents",
-      "Codex",
-      "cmux custom commands",
-      "cmux skills",
-      "terminal workflow",
-      "agentic development",
-    ],
+    keywords,
     openGraph: {
       title: t("metaTitle"),
       description: t("metaDescription"),

@@ -523,7 +523,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code ist der beste Worktree-Manager",
-      "metaDescription": "Warum Agenten, Super-Repos, benutzerdefinierte cmux-Befehle und programmierbare Terminalprimitive integrierte Worktree-Manager für echte Codebasen schlagen."
+      "metaDescription": "Warum Agenten, Super-Repos, benutzerdefinierte cmux-Befehle und programmierbare Terminalprimitive integrierte Worktree-Manager für echte Codebasen schlagen.",
+      "metaKeywords": [
+        "Claude Code Worktree Manager",
+        "git worktrees",
+        "cmux Super Repo",
+        "AI-Coding-Agenten",
+        "Codex",
+        "cmux Custom Commands",
+        "cmux Skills",
+        "Terminal-Workflow",
+        "agentische Entwicklung"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -1788,10 +1799,52 @@
                 "Nur macOS"
               ],
               [
+                "Conductor",
+                "Coding-Agent-Teams auf dem Mac",
+                "Claude Code, Codex, Cursor und OpenCode-Harnesses",
+                "Stärker auf isolierte Task-Workspaces ausgerichtet"
+              ],
+              [
                 "Superset",
                 "Worktree-basierte Agent-Orchestrierung",
                 "Viele CLI-Agenten",
                 "Electron-App und stärker vorgegebener Workflow"
+              ],
+              [
+                "Herdr",
+                "Terminal-natives Agent-Multiplexing",
+                "Viele CLI-Agenten",
+                "Läuft in einem anderen Terminal statt als Mac-App"
+              ],
+              [
+                "OpenCode",
+                "Open-Source-Coding-Agent",
+                "OpenCode selbst in Terminal, Desktop und IDE",
+                "Es ist der Agent, nicht die Terminal-Steuerungsebene"
+              ],
+              [
+                "Cursor",
+                "AI-Editing und gehostete Agent-Workflows",
+                "Cursor-zentrierter Agent-Workflow plus Integrationen",
+                "Editor- und konto-zentrierter Workflow"
+              ],
+              [
+                "Devin Desktop",
+                "IDE plus Agent-Kommandozentrale",
+                "Devin- und Windsurf-Linie",
+                "Editor- und konto-zentrierter Workflow"
+              ],
+              [
+                "VS Code",
+                "Allgemeiner Editor und Erweiterungsplattform",
+                "Editor-integrierte Agenten und Erweiterungen",
+                "Terminal-Agent-Überwachung bleibt in Editor-Oberflächen"
+              ],
+              [
+                "Zed",
+                "Schnelles kollaboratives Editieren",
+                "Editor-integrierte AI-Workflows",
+                "Terminal-Agent-Überwachung bleibt an den Editor gebunden"
               ],
               [
                 "Warp",
@@ -1810,6 +1863,24 @@
                 "Ausgereifte macOS-Terminal-Workflows",
                 "Jeder CLI-Agent",
                 "Agent-Status bleibt manuell"
+              ],
+              [
+                "Kitty",
+                "Schnelles, funktionsreiches GPU-Terminal",
+                "Jeder CLI-Agent",
+                "Keine eingebaute Agent-Review-Warteschlange"
+              ],
+              [
+                "Alacritty",
+                "Schnelles, schlichtes OpenGL-Terminal",
+                "Jeder CLI-Agent",
+                "Minimale Workflow-Funktionen auf App-Ebene"
+              ],
+              [
+                "WezTerm",
+                "Plattformübergreifendes Terminal und Multiplexer",
+                "Jeder CLI-Agent",
+                "Agent-Aufmerksamkeit braucht weiter eigene Verkabelung"
               ],
               [
                 "tmux",
@@ -1835,6 +1906,10 @@
             {
               "title": "Tastaturorientierte Überwachung",
               "body": "cmux behandelt Aufmerksamkeit als eigenen Workflow. Kürzel wie Sprung zum neuesten Ungelesenen bringen dich direkt zu dem Bereich, der eine Entscheidung braucht, statt alle Tabs zu scannen oder Desktop-Benachrichtigungen zu entschlüsseln."
+            },
+            {
+              "title": "Worktree-Unterstützung ist eine Primitive, keine Produktbox",
+              "body": "Eingebaute Worktree-Unterstützung bleibt zwangsläufig begrenzt, weil echte Teams Backend- und Frontend-Repos an verschiedenen Orten, Setup-Skripte, entfernte Maschinen, Projekte ohne Git und gelegentliche Code-direkt-auf-main-Flows haben. cmux bleibt programmierbar, damit Claude Code, Codex, eigene Befehle und Repo-Skripte die Workspace-Form bauen können, die deine Codebasis wirklich braucht."
             }
           ],
           "faqTitle": "FAQ",
@@ -2115,6 +2190,11 @@
                 "Viele CLI-Agenten in einem verwalteten Workspace"
               ],
               [
+                "Source-Modell",
+                "Freie und Open-Source-GPL-App",
+                "Source-available unter Elastic License 2.0"
+              ],
+              [
                 "Organisation",
                 "Vertikale Workspaces, Splits, Ungelesen-Status, Benachrichtigungsringe",
                 "Tasks, Worktrees, Review-Oberflächen"
@@ -2147,6 +2227,10 @@
             {
               "title": "Programmierbarkeit ist der Ausweg",
               "body": "cmux stellt Workspaces, Bereiche, Bildschirmlesen, Screenshots und Browser-Automation über CLI und Socket-API bereit. Fortgeschrittene Nutzer können eigene Orchestrierung darauf bauen, statt auf einen passenden Produktworkflow zu warten."
+            },
+            {
+              "title": "Worktree-Unterstützung ist nie universell",
+              "body": "Eingebaute Worktree-Manager sind nützlich, bis deine Repo-Form ungewöhnlich wird: getrennte Backend- und Frontend-Repositories, generierte Setup-Schritte, kein Git, entfernte Hosts oder ein Team, das direkt auf main arbeiten will. cmux hält die Terminal-Primitive programmierbar, damit Claude Code, Codex, Skripte und eigene Befehle genau die Workspace-Form erzeugen können, die du brauchst."
             }
           ],
           "faqTitle": "FAQ",
@@ -2190,6 +2274,11 @@
                 "Bindung",
                 "Eigene Agenten und Keys mitbringen",
                 "Cursor-Konto, Pläne und Plattformfunktionen"
+              ],
+              [
+                "Source-Modell",
+                "Freie und Open-Source-GPL-App",
+                "Closed-Source-Editorprodukt"
               ],
               [
                 "Performance-Profil",
@@ -2963,9 +3052,19 @@
                 "Open-Source-Terminalclient; Desktop-Stack hier nicht öffentlich angegeben"
               ],
               [
+                "Rendering-Engine",
+                "Auf libghostty für Terminal-Rendering aufgebaut",
+                "Warp-Terminalclient-Rendering"
+              ],
+              [
                 "Agent-Wahl",
                 "Jeder shellbasierte Agent",
                 "Warp-Produktworkflow"
+              ],
+              [
+                "Source-Modell",
+                "Freie und Open-Source-GPL-App",
+                "Open-Source-Client plus verwaltetes Produkt und Cloud-Dienste"
               ],
               [
                 "Organisation",

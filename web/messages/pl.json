@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code to najlepszy menedżer worktree",
-      "metaDescription": "Dlaczego agenty, super repozytoria, własne polecenia cmux i programowalne prymitywy terminala wygrywają z wbudowanymi menedżerami worktree w prawdziwych bazach kodu."
+      "metaDescription": "Dlaczego agenty, super repozytoria, własne polecenia cmux i programowalne prymitywy terminala wygrywają z wbudowanymi menedżerami worktree w prawdziwych bazach kodu.",
+      "metaKeywords": [
+        "menedżer worktree Claude Code",
+        "git worktrees",
+        "cmux super repo",
+        "agenci kodujący AI",
+        "Codex",
+        "niestandardowe polecenia cmux",
+        "skills cmux",
+        "workflow terminala",
+        "rozwój agentowy"
+      ]
     }
   },
   "docs": {
@@ -1788,10 +1799,52 @@
                 "Tylko macOS"
               ],
               [
+                "Conductor",
+                "Zespoły agentów kodujących na Macu",
+                "Harnessy Claude Code, Codex, Cursor i OpenCode",
+                "Bardziej narzucony model izolowanych workspace’ów zadań"
+              ],
+              [
                 "Superset",
                 "Orkiestracja agentów oparta na worktree",
                 "Wiele agentów CLI",
                 "Aplikacja Electron i bardziej narzucony workflow"
+              ],
+              [
+                "Herdr",
+                "Natywne dla terminala multipleksowanie agentów",
+                "Wiele agentów CLI",
+                "Działa wewnątrz innego terminala zamiast jako aplikacja Mac"
+              ],
+              [
+                "OpenCode",
+                "Agent kodujący open source",
+                "Sam OpenCode w terminalu, desktopie i IDE",
+                "To agent, nie warstwa kontroli terminala"
+              ],
+              [
+                "Cursor",
+                "Edycja AI i hostowane przepływy agentów",
+                "Workflow agentów skupiony na Cursor plus integracje",
+                "Workflow skupiony na edytorze i koncie"
+              ],
+              [
+                "Devin Desktop",
+                "IDE plus centrum dowodzenia agentami",
+                "Linia Devin i Windsurf",
+                "Workflow skupiony na edytorze i koncie"
+              ],
+              [
+                "VS Code",
+                "Ogólny edytor i platforma rozszerzeń",
+                "Agenty i rozszerzenia zintegrowane z edytorem",
+                "Nadzór nad agentami terminalowymi zostaje w powierzchniach edytora"
+              ],
+              [
+                "Zed",
+                "Szybka edycja zespołowa",
+                "Workflowy AI zintegrowane z edytorem",
+                "Nadzór nad agentami terminalowymi pozostaje związany z edytorem"
               ],
               [
                 "Warp",
@@ -1810,6 +1863,24 @@
                 "Dojrzałe przepływy terminalowe macOS",
                 "Dowolny agent CLI",
                 "Status agenta pozostaje manualny"
+              ],
+              [
+                "Kitty",
+                "Szybki, bogaty w funkcje terminal GPU",
+                "Dowolny agent CLI",
+                "Brak wbudowanej kolejki review dla agentów"
+              ],
+              [
+                "Alacritty",
+                "Szybki, prosty terminal OpenGL",
+                "Dowolny agent CLI",
+                "Minimalne funkcje workflow na poziomie aplikacji"
+              ],
+              [
+                "WezTerm",
+                "Wieloplatformowy terminal i multiplexer",
+                "Dowolny agent CLI",
+                "Uwaga agentów nadal wymaga własnego okablowania"
               ],
               [
                 "tmux",
@@ -1835,6 +1906,10 @@
             {
               "title": "Nadzór nastawiony na klawiaturę",
               "body": "cmux traktuje uwagę jako pierwszorzędny element workflow. Skróty takie jak skok do ostatniego nieprzeczytanego przenoszą prosto do panelu wymagającego decyzji, zamiast zmuszać do skanowania każdej karty lub czekania, aż powiadomienia systemowe nabiorą sensu."
+            },
+            {
+              "title": "Obsługa worktree to prymityw, nie pudełkowa funkcja produktu",
+              "body": "Wbudowana obsługa worktree zawsze będzie ograniczona, bo realne zespoły mają repozytoria backendu i frontendu w różnych miejscach, skrypty konfiguracji, maszyny zdalne, projekty bez Gita i czasem przepływy kodowania bezpośrednio na main. cmux pozostaje programowalny, żeby Claude Code, Codex, własne komendy i skrypty repo mogły zbudować workspace dokładnie w kształcie potrzebnym Twojej bazie kodu."
             }
           ],
           "faqTitle": "FAQ",

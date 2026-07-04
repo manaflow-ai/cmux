@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code — найкращий менеджер Worktree",
-      "metaDescription": "Чому агенти, суперсховища, спеціальні команди cmux і програмовані термінальні примітиви перемагають вбудовані менеджери worktree для справжніх кодових баз."
+      "metaDescription": "Чому агенти, суперсховища, спеціальні команди cmux і програмовані термінальні примітиви перемагають вбудовані менеджери worktree для справжніх кодових баз.",
+      "metaKeywords": [
+        "менеджер worktree Claude Code",
+        "git worktrees",
+        "cmux super repo",
+        "AI агенти для коду",
+        "Codex",
+        "користувацькі команди cmux",
+        "skills cmux",
+        "термінальний workflow",
+        "агентна розробка"
+      ]
     }
   },
   "docs": {

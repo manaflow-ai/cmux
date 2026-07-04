@@ -523,7 +523,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code 是最好的工作樹管理器",
-      "metaDescription": "為什麼代理、超級存儲庫、cmux 自定義命令和可編程終端原語在真正的代碼庫方面擊敗了內置工作樹管理器。"
+      "metaDescription": "為什麼代理、超級存儲庫、cmux 自定義命令和可編程終端原語在真正的代碼庫方面擊敗了內置工作樹管理器。",
+      "metaKeywords": [
+        "Claude Code worktree 管理器",
+        "git worktrees",
+        "cmux super repo",
+        "AI 編碼代理",
+        "Codex",
+        "cmux 自訂命令",
+        "cmux skills",
+        "終端機工作流",
+        "代理式開發"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",

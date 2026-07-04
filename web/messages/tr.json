@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code En İyi Worktree Yöneticisidir",
-      "metaDescription": "Aracılar, süper depolar, cmux özel komutlar ve programlanabilir terminal temelleri neden gerçek kod tabanları için yerleşik worktree yöneticilerini geride bırakıyor?"
+      "metaDescription": "Aracılar, süper depolar, cmux özel komutlar ve programlanabilir terminal temelleri neden gerçek kod tabanları için yerleşik worktree yöneticilerini geride bırakıyor?",
+      "metaKeywords": [
+        "Claude Code worktree yöneticisi",
+        "git worktrees",
+        "cmux super repo",
+        "AI kodlama ajanları",
+        "Codex",
+        "cmux özel komutlar",
+        "cmux skills",
+        "terminal iş akışı",
+        "ajan tabanlı geliştirme"
+      ]
     }
   },
   "docs": {

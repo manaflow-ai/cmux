@@ -554,7 +554,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code は最高のワークツリー マネージャーです",
-      "metaDescription": "エージェント、スーパー リポジトリ、cmux カスタム コマンド、プログラマブル ターミナル プリミティブが実際のコードベースの組み込みワークツリー マネージャーに勝る理由。"
+      "metaDescription": "エージェント、スーパー リポジトリ、cmux カスタム コマンド、プログラマブル ターミナル プリミティブが実際のコードベースの組み込みワークツリー マネージャーに勝る理由。",
+      "metaKeywords": [
+        "Claude Code ワークツリー管理",
+        "git worktree",
+        "cmux スーパーリポジトリ",
+        "AI コーディングエージェント",
+        "Codex",
+        "cmux カスタムコマンド",
+        "cmux スキル",
+        "ターミナルワークフロー",
+        "エージェント型開発"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",

@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code er den bedste worktree-manager",
-      "metaDescription": "Hvorfor agenter, super-repoer, cmux-kommandoer og programmerbare terminalprimitiver slår indbyggede worktree-managere i rigtige kodebaser."
+      "metaDescription": "Hvorfor agenter, super-repoer, cmux-kommandoer og programmerbare terminalprimitiver slår indbyggede worktree-managere i rigtige kodebaser.",
+      "metaKeywords": [
+        "Claude Code worktree-manager",
+        "git worktrees",
+        "cmux super repo",
+        "AI-kodeagenter",
+        "Codex",
+        "cmux brugerdefinerede kommandoer",
+        "cmux skills",
+        "terminalworkflow",
+        "agentisk udvikling"
+      ]
     }
   },
   "docs": {
@@ -2017,6 +2028,11 @@
                 "Mange CLI-agenter i et styret workspace"
               ],
               [
+                "Kildemodel",
+                "Gratis GPL-app med åben kildekode",
+                "Source-available under Elastic License 2.0"
+              ],
+              [
                 "Organisering",
                 "Vertikale workspaces, splits, ulæst tilstand, notifikationsringe",
                 "Opgaver, worktrees, review-flader"
@@ -2049,6 +2065,10 @@
             {
               "title": "Programmerbarhed er nødudgangen",
               "body": "cmux eksponerer workspaces, paneler, skærmlæsning, screenshots og browserautomatisering gennem CLI og socket-API. Det lader avancerede brugere bygge deres egen orkestrering ovenpå i stedet for at vente på, at ét produktworkflow passer."
+            },
+            {
+              "title": "Worktree-understøttelse er aldrig universel",
+              "body": "Indbyggede worktree-managers er nyttige, indtil repo-formen bliver sær: adskilte backend/frontend-repos, genererede setup-trin, ingen Git, remote hosts eller et team, der vil kode direkte på main. cmux holder terminalprimitivet programmerbart, så Claude Code, Codex, scripts og custom commands kan skabe præcis den workspace-form, du har brug for."
             }
           ],
           "faqTitle": "FAQ",
@@ -2092,6 +2112,11 @@
                 "Lock-in",
                 "Medbring din egen agent og nøgler",
                 "Cursor-konto, planer og platformsfunktioner"
+              ],
+              [
+                "Kildemodel",
+                "Gratis GPL-app med åben kildekode",
+                "Closed-source editorprodukt"
               ],
               [
                 "Ydeevneprofil",
@@ -2156,9 +2181,19 @@
                 "Open source-terminalklient; desktop-stack er ikke angivet her"
               ],
               [
+                "Renderingsmotor",
+                "Bygget på libghostty til terminalrendering",
+                "Warp-terminalklientens rendering"
+              ],
+              [
                 "Agentvalg",
                 "Enhver shell-baseret agent",
                 "Warp-produktworkflow"
+              ],
+              [
+                "Kildemodel",
+                "Gratis GPL-app med åben kildekode",
+                "Open source-klient plus administreret produkt og cloud-tjenester"
               ],
               [
                 "Organisering",

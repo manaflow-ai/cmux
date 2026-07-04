@@ -523,7 +523,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code é o melhor gerenciador de worktree",
-      "metaDescription": "Por que agentes, super repos, comandos personalizados do cmux e primitivos de terminal programáveis vencem gerenciadores de worktree embutidos em bases de código reais."
+      "metaDescription": "Por que agentes, super repos, comandos personalizados do cmux e primitivos de terminal programáveis vencem gerenciadores de worktree embutidos em bases de código reais.",
+      "metaKeywords": [
+        "gerenciador de worktrees Claude Code",
+        "git worktrees",
+        "super repo cmux",
+        "agentes de programação com IA",
+        "Codex",
+        "comandos personalizados cmux",
+        "skills do cmux",
+        "fluxo de terminal",
+        "desenvolvimento agentic"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -1929,10 +1940,52 @@
                 "Somente macOS"
               ],
               [
+                "Conductor",
+                "Times de coding agents no Mac",
+                "Harnesses de Claude Code, Codex, Cursor e OpenCode",
+                "Mais opinativo em torno de workspaces de tarefas isoladas"
+              ],
+              [
                 "Superset",
                 "Orquestração de agentes baseada em worktrees",
                 "Muitos agentes CLI",
                 "Aplicativo Electron e fluxo mais opinativo"
+              ],
+              [
+                "Herdr",
+                "Multiplexação de agentes nativa do terminal",
+                "Muitos agentes CLI",
+                "Roda dentro de outro terminal em vez de ser um app para Mac"
+              ],
+              [
+                "OpenCode",
+                "Coding agent open source",
+                "O próprio OpenCode no terminal, desktop e IDE",
+                "É o agente, não o plano de controle do terminal"
+              ],
+              [
+                "Cursor",
+                "Edição com IA e workflows de agentes hospedados",
+                "Workflow de agentes centrado no Cursor mais integrações",
+                "Workflow centrado no editor e na conta"
+              ],
+              [
+                "Devin Desktop",
+                "IDE mais agent command center",
+                "Linhagem Devin e Windsurf",
+                "Workflow centrado no editor e na conta"
+              ],
+              [
+                "VS Code",
+                "Editor geral e plataforma de extensões",
+                "Agentes e extensões integrados ao editor",
+                "A supervisão de agentes de terminal fica dentro das superfícies do editor"
+              ],
+              [
+                "Zed",
+                "Edição colaborativa rápida",
+                "Workflows de IA integrados ao editor",
+                "A supervisão de agentes de terminal fica presa ao editor"
               ],
               [
                 "Warp",
@@ -1951,6 +2004,24 @@
                 "Fluxos maduros de terminal no macOS",
                 "Qualquer agente CLI",
                 "Status dos agentes continua manual"
+              ],
+              [
+                "Kitty",
+                "Terminal GPU rápido e cheio de recursos",
+                "Qualquer agente CLI",
+                "Sem fila de review de agentes integrada"
+              ],
+              [
+                "Alacritty",
+                "Terminal OpenGL rápido e simples",
+                "Qualquer agente CLI",
+                "Recursos mínimos de workflow no nível do app"
+              ],
+              [
+                "WezTerm",
+                "Terminal e multiplexer cross-platform",
+                "Qualquer agente CLI",
+                "A atenção dos agentes ainda precisa de custom wiring"
               ],
               [
                 "tmux",
@@ -1976,6 +2047,10 @@
             {
               "title": "Supervisão orientada pelo teclado",
               "body": "O cmux trata atenção como parte central do workflow. Cmd+Shift+U pula para o pane unread mais recente, e Cmd+Control+U percorre trabalho unread sem limpar o estado. Esses atalhos existem para quem roda agentes suficientes para que varrer abas manualmente pare de funcionar."
+            },
+            {
+              "title": "Suporte a worktree é um primitivo, não uma caixa de produto",
+              "body": "Suporte embutido a worktree sempre será limitado porque equipes reais têm repositórios backend e frontend em lugares diferentes, scripts de setup, máquinas remotas, projetos sem Git e fluxos ocasionais direto no main. O cmux continua programável para que Claude Code, Codex, comandos customizados e scripts do repo possam montar o formato de workspace que seu codebase realmente precisa."
             }
           ],
           "faqTitle": "FAQ",
@@ -2009,6 +2084,11 @@
                 "Stack de desktop",
                 "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
                 "Emulador de terminal Rust/OpenGL, não Electron/Tauri"
+              ],
+              [
+                "Motor de renderização",
+                "Construído sobre libghostty para renderização de terminal moderna acelerada por GPU",
+                "Renderizador de terminal OpenGL"
               ],
               [
                 "Visibilidade de agentes",
@@ -2048,6 +2128,10 @@
             {
               "title": "A escolha de ferramentas continua sua",
               "body": "cmux não substitui o agente nem o editor. Ele trabalha ao lado de Claude Code, Codex, OpenCode, IDEs, ferramentas shell e máquinas remotas."
+            },
+            {
+              "title": "A programabilidade chega às verificações no browser",
+              "body": "O cmux expõe controle de terminal e automação de browser pela mesma socket API, para que agentes possam rodar comandos, inspecionar páginas web, capturar screenshots e reportar status a partir de um workspace."
             }
           ],
           "faqTitle": "FAQ",
@@ -2088,6 +2172,11 @@
                 "Depende do workflow da ferramenta"
               ],
               [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Produto proprietário com componentes open source de terceiros"
+              ],
+              [
                 "Modelo de atenção",
                 "Notification rings, Cmd+Shift+U para o unread mais recente e Cmd+Control+U para percorrer trabalho unread",
                 "Geralmente manual ou preso ao produto"
@@ -2120,6 +2209,10 @@
             {
               "title": "A escolha de ferramentas continua sua",
               "body": "cmux não substitui o agente nem o editor. Ele trabalha ao lado de Claude Code, Codex, OpenCode, IDEs, ferramentas shell e máquinas remotas."
+            },
+            {
+              "title": "Worktrees integradas sempre batem em um teto",
+              "body": "Algumas equipes têm repositórios backend e frontend em lugares diferentes. Algumas não usam Git. Algumas querem trabalho local rápido direto no main. O cmux segue o Zen of cmux: expor primitivos e deixar desenvolvedores e agentes explorarem o espaço de workflows, em vez de impor um único modelo embutido de worktree."
             }
           ],
           "faqTitle": "FAQ",
@@ -2238,6 +2331,11 @@
                 "Muitos agentes CLI dentro de um workspace gerenciado"
               ],
               [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Source-available sob Elastic License 2.0"
+              ],
+              [
                 "Organização",
                 "Workspaces verticais, splits, estado de não lido, anéis de notificação",
                 "Tarefas, worktrees, superfícies de revisão"
@@ -2270,6 +2368,10 @@
             {
               "title": "Programabilidade é a saída",
               "body": "O cmux expõe workspaces, panes, leitura de tela, screenshots e automação de navegador pela CLI e API por socket. Isso permite que usuários avançados construam sua própria orquestração por cima, sem esperar que um fluxo único de produto sirva para todos."
+            },
+            {
+              "title": "Suporte a worktree nunca é universal",
+              "body": "Gerenciadores de worktree embutidos são úteis até o formato do repo ficar estranho: backend/frontend separados, passos de setup gerados, sem Git, hosts remotos ou uma equipe que quer codar direto no main. O cmux mantém o primitivo do terminal programável para que Claude Code, Codex, scripts e comandos customizados possam criar exatamente o formato de workspace que você precisa."
             }
           ],
           "faqTitle": "FAQ",
@@ -2313,6 +2415,11 @@
                 "Lock-in",
                 "Traga seus agentes e chaves",
                 "Conta Cursor, planos e recursos de plataforma"
+              ],
+              [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Produto de editor closed-source"
               ],
               [
                 "Perfil de desempenho",
@@ -2382,6 +2489,11 @@
                 "Depende do workflow da ferramenta"
               ],
               [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Plataforma fechada de agentes gerenciados"
+              ],
+              [
                 "Modelo de atenção",
                 "Notification rings, Cmd+Shift+U para o unread mais recente e Cmd+Control+U para percorrer trabalho unread",
                 "Geralmente manual ou preso ao produto"
@@ -2414,6 +2526,10 @@
             {
               "title": "A escolha de ferramentas continua sua",
               "body": "cmux não substitui o agente nem o editor. Ele trabalha ao lado de Claude Code, Codex, OpenCode, IDEs, ferramentas shell e máquinas remotas."
+            },
+            {
+              "title": "A programabilidade mantém workflows inspecionáveis",
+              "body": "A CLI e a socket API do cmux expõem panes, workspaces, leitura de tela, screenshots, automação de browser, hooks e comandos customizados. Equipes podem scriptar exatamente o workflow de que precisam em torno de agentes locais."
             }
           ],
           "faqTitle": "FAQ",
@@ -2454,6 +2570,11 @@
                 "Depende do workflow da ferramenta"
               ],
               [
+                "Motor de renderização",
+                "Construído sobre libghostty com renderização de terminal moderna acelerada por GPU",
+                "Renderizador de terminal do iTerm2"
+              ],
+              [
                 "Modelo de atenção",
                 "Notification rings, Cmd+Shift+U para o unread mais recente e Cmd+Control+U para percorrer trabalho unread",
                 "Geralmente manual ou preso ao produto"
@@ -2486,6 +2607,10 @@
             {
               "title": "A escolha de ferramentas continua sua",
               "body": "cmux não substitui o agente nem o editor. Ele trabalha ao lado de Claude Code, Codex, OpenCode, IDEs, ferramentas shell e máquinas remotas."
+            },
+            {
+              "title": "A programabilidade chega ao app",
+              "body": "Scripts e agentes podem criar workspaces, dividir panes, enviar input, ler telas, capturar screenshots e controlar browsers pelo cmux. O terminal vira infraestrutura controlável."
             }
           ],
           "faqTitle": "FAQ",
@@ -2521,6 +2646,11 @@
                 "Emulador de terminal GPU compilado nativamente, não Electron/Tauri"
               ],
               [
+                "Motor de renderização",
+                "Construído sobre libghostty para renderização de terminal moderna acelerada por GPU",
+                "Renderizador de terminal do Kitty e ecossistema de protocolos"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -2558,6 +2688,10 @@
             {
               "title": "A escolha de ferramentas continua sua",
               "body": "cmux não substitui o agente nem o editor. Ele trabalha ao lado de Claude Code, Codex, OpenCode, IDEs, ferramentas shell e máquinas remotas."
+            },
+            {
+              "title": "A programabilidade inclui o shell do app",
+              "body": "A CLI e a socket API do cmux podem criar workspaces, dividir panes, enviar input, ler telas, controlar browser panes e atualizar o estado da sidebar a partir de scripts ou agentes."
             }
           ],
           "faqTitle": "FAQ",
@@ -2593,6 +2727,11 @@
                 "Binário Rust nativo de terminal, não app desktop Electron/Tauri"
               ],
               [
+                "Modelo de runtime",
+                "Workspaces locais do app, panes, superfícies de browser, socket API",
+                "Servidor em background, PTYs persistentes, attach/detach"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -2606,6 +2745,11 @@
                 "Automação",
                 "CLI, Unix socket API, browser automation e hooks",
                 "Configurações, extensões ou APIs próprias"
+              ],
+              [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "AGPL open source com licenciamento comercial disponível"
               ],
               [
                 "Melhor para",
@@ -2742,6 +2886,11 @@
                 "Depende do workflow da ferramenta"
               ],
               [
+                "Motor de renderização",
+                "Construído sobre libghostty para renderização de terminal",
+                "Usa a renderização do emulador de terminal externo"
+              ],
+              [
                 "Modelo de atenção",
                 "Notification rings, Cmd+Shift+U para o unread mais recente e Cmd+Control+U para percorrer trabalho unread",
                 "Geralmente manual ou preso ao produto"
@@ -2774,6 +2923,10 @@
             {
               "title": "A escolha de ferramentas continua sua",
               "body": "cmux não substitui o agente nem o editor. Ele trabalha ao lado de Claude Code, Codex, OpenCode, IDEs, ferramentas shell e máquinas remotas."
+            },
+            {
+              "title": "A socket API é automação no nível do app",
+              "body": "O tmux é scriptável dentro do terminal. O cmux também expõe o app em volta do terminal: workspaces, browser panes, leitura de tela, screenshots e metadados de notificação."
             }
           ],
           "faqTitle": "FAQ",
@@ -2807,6 +2960,11 @@
                 "Stack de desktop",
                 "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
                 "Editor desktop Electron"
+              ],
+              [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Code OSS é MIT; a distribuição Microsoft VS Code tem licenciamento de produto da Microsoft"
               ],
               [
                 "Visibilidade de agentes",
@@ -2886,6 +3044,11 @@
                 "Depende do workflow da ferramenta"
               ],
               [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Linhagem de editor closed-source"
+              ],
+              [
                 "Modelo de atenção",
                 "Notification rings, Cmd+Shift+U para o unread mais recente e Cmd+Control+U para percorrer trabalho unread",
                 "Geralmente manual ou preso ao produto"
@@ -2951,6 +3114,11 @@
                 "Stack de desktop",
                 "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
                 "Editor nativo Rust/GPUI, não Electron/Tauri"
+              ],
+              [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Editor open source"
               ],
               [
                 "Visibilidade de agentes",
@@ -3025,9 +3193,19 @@
                 "Cliente de terminal open source; stack de desktop não especificado aqui"
               ],
               [
+                "Motor de renderização",
+                "Construído sobre libghostty para renderização de terminal",
+                "Renderização do cliente de terminal Warp"
+              ],
+              [
                 "Escolha de agente",
                 "Qualquer agente baseado em shell",
                 "Fluxo do produto Warp"
+              ],
+              [
+                "Modelo de código-fonte",
+                "App GPL gratuito e de código aberto",
+                "Cliente open source mais produto gerenciado e serviços em nuvem"
               ],
               [
                 "Organização",
@@ -3097,6 +3275,11 @@
                 "Emulador e multiplexador de terminal GPU em Rust"
               ],
               [
+                "Motor de renderização",
+                "Construído sobre libghostty para renderização de terminal moderna acelerada por GPU",
+                "Renderizador de terminal e multiplexer do WezTerm"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -3134,6 +3317,10 @@
             {
               "title": "A escolha de ferramentas continua sua",
               "body": "cmux não substitui o agente nem o editor. Ele trabalha ao lado de Claude Code, Codex, OpenCode, IDEs, ferramentas shell e máquinas remotas."
+            },
+            {
+              "title": "Automação de browser vive ao lado dos terminais",
+              "body": "O cmux pode dividir browser panes ao lado de terminais e expor automação de browser pela mesma socket API, para que agentes possam verificar apps web locais sem sair do workspace."
             }
           ],
           "faqTitle": "FAQ",

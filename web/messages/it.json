@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code è il miglior gestore di worktree",
-      "metaDescription": "Perché agenti, super repo, comandi personalizzati di cmux e primitive di terminale programmabili battono i gestori di worktree integrati nei codebase reali."
+      "metaDescription": "Perché agenti, super repo, comandi personalizzati di cmux e primitive di terminale programmabili battono i gestori di worktree integrati nei codebase reali.",
+      "metaKeywords": [
+        "gestore worktree Claude Code",
+        "git worktrees",
+        "super repo cmux",
+        "agenti di coding AI",
+        "Codex",
+        "comandi personalizzati cmux",
+        "skill cmux",
+        "workflow terminale",
+        "sviluppo agentico"
+      ]
     }
   },
   "docs": {
@@ -1788,10 +1799,52 @@
                 "Solo macOS"
               ],
               [
+                "Conductor",
+                "Team di agenti di programmazione su Mac",
+                "Harness Claude Code, Codex, Cursor e OpenCode",
+                "Più opinato attorno a workspace di attività isolati"
+              ],
+              [
                 "Superset",
                 "Orchestrazione di agenti basata su worktree",
                 "Molti agenti CLI",
                 "App Electron e flusso più opinato"
+              ],
+              [
+                "Herdr",
+                "Multiplexing di agenti nativo nel terminale",
+                "Molti agenti CLI",
+                "Gira dentro un altro terminale invece di essere un’app Mac"
+              ],
+              [
+                "OpenCode",
+                "Agente di programmazione open source",
+                "OpenCode stesso tra terminale, desktop e IDE",
+                "È l’agente, non il piano di controllo del terminale"
+              ],
+              [
+                "Cursor",
+                "Editing IA e flussi di agenti ospitati",
+                "Flusso di agenti centrato su Cursor più integrazioni",
+                "Flusso centrato su editor e account"
+              ],
+              [
+                "Devin Desktop",
+                "IDE più centro di comando per agenti",
+                "Linea Devin e Windsurf",
+                "Flusso centrato su editor e account"
+              ],
+              [
+                "VS Code",
+                "Editor generale e piattaforma di estensioni",
+                "Agenti ed estensioni integrati nell’editor",
+                "La supervisione degli agenti terminale resta dentro superfici dell’editor"
+              ],
+              [
+                "Zed",
+                "Editing collaborativo rapido",
+                "Flussi IA integrati nell’editor",
+                "La supervisione degli agenti terminale resta legata all’editor"
               ],
               [
                 "Warp",
@@ -1810,6 +1863,24 @@
                 "Flussi terminale macOS maturi",
                 "Qualsiasi agente CLI",
                 "Lo stato degli agenti resta manuale"
+              ],
+              [
+                "Kitty",
+                "Terminale GPU veloce e ricco di funzioni",
+                "Qualsiasi agente CLI",
+                "Nessuna coda di review integrata per agenti"
+              ],
+              [
+                "Alacritty",
+                "Terminale OpenGL veloce e semplice",
+                "Qualsiasi agente CLI",
+                "Funzioni workflow minime a livello app"
+              ],
+              [
+                "WezTerm",
+                "Terminale e multiplexer multipiattaforma",
+                "Qualsiasi agente CLI",
+                "L’attenzione degli agenti richiede ancora collegamenti personalizzati"
               ],
               [
                 "tmux",
@@ -1835,6 +1906,10 @@
             {
               "title": "Supervisione da tastiera",
               "body": "cmux tratta l’attenzione come un flusso di primo livello. Scorciatoie come vai all’ultimo non letto portano direttamente al pannello che richiede una decisione, invece di passare in rassegna ogni tab o aspettare che le notifiche desktop abbiano senso."
+            },
+            {
+              "title": "Il supporto worktree è una primitiva, non una casella di prodotto",
+              "body": "Il supporto worktree integrato sarà sempre limitato perché i team reali hanno repo backend e frontend in posti diversi, script di setup, macchine remote, progetti senza Git e a volte flussi di codice diretto su main. cmux resta programmabile, così Claude Code, Codex, comandi personalizzati e script del repo possono costruire la forma di workspace che serve davvero al tuo codice."
             }
           ],
           "faqTitle": "FAQ",

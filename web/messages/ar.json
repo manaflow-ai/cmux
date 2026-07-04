@@ -523,7 +523,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code هو أفضل مدير worktree",
-      "metaDescription": "لماذا تتفوق الوكلاء و super repos وأوامر cmux المخصصة وبدائيات الطرفية القابلة للبرمجة على مديري worktree المدمجين في قواعد الكود الحقيقية."
+      "metaDescription": "لماذا تتفوق الوكلاء و super repos وأوامر cmux المخصصة وبدائيات الطرفية القابلة للبرمجة على مديري worktree المدمجين في قواعد الكود الحقيقية.",
+      "metaKeywords": [
+        "مدير worktree في Claude Code",
+        "git worktrees",
+        "cmux super repo",
+        "وكلاء برمجة بالذكاء الاصطناعي",
+        "Codex",
+        "أوامر cmux المخصصة",
+        "مهارات cmux",
+        "تدفق عمل الطرفية",
+        "تطوير قائم على الوكلاء"
+      ]
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",

@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code គឺជាអ្នកគ្រប់គ្រងការងារល្អបំផុត",
-      "metaDescription": "ហេតុអ្វីបានជាភ្នាក់ងារ, super repos, cmux ពាក្យបញ្ជាផ្ទាល់ខ្លួន និង primitives terminal ដែលអាចសរសេរកម្មវិធីបានយកឈ្នះ worktree managers ដែលមានស្រាប់សម្រាប់ codebases ពិតប្រាកដ។"
+      "metaDescription": "ហេតុអ្វីបានជាភ្នាក់ងារ, super repos, cmux ពាក្យបញ្ជាផ្ទាល់ខ្លួន និង primitives terminal ដែលអាចសរសេរកម្មវិធីបានយកឈ្នះ worktree managers ដែលមានស្រាប់សម្រាប់ codebases ពិតប្រាកដ។",
+      "metaKeywords": [
+        "Claude Code worktree manager",
+        "git worktrees",
+        "cmux super repo",
+        "AI coding agents",
+        "Codex",
+        "cmux custom commands",
+        "cmux skills",
+        "terminal workflow",
+        "agentic development"
+      ]
     }
   },
   "docs": {

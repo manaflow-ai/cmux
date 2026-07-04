@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code est le meilleur gestionnaire de worktrees",
-      "metaDescription": "Pourquoi les agents, les super repos, les commandes personnalisées cmux et les primitives de terminal programmables dépassent les gestionnaires de worktrees intégrés dans les vrais codebases."
+      "metaDescription": "Pourquoi les agents, les super repos, les commandes personnalisées cmux et les primitives de terminal programmables dépassent les gestionnaires de worktrees intégrés dans les vrais codebases.",
+      "metaKeywords": [
+        "gestionnaire de worktrees Claude Code",
+        "git worktrees",
+        "super repo cmux",
+        "agents de codage IA",
+        "Codex",
+        "commandes personnalisées cmux",
+        "skills cmux",
+        "workflow terminal",
+        "développement agentique"
+      ]
     }
   },
   "docs": {
@@ -1788,10 +1799,52 @@
                 "macOS uniquement"
               ],
               [
+                "Conductor",
+                "Équipes d’agents de code sur Mac",
+                "Harnesses Claude Code, Codex, Cursor et OpenCode",
+                "Plus prescriptif autour d’espaces de tâches isolés"
+              ],
+              [
                 "Superset",
                 "Orchestration d’agents basée sur des worktrees",
                 "Nombreux agents CLI",
                 "App Electron et flux plus prescriptif"
+              ],
+              [
+                "Herdr",
+                "Multiplexage d’agents natif du terminal",
+                "Nombreux agents CLI",
+                "Tourne dans un autre terminal au lieu d’être une app Mac"
+              ],
+              [
+                "OpenCode",
+                "Agent de code open source",
+                "OpenCode lui-même dans le terminal, le desktop et l’IDE",
+                "C’est l’agent, pas le plan de contrôle du terminal"
+              ],
+              [
+                "Cursor",
+                "Édition IA et flux d’agents hébergés",
+                "Flux d’agent centré sur Cursor plus intégrations",
+                "Flux centré sur l’éditeur et le compte"
+              ],
+              [
+                "Devin Desktop",
+                "IDE plus centre de commande pour agents",
+                "Lignée Devin et Windsurf",
+                "Flux centré sur l’éditeur et le compte"
+              ],
+              [
+                "VS Code",
+                "Éditeur général et plateforme d’extensions",
+                "Agents et extensions intégrés à l’éditeur",
+                "La supervision d’agents terminal reste dans les surfaces de l’éditeur"
+              ],
+              [
+                "Zed",
+                "Édition collaborative rapide",
+                "Flux IA intégrés à l’éditeur",
+                "La supervision d’agents terminal reste liée à l’éditeur"
               ],
               [
                 "Warp",
@@ -1810,6 +1863,24 @@
                 "Flux de terminal macOS matures",
                 "Tout agent CLI",
                 "Le suivi d’état des agents reste manuel"
+              ],
+              [
+                "Kitty",
+                "Terminal GPU rapide et riche en fonctions",
+                "Tout agent CLI",
+                "Pas de file de revue d’agents intégrée"
+              ],
+              [
+                "Alacritty",
+                "Terminal OpenGL rapide et simple",
+                "Tout agent CLI",
+                "Fonctions de workflow minimales au niveau app"
+              ],
+              [
+                "WezTerm",
+                "Terminal et multiplexeur multiplateforme",
+                "Tout agent CLI",
+                "L’attention des agents nécessite encore du câblage personnalisé"
               ],
               [
                 "tmux",
@@ -1835,6 +1906,10 @@
             {
               "title": "Supervision au clavier",
               "body": "cmux traite l’attention comme un flux de première classe. Des raccourcis comme le saut au dernier non-lu vous emmènent directement au panneau qui nécessite une décision au lieu de parcourir chaque onglet ou d’attendre que les notifications bureau aient du sens."
+            },
+            {
+              "title": "Le support des worktrees est une primitive, pas une boîte produit",
+              "body": "Le support intégré des worktrees sera toujours limité parce que les vraies équipes ont des repos backend et frontend à différents endroits, des scripts de préparation, des machines distantes, des projets sans Git et parfois des flux de code direct sur main. cmux reste programmable afin que Claude Code, Codex, les commandes personnalisées et les scripts du repo puissent créer la forme d’espace dont votre codebase a réellement besoin."
             }
           ],
           "faqTitle": "FAQ",
@@ -1953,6 +2028,11 @@
                 "Nombreux agents CLI dans un espace géré"
               ],
               [
+                "Modèle source",
+                "App GPL libre et open source",
+                "Source disponible sous Elastic License 2.0"
+              ],
+              [
                 "Organisation",
                 "Espaces verticaux, divisions, état non lu, anneaux de notification",
                 "Tâches, worktrees, surfaces de revue"
@@ -1985,6 +2065,10 @@
             {
               "title": "La programmabilité est l’échappatoire",
               "body": "cmux expose espaces, panneaux, lectures d’écran, captures et automatisation navigateur via la CLI et l’API socket. Les utilisateurs avancés peuvent construire leur propre orchestration au-dessus au lieu d’attendre qu’un flux produit corresponde."
+            },
+            {
+              "title": "Le support des worktrees n’est jamais universel",
+              "body": "Les gestionnaires de worktrees intégrés sont utiles jusqu’à ce que la forme de votre repo devienne particulière : repos backend et frontend séparés, étapes de préparation générées, pas de Git, hôtes distants ou équipe qui veut coder directement sur main. cmux garde la primitive terminal programmable afin que Claude Code, Codex, les scripts et les commandes personnalisées puissent créer exactement la forme d’espace nécessaire."
             }
           ],
           "faqTitle": "FAQ",
@@ -2028,6 +2112,11 @@
                 "Verrouillage",
                 "Apportez votre agent et vos clés",
                 "Compte, offres et fonctions plateforme Cursor"
+              ],
+              [
+                "Modèle source",
+                "App GPL libre et open source",
+                "Produit éditeur closed source"
               ],
               [
                 "Profil de performance",
@@ -2092,9 +2181,19 @@
                 "Client terminal open source; pile desktop non précisée ici"
               ],
               [
+                "Moteur de rendu",
+                "Construit sur libghostty pour le rendu terminal",
+                "Rendu du client terminal Warp"
+              ],
+              [
                 "Choix d’agent",
                 "Tout agent basé shell",
                 "Flux produit Warp"
+              ],
+              [
+                "Modèle source",
+                "App GPL libre et open source",
+                "Client open source plus produit géré et services cloud"
               ],
               [
                 "Organisation",

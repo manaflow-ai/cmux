@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code — лучший менеджер worktree",
-      "metaDescription": "Почему агенты, super repos, пользовательские команды cmux и программируемые примитивы терминала лучше встроенных менеджеров worktree для реальных кодовых баз."
+      "metaDescription": "Почему агенты, super repos, пользовательские команды cmux и программируемые примитивы терминала лучше встроенных менеджеров worktree для реальных кодовых баз.",
+      "metaKeywords": [
+        "менеджер worktree Claude Code",
+        "git worktrees",
+        "cmux super repo",
+        "AI агенты для кода",
+        "Codex",
+        "пользовательские команды cmux",
+        "skills cmux",
+        "терминальный workflow",
+        "агентная разработка"
+      ]
     }
   },
   "docs": {
@@ -1929,16 +1940,58 @@
                 "Только macOS"
               ],
               [
+                "Conductor",
+                "Команды coding agents на Mac",
+                "Claude Code, Codex, Cursor и OpenCode harnesses",
+                "Более предписан вокруг изолированных task workspaces"
+              ],
+              [
                 "Superset",
                 "Оркестрация агентов на базе worktree",
                 "Многие CLI-агенты",
-                "Electron-приложение и более предписанный workflow"
+                "Source-available Electron-приложение и более предписанный workflow"
+              ],
+              [
+                "Herdr",
+                "Терминальное мультиплексирование агентов",
+                "Многие CLI-агенты",
+                "Работает внутри другого терминала, а не как Mac-приложение"
+              ],
+              [
+                "OpenCode",
+                "Open source coding agent",
+                "Сам OpenCode в terminal, desktop и IDE",
+                "Это агент, а не terminal control plane"
+              ],
+              [
+                "Cursor",
+                "AI-редактирование и hosted agent workflows",
+                "Workflow вокруг Cursor плюс integrations",
+                "Workflow вокруг editor и account"
+              ],
+              [
+                "Devin Desktop",
+                "IDE плюс agent command center",
+                "Линейка Devin и Windsurf",
+                "Workflow вокруг editor и account"
+              ],
+              [
+                "VS Code",
+                "General editor и платформа расширений",
+                "Editor-integrated agents и extensions",
+                "Supervision terminal agents остается внутри editor surfaces"
+              ],
+              [
+                "Zed",
+                "Быстрое collaborative editing",
+                "Editor-integrated AI workflows",
+                "Supervision terminal agents остается привязанной к editor"
               ],
               [
                 "Warp",
                 "AI-функции терминала в управляемом продукте",
-                "Workflow вокруг Warp",
-                "Больше platform lock-in"
+                "Встроенные и внешние agent workflows",
+                "Open-source client плюс managed product services"
               ],
               [
                 "Ghostty",
@@ -1951,6 +2004,24 @@
                 "Зрелые workflows терминала на macOS",
                 "Любой CLI-агент",
                 "Статус агентов остается ручным"
+              ],
+              [
+                "Kitty",
+                "Быстрый feature-rich GPU terminal",
+                "Любой CLI-агент",
+                "Нет встроенной очереди review для агентов"
+              ],
+              [
+                "Alacritty",
+                "Быстрый простой OpenGL terminal",
+                "Любой CLI-агент",
+                "Минимум workflow-функций на уровне приложения"
+              ],
+              [
+                "WezTerm",
+                "Кроссплатформенный терминал и multiplexer",
+                "Любой CLI-агент",
+                "Внимание агентов все еще требует custom wiring"
               ],
               [
                 "tmux",
@@ -1975,7 +2046,11 @@
             },
             {
               "title": "Keyboard-first supervision",
-              "body": "cmux делает внимание полноценной частью workflow. Сокращения вроде jump to latest unread переводят вас прямо к pane, которому нужно решение, вместо просмотра каждой вкладки или ожидания, пока desktop notifications станут понятными."
+              "body": "cmux делает внимание полноценной частью workflow. Cmd+Shift+U прыгает к последней непрочитанной панели, а Cmd+Control+U циклически проходит unread work, не очищая его. Эти shortcuts созданы для людей, запускающих столько агентов, что ручной просмотр вкладок перестает работать."
+            },
+            {
+              "title": "Worktree support - это primitive, а не product box",
+              "body": "Встроенная поддержка worktree неизбежно ограничена: у реальных команд backend и frontend repos лежат в разных местах, есть setup scripts, remote machines, no-git projects и иногда code-to-main flows. cmux остается programmable, чтобы Claude Code, Codex, custom commands и repo scripts могли создать именно ту форму workspace, которая нужна вашему codebase."
             }
           ],
           "faqTitle": "FAQ",
@@ -2256,6 +2331,11 @@
                 "Многие CLI-агенты внутри managed workspace"
               ],
               [
+                "Модель исходников",
+                "Бесплатное open source GPL-приложение",
+                "Source-available под Elastic License 2.0"
+              ],
+              [
                 "Организация",
                 "Вертикальные рабочие пространства, splits, unread state, кольца уведомлений",
                 "Задачи, worktrees, review surfaces"
@@ -2288,6 +2368,10 @@
             {
               "title": "Programmability - это escape hatch",
               "body": "cmux предоставляет workspaces, panes, чтение экрана, screenshots и browser automation через CLI и socket API. Это позволяет advanced users строить свою orchestration поверх, не ожидая, пока один product workflow подойдет всем."
+            },
+            {
+              "title": "Worktree support не бывает универсальной",
+              "body": "Встроенные worktree managers полезны, пока форма repo не становится сложной: отдельные backend/frontend repositories, generated setup steps, отсутствие Git, remote hosts или команда, которая хочет быстро писать прямо в main. cmux оставляет terminal primitive programmable, чтобы Claude Code, Codex, scripts и custom commands могли создать именно ту форму workspace, которая нужна."
             }
           ],
           "faqTitle": "FAQ",
@@ -2331,6 +2415,11 @@
                 "Lock-in",
                 "Свои agents и keys",
                 "Аккаунт Cursor, plans и platform features"
+              ],
+              [
+                "Модель исходников",
+                "Бесплатное open source GPL-приложение",
+                "Закрытый editor product"
               ],
               [
                 "Профиль производительности",
@@ -2429,6 +2518,10 @@
             {
               "title": "Несите несколько агентов вместо одной платформы",
               "body": "Можно запустить Claude Code для одной задачи, Codex для другой, OpenCode для третьей и обычные shell commands рядом. cmux держит supervision layer независимым от vendor агента."
+            },
+            {
+              "title": "Локальная работа остается быстрой и проверяемой",
+              "body": "Для многих задач самый продуктивный loop все еще локальный: edit, run, inspect, спросить другого агента, открыть browser и push, когда diff готов. cmux держит этот loop на вашем Mac, а не переносит каждое решение в cloud task queue."
             },
             {
               "title": "Нативная Mac performance при concurrency",
@@ -2626,7 +2719,7 @@
               [
                 "Основная поверхность",
                 "Нативное macOS-приложение с терминалом и браузером",
-                "Инструмент, который работает внутри другого терминала"
+                "Терминальный multiplexer внутри существующего терминала"
               ],
               [
                 "Стек настольного приложения",
@@ -2634,29 +2727,34 @@
                 "Терминальный бинарник на Rust, не настольное приложение Electron/Tauri"
               ],
               [
-                "Модель агентов",
-                "Любой CLI-агент или shell-инструмент",
-                "Множество CLI-агентов в терминальном workflow"
+                "Runtime model",
+                "Local app workspaces, panes, browser surfaces, socket API",
+                "Background server, persistent PTYs, attach/detach"
               ],
               [
-                "Организация",
-                "Вертикальные workspace, split panes, metadata в sidebar",
-                "Терминальный UI внутри существующего терминала"
+                "Движок рендеринга",
+                "На libghostty для рендеринга терминала",
+                "Использует terminal emulator, внутри которого запущен Herdr"
               ],
               [
-                "Модель внимания",
-                "Кольца уведомлений, badges непрочитанного, Cmd+Shift+U, Cmd+Control+U",
-                "Терминальный статус и controls"
+                "Remote fit",
+                "SSH panes и supervision на уровне локального приложения",
+                "Сильный SSH attach и terminal persistence"
               ],
               [
-                "Работа с браузером",
-                "Встроенные browser panes с автоматизацией",
-                "Внешний browser workflow"
+                "Состояние агентов",
+                "Pane rings, sidebar unread state, Cmd+Shift+U, Cmd+Control+U",
+                "Agent state в terminal multiplexer"
+              ],
+              [
+                "Модель исходников",
+                "Бесплатное open source GPL-приложение",
+                "Open source AGPL с доступным commercial licensing"
               ],
               [
                 "Лучше всего подходит",
-                "Mac-пользователям, которым нужен control plane на уровне приложения",
-                "Пользователям, которым нужен multiplexing агентов внутри текущего терминала"
+                "Mac-разработчикам, которым нужны native app UX и browser verification",
+                "Пользователям терминала, которым нужен persistent agent multiplexing везде, где доступен SSH"
               ]
             ]
           },
@@ -2701,9 +2799,9 @@
             ],
             "rows": [
               [
-                "Категория",
-                "Workspace с терминалом и браузером",
-                "Агент программирования"
+                "Основная задача",
+                "Terminal and browser supervision layer",
+                "Open source coding agent"
               ],
               [
                 "Стек настольного приложения",
@@ -2711,29 +2809,24 @@
                 "Терминальный TUI плюс бета настольного приложения Electron"
               ],
               [
-                "Основная задача",
-                "Наблюдать за множеством агентов и инструментов",
-                "Писать и редактировать код как агент"
+                "Выбор агента",
+                "Любой CLI agent или shell command",
+                "OpenCode с configured model providers"
               ],
               [
-                "Поддержка агентов",
-                "Любой CLI-агент, включая OpenCode",
-                "Сам OpenCode"
+                "Параллельная работа",
+                "Многие workspaces, panes, unread rings, branch metadata",
+                "OpenCode sessions и agent features"
               ],
               [
-                "Организация",
-                "Workspace, panes, sidebar metadata, unread state",
-                "UI агента и project workflow"
+                "Programmability",
+                "cmux CLI, Unix socket API, browser automation",
+                "OpenCode CLI, config, SDK и agent tools"
               ],
               [
-                "Автоматизация",
-                "CLI, socket API, browser automation, hooks",
-                "Возможности агента OpenCode"
-              ],
-              [
-                "Лучше всего подходит",
-                "Запуску нескольких агентов рядом друг с другом",
-                "Open source агенту для задач программирования"
+                "Лучшее соответствие",
+                "Operators, запускающие несколько agents и tools",
+                "Разработчики, которым нужен OpenCode как агент"
               ]
             ]
           },
@@ -2830,6 +2923,10 @@
             {
               "title": "Browser checks встроены в workflow",
               "body": "Coding agents часто должны проверять web apps. cmux дает им browser panes рядом с terminal panes и socket API для inspection, clicks, typing и screenshots."
+            },
+            {
+              "title": "Socket API - это app-level automation",
+              "body": "tmux scriptable внутри терминала. cmux также раскрывает приложение вокруг терминала: workspaces, browser panes, screen reads, screenshots и notification metadata."
             }
           ],
           "faqTitle": "FAQ",
@@ -3096,9 +3193,19 @@
                 "Open source терминальный клиент; настольный стек здесь публично не указан"
               ],
               [
+                "Движок рендеринга",
+                "На libghostty для рендеринга терминала",
+                "Рендеринг терминального клиента Warp"
+              ],
+              [
                 "Выбор агента",
                 "Любой shell-based agent",
                 "Workflow продукта Warp"
+              ],
+              [
+                "Модель исходников",
+                "Бесплатное open source GPL-приложение",
+                "Open-source client плюс managed product и cloud services"
               ],
               [
                 "Организация",

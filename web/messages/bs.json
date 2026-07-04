@@ -651,7 +651,18 @@
     },
     "claudeCodeBestWorktreeManager": {
       "metaTitle": "Claude Code je najbolji upravljač worktreeovima",
-      "metaDescription": "Zašto agenti, super repozitoriji, cmux prilagođene komande i programabilni terminalski primitivi pobjeđuju ugrađene worktree menadžere u stvarnim kodnim bazama."
+      "metaDescription": "Zašto agenti, super repozitoriji, cmux prilagođene komande i programabilni terminalski primitivi pobjeđuju ugrađene worktree menadžere u stvarnim kodnim bazama.",
+      "metaKeywords": [
+        "Claude Code worktree manager",
+        "git worktrees",
+        "cmux super repo",
+        "AI coding agenti",
+        "Codex",
+        "cmux prilagođene komande",
+        "cmux skills",
+        "terminal workflow",
+        "agentic razvoj"
+      ]
     }
   },
   "docs": {
@@ -1929,10 +1940,52 @@
                 "Samo macOS"
               ],
               [
+                "Conductor",
+                "Timovi coding agenata na Macu",
+                "Claude Code, Codex, Cursor i OpenCode harnessi",
+                "Više usmjeren na izolovane task workspaceove"
+              ],
+              [
                 "Superset",
                 "Orkestracija agenata zasnovana na worktreeju",
                 "Mnogi CLI agenti",
                 "Electron aplikacija i više usmjeren tok rada"
+              ],
+              [
+                "Herdr",
+                "Terminal-native multiplexing agenata",
+                "Mnogi CLI agenti",
+                "Radi unutar drugog terminala umjesto kao Mac aplikacija"
+              ],
+              [
+                "OpenCode",
+                "Open source coding agent",
+                "OpenCode sam kroz terminal, desktop i IDE",
+                "To je agent, ne terminal control plane"
+              ],
+              [
+                "Cursor",
+                "AI uređivanje i hosted agent workflowi",
+                "Cursor-centered agent workflow plus integracije",
+                "Workflow centriran oko editora i naloga"
+              ],
+              [
+                "Devin Desktop",
+                "IDE plus agent command center",
+                "Devin i Windsurf lineage",
+                "Workflow centriran oko editora i naloga"
+              ],
+              [
+                "VS Code",
+                "Opšti editor i platforma ekstenzija",
+                "Editor-integrated agenti i ekstenzije",
+                "Nadzor terminalskih agenata ostaje unutar editor surfaces"
+              ],
+              [
+                "Zed",
+                "Brzo kolaborativno uređivanje",
+                "Editor-integrated AI workflowi",
+                "Nadzor terminalskih agenata ostaje vezan za editor"
               ],
               [
                 "Warp",
@@ -1951,6 +2004,24 @@
                 "Zreli macOS terminalski tokovi rada",
                 "Bilo koji CLI agent",
                 "Status agenta ostaje ručan"
+              ],
+              [
+                "Kitty",
+                "Brz GPU terminal s mnogo funkcija",
+                "Bilo koji CLI agent",
+                "Nema ugrađen review queue za agente"
+              ],
+              [
+                "Alacritty",
+                "Brz jednostavan OpenGL terminal",
+                "Bilo koji CLI agent",
+                "Minimalne workflow funkcije na nivou aplikacije"
+              ],
+              [
+                "WezTerm",
+                "Cross-platform terminal i multiplexer",
+                "Bilo koji CLI agent",
+                "Pažnja agenata i dalje treba custom wiring"
               ],
               [
                 "tmux",
@@ -1976,6 +2047,10 @@
             {
               "title": "Nadzor prvo tastaturom",
               "body": "cmux tretira pažnju kao dio workflowa. Cmd+Shift+U skače na najnoviji unread pane, a Cmd+Control+U obilazi unread rad bez čišćenja stanja. Te prečice su za ljude koji pokreću dovoljno agenata da ručno skeniranje tabova prestane raditi."
+            },
+            {
+              "title": "Worktree podrška je primitive, ne produktna kutija",
+              "body": "Ugrađena worktree podrška sigurno je ograničena jer pravi timovi imaju backend i frontend repo-e na različitim mjestima, setup skripte, udaljene mašine, projekte bez Gita i povremeni rad direktno na main. cmux ostaje programabilan kako bi Claude Code, Codex, custom komande i repo skripte mogli izgraditi oblik workspacea koji vaš codebase stvarno treba."
             }
           ],
           "faqTitle": "FAQ",
@@ -2009,6 +2084,11 @@
                 "Desktop stack",
                 "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
                 "Rust/OpenGL terminal emulator, nije Electron/Tauri"
+              ],
+              [
+                "Rendering engine",
+                "Izgrađen na libghosttyju za moderno GPU-ubrzano renderovanje terminala",
+                "OpenGL terminalski renderer"
               ],
               [
                 "Vidljivost agenata",
@@ -2048,6 +2128,10 @@
             {
               "title": "Izbor alata ostaje vaš",
               "body": "cmux ne zamjenjuje agenta ili editor. Radi pored Claude Codea, Codexa, OpenCodea, IDE-a, shell alata i udaljenih mašina."
+            },
+            {
+              "title": "Programabilnost dopire do browser provjera",
+              "body": "cmux izlaže terminalsku kontrolu i browser automation kroz isti socket API, tako da agenti mogu pokretati komande, pregledati web stranice, hvatati screenshots i prijavljivati status iz jednog workspacea."
             }
           ],
           "faqTitle": "FAQ",
@@ -2088,6 +2172,11 @@
                 "Zavisi od workflowa tog alata"
               ],
               [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Vlasnički proizvod s open-source komponentama trećih strana"
+              ],
+              [
                 "Model pažnje",
                 "Notification rings, Cmd+Shift+U za najnoviji unread i Cmd+Control+U za obilazak unread rada",
                 "Uglavnom ručno ili vezano za njegov proizvod"
@@ -2120,6 +2209,10 @@
             {
               "title": "Izbor alata ostaje vaš",
               "body": "cmux ne zamjenjuje agenta ili editor. Radi pored Claude Codea, Codexa, OpenCodea, IDE-a, shell alata i udaljenih mašina."
+            },
+            {
+              "title": "Ugrađeni worktreeovi uvijek dosegnu plafon",
+              "body": "Neki timovi imaju backend i frontend repo-e na različitim mjestima. Neki ne koriste Git. Neki žele brz lokalni rad direktno na main. cmux slijedi Zen of cmux: izloži primitive, zatim pusti developere i agente da istraže workflow prostor umjesto forsiranja jednog ugrađenog worktree modela."
             }
           ],
           "faqTitle": "FAQ",
@@ -2160,6 +2253,11 @@
                 "Zavisi od workflowa tog alata"
               ],
               [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Zatvorena managed-agent platforma"
+              ],
+              [
                 "Model pažnje",
                 "Notification rings, Cmd+Shift+U za najnoviji unread i Cmd+Control+U za obilazak unread rada",
                 "Uglavnom ručno ili vezano za njegov proizvod"
@@ -2192,6 +2290,10 @@
             {
               "title": "Izbor alata ostaje vaš",
               "body": "cmux ne zamjenjuje agenta ili editor. Radi pored Claude Codea, Codexa, OpenCodea, IDE-a, shell alata i udaljenih mašina."
+            },
+            {
+              "title": "Programabilnost čini workflowe preglednim",
+              "body": "cmux CLI i socket API izlažu panes, workspaceove, čitanje ekrana, screenshots, browser automation, hooks i custom komande. Timovi mogu skriptati tačan workflow koji im treba oko lokalnih agenata."
             }
           ],
           "faqTitle": "FAQ",
@@ -2232,6 +2334,11 @@
                 "Zavisi od workflowa tog alata"
               ],
               [
+                "Rendering engine",
+                "Izgrađen na libghosttyju s GPU-ubrzanim modernim renderovanjem terminala",
+                "iTerm2 terminalski renderer"
+              ],
+              [
                 "Model pažnje",
                 "Notification rings, Cmd+Shift+U za najnoviji unread i Cmd+Control+U za obilazak unread rada",
                 "Uglavnom ručno ili vezano za njegov proizvod"
@@ -2264,6 +2371,10 @@
             {
               "title": "Izbor alata ostaje vaš",
               "body": "cmux ne zamjenjuje agenta ili editor. Radi pored Claude Codea, Codexa, OpenCodea, IDE-a, shell alata i udaljenih mašina."
+            },
+            {
+              "title": "Programabilnost dopire do aplikacije",
+              "body": "Skripte i agenti mogu praviti workspaceove, dijeliti panes, slati input, čitati ekrane, hvatati screenshots i upravljati browserima kroz cmux. Terminal postaje kontrolabilna infrastruktura."
             }
           ],
           "faqTitle": "FAQ",
@@ -2299,6 +2410,11 @@
                 "Nativno kompajliran GPU terminal emulator, nije Electron/Tauri"
               ],
               [
+                "Rendering engine",
+                "Izgrađen na libghosttyju za moderno GPU-ubrzano renderovanje terminala",
+                "Kitty terminalski renderer i protokol ecosystem"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2336,6 +2452,10 @@
             {
               "title": "Izbor alata ostaje vaš",
               "body": "cmux ne zamjenjuje agenta ili editor. Radi pored Claude Codea, Codexa, OpenCodea, IDE-a, shell alata i udaljenih mašina."
+            },
+            {
+              "title": "Programabilnost uključuje app shell",
+              "body": "cmux CLI i socket API mogu praviti workspaceove, dijeliti panes, slati input, čitati ekrane, upravljati browser panes i ažurirati stanje sidebar-a iz skripti ili agenata."
             }
           ],
           "faqTitle": "FAQ",
@@ -2371,6 +2491,11 @@
                 "Rust terminal-native binarij, nije Electron/Tauri desktop aplikacija"
               ],
               [
+                "Runtime model",
+                "Lokalni app workspaceovi, panes, browser surfaces, socket API",
+                "Background server, persistent PTY-jevi, attach/detach"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2384,6 +2509,11 @@
                 "Automatizacija",
                 "CLI, Unix socket API, browser automation i hooks",
                 "Vlastite konfiguracije, ekstenzije ili API-ji"
+              ],
+              [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Open source AGPL s dostupnim komercijalnim licenciranjem"
               ],
               [
                 "Najbolje za",
@@ -2520,6 +2650,11 @@
                 "Zavisi od workflowa tog alata"
               ],
               [
+                "Rendering engine",
+                "Izgrađen na libghosttyju za renderovanje terminala",
+                "Koristi renderovanje vanjskog terminal emulatora"
+              ],
+              [
                 "Model pažnje",
                 "Notification rings, Cmd+Shift+U za najnoviji unread i Cmd+Control+U za obilazak unread rada",
                 "Uglavnom ručno ili vezano za njegov proizvod"
@@ -2552,6 +2687,10 @@
             {
               "title": "Izbor alata ostaje vaš",
               "body": "cmux ne zamjenjuje agenta ili editor. Radi pored Claude Codea, Codexa, OpenCodea, IDE-a, shell alata i udaljenih mašina."
+            },
+            {
+              "title": "Socket API je automatizacija na nivou aplikacije",
+              "body": "tmux se može skriptati unutar terminala. cmux dodatno izlaže aplikaciju oko terminala: workspaceove, browser panes, čitanje ekrana, screenshots i notification metadata."
             }
           ],
           "faqTitle": "FAQ",
@@ -2585,6 +2724,11 @@
                 "Desktop stack",
                 "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
                 "Electron desktop editor"
+              ],
+              [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Code OSS je MIT; Microsoft VS Code distribucija ima Microsoft product licensing"
               ],
               [
                 "Vidljivost agenata",
@@ -2664,6 +2808,11 @@
                 "Zavisi od workflowa tog alata"
               ],
               [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Zatvorena linija editora"
+              ],
+              [
                 "Model pažnje",
                 "Notification rings, Cmd+Shift+U za najnoviji unread i Cmd+Control+U za obilazak unread rada",
                 "Uglavnom ručno ili vezano za njegov proizvod"
@@ -2729,6 +2878,11 @@
                 "Desktop stack",
                 "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
                 "Nativni Rust/GPUI editor, nije Electron/Tauri"
+              ],
+              [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Open source editor"
               ],
               [
                 "Vidljivost agenata",
@@ -2803,6 +2957,11 @@
                 "Rust GPU terminal emulator i multiplexer"
               ],
               [
+                "Rendering engine",
+                "Izgrađen na libghosttyju za moderno GPU-ubrzano renderovanje terminala",
+                "WezTerm terminalski renderer i multiplexer"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2840,6 +2999,10 @@
             {
               "title": "Izbor alata ostaje vaš",
               "body": "cmux ne zamjenjuje agenta ili editor. Radi pored Claude Codea, Codexa, OpenCodea, IDE-a, shell alata i udaljenih mašina."
+            },
+            {
+              "title": "Browser automation živi pored terminala",
+              "body": "cmux može podijeliti browser panes pored terminala i izložiti browser automation kroz isti socket API, tako da agenti mogu provjeravati lokalne web aplikacije bez napuštanja workspacea."
             }
           ],
           "faqTitle": "FAQ",
@@ -2958,6 +3121,11 @@
                 "Mnogi CLI agenti u upravljanom workspaceu"
               ],
               [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Source-available pod Elastic License 2.0"
+              ],
+              [
                 "Organizacija",
                 "Vertikalni radni prostori, splitovi, unread stanje, prstenovi obavještenja",
                 "Zadaci, worktreeovi, review površine"
@@ -2990,6 +3158,10 @@
             {
               "title": "Programabilnost je izlaz",
               "body": "cmux izlaže workspaces, paneove, čitanje ekrana, screenshots i browser automation kroz CLI i socket API. To naprednim korisnicima omogućava da izgrade vlastitu orkestraciju iznad njega umjesto čekanja da jedan product workflow odgovara svima."
+            },
+            {
+              "title": "Worktree podrška nikad nije univerzalna",
+              "body": "Ugrađeni worktree manageri su korisni dok oblik repo-a ne postane čudan: odvojeni backend/frontend repo-i, generisani setup koraci, bez Gita, udaljeni hostovi ili tim koji želi kodirati direktno na main. cmux drži terminal primitive programabilnim kako bi Claude Code, Codex, skripte i custom komande mogli napraviti tačan oblik workspacea koji vam treba."
             }
           ],
           "faqTitle": "FAQ",
@@ -3033,6 +3205,11 @@
                 "Lock-in",
                 "Donesite svoje agente i ključeve",
                 "Cursor nalog, planovi i platform features"
+              ],
+              [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Closed-source editor proizvod"
               ],
               [
                 "Profil performansi",
@@ -3097,9 +3274,19 @@
                 "Open source terminal klijent; desktop stack ovdje nije javno naveden"
               ],
               [
+                "Rendering engine",
+                "Izgrađen na libghosttyju za renderovanje terminala",
+                "Renderovanje Warp terminal klijenta"
+              ],
+              [
                 "Izbor agenta",
                 "Bilo koji shell-based agent",
                 "Warp product workflow"
+              ],
+              [
+                "Model izvora",
+                "Besplatna i otvorenog koda GPL aplikacija",
+                "Open-source klijent plus upravljani proizvod i cloud servisi"
               ],
               [
                 "Organizacija",
