@@ -66,6 +66,38 @@ import Testing
         #expect(store.selectedTerminalID == created)
     }
 
+    @Test func createdTerminalPinDoesNotLeakAcrossWorkspaceSwitch() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.createTerminal()
+        let created = try #require(store.selectedTerminalID)
+        let otherTerminal = MobileTerminalPreview.ID(rawValue: "workspace-other-terminal-1")
+
+        store.replaceForegroundWorkspaceState([
+            MobileWorkspacePreview(
+                id: "workspace-main",
+                name: "cmux",
+                terminals: [
+                    MobileTerminalPreview(id: "terminal-build", name: "Build", isReady: true),
+                ]
+            ),
+            MobileWorkspacePreview(
+                id: "workspace-other",
+                name: "Other",
+                terminals: [
+                    MobileTerminalPreview(id: otherTerminal, name: "Other", isReady: true),
+                ]
+            ),
+        ])
+        store.selectedWorkspaceID = "workspace-other"
+
+        #expect(store.selectedTerminalID == otherTerminal)
+        #expect(store.selectedTerminalID != created)
+    }
+
     @Test func remoteCreatedTerminalSelectionSurvivesNotReadyWorkspaceRefresh() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
