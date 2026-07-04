@@ -45,6 +45,9 @@ enum SidebarWorkspaceRenderItem {
             anchorGroupByWorkspaceId[group.anchorWorkspaceId] = group
         }
         let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($0.element.id, $0.offset) })
+        let renderableGroupIds = Set(anchorGroupByWorkspaceId.compactMap { anchorWorkspaceId, group in
+            tabIndexById[anchorWorkspaceId] == nil ? nil : group.id
+        })
         let knownGroupIds = Set(groupsById.keys)
         var childGroupsByParentId: [UUID?: [WorkspaceGroup]] = [:]
         var parentGroupIdByGroupId: [UUID: UUID?] = [:]
@@ -92,15 +95,24 @@ enum SidebarWorkspaceRenderItem {
             case workspace(Workspace)
         }
 
-        func normalizedParentGroupId(for groupId: UUID) -> UUID? {
-            parentGroupIdByGroupId[groupId] ?? nil
+        func normalizedRenderableParentGroupId(for groupId: UUID) -> UUID? {
+            var visited: Set<UUID> = [groupId]
+            var cursor = parentGroupIdByGroupId[groupId] ?? nil
+            while let current = cursor {
+                guard visited.insert(current).inserted else { return nil }
+                if renderableGroupIds.contains(current) {
+                    return current
+                }
+                cursor = parentGroupIdByGroupId[current] ?? nil
+            }
+            return nil
         }
 
         var childRowsByParentId: [UUID?: [ChildRow]] = [:]
         for tab in tabs {
             if let anchoredGroup = anchorGroupByWorkspaceId[tab.id] {
                 childRowsByParentId[
-                    normalizedParentGroupId(for: anchoredGroup.id),
+                    normalizedRenderableParentGroupId(for: anchoredGroup.id),
                     default: []
                 ].append(.group(anchoredGroup))
                 continue
@@ -109,7 +121,10 @@ enum SidebarWorkspaceRenderItem {
                 if group.anchorWorkspaceId == tab.id {
                     continue
                 }
-                childRowsByParentId[Optional(groupId), default: []].append(.workspace(tab))
+                let rowParentId = renderableGroupIds.contains(groupId)
+                    ? Optional(groupId)
+                    : normalizedRenderableParentGroupId(for: groupId)
+                childRowsByParentId[rowParentId, default: []].append(.workspace(tab))
             } else {
                 childRowsByParentId[nil, default: []].append(.workspace(tab))
             }
