@@ -630,6 +630,9 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: customTitleSource,
             directory: directory,
+            directoryIsTrustedRemoteReport: directory != nil &&
+                isRemoteTerminalSurface(panelId) &&
+                remoteDirectoryReportPanelIds.contains(panelId),
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
             hasUnreadIndicator: hasUnreadIndicator,
@@ -1639,7 +1642,10 @@ extension Workspace {
         }
 
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
-            updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: nil, source: .restoredSnapshotMetadata)
+            let source: PanelDirectoryUpdateSource = snapshot.directoryIsTrustedRemoteReport == true
+                ? .trustedRestoredRemoteSnapshotMetadata
+                : .restoredSnapshotMetadata
+            updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: nil, source: source)
         }
 
         if let branch = snapshot.gitBranch {
@@ -4598,21 +4604,22 @@ final class Workspace: Identifiable, ObservableObject {
         case liveReport
         case remoteReport
         case restoredSnapshotMetadata
+        case trustedRestoredRemoteSnapshotMetadata
 
         var isLiveReport: Bool {
             switch self {
             case .liveReport, .remoteReport:
                 return true
-            case .restoredSnapshotMetadata:
+            case .restoredSnapshotMetadata, .trustedRestoredRemoteSnapshotMetadata:
                 return false
             }
         }
 
         var establishesRemoteProvenance: Bool {
             switch self {
-            case .remoteReport, .restoredSnapshotMetadata:
+            case .remoteReport, .trustedRestoredRemoteSnapshotMetadata:
                 return true
-            case .liveReport:
+            case .liveReport, .restoredSnapshotMetadata:
                 return false
             }
         }

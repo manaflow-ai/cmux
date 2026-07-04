@@ -1705,11 +1705,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var type: PanelType
     var title: String?
     var customTitle: String?
-    /// Provenance of `customTitle`. Optional with a `nil` default so snapshots
-    /// persisted before provenance existed decode unchanged; restore treats
-    /// absent provenance as user-set (the conservative choice for auto-naming).
+    /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var directory: String?
+    var directoryIsTrustedRemoteReport: Bool? = nil
     var isPinned: Bool
     var isManuallyUnread: Bool
     var hasUnreadIndicator: Bool? = nil

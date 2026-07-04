@@ -110,6 +110,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
                     title: "Remote Shell",
                     customTitle: nil,
                     directory: "/home/dev/project",
+                    directoryIsTrustedRemoteReport: nil,
                     isPinned: false,
                     isManuallyUnread: false,
                     hasUnreadIndicator: false,
@@ -149,6 +150,51 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
 
         #expect(restored.currentDirectory == workspaceDirectory)
         #expect(restoredPanel.requestedWorkingDirectory == nil)
+    }
+
+    @MainActor
+    @Test("legacy remote restore keeps persisted cwd untrusted until remote report")
+    func legacyRemoteRestoreKeepsPersistedDirectoryUntrustedUntilRemoteReport() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: sshCommand
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-legacy-restore.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        snapshot.panels[0].directory = localDirectory
+        snapshot.panels[0].directoryIsTrustedRemoteReport = nil
+
+        let restored = Workspace()
+        let restoredIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredIds[remotePanelId])
+
+        #expect(restored.panelDirectories[restoredPanelId] == localDirectory)
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
+        #expect(restored.presentedCurrentDirectory == nil)
+        #expect(restored.sidebarFilesystemDirectoriesInDisplayOrder() == [])
+
+        restored.updateRemotePanelDirectory(panelId: restoredPanelId, directory: remoteDirectory)
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == remoteDirectory)
+        #expect(restored.presentedCurrentDirectory == remoteDirectory)
     }
 
     @MainActor
@@ -291,7 +337,11 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
 
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == remoteDirectory)
         #expect(restored.presentedCurrentDirectory == remoteDirectory)
-        #expect(restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredPanelId }?.directory == remoteDirectory)
+        let nextSnapshot = try #require(
+            restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredPanelId }
+        )
+        #expect(nextSnapshot.directory == remoteDirectory)
+        #expect(nextSnapshot.directoryIsTrustedRemoteReport == true)
     }
 
     @MainActor
