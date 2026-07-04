@@ -242,15 +242,17 @@ extension TerminalSurface {
             lastYScale = yScale
         }
 
-        // Remote tmux display surfaces: keep the remote tmux client sized to
-        // the rendered grid, and report only real cell-grid changes while the
-        // surface is on screen.
+        // Remote tmux display surfaces: report the grid after every APPLIED
+        // resize while on screen — including same-grid re-applies. A resize
+        // that lands on new pixels without changing cols×rows still refines
+        // the measured padding constants (surface_px − cols·cell_px), and
+        // listeners recalibrate on this signal; their pushes dedup, so a
+        // same-grid report costs nothing.
         if manualIO, let report = onManualGridResize, attachedView?.window != nil {
             let grid = ghostty_surface_size(surface)
             let cols = Int(grid.columns)
             let rows = Int(grid.rows)
-            if cols > 1, rows > 1,
-               lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
+            if cols > 1, rows > 1 {
                 lastReportedManualGrid = (cols, rows)
                 report(cols, rows)
             }

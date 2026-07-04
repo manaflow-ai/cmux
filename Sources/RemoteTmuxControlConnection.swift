@@ -507,7 +507,11 @@ final class RemoteTmuxControlConnection {
     /// method either way.
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
-        if let last = lastWindowSizes[windowId], last == (columns, rows),
+        // Dedup only while per-window sizing is live: on the session-wide
+        // fallback the server holds ONE size, so a window's own last request
+        // being unchanged does not mean the server still has it (another
+        // window may have re-sized the session since).
+        if supportsPerWindowSize, let last = lastWindowSizes[windowId], last == (columns, rows),
            connectionState == .connected {
             return
         }
@@ -1482,6 +1486,17 @@ final class RemoteTmuxControlConnection {
                 // disconnected leaves no %window-close, so prune stale panes here.
                 let liveIDs = Set(order)
                 windowsByID = next
+                // Per-window sizing state must not outlive the topology: a
+                // stale pin would be replayed by the reconnect reseed, and a
+                // pending debounce could fire at a dead @id.
+                lastWindowSizes = lastWindowSizes.filter { liveIDs.contains($0.key) }
+                for (id, task) in windowSizeDebounceTasks where !liveIDs.contains(id) {
+                    task.cancel()
+                    windowSizeDebounceTasks[id] = nil
+                }
+                if let last = lastSizeRequestWindowId, !liveIDs.contains(last) {
+                    lastSizeRequestWindowId = nil
+                }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
                 windowOrder = order

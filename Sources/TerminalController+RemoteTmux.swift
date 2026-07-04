@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Socket/CLI handlers for the remote-tmux (`ssh … tmux -CC`) beta feature.
 ///
@@ -335,16 +336,30 @@ extension TerminalController {
             proc.standardOutput = out
             proc.standardError = err
             try proc.run()
-            // Drain stdout to EOF BEFORE waiting, so a child that writes past
-            // the ~64KB pipe buffer never deadlocks against waitUntilExit.
-            // Sequential single-threaded reads on purpose: detached reader
-            // tasks would park blocking read()s on the cooperative pool and
-            // starve every later socket VM call. (A child that fills the
-            // stderr pipe while stdout is still open could still stall, but
-            // one-shot tmux commands never produce 64KB of stderr.)
+            // Drain both pipes BEFORE waiting so a child that writes past the
+            // ~64KB pipe buffer can never deadlock against waitUntilExit —
+            // without parking blocking reads on the cooperative pool (that
+            // starves every later socket VM call). stderr accumulates on a
+            // GCD readability handler; stdout is read to EOF on this thread.
+            let stderrBuffer = OSAllocatedUnfairLock(initialState: Data())
+            err.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                } else {
+                    stderrBuffer.withLock { $0.append(chunk) }
+                }
+            }
             let stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let stderr = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             proc.waitUntilExit()
+            err.fileHandleForReading.readabilityHandler = nil
+            // EOF race: collect whatever remains after the handler detaches.
+            let trailing = err.fileHandleForReading.readDataToEndOfFile()
+            let stderr = stderrBuffer.withLock { buffered -> String in
+                var data = buffered
+                data.append(trailing)
+                return String(data: data, encoding: .utf8) ?? ""
+            }
             // No "ok" key: the response encoder adds its own top-level "ok"
             // (call succeeded). tmux's exit status lives in "exit".
             return [
