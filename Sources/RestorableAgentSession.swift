@@ -785,7 +785,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   temporaryDirectory: temporaryDirectory,
                   returnToLoginShell: true,
                   workingDirectory: registration?.cwd == .ignore
-                      ? returnWorkingDirectory
+                      ? nil
                       : (workingDirectory ?? launchCommand?.workingDirectory ?? returnWorkingDirectory)
               ) else {
             return nil
