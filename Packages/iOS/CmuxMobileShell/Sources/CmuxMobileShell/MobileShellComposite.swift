@@ -4937,6 +4937,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyPreviewTicket(ticket, route: firstRoute)
             connectionState = .connected
             markMacConnectionHealthy()
+            clearManualHostTrustWarning()
             return nil
         }
 
@@ -5072,6 +5073,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         self.scheduleSecondaryAggregation()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
+                    clearManualHostTrustWarning()
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
