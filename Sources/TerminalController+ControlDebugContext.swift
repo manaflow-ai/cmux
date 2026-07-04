@@ -383,6 +383,38 @@ extension TerminalController: ControlDebugContext {
         AppDelegate.shared?.sidebarVisibility(windowId: windowID)
     }
 
+    func controlDebugSimulateSidebarSwipe(
+        workspaceID: UUID,
+        action: ControlDebugSidebarSwipeAction
+    ) -> ControlDebugSidebarSwipeResolution {
+        let registryAction: SidebarRowSwipeDebugRegistry.Action
+        switch action {
+        case .revealLeading:
+            registryAction = .revealLeading
+        case .revealTrailing:
+            registryAction = .revealTrailing
+        case .commitLeading:
+            registryAction = .commitLeading
+        case .commitTrailing:
+            registryAction = .commitTrailing
+        case .release:
+            registryAction = .release
+        }
+
+        guard let result = SidebarRowSwipeDebugRegistry.shared.simulateSwipe(
+            workspaceId: workspaceID,
+            action: registryAction
+        ) else {
+            return .rowNotRegistered
+        }
+
+        return .simulated(
+            committed: result.committed,
+            offset: Double(result.offset),
+            released: result.released
+        )
+    }
+
     // MARK: - debug.terminal.simulate_file_drop
 
     func controlDebugSimulateTerminalFileDrop(

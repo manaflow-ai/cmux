@@ -9971,7 +9971,7 @@ struct VerticalTabsSidebar: View {
     @State var dragState = SidebarDragState()
     // Bonsplit tab drags arrive through AppKit pasteboard callbacks, not
     // `SidebarDragState`, so they need a separate transient collection flag.
-    @State private var isBonsplitWorkspaceDropTargetCollectionActive = false
+    @State var isBonsplitWorkspaceDropTargetCollectionActive = false
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     @State private var isWorkspaceReorderDropTargetCollectionActive = false
     @State private var workspaceReorderDropTargetBridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
@@ -9979,8 +9979,8 @@ struct VerticalTabsSidebar: View {
     // is open. Set on the row's contextMenu.onAppear and cleared on
     // .onDisappear so modifier-key transitions don't flip the badges on the
     // row sitting behind the open menu. See `SidebarShortcutHintFreezePolicy`.
-    @State private var frozenShortcutHintsTabId: UUID?
-    @State private var frozenShortcutHintsValue: Bool = false
+    @State var frozenShortcutHintsTabId: UUID?
+    @State var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
@@ -10009,7 +10009,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
-    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @LiveSetting(\.shortcuts.showModifierHoldHints) var showModifierHoldHints
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
@@ -10258,7 +10258,7 @@ struct VerticalTabsSidebar: View {
         return minimalModeSidebarTitlebarControlsTopInset(in: observedWindow)
     }
 
-    private var showsSidebarNotificationMessage: Bool {
+    var showsSidebarNotificationMessage: Bool {
         tabItemSettingsStore.snapshot.showsNotificationMessage
     }
 
@@ -12255,154 +12255,6 @@ struct VerticalTabsSidebar: View {
             focusedWorkspaceId: tabManager.selectedTabId,
             liveWorkspaceIds: liveWorkspaceIds
         )
-    }
-
-    @ViewBuilder
-    private func workspaceRow(
-        _ tab: Workspace,
-        renderContext: WorkspaceListRenderContext,
-        shouldCollectWorkspaceDropTargets: Bool
-    ) -> some View {
-        let index = renderContext.tabIndexById[tab.id] ?? 0
-        let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
-        let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
-            ? renderContext.selectedContextTargetIds
-            : [tab.id]
-        let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
-            ? renderContext.selectedRemoteContextMenuWorkspaceIds
-            : (tab.isRemoteWorkspace ? [tab.id] : [])
-        let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
-            ? renderContext.allSelectedRemoteContextMenuTargetsConnecting
-            : (
-                tab.isRemoteWorkspace &&
-                    (tab.remoteConnectionState == .connecting || tab.remoteConnectionState == .reconnecting)
-            )
-        let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
-            ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
-            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
-        let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
-            workspaceIds: contextMenuWorkspaceIds,
-            anchorWorkspaceId: tab.id
-        )
-        let contextMenuPinState = WorkspaceActionDispatcher.pinState(
-            in: renderContext.pinResolutionContext,
-            target: contextMenuPinTarget
-        )
-        let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
-        let liveLatestNotificationText: String? = showsSidebarNotificationMessage
-            ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
-            : nil
-        let liveShowsModifierShortcutHints = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
-        let resolvedShowsModifierShortcutHints = SidebarShortcutHintFreezePolicy().resolved(
-            live: liveShowsModifierShortcutHints,
-            currentTabId: tab.id,
-            frozenTabId: frozenShortcutHintsTabId,
-            frozenValue: frozenShortcutHintsValue
-        )
-        let onContextMenuAppear: () -> Void = { [tabId = tab.id, snapshot = resolvedShowsModifierShortcutHints] in
-            frozenShortcutHintsTabId = tabId
-            frozenShortcutHintsValue = snapshot
-        }
-        let onContextMenuDisappear: () -> Void = { [tabId = tab.id] in
-            if frozenShortcutHintsTabId == tabId {
-                frozenShortcutHintsTabId = nil
-            }
-        }
-
-        // Per-row drag/drop snapshots. Reading `dragState` here in the parent
-        // is intentional: the parent owns the @Observable store, and these
-        // value snapshots are what get passed to the row. The row's
-        // Equatable conformance ignores closures, so rows whose snapshot is
-        // unchanged skip re-render when drag state moves.
-        let isBeingDragged = dragState.draggedTabId == tab.id
-        let sidebarReorderIds = renderContext.sidebarReorderIds
-        let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
-            forTabId: tab.id,
-            draggedTabId: dragState.draggedTabId,
-            dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds
-        )
-        let bottomDropIndicatorVisible = SidebarTabDropIndicatorPredicate().bottomVisible(
-            forTabId: tab.id,
-            draggedTabId: dragState.draggedTabId,
-            dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds,
-            indicatorScope: dragState.dropIndicatorScope
-        )
-        let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
-            #if DEBUG
-            cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
-            #endif
-            dragState.beginDragging(tabId: tabId)
-            return SidebarTabDragPayload.provider(for: tabId)
-        }
-        let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID? = { tabId in
-            guard let app = AppDelegate.shared else { return nil }
-            return app.locateBonsplitSurface(tabId: tabId)?.workspaceId
-        }
-        let moveBonsplitTabToWorkspace: @MainActor (BonsplitTabDragPayload.Transfer, UUID) -> Bool = { transfer, workspaceId in
-            guard let app = AppDelegate.shared else { return false }
-            return app.moveBonsplitTab(
-                tabId: transfer.tab.id,
-                toWorkspace: workspaceId,
-                focus: true,
-                focusWindow: true
-            )
-        }
-        let syncSidebarSelectionAfterBonsplitDrop: @MainActor () -> Void = {
-            if let selectedId = tabManager.selectedTabId {
-                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-            } else {
-                lastSidebarSelectionIndex = nil
-            }
-        }
-        let row = TabItemView(
-            tabManager: tabManager,
-            notificationStore: notificationStore,
-            tab: tab,
-            index: index,
-            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                at: index,
-                workspaceCount: renderContext.workspaceCount
-            ),
-            workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
-            canCloseWorkspace: renderContext.canCloseWorkspace,
-            accessibilityWorkspaceCount: renderContext.workspaceCount,
-            unreadCount: liveUnreadCount,
-            latestNotificationText: liveLatestNotificationText,
-            rowSpacing: tabRowSpacing,
-            setSelectionToTabs: { selection = .tabs },
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
-            dragAutoScrollController: dragAutoScrollController,
-            isBeingDragged: isBeingDragged,
-            topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
-            bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
-            moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
-            syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
-            onDragStart: onDragStart,
-            contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-            remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
-            allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-            allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-            contextMenuPinState: contextMenuPinState,
-            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            settings: renderContext.tabItemSettings,
-            onContextMenuAppear: onContextMenuAppear,
-            onContextMenuDisappear: onContextMenuDisappear
-        )
-        .equatable()
-        .id(tab.id)
-        .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
-
-        row
-            .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
