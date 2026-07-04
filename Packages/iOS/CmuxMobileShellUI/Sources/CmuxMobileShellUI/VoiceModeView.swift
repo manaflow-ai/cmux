@@ -26,8 +26,7 @@ struct VoiceModeView: View {
     @State private var isListening = false
     @State private var isStarting = false
     @State private var partialTranscript = ""
-    @State private var finalTranscripts: [String] = []
-    @State private var sendConfirmation: String?
+    @State private var utteranceHistory = VoiceUtteranceHistory()
     @State private var errorMessage: String?
     @State private var showingHostPicker = false
 
@@ -43,12 +42,6 @@ struct VoiceModeView: View {
                     Text(L10n.string("mobile.voiceMode.autoSubmit", defaultValue: "Auto-submit"))
                 }
                 .accessibilityIdentifier("MobileVoiceModeAutoSubmit")
-                if let sendConfirmation {
-                    Text(sendConfirmation)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("MobileVoiceModeConfirmation")
-                }
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.footnote)
@@ -108,12 +101,25 @@ struct VoiceModeView: View {
             )
             .font(.headline)
             if let snapshot, snapshot.isTerminal {
-                Text(snapshot.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal"))
-                    .font(.title3.weight(.semibold))
-                if let workspaceTitle = snapshot.workspaceTitle {
-                    Text(workspaceTitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                if let layout = snapshot.layout {
+                    VoiceFocusLayoutView(layout: layout)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let workspaceTitle = snapshot.workspaceTitle {
+                            Text(workspaceTitle)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(snapshot.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal"))
+                            .fontWeight(.semibold)
+                    }
+                    .font(.caption)
+                } else {
+                    Text(snapshot.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal"))
+                        .font(.title3.weight(.semibold))
+                    if let workspaceTitle = snapshot.workspaceTitle {
+                        Text(workspaceTitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } else {
                 Text(L10n.string("mobile.voiceMode.noTerminalFocused", defaultValue: "No terminal focused"))
@@ -132,9 +138,10 @@ struct VoiceModeView: View {
     private var transcriptArea: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(finalTranscripts.enumerated()), id: \.offset) { _, text in
-                    Text(text)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(utteranceHistory.utterances) { utterance in
+                    VoiceUtteranceRow(utterance: utterance) {
+                        resendUtterance(id: utterance.id)
+                    }
                 }
                 if !partialTranscript.isEmpty {
                     Text(partialTranscript)
@@ -198,7 +205,6 @@ struct VoiceModeView: View {
         sessionGeneration += 1
         let generation = sessionGeneration
         errorMessage = nil
-        sendConfirmation = nil
         isStarting = true
         let engine = voiceSettings.effectiveEngine(modelInstalled: parakeetModelStore.isInstalled)
         let permitted = await VoicePermissionRequester().requestPermissions(for: engine)
@@ -267,13 +273,8 @@ struct VoiceModeView: View {
             partialTranscript = text
         case .final(let text):
             partialTranscript = ""
-            finalTranscripts.append(text)
-            // Bound the on-screen history so a long-lived session cannot grow
-            // the array (and its re-rendered list) without limit.
-            if finalTranscripts.count > 50 {
-                finalTranscripts.removeFirst(finalTranscripts.count - 50)
-            }
-            sendFinal(text)
+            let id = utteranceHistory.appendFinal(text: text)
+            sendUtterance(id: id, text: text)
         case .failed(let message):
             errorMessage = message
             clearListeningSession(cancelSession: true, cancelUpdateTask: true)
@@ -303,7 +304,15 @@ struct VoiceModeView: View {
         updateTask = nil
     }
 
-    private func sendFinal(_ text: String) {
+    private func resendUtterance(id: VoiceUtterance.ID) {
+        guard let utterance = utteranceHistory.utterance(id: id),
+              utteranceHistory.beginSending(id: id) else {
+            return
+        }
+        sendUtterance(id: id, text: utterance.text)
+    }
+
+    private func sendUtterance(id: VoiceUtterance.ID, text: String) {
         let expectedFocusSnapshot = store.voiceFocusSnapshot
         Task { @MainActor in
             do {
@@ -313,13 +322,14 @@ struct VoiceModeView: View {
                     expectedFocusSnapshot: expectedFocusSnapshot
                 )
                 let title = response.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal")
-                sendConfirmation = String.localizedStringWithFormat(
-                    L10n.string("mobile.voiceMode.sentToFormat", defaultValue: "Sent to %@"),
-                    title
-                )
+                utteranceHistory.markSent(id: id, targetTitle: title)
                 errorMessage = nil
             } catch {
-                errorMessage = Self.sendErrorMessage(error)
+                utteranceHistory.markFailed(
+                    id: id,
+                    message: Self.sendErrorMessage(error),
+                    isTargetChanged: Self.isTargetChanged(error)
+                )
             }
         }
     }
@@ -349,6 +359,14 @@ struct VoiceModeView: View {
             "mobile.voiceMode.sendFailed",
             defaultValue: "Couldn't send to the Mac. Check the connection and try again."
         )
+    }
+
+    private static func isTargetChanged(_ error: any Error) -> Bool {
+        guard let connectionError = error as? MobileShellConnectionError,
+              case .rpcError(let code, _) = connectionError else {
+            return false
+        }
+        return code == "target_changed"
     }
 }
 #endif

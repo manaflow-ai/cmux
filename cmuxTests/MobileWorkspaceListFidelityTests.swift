@@ -114,6 +114,41 @@ struct MobileWorkspaceListFidelityTests {
         #expect(snapshot.isTerminal)
     }
 
+    @Test func focusSnapshotIncludesSelectedWorkspaceLayout() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        _ = try #require(workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false))
+
+        let snapshot = MobileFocusSnapshotPayload.snapshot(tabManager: manager)
+        let layout = try #require(snapshot.layout)
+        #expect(layout.panes.count == 2)
+        #expect(layout.panes.contains { $0.surfaceID == focusedPanelId && $0.focused })
+
+        let json = snapshot.jsonObject()
+        let layoutJSON = try #require(json["layout"] as? [String: Any])
+        #expect(layoutJSON["kind"] as? String == "rects")
+        let panesJSON = try #require(layoutJSON["panes"] as? [[String: Any]])
+        #expect(panesJSON.count == 2)
+        let focusedPaneJSON = try #require(panesJSON.first { $0["focused"] as? Bool == true })
+        #expect(focusedPaneJSON["kind"] as? String == "pane")
+        #expect(focusedPaneJSON["surface_id"] as? String == focusedPanelId.uuidString)
+        #expect(focusedPaneJSON["rect"] is [String: Any])
+    }
+
+    @Test func focusSnapshotHashChangesWhenSelectedWorkspaceLayoutChanges() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let before = MobileFocusSnapshotPayload.snapshot(tabManager: manager)
+
+        _ = try #require(workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false))
+        let after = MobileFocusSnapshotPayload.snapshot(tabManager: manager)
+
+        #expect(after.surfaceID == before.surfaceID, "focus should remain on the same pane")
+        #expect(after.summaryHash != before.summaryHash, "layout changes must re-emit focus.updated")
+    }
+
     @Test func focusSnapshotHashChangesOnlyForFocusProjectionChanges() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

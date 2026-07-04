@@ -23,9 +23,6 @@ extension WorkspaceListView {
                             }
                         }
                         ToolbarItemGroup(placement: .topBarTrailing) {
-                            if showsVoiceModeButton {
-                                voiceModeButton
-                            }
                             WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
                             if canCreateWorkspace {
                                 newWorkspaceButton

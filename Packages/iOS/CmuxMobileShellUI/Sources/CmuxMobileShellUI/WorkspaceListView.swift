@@ -464,14 +464,16 @@ struct WorkspaceListView: View {
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
 
-    var voiceModeButton: some View {
+    var voiceModeMenuItem: some View {
         Button {
             showingVoiceMode = true
         } label: {
-            Image(systemName: "mic")
+            Label(
+                L10n.string("mobile.voiceMode.title", defaultValue: "Voice Mode"),
+                systemImage: "mic"
+            )
         }
-        .accessibilityLabel(L10n.string("mobile.voiceMode.title", defaultValue: "Voice Mode"))
-        .accessibilityIdentifier("MobileWorkspaceVoiceModeButton")
+        .accessibilityIdentifier("MobileWorkspaceVoiceModeMenuItem")
     }
 
     var showsVoiceModeButton: Bool {
@@ -584,10 +586,19 @@ struct WorkspaceListView: View {
 
     var settingsMenu: some View {
         #if os(iOS)
-        // Open the full Settings page (account, terminal shortcuts,
-        // notifications, paired Mac) rather than a transient menu.
-        Button {
-            showingSettings = true
+        Menu {
+            if showsVoiceModeButton {
+                voiceModeMenuItem
+            }
+            Button {
+                showingSettings = true
+            } label: {
+                Label(
+                    L10n.string("mobile.workspaces.settings", defaultValue: "Settings"),
+                    systemImage: "gearshape"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceSettingsMenuItem")
         } label: {
             Image(systemName: "ellipsis.circle")
         }

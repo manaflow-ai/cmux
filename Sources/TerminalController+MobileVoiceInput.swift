@@ -5,14 +5,7 @@ extension TerminalController {
     @MainActor
     func v2MobileFocusGet(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .ok(MobileFocusSnapshotPayload(
-                workspaceID: nil,
-                workspaceTitle: nil,
-                surfaceID: nil,
-                surfaceTitle: nil,
-                surfaceType: nil,
-                isTerminal: false
-            ).jsonObject())
+            return .ok(MobileFocusSnapshotPayload.empty.jsonObject())
         }
         return .ok(MobileFocusSnapshotPayload.snapshot(tabManager: tabManager).jsonObject())
     }

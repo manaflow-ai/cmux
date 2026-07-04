@@ -10269,6 +10269,23 @@
         }
       }
     },
+    "mobile.voiceMode.layoutPaneFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        }
+      }
+    },
     "mobile.voiceMode.sentToFormat": {
       "extractionState": "manual",
       "localizations": {
@@ -10282,6 +10299,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@に送信しました"
+          }
+        }
+      }
+    },
+    "mobile.voiceMode.utteranceSending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信中..."
+          }
+        }
+      }
+    },
+    "mobile.voiceMode.utteranceSentFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "→ %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "→ %@"
           }
         }
       }
