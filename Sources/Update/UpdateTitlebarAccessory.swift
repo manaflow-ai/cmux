@@ -1347,15 +1347,14 @@ struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
+    @State private var hostWindowRevision: UInt64 = 0
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
 
     private var hostWindowNumber: Int? {
         viewModel.hostWindowNumber
     }
 
-    private var shouldPinControls: Bool {
-        isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
-    }
+    private var shouldPinControls: Bool { let _ = hostWindowRevision; return isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber) }
 
     var body: some View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
@@ -1460,7 +1459,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             }
             #endif
         }
-        .onReceive(NotificationCenter.default.publisher(for: .cmuxTitlebarHostWindowDidChange, object: viewModel).receive(on: RunLoop.main)) { _ in isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxTitlebarHostWindowDidChange, object: viewModel).receive(on: RunLoop.main)) { _ in hostWindowRevision &+= 1; isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
         .onAppear { isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
         .onDisappear {
             isHoveringHost = false
