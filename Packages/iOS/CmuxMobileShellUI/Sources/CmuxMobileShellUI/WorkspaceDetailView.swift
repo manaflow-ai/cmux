@@ -22,9 +22,7 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
-    /// Close this workspace on the Mac. When `nil` (older Macs without the
-    /// `workspace.close.v1` capability, or previews) the close affordance is
-    /// hidden from the top-bar menu. Mirrors the workspace list's gating.
+    /// Close this workspace on the Mac; nil on older Macs/previews hides the top-bar menu affordance.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
@@ -42,8 +40,7 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
-    /// Drives the rename-workspace dialog launched from the picker menu, and its
-    /// editable text (seeded with the current name when presented).
+    /// Drives the rename-workspace dialog and editable text seeded from the current name.
     @State var isRenamePresented = false
     @State var renameText = ""
     /// Live pane width for capping the leading glass title pill.
@@ -61,6 +58,9 @@ struct WorkspaceDetailView: View {
     @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session.
     @State var cachedChatToggleTerminalID: String?
+    @State var ignoredChatSessionRefreshKey: String?
+    @State var ignoredChatSessionRefreshID: UUID?
+    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
     /// Per-session chat stores kept warm while the workspace detail is visible.
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
