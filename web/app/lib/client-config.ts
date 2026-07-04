@@ -1,6 +1,7 @@
 "use client";
 
 import posthog from "posthog-js";
+import { useEffect, useState } from "react";
 
 export type ClientConfigFlagValue = boolean | string;
 
@@ -58,6 +59,40 @@ export function getClientConfigFlag(
   key: string,
 ): ClientConfigFlagValue | undefined {
   return config.featureFlags[key];
+}
+
+export function isClientConfigFlagEnabled(
+  value: ClientConfigFlagValue | undefined,
+  fallback: boolean,
+): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== "false";
+}
+
+let cachedClientConfig: Promise<ClientConfig> | null = null;
+
+export function useClientConfigFlag(key: string): ClientConfigFlagValue | undefined {
+  const [value, setValue] = useState<ClientConfigFlagValue | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    cachedClientConfig ??= getClientConfig();
+    cachedClientConfig
+      .then((config) => {
+        if (!cancelled) setValue(getClientConfigFlag(config, key));
+      })
+      .catch(() => {
+        cachedClientConfig = null;
+        if (!cancelled) setValue(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  return value;
 }
 
 function getPostHogEvaluationContext(): ClientConfigEvaluationContext {

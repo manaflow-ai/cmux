@@ -1,11 +1,14 @@
 "use client";
 
 import posthog from "posthog-js";
-import { useFeatureFlagEnabled } from "posthog-js/react";
 import {
   pricingActionClassName,
   type PricingActionSize,
 } from "../../components/pricing-shared";
+import {
+  isClientConfigFlagEnabled,
+  useClientConfigFlag,
+} from "../../lib/client-config";
 import { FEATURE_FLAGS } from "../../lib/feature-flags";
 
 // Single evaluation site for the pro-checkout flag (lint-enforced).
@@ -29,11 +32,14 @@ export function ProCtaLink({
   size?: PricingActionSize;
   location?: string;
 }) {
-  const flagEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.proCheckout.key);
+  const flagEnabled = useClientConfigFlag(FEATURE_FLAGS.proCheckout.key);
   const checkout =
     !FORCED_OFF &&
     (FORCED_ON ||
-      (flagEnabled ?? FEATURE_FLAGS.proCheckout.defaultWhenUnavailable));
+      isClientConfigFlagEnabled(
+        flagEnabled,
+        FEATURE_FLAGS.proCheckout.defaultWhenUnavailable,
+      ));
   return (
     <a
       href={checkout ? checkoutHref : fallbackHref}

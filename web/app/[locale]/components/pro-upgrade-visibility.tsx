@@ -1,6 +1,9 @@
 "use client";
 
-import { useFeatureFlagEnabled } from "posthog-js/react";
+import {
+  isClientConfigFlagEnabled,
+  useClientConfigFlag,
+} from "../../lib/client-config";
 import { FEATURE_FLAGS } from "../../lib/feature-flags";
 
 const FORCE = process.env.NEXT_PUBLIC_CMUX_PRO_UPGRADE_UI_ENABLED;
@@ -14,11 +17,14 @@ export function ProUpgradeVisibility({
 }: {
   children: React.ReactNode;
 }) {
-  const flagEnabled = useFeatureFlagEnabled(FEATURE_FLAGS.proUpgradeUI.key);
+  const flagEnabled = useClientConfigFlag(FEATURE_FLAGS.proUpgradeUI.key);
   const visible =
     !FORCED_OFF &&
     (FORCED_ON ||
-      (flagEnabled ?? FEATURE_FLAGS.proUpgradeUI.defaultWhenUnavailable));
+      isClientConfigFlagEnabled(
+        flagEnabled,
+        FEATURE_FLAGS.proUpgradeUI.defaultWhenUnavailable,
+      ));
 
   return visible ? <>{children}</> : null;
 }
