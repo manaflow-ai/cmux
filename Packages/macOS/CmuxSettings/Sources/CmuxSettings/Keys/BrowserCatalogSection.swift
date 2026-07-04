@@ -33,15 +33,11 @@ public struct BrowserCatalogSection: SettingCatalogSection {
     )
 
     /// Routes local browser panes through an HTTP CONNECT or SOCKSv5 proxy
-    /// (`WKWebsiteDataStore.proxyConfigurations`). A `JSONKey` rather than a
-    /// `DefaultsKey`: the nested object (with optional credentials) lives only
+    /// (`WKWebsiteDataStore.proxyConfigurations`). The nested object lives only
     /// in `cmux.json`, never in `UserDefaults`, and has no Settings UI. The
     /// `CMUX_BROWSER_PROXY` env var overrides it. Reloadable via
     /// `cmux reload-config`.
-    public let proxy = JSONKey<BrowserProxyConfiguration>(
-        id: "browser.proxy",
-        defaultValue: .disabled
-    )
+    public let proxy = JSONPath(dottedPath: "browser.proxy")
 
     public let discardHiddenWebViews = DefaultsKey<Bool>(
         id: "browser.discardHiddenWebViews",

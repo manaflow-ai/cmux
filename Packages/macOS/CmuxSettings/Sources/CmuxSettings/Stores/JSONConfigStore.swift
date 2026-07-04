@@ -89,6 +89,21 @@ public actor JSONConfigStore {
         return Value.decodeFromJSON(raw) ?? key.defaultValue
     }
 
+    /// Synchronously returns the raw JSON value at `path` from the current
+    /// config file.
+    ///
+    /// This is for settings that need custom decoding outside ``SettingCodable``
+    /// while still using the same direct-from-disk snapshot semantics as
+    /// ``snapshotValue(for:)``.
+    ///
+    /// - Parameter path: The dotted JSON path to read.
+    /// - Returns: The raw `JSONSerialization` value at `path`, or `nil` when
+    ///   the file/path is absent or unreadable.
+    public nonisolated func snapshotRawValue(at path: JSONPath) -> Any? {
+        let root = (try? readFromDisk()) ?? [:]
+        return path.lookup(in: root)
+    }
+
     /// Writes a value for the key.
     ///
     /// Creates the parent directory and the file if missing.

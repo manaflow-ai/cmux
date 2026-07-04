@@ -59,10 +59,7 @@ struct BrowserUserProxyMirror: Sendable {
     /// The effective configuration after applying the env override on the file
     /// value (env wins when set and parseable).
     func resolvedConfiguration() -> BrowserProxyConfiguration {
-        BrowserProxyConfiguration.resolved(
-            fileConfiguration: fileConfiguration,
-            environment: environment
-        )
+        fileConfiguration.resolved(environment: environment)
     }
 
     /// The configurations a local-workspace data store should use, or `nil`
@@ -79,7 +76,8 @@ struct BrowserUserProxyMirror: Sendable {
     static func appDefault() -> BrowserUserProxyMirror {
         let fileConfiguration: BrowserProxyConfiguration
         if let runtime = AppDelegate.shared?.settingsRuntime {
-            fileConfiguration = runtime.jsonStore.snapshotValue(for: runtime.catalog.browser.proxy)
+            let raw = runtime.jsonStore.snapshotRawValue(at: runtime.catalog.browser.proxy)
+            fileConfiguration = BrowserProxyConfiguration(jsonObject: raw) ?? .disabled
         } else {
             fileConfiguration = .disabled
         }

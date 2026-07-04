@@ -19,7 +19,7 @@ import Foundation
 /// through either channel. Authenticated proxies are a planned follow-up that
 /// will source the credential from the secret store, the same boundary the
 /// package keeps for `automation.socketPassword`.
-public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCodable {
+public struct BrowserProxyConfiguration: Sendable, Equatable, Codable {
     /// The proxy protocol, or ``BrowserProxyType/off`` to apply no proxy.
     public let type: BrowserProxyType
     /// Proxy server hostname or IP (e.g. `127.0.0.1`).
@@ -38,6 +38,13 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
     )
 
     /// Memberwise initializer.
+    ///
+    /// - Parameters:
+    ///   - type: The proxy protocol, or ``BrowserProxyType/off`` to disable the
+    ///     proxy.
+    ///   - host: Proxy server hostname or IP.
+    ///   - port: Proxy server TCP port.
+    ///   - bypass: Hostname suffixes that connect directly.
     public init(
         type: BrowserProxyType,
         host: String,
@@ -81,39 +88,39 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
 
     // MARK: - Resolution
 
-    /// The effective configuration after applying the `CMUX_BROWSER_PROXY`
-    /// override on top of the cmux.json value.
+    /// Creates a configuration from the raw JSON object used by `cmux.json`.
     ///
-    /// The environment variable wins whenever it is set and non-empty. An
-    /// unparseable env value is ignored so a typo cannot silently disable a
-    /// working file proxy — the file configuration still applies.
-    public static func resolved(
-        fileConfiguration: BrowserProxyConfiguration,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> BrowserProxyConfiguration {
-        guard let raw = environment[environmentVariableName],
-              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return fileConfiguration
+    /// - Parameter jsonObject: The raw JSON object for `browser.proxy`.
+    public init?(jsonObject: Any?) {
+        guard let jsonObject, !(jsonObject is NSNull) else { return nil }
+        guard let data = try? JSONSerialization.data(withJSONObject: jsonObject, options: .fragmentsAllowed),
+              let decoded = try? JSONDecoder().decode(BrowserProxyConfiguration.self, from: data) else {
+            return nil
         }
-        return parse(environmentValue: raw) ?? fileConfiguration
+        self = decoded
     }
 
-    /// Parses a `CMUX_BROWSER_PROXY` value of the form `scheme://host:port`
-    /// (e.g. `socks5://127.0.0.1:1080`), or a bare disable keyword (`off`,
-    /// `none`, `disabled`, `direct`).
+    /// Creates a configuration from a `CMUX_BROWSER_PROXY` value.
     ///
-    /// Returns `nil` when the value is neither — callers then fall back to the
+    /// Accepts values of the form `scheme://host:port` (e.g.
+    /// `socks5://127.0.0.1:1080`) or a bare disable keyword (`off`, `none`,
+    /// `disabled`, `direct`).
+    ///
+    /// Returns `nil` when the value is neither; callers then fall back to the
     /// cmux.json configuration. Any `user:pass@` userinfo is ignored:
     /// authenticated proxies are not supported, and the credential is
     /// deliberately not extracted so it never reaches a `ProxyConfiguration`
     /// through this insecure channel.
-    public static func parse(environmentValue raw: String) -> BrowserProxyConfiguration? {
+    ///
+    /// - Parameter environmentValue: The environment variable value to parse.
+    public init?(environmentValue raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         switch trimmed.lowercased() {
         case "off", "none", "disable", "disabled", "direct":
-            return .disabled
+            self = .disabled
+            return
         default:
             break
         }
@@ -126,12 +133,33 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         }
         let type = BrowserProxyType(lenient: scheme)
         guard type != .off else { return nil }
-        return BrowserProxyConfiguration(
+        self = BrowserProxyConfiguration(
             type: type,
             host: host,
             port: port,
             bypass: []
         )
+    }
+
+    /// The effective configuration after applying the `CMUX_BROWSER_PROXY`
+    /// override on top of this cmux.json value.
+    ///
+    /// The environment variable wins whenever it is set and non-empty. An
+    /// unparseable env value is ignored so a typo cannot silently disable a
+    /// working file proxy — the file configuration still applies.
+    ///
+    /// - Parameter environment: Environment values to inspect for
+    ///   ``environmentVariableName``. Defaults to the current process
+    ///   environment.
+    /// - Returns: The effective browser proxy configuration.
+    public func resolved(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BrowserProxyConfiguration {
+        guard let raw = environment[environmentVariableName],
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return self
+        }
+        return BrowserProxyConfiguration(environmentValue: raw) ?? self
     }
 
     // MARK: - Codable (lenient)
@@ -175,44 +203,12 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable, SettingCo
         try container.encode(bypass, forKey: .bypass)
     }
 
-    // MARK: - SettingCodable
-
-    /// Decodes a configuration stored in `UserDefaults`.
-    ///
-    /// - Parameter raw: The stored defaults value, expected to be encoded
-    ///   `Data`.
-    /// - Returns: The decoded configuration, or `nil` when the stored value has
-    ///   the wrong shape.
-    public static func decodeFromUserDefaults(_ raw: Any?) -> BrowserProxyConfiguration? {
-        guard let data = raw as? Data else { return nil }
-        return try? JSONDecoder().decode(BrowserProxyConfiguration.self, from: data)
-    }
-
-    /// Encodes this configuration into the `UserDefaults` representation.
-    ///
-    /// - Returns: JSON-encoded `Data` suitable for storage by
-    ///   ``SettingCodable``.
-    public func encodeForUserDefaults() -> Any {
-        (try? JSONEncoder().encode(self)) ?? Data()
-    }
-
-    /// Decodes a configuration from the JSON object used by `cmux.json`.
-    ///
-    /// - Parameter raw: The JSON object for `browser.proxy`.
-    /// - Returns: The decoded configuration, or `nil` for absent, null, or
-    ///   non-object values.
-    public static func decodeFromJSON(_ raw: Any?) -> BrowserProxyConfiguration? {
-        guard let raw, !(raw is NSNull) else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: raw, options: .fragmentsAllowed) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(BrowserProxyConfiguration.self, from: data)
-    }
+    // MARK: - JSON
 
     /// Encodes this configuration into a JSON object for `cmux.json`.
     ///
     /// - Returns: A Foundation JSON object, or `NSNull` if encoding fails.
-    public func encodeForJSON() -> Any {
+    public func jsonObject() -> Any {
         guard let data = try? JSONEncoder().encode(self),
               let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
             return NSNull()
