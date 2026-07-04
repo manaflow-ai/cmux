@@ -25,9 +25,8 @@ extension Workspace {
         forPanelId panelId: UUID
     ) -> WorkspaceForkAgentConversationAvailability {
         guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
-        if restoredAgentSnapshotsByPanelId[panelId] == nil,
-           !SharedLiveAgentIndex.shared.prepareForkAvailabilityProbe() {
-            return .noAgentSnapshot
+        if restoredAgentSnapshotsByPanelId[panelId] == nil {
+            _ = SharedLiveAgentIndex.shared.prepareForkAvailabilityProbe()
         }
         return forkAgentConversationContextMenuAvailability(forPanelId: panelId)
     }
