@@ -457,6 +457,7 @@ extension Workspace {
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?
+        var issueInboxSnapshot: SessionIssueInboxPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -617,6 +618,16 @@ extension Workspace {
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
             agentSessionSnapshot = nil
+        case .issueInbox:
+            guard panel is IssueInboxPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil
+            projectSnapshot = nil
+            agentSessionSnapshot = nil
+            issueInboxSnapshot = SessionIssueInboxPanelSnapshot()
         case .extensionBrowser:
             return nil
         }
@@ -642,7 +653,8 @@ extension Workspace {
             rightSidebarTool: rightSidebarToolSnapshot,
             customSidebar: customSidebarSnapshot,
             agentSession: agentSessionSnapshot,
-            project: projectSnapshot
+            project: projectSnapshot,
+            issueInbox: issueInboxSnapshot
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -1593,6 +1605,16 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: projectPanel.id)
             return projectPanel.id
+        case .issueInbox:
+            guard snapshot.issueInbox != nil,
+                  let issueInboxPanel = newIssueInboxSurface(
+                    inPane: paneId,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: issueInboxPanel.id)
+            return issueInboxPanel.id
         case .extensionBrowser:
             return nil
         }
@@ -4064,6 +4086,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.agentSession.rawValue
         case .project:
             return SurfaceKind.project.rawValue
+        case .issueInbox:
+            return SurfaceKind.issueInbox.rawValue
         case .extensionBrowser:
             return SurfaceKind.extensionBrowser.rawValue
         }

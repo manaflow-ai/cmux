@@ -7,6 +7,7 @@ import CmuxFeedback
 import CmuxBrowser
 import CmuxControlSocket
 import CmuxFoundation
+import CmuxIssueInbox
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
@@ -110,6 +111,7 @@ class TerminalController {
     @MainActor private(set) var authCoordinator: AuthCoordinator?
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    @MainActor let issueInboxStore = IssueInboxStore()
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
@@ -221,6 +223,8 @@ class TerminalController {
         "browser.tab.switch",
         "notification.open",
         "notification.jump_to_unread",
+        "issues.open",
+        "issues.spawn_workspace",
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate",
@@ -1046,6 +1050,10 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "issues.refresh":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 120) {
+                await self.issueInboxRefreshPayload()
+            }
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -1971,6 +1979,10 @@ class TerminalController {
             "auth.sign_in_url",
             "auth.begin_sign_in",
             "auth.sign_out",
+            "issues.list",
+            "issues.refresh",
+            "issues.open",
+            "issues.spawn_workspace",
             "vm.list",
             "vm.create",
             "vm.destroy",

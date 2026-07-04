@@ -1618,6 +1618,7 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     }
 }
 struct SessionCustomSidebarPanelSnapshot: Codable, Sendable { var name: String }
+struct SessionIssueInboxPanelSnapshot: Codable, Sendable {}
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
     var selectedNodePath: String?
@@ -1726,6 +1727,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
+    var issueInbox: SessionIssueInboxPanelSnapshot?
 }
 
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}

@@ -31,6 +31,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let agentSession = SurfaceKind(rawValue: "agentSession")
     /// A project pane.
     public static let project = SurfaceKind(rawValue: "project")
+    /// An Issue Inbox pane.
+    public static let issueInbox = SurfaceKind(rawValue: "issueInbox")
     /// A browser pane owned by a sidebar extension.
     public static let extensionBrowser = SurfaceKind(rawValue: "extensionBrowser")
 }

@@ -88,6 +88,7 @@ struct WorkspaceCanvasHostView: View {
         case .customSidebar: return "wand.and.stars"
         case .agentSession: return "sparkles"
         case .project: return "folder"
+        case .issueInbox: return "tray.full"
         case .extensionBrowser: return "puzzlepiece.extension"
         }
     }
