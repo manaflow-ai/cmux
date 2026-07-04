@@ -279,6 +279,10 @@ struct WindowTitleTemplateTests {
 
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
         #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
+
+        workspace.disconnectRemoteConnection()
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567]")
     }
 
     @MainActor

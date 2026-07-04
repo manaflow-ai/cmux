@@ -73,7 +73,7 @@ extension TabManager {
     private func activeWindowTitleDirectory(for tab: Workspace?) -> String {
         guard let tab else { return "" }
         if let focusedPanelId = tab.focusedPanelId,
-           !tab.isRemoteTerminalSurface(focusedPanelId) {
+           tab.allowsLocalDirectoryFallback(panelId: focusedPanelId) {
             return trimmedWindowTitleDirectory(tab.reportedPanelDirectory(panelId: focusedPanelId))
                 ?? trimmedWindowTitleDirectory(tab.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory)
                 ?? (tab.isRemoteWorkspace ? "" : trimmedWindowTitleDirectory(tab.presentedCurrentDirectory) ?? "")
