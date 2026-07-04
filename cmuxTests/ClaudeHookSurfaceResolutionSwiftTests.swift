@@ -622,6 +622,43 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
+    @Test func geminiIdlessAfterAgentDropsWhenNoStoredSessionAndNoPID() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-no-session")
+        defer { context.cleanup() }
+
+        _ = startGeminiSurfaceResolutionServer(context: context)
+        let environment = geminiHookEnvironment(context: context)
+
+        let stopCommandStart = context.state.snapshot().count
+        assertHookExitedZero(runGeminiHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"done"}"#,
+            environment: environment
+        ))
+
+        let stopCommands = Array(context.state.snapshot().dropFirst(stopCommandStart))
+        #expect(
+            !stopCommands.contains {
+                (jsonObject($0)?["method"] as? String) == "surface.resume.set"
+                    || $0.hasPrefix("notify_target")
+                    || $0.hasPrefix("set_agent_pid gemini.")
+                    || $0.hasPrefix("set_agent_lifecycle gemini ")
+                    || $0.hasPrefix("set_status gemini ")
+            },
+            "An id-less Gemini Stop without a stored session or PID must no-op, saw \(stopCommands)"
+        )
+
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        if FileManager.default.fileExists(atPath: storeURL.path) {
+            let sessions = try readGeminiSessions(context: context)
+            #expect(
+                sessions[context.surfaceId] == nil,
+                "A no-session id-less Gemini Stop must not create the surface-id fallback record"
+            )
+        }
+    }
+
     @Test func geminiIdlessAfterAgentIgnoresStaleDuplicateOlderSessionStart() throws {
         let context = try makeClaudeHookContext(name: "gemini-idless-stop-ignores-stale-start")
         defer { context.cleanup() }

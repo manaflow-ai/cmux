@@ -29567,11 +29567,15 @@ export default CMUXSessionRestore;
                         matchingPID: inferredPID
                     ) {
                         sessionId = existing.sessionId
-                    } else if inferredPID != nil {
-                        telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.pid-miss")
+                    } else {
+                        if inferredPID != nil {
+                            telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.pid-miss")
+                        } else {
+                            telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.no-session")
+                        }
 #if DEBUG
                         agentHookDebugLog(
-                            "agentHook.idless.lookup.pidMiss agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) pid=\(inferredPID.map(String.init) ?? "nil")",
+                            "agentHook.idless.lookup.miss agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) pid=\(inferredPID.map(String.init) ?? "nil")",
                             socketPath: client.socketPath,
                             env: env
                         )
