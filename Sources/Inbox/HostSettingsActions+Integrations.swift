@@ -43,13 +43,20 @@ extension HostSettingsActions {
     ) async -> IntegrationAccountSettingsSnapshot? {
         guard let inboxRuntime, let inboxSource = InboxSource(settingsSource: source) else { return nil }
         do {
-            try await inboxRuntime.connect(
+            let status = try await inboxRuntime.connect(
                 source: inboxSource,
                 accountID: accountID,
                 displayName: displayName,
                 token: token
             )
-            return integrationSettingsSnapshot().accounts(for: source).first { $0.accountID == accountID }
+            // The hub canonicalizes the "default" sentinel (gmail -> "me",
+            // discord -> "bot", imessage -> "local"), so select the stored
+            // account by the resolved id, not the requested one.
+            let accounts = integrationSettingsSnapshot().accounts(for: source)
+            if let resolved = status.accountID, let match = accounts.first(where: { $0.accountID == resolved }) {
+                return match
+            }
+            return accounts.first { $0.accountID == accountID } ?? accounts.first
         } catch {
             hostSettingsLogger.error("failed to connect integration source=\(source.rawValue, privacy: .public)")
             return nil

@@ -141,9 +141,11 @@ final class InboxRuntime {
         }
     }
 
-    func connect(source: InboxSource, accountID: String = "default", displayName: String? = nil, token: String? = nil) async throws {
-        _ = try await hub.connect(source: source, accountID: accountID, displayName: displayName, token: token)
+    @discardableResult
+    func connect(source: InboxSource, accountID: String = "default", displayName: String? = nil, token: String? = nil) async throws -> InboxConnectorStatus {
+        let status = try await hub.connect(source: source, accountID: accountID, displayName: displayName, token: token)
         await refresh(seedNotifications: true)
+        return status
     }
 
     func disconnect(source: InboxSource, accountID: String = "default") async throws {
