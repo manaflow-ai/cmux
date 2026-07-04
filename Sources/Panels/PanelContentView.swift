@@ -140,7 +140,11 @@ struct PanelContentView: View {
             if let issueInboxPanel = panel as? IssueInboxPanel {
                 IssueInboxPanelView(
                     panel: issueInboxPanel,
+                    workspaceId: workspaceId,
                     isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

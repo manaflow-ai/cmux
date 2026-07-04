@@ -621,8 +621,9 @@
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */; };
+		7256B0010000000000000002 /* IssueInboxBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256B0010000000000000001 /* IssueInboxBridge.swift */; };
 		7256A0010000000000000002 /* IssueInboxPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256A0010000000000000001 /* IssueInboxPanel.swift */; };
-		7256A0010000000000000004 /* IssueInboxPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256A0010000000000000003 /* IssueInboxPanelView.swift */; };
+		7256B0010000000000000004 /* IssueInboxPanelWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256B0010000000000000003 /* IssueInboxPanelWebView.swift */; };
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
@@ -1923,8 +1924,9 @@
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		610008EA5E3744DDBE05C8E2 /* InternalTabDragConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/InternalTabDragConfiguration.swift; sourceTree = "<group>"; };
+		7256B0010000000000000001 /* IssueInboxBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxBridge.swift; sourceTree = "<group>"; };
 		7256A0010000000000000001 /* IssueInboxPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxPanel.swift; sourceTree = "<group>"; };
-		7256A0010000000000000003 /* IssueInboxPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxPanelView.swift; sourceTree = "<group>"; };
+		7256B0010000000000000003 /* IssueInboxPanelWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxPanelWebView.swift; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
@@ -3401,7 +3403,8 @@
 				A50014F1 /* MarkdownViewerAssets.swift */,
 				A5001423 /* FilePreviewPanel.swift */,
 				7256A0010000000000000001 /* IssueInboxPanel.swift */,
-				7256A0010000000000000003 /* IssueInboxPanelView.swift */,
+				7256B0010000000000000001 /* IssueInboxBridge.swift */,
+				7256B0010000000000000003 /* IssueInboxPanelWebView.swift */,
 				A5C0DE0000000000000000B1 /* ProjectPanel.swift */,
 				A5C0DE0000000000000000B3 /* ProjectPanelView.swift */,
 				A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */,
@@ -4746,13 +4749,14 @@
 				FE001106 /* GitStatusProvider.swift in Sources */,
 					3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
-				3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
+					3865A0083865A0083865A008 /* GlobalSearchPanelCaptureManager.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
+					7256B0010000000000000002 /* IssueInboxBridge.swift in Sources */,
 					7256A0010000000000000002 /* IssueInboxPanel.swift in Sources */,
-					7256A0010000000000000004 /* IssueInboxPanelView.swift in Sources */,
+					7256B0010000000000000004 /* IssueInboxPanelWebView.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
 				A50012F5 /* KeyboardLayout.swift in Sources */,
 				C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */,

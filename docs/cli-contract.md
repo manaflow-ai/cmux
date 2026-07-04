@@ -215,7 +215,7 @@ Issues subcommands:
 | `issues list`, `issues ls` | Print cached Issue Inbox rows. Does not force a refresh. Supports `--json`. |
 | `issues refresh` | Refresh all configured sources and report per-source counts or errors. Supports `--json`. |
 | `issues open` | Open or focus the Issue Inbox surface in the current workspace. |
-| `issues spawn <issue-id>` | Create or reuse a workspace for an issue. Supports `--cwd <path>` and `--json`. |
+| `issues spawn <issue-id>` | Create or reuse a workspace for an issue. Supports `--cwd <path>`, `--agent claude\|codex\|none`, and `--json`. |
 
 Theme subcommands:
 

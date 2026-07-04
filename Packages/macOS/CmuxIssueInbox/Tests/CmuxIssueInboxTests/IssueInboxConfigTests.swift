@@ -10,7 +10,18 @@ struct IssueInboxConfigTests {
         let data = Data("""
         {
           "sources": [
-            { "type": "github", "repo": "manaflow-ai/cmux", "projectRoot": "~/fun/cmuxterm-hq/repo", "ignored": true },
+            {
+              "type": "github",
+              "repo": "manaflow-ai/cmux",
+              "projectRoot": "~/fun/cmuxterm-hq/repo",
+              "spawn": {
+                "devServerCommand": "cd web && bun dev",
+                "webURL": "http://localhost:3000",
+                "defaultAgent": "claude",
+                "agentCommandTemplate": "claude {prompt}"
+              },
+              "ignored": true
+            },
             { "type": "github" },
             { "repo": "missing/type" },
             { "type": "linear", "teamKey": "ENG", "projectRoot": "/tmp/project" },
@@ -25,6 +36,10 @@ struct IssueInboxConfigTests {
         #expect(result.config.sources.count == 2)
         #expect(result.config.sources[0].sourceID == "github:manaflow-ai/cmux")
         #expect(result.config.sources[0].projectRoot == "/Users/tester/fun/cmuxterm-hq/repo")
+        #expect(result.config.sources[0].spawn?.devServerCommand == "cd web && bun dev")
+        #expect(result.config.sources[0].spawn?.webURL == "http://localhost:3000")
+        #expect(result.config.sources[0].spawn?.defaultAgent == .claude)
+        #expect(result.config.sources[0].spawn?.agentCommandTemplate == "claude {prompt}")
         #expect(result.config.sources[1].sourceID == "linear:ENG")
         #expect(result.config.sources[1].apiKeyEnvVar == "LINEAR_API_KEY")
         #expect(result.warnings.count == 4)

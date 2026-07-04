@@ -182,6 +182,14 @@ public final class IssueInboxStore: ObservableObject {
         sourceConfigs.first { $0.sourceID == item.sourceID }?.projectRoot
     }
 
+    /// Returns the configured source for an item.
+    ///
+    /// - Parameter item: Issue item.
+    /// - Returns: Matching source configuration, if present.
+    public func sourceConfig(for item: IssueInboxItem) -> IssueInboxSourceConfig? {
+        sourceConfigs.first { $0.sourceID == item.sourceID }
+    }
+
     /// Returns the workspace mapped to an issue ID.
     ///
     /// - Parameter issueID: Stable issue ID.

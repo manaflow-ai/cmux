@@ -55,6 +55,7 @@ public struct IssueInboxConfigDecoder: Sendable {
         }
 
         let projectRoot = entry.projectRoot.flatMap { expandedProjectRoot($0) }
+        let spawn = spawnConfig(from: entry.spawn)
         switch type {
         case .github:
             guard let repo = nonEmpty(entry.repo) else {
@@ -63,7 +64,8 @@ public struct IssueInboxConfigDecoder: Sendable {
             return .success(IssueInboxSourceConfig(
                 type: .github,
                 repo: repo,
-                projectRoot: projectRoot
+                projectRoot: projectRoot,
+                spawn: spawn
             ))
         case .linear:
             guard let teamKey = nonEmpty(entry.teamKey) else {
@@ -73,9 +75,28 @@ public struct IssueInboxConfigDecoder: Sendable {
                 type: .linear,
                 teamKey: teamKey,
                 projectRoot: projectRoot,
-                apiKeyEnvVar: nonEmpty(entry.apiKeyEnvVar) ?? "LINEAR_API_KEY"
+                apiKeyEnvVar: nonEmpty(entry.apiKeyEnvVar) ?? "LINEAR_API_KEY",
+                spawn: spawn
             ))
         }
+    }
+
+    private func spawnConfig(from raw: RawIssueInboxSpawnConfig?) -> IssueInboxSpawnConfig? {
+        guard let raw else { return nil }
+        let defaultAgent = nonEmpty(raw.defaultAgent).flatMap(IssueSpawnAgent.init(rawValue:))
+        let config = IssueInboxSpawnConfig(
+            devServerCommand: nonEmpty(raw.devServerCommand),
+            webURL: nonEmpty(raw.webURL),
+            defaultAgent: defaultAgent,
+            agentCommandTemplate: nonEmpty(raw.agentCommandTemplate)
+        )
+        if config.devServerCommand == nil,
+           config.webURL == nil,
+           config.defaultAgent == nil,
+           config.agentCommandTemplate == nil {
+            return nil
+        }
+        return config
     }
 
     private func nonEmpty(_ value: String?) -> String? {
@@ -154,6 +175,14 @@ private struct RawIssueInboxSource: Decodable {
     var teamKey: String?
     var projectRoot: String?
     var apiKeyEnvVar: String?
+    var spawn: RawIssueInboxSpawnConfig?
+}
+
+private struct RawIssueInboxSpawnConfig: Decodable {
+    var devServerCommand: String?
+    var webURL: String?
+    var defaultAgent: String?
+    var agentCommandTemplate: String?
 }
 
 private struct DiscardedIssueInboxSource: Decodable {}

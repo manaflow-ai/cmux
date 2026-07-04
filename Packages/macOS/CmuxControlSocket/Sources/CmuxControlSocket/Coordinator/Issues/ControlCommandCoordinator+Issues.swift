@@ -37,6 +37,16 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
         }
         let cwd = optionalTrimmedRawString(params, "cwd")
+        if let rawAgent = params["agent"], case .null = rawAgent {
+            return context?.controlIssuesSpawnWorkspace(issueID: issueID, cwd: cwd, params: params)
+                ?? .err(code: "unavailable", message: "Issue Inbox is unavailable", data: nil)
+        }
+        if params["agent"] != nil {
+            guard let agent = rawString(params, "agent")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  ["claude", "codex", "none"].contains(agent) else {
+                return .err(code: "invalid_params", message: "agent must be claude, codex, or none", data: nil)
+            }
+        }
         return context?.controlIssuesSpawnWorkspace(issueID: issueID, cwd: cwd, params: params)
             ?? .err(code: "unavailable", message: "Issue Inbox is unavailable", data: nil)
     }

@@ -10,6 +10,8 @@ extension TerminalController {
             "items": snapshot.items.map(issueInboxItemPayload),
             "source_errors": issueInboxStore.sourceErrors,
             "fetched_at": snapshot.fetchedAt.mapValues(issueInboxISODate),
+            "refreshing": Array(issueInboxStore.refreshing).sorted(),
+            "config": issueInboxConfigPayload(),
         ]
     }
 
@@ -53,6 +55,45 @@ extension TerminalController {
         }
     }
 
+    func issueInboxOpenConfigPayload() -> V2CallResult {
+        let url = issueInboxStore.configURL
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: url.path) {
+                let stub = """
+                {
+                  "sources": [
+                    {
+                      "type": "github",
+                      "repo": "manaflow-ai/cmux",
+                      "projectRoot": "~/fun/cmuxterm-hq/repo",
+                      "spawn": {
+                        "devServerCommand": "cd web && bun dev",
+                        "webURL": "http://localhost:3000",
+                        "defaultAgent": "claude"
+                      }
+                    },
+                    { "type": "linear", "teamKey": "ENG", "projectRoot": "~/dev/thing", "apiKeyEnvVar": "LINEAR_API_KEY" }
+                  ],
+                  "autoRefreshSeconds": 0
+                }
+                """
+                try stub.data(using: .utf8)?.write(to: url, options: .atomic)
+            }
+            PreferredEditorService(defaults: .standard).open(url)
+            return .ok(["path": url.path])
+        } catch {
+            return .err(
+                code: "internal_error",
+                message: "Failed to open Issue Inbox config: \(error.localizedDescription)",
+                data: ["path": url.path]
+            )
+        }
+    }
+
     func issueInboxSpawnWorkspace(
         issueID: String,
         cwd: String?,
@@ -62,6 +103,13 @@ extension TerminalController {
         issueInboxStore.loadCachedStateIfNeeded()
         guard let item = issueInboxStore.item(issueID: issueID) else {
             return .err(code: "not_found", message: "Issue not found", data: ["issue_id": issueID])
+        }
+        let requestedAgent: IssueSpawnAgent?
+        switch issueInboxSpawnAgent(params) {
+        case .success(let agent):
+            requestedAgent = agent
+        case .failure(let result):
+            return result
         }
 
         let shouldFocus = forceFocus || Self.socketCommandAllowsInAppFocusMutations()
@@ -87,6 +135,12 @@ extension TerminalController {
                 data: ["issue_id": issueID]
             )
         }
+        let plan = IssueSpawnPlanBuilder.build(
+            item: item,
+            sourceConfig: issueInboxStore.sourceConfig(for: item),
+            workingDirectory: workingDirectory,
+            requestedAgent: requestedAgent
+        )
 
         var createParams = params
         createParams["title"] = issueInboxWorkspaceTitle(for: item)
@@ -99,6 +153,17 @@ extension TerminalController {
             "CMUX_ISSUE_PROVIDER": item.provider.rawValue,
         ]
         createParams["focus"] = true
+        if let initialCommand = plan.initialCommand {
+            createParams["initial_command"] = initialCommand
+        }
+        if let layout = plan.layout {
+            switch issueInboxLayoutJSONObject(layout) {
+            case .success(let object):
+                createParams["layout"] = object
+            case .failure(let result):
+                return result
+            }
+        }
         let createResult = v2WorkspaceCreate(params: createParams)
         switch createResult {
         case .err:
@@ -182,6 +247,32 @@ extension TerminalController {
         ]
     }
 
+    private func issueInboxConfigPayload() -> [String: Any] {
+        [
+            "path": issueInboxStore.configURL.path,
+            "file_exists": issueInboxStore.configFileExists,
+            "warnings": issueInboxStore.configWarnings.map { warning in
+                [
+                    "id": warning.id,
+                    "message": warning.message,
+                ]
+            },
+            "sources": issueInboxStore.sourceConfigs.map { source in
+                [
+                    "id": source.sourceID,
+                    "display_name": source.displayName,
+                    "provider": source.type.rawValue,
+                    "project_root": v2OrNull(source.projectRoot),
+                    "spawn": [
+                        "dev_server_command": v2OrNull(source.spawn?.devServerCommand),
+                        "web_url": v2OrNull(source.spawn?.webURL),
+                        "default_agent": v2OrNull(source.spawn?.defaultAgent?.rawValue),
+                    ],
+                ]
+            },
+        ]
+    }
+
     private func issueInboxWorkspaceTitle(for item: IssueInboxItem) -> String {
         let base = "\(item.number) \(item.title)"
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -191,8 +282,54 @@ extension TerminalController {
     }
 
     private func issueInboxISODate(_ date: Date) -> String {
+        Self.issueInboxISO8601Formatter.string(from: date)
+    }
+
+    private static let issueInboxISO8601Formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private enum IssueInboxSpawnAgentParseResult {
+        case success(IssueSpawnAgent?)
+        case failure(V2CallResult)
+    }
+
+    private func issueInboxSpawnAgent(_ params: [String: Any]) -> IssueInboxSpawnAgentParseResult {
+        guard v2HasNonNullParam(params, "agent") else {
+            return .success(nil)
+        }
+        guard let raw = v2RawString(params, "agent")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty,
+              let agent = IssueSpawnAgent(rawValue: raw) else {
+            return .failure(.err(
+                code: "invalid_params",
+                message: "agent must be claude, codex, or none",
+                data: ["agent": params["agent"] ?? ""]
+            ))
+        }
+        return .success(agent)
+    }
+
+    private enum IssueInboxLayoutJSONObjectResult {
+        case success([String: Any])
+        case failure(V2CallResult)
+    }
+
+    private func issueInboxLayoutJSONObject(_ layout: IssueSpawnLayoutNode) -> IssueInboxLayoutJSONObjectResult {
+        do {
+            let data = try JSONEncoder().encode(layout)
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failure(.err(code: "internal_error", message: "Failed to encode issue layout", data: nil))
+            }
+            return .success(object)
+        } catch {
+            return .failure(.err(
+                code: "internal_error",
+                message: "Failed to encode issue layout: \(error.localizedDescription)",
+                data: nil
+            ))
+        }
     }
 }

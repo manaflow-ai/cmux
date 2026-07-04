@@ -15,7 +15,7 @@ extension CMUXCLI {
           cmux issues open
               Open or focus the Issue Inbox surface in the current workspace.
 
-          cmux issues spawn <issue-id> [--cwd <path>] [--json]
+          cmux issues spawn <issue-id> [--cwd <path>] [--agent claude|codex|none] [--json]
               Create or reuse a cmux workspace for the issue. Uses --cwd or
               the source's configured projectRoot.
         """
@@ -63,11 +63,15 @@ extension CMUXCLI {
 
         case "spawn":
             let (cwd, remaining) = parseOption(rest, name: "--cwd")
-            let flags = remaining.filter { $0.hasPrefix("-") }
+            let (agent, remainingAfterAgent) = parseOption(remaining, name: "--agent")
+            if let agent, !["claude", "codex", "none"].contains(agent) {
+                throw CLIError(message: "issues spawn: --agent must be claude, codex, or none")
+            }
+            let flags = remainingAfterAgent.filter { $0.hasPrefix("-") }
             if let flag = flags.first {
                 throw CLIError(message: "issues spawn: unknown option '\(flag)'")
             }
-            let positionals = remaining
+            let positionals = remainingAfterAgent
             guard let issueID = positionals.first, !issueID.isEmpty else {
                 throw CLIError(message: "issues spawn requires an issue id")
             }
@@ -77,6 +81,9 @@ extension CMUXCLI {
             var params: [String: Any] = ["issue_id": issueID]
             if let cwd, !cwd.isEmpty {
                 params["cwd"] = cwd
+            }
+            if let agent, !agent.isEmpty {
+                params["agent"] = agent
             }
             let response = try client.sendV2(method: "issues.spawn_workspace", params: params)
             printV2Payload(
