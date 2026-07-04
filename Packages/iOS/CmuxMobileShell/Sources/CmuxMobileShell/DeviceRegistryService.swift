@@ -143,20 +143,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             .dedupedRoutes()
         // No change vs the local cache (same endpoints AND same metadata,
         // order-independent): skip the write and keep the local routes.
-        if Self.sameRouteSet(deduped, local) { return nil }
-        return deduped
-    }
-
-    /// Order-independent full-equality comparison of two route lists, used to
-    /// decide whether a refreshed registry set is a genuine change over the local
-    /// cache (a `priority`/`id`/`kind`/endpoint change writes; a pure reordering
-    /// does not).
-    static func sameRouteSet(_ lhs: [CmxAttachRoute], _ rhs: [CmxAttachRoute]) -> Bool {
-        guard lhs.count == rhs.count else { return false }
-        let key: (CmxAttachRoute) -> String = {
-            "\($0.endpoint.routeDedupKey)|\($0.kind.rawValue)|\($0.priority)|\($0.id)"
+        if deduped.count == local.count {
+            let key: (CmxAttachRoute) -> String = {
+                "\($0.endpoint.routeDedupKey)|\($0.kind.rawValue)|\($0.priority)|\($0.id)"
+            }
+            if deduped.sorted { key($0) < key($1) } == local.sorted { key($0) < key($1) } {
+                return nil
+            }
         }
-        return lhs.sorted { key($0) < key($1) } == rhs.sorted { key($0) < key($1) }
+        return deduped
     }
 
     /// Whether a background registry refresh may write back into the paired-Mac
