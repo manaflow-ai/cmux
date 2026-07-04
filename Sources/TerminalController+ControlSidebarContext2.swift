@@ -232,8 +232,14 @@ extension TerminalController {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
+        guard let fastPathWorkspaceID = controlSidebarResolvePanelScopedMutationTab(
+            target: .workspace(scope.workspaceID),
+            panelID: scope.panelID
+        )?.id else {
+            return
+        }
         guard socketFastPathState.shouldPublishShellActivity(
-            workspaceId: scope.workspaceID,
+            workspaceId: fastPathWorkspaceID,
             panelId: scope.panelID,
             state: state.rawValue
         ) else {
@@ -244,12 +250,14 @@ extension TerminalController {
                   let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
-            if tab.id != scope.workspaceID {
-                _ = self.socketFastPathState.shouldPublishShellActivity(
+            if tab.id != fastPathWorkspaceID {
+                guard self.socketFastPathState.shouldPublishShellActivity(
                     workspaceId: tab.id,
                     panelId: scope.panelID,
                     state: state.rawValue
-                )
+                ) else {
+                    return
+                }
             }
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: scope.panelID, state: state)
         }

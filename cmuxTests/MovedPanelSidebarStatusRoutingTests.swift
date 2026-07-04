@@ -269,6 +269,27 @@ struct MovedPanelSidebarStatusRoutingTests {
         }
     }
 
+    @Test func panelScopedShellStateDedupeUsesCurrentOwnerAfterMove() throws {
+        try withMovedPanelTestContext { moved in
+            let staleTab = moved.source.id.uuidString
+            let panel = moved.panelID.uuidString
+            _ = TerminalController.shared.socketFastPathState.shouldPublishShellActivity(
+                workspaceId: moved.source.id,
+                panelId: moved.panelID,
+                state: PanelShellActivityState.commandRunning.rawValue
+            )
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "report_shell_state running --tab=\(staleTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.panelShellActivityStates[moved.panelID] == nil)
+            #expect(moved.destination.panelShellActivityStates[moved.panelID] == .commandRunning)
+        }
+    }
+
     private struct MovedPanelTestContext {
         let manager: TabManager
         let source: Workspace
