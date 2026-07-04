@@ -107,6 +107,52 @@ struct IssueInboxStoreTests {
     }
 
     @Test
+    func refreshPicksUpConfigEditedAfterLoad() async throws {
+        let temp = try TemporaryIssueInboxDirectory()
+        let cache = IssueInboxCache(directoryURL: temp.url)
+        let configURL = temp.url.appendingPathComponent("issue-inbox.json")
+        let issuePayload = Data("""
+        [
+          {
+            "number": 7,
+            "state": "open",
+            "html_url": "https://github.com/manaflow-ai/cmux/issues/7",
+            "title": "Configured after load",
+            "updated_at": "2026-07-01T12:34:56Z",
+            "assignees": [],
+            "labels": []
+          }
+        ]
+        """.utf8)
+        let store = IssueInboxStore(
+            cache: cache,
+            configLoader: IssueInboxFileConfigLoader(configURL: configURL, homeDirectory: temp.url),
+            adapterFactory: IssueSourceAdapterFactory(
+                transport: StoreFixtureTransport { request in
+                    (issuePayload, StoreFixtureTransport.response(statusCode: 200, url: request.url))
+                },
+                environment: ["GH_TOKEN": "test-token"]
+            )
+        )
+
+        let task = store.load()
+        await task?.value
+        #expect(store.sourceConfigs.isEmpty)
+        #expect(store.items.isEmpty)
+
+        let config = Data("""
+        { "sources": [ { "type": "github", "repo": "manaflow-ai/cmux" } ] }
+        """.utf8)
+        try config.write(to: configURL)
+
+        let report = await store.refresh()
+
+        #expect(store.sourceConfigs.count == 1)
+        #expect(report.perSource["github:manaflow-ai/cmux"]?.count == 1)
+        #expect(store.items.map(\.id) == ["github:manaflow-ai/cmux:7"])
+    }
+
+    @Test
     func mergeReplacesOnlySuccessfulSource() async throws {
         let temp = try TemporaryIssueInboxDirectory()
         let cache = IssueInboxCache(directoryURL: temp.url)
@@ -213,3 +259,20 @@ private struct TemporaryIssueInboxDirectory {
 }
 
 private struct TestAdapterError: Error {}
+
+private struct StoreFixtureTransport: IssueInboxHTTPTransport {
+    var handler: @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await handler(request)
+    }
+
+    static func response(statusCode: Int, url: URL?) -> HTTPURLResponse {
+        HTTPURLResponse(
+            url: url ?? URL(string: "https://example.com")!,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+    }
+}
