@@ -4,7 +4,7 @@
 34660	CLI/cmux.swift
 17954	Sources/AppDelegate.swift
 16427	Sources/ContentView.swift
-14318	Sources/TerminalController.swift
+14339	Sources/TerminalController.swift
 13172	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
@@ -133,6 +133,7 @@
 761	Sources/Mobile/AgentChat/AgentChatSessionRegistry.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 754	Sources/TerminalController+ControlWorkspaceContext.swift
+754	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 739	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
@@ -155,6 +156,7 @@
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
+672	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MacComputerDetailView.swift
 672	cmuxTests/SessionPersistenceResumeBindingTests.swift
 668	cmuxTests/FeedCoordinatorTests.swift
 668	cmuxTests/SettingsWindowPresenterTests.swift
@@ -169,7 +171,6 @@
 644	Packages/macOS/CMUXAgentLaunch/Tests/CMUXAgentLaunchTests/AgentLaunchSanitizerTests.swift
 642	cmuxTests/RemoteTmuxControlParserTests.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
-640	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/MacComputerDetailView.swift
 637	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTestSupport.swift
 635	cmuxUITests/RightSidebarChromeHeightUITests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
@@ -196,7 +197,6 @@
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
-583	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
