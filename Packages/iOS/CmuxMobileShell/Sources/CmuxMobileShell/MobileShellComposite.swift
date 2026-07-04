@@ -5654,9 +5654,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             selectedTerminalID = nil
             return
         }
-        if let selectedTerminalID,
-           selectedTerminalID == createdTerminalSelectionID,
-           let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }) {
+        if let selectedTerminalID, selectedTerminalID == createdTerminalSelectionID {
+            let selectedTerminal = selectedWorkspace.terminals.first { $0.id == selectedTerminalID }
+            guard let selectedTerminal else { return }
             guard selectedTerminal.isReady else { return }
             createdTerminalSelectionID = nil
         }
