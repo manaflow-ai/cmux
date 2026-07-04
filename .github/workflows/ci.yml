@@ -423,21 +423,22 @@ jobs:
       - name: Prepare DerivedData path
         run: |
           set -euo pipefail
-          # Stable path so actions/cache can restore incremental build products
-          # across runs; Xcode validates restored products against current inputs.
-          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests"
+          # Keep live app-host products under RUNNER_TEMP so
+          # run-app-host-xcodebuild.sh can clean stale test hosts, while using a
+          # stable per-shard path that actions/cache can restore across runs.
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-tests-shard-${{ matrix.shard }}"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/cmux-tests
-          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          path: ${{ runner.temp }}/cmux-derived-data-tests-shard-${{ matrix.shard }}
+          key: deriveddata-tests-shard-${{ matrix.shard }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
           restore-keys: |
-            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-
-            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-tests-
+            deriveddata-tests-shard-${{ matrix.shard }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-
+            deriveddata-tests-shard-${{ matrix.shard }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-shard-${{ matrix.shard }}-
 
       - name: Resolve Swift packages
         run: |

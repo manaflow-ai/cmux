@@ -92,6 +92,33 @@ check_build_lag_deriveddata_cache_path() {
   echo "PASS: tests-build-and-lag DerivedData cache path matches xcodebuild path"
 }
 
+check_app_host_deriveddata_cache_path() {
+  if ! awk '
+    /^  app-host-unit-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Prepare DerivedData path/ { in_prepare=1; next }
+    in_prepare && /^[[:space:]]*- name:/ { in_prepare=0 }
+    in_prepare && index($0, "DERIVED_DATA_PATH=\"$RUNNER_TEMP/cmux-derived-data-tests-shard-${{ matrix.shard }}\"") { saw_prepare_path=1 }
+    in_prepare && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_prepare_path=1 }
+
+    in_job && /- name: Cache DerivedData/ { in_cache=1; after_cache=1; next }
+    in_cache && /^[[:space:]]*- name:/ { in_cache=0 }
+    in_cache && index($0, "path: ${{ runner.temp }}/cmux-derived-data-tests-shard-${{ matrix.shard }}") { saw_cache_path=1 }
+    in_cache && index($0, "key: deriveddata-tests-shard-${{ matrix.shard }}-") { saw_cache_key=1 }
+    in_cache && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_cache_path=1 }
+
+    END {
+      exit !(saw_prepare_path && saw_cache_path && saw_cache_key && !saw_home_prepare_path && !saw_home_cache_path)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: app-host-unit-tests DerivedData cache must restore into the same stable per-shard RUNNER_TEMP path used by xcodebuild"
+    exit 1
+  fi
+
+  echo "PASS: app-host-unit-tests DerivedData cache path matches xcodebuild path"
+}
+
 check_e2e_runner_fallbacks() {
   if ! awk '
     /^run-name:/ {
@@ -802,6 +829,7 @@ check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
 check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
+check_app_host_deriveddata_cache_path
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
