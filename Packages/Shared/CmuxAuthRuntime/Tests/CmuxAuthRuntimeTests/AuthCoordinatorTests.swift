@@ -8,6 +8,7 @@ import Testing
     private func makeCoordinator(
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
+        clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true }
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
@@ -19,6 +20,7 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: launch,
+            clock: clock,
             isOnline: isOnline
         )
         return (coordinator, store)
@@ -234,23 +236,36 @@ import Testing
         // hook's full duration.
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
-        let (coordinator, _) = makeCoordinator(client: client)
+        let clock = ManualTestClock()
+        let (coordinator, _) = makeCoordinator(client: client, clock: clock)
         try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
 
         let outcome = TeardownOutcomeProbe()
-        await coordinator.signOut(
-            onSignedOut: { _, _ in
-                await outcome.markStarted()
-                do {
-                    // Cancellation-aware slow work, like the URLSession DELETE.
-                    try await Task.sleep(for: .seconds(60))
-                    await outcome.markFinished()
-                } catch {
-                    await outcome.markCancelled()
-                }
-            },
-            teardownTimeout: .milliseconds(50)
-        )
+        let hookStarted = TestPhaseSignal()
+        let signOutTask = Task {
+            await coordinator.signOut(
+                onSignedOut: { _, _ in
+                    await hookStarted.markStarted()
+                    await outcome.markStarted()
+                    do {
+                        // Cancellation-aware slow work, like the URLSession DELETE.
+                        try await Task.sleep(for: .seconds(60))
+                        await outcome.markFinished()
+                    } catch {
+                        await outcome.markCancelled()
+                    }
+                },
+                teardownTimeout: .milliseconds(50)
+            )
+        }
+
+        // The hook is running and parked at its 60s sleep before the deadline
+        // fires, and the teardown deadline sleeper is parked on the injected
+        // clock; advancing past it deterministically cancels the slow hook.
+        await hookStarted.waitUntilStarted()
+        await clock.waitUntilSleepers(count: 1)
+        clock.advance(by: .milliseconds(50))
+        await signOutTask.value
 
         #expect(await outcome.started)
         #expect(await outcome.cancelled)          // joined + cancelled before return
@@ -283,6 +298,22 @@ import Testing
         try await coordinator.sendCode(to: "42")
         let recorded = await client.signedInWithCredential
         #expect(recorded == nil)
+    }
+
+    @Test func devAuthAccessTokenFallbackDoesNotWaitOnItsOwnTokenPhase() async throws {
+        let user = CMUXAuthUser(id: "debug", primaryEmail: "l@l.com", displayName: "L")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            launch: .plain(includesDevAuth: true)
+        )
+        coordinator.debugCredentials = CMUXAuthAutoLoginCredentials(email: "l@l.com", password: "pw")
+
+        let token = try await coordinator.accessToken()
+
+        #expect(token == "access")
+        let recorded = await client.signedInWithCredential
+        #expect(recorded?.email == "l@l.com")
     }
 
     @Test func accessTokenThrowsWhenSignedOut() async {

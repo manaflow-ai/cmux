@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -45,7 +46,7 @@ import Testing
         store.connectPreviewHost()
         // Group sections are account-scoped: the previous account's group
         // names must not survive sign-out into the next session.
-        store.workspaceGroups = [
+        store.replaceForegroundWorkspaceState(store.workspaces, groups: [
             MobileWorkspaceGroupPreview(
                 id: "group-1",
                 name: "previous account group",
@@ -53,7 +54,7 @@ import Testing
                 isPinned: false,
                 anchorWorkspaceID: "workspace-main"
             )
-        ]
+        ])
 
         store.signOut()
 
@@ -62,6 +63,74 @@ import Testing
         #expect(store.connectedHostName.isEmpty)
         #expect(store.selectedWorkspace?.name == "cmux")
         #expect(store.workspaceGroups.isEmpty)
+    }
+
+    @Test func currentTeamDidChangeKeepsForegroundWorkspacesLive() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+        store.replaceForegroundWorkspaceState([
+            MobileWorkspacePreview(id: "ws-foreground", name: "Live", terminals: []),
+        ])
+        #expect(store.workspaces.map(\.id.rawValue) == ["ws-foreground"])
+        let connectionBefore = store.connectionState
+
+        // A team switch must re-scope lists lazily but NEVER drop the live
+        // foreground terminal session.
+        store.currentTeamDidChange()
+
+        #expect(store.workspaces.map(\.id.rawValue) == ["ws-foreground"])
+        #expect(store.connectionState == connectionBefore)
+        // Team-scoped caches are cleared so they lazily repopulate for the new team.
+        #expect(store.pairedMacs.isEmpty)
+        #expect(store.registryDevices.isEmpty)
+    }
+
+    @Test func staleTeamLoadsDoNotClearCurrentTeamLists() async throws {
+        let team = MutableTeamID("team-a")
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [try Self.pairedMac(id: "mac-a", teamID: "team-a")],
+                "team-b": [try Self.pairedMac(id: "mac-b", teamID: "team-b")],
+            ],
+            blockedTeams: ["team-a"]
+        )
+        let registry = DelayedTeamDeviceRegistry(
+            teamIDProvider: { await team.value },
+            devicesByTeam: [
+                "team-a": [Self.registryDevice(id: "device-a")],
+                "team-b": [Self.registryDevice(id: "device-b")],
+            ],
+            blockedTeams: ["team-a"]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            deviceRegistry: registry,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value }
+        )
+
+        let oldPairedLoad = Task { await store.loadPairedMacs() }
+        let oldRegistryLoad = Task { await store.loadRegistryDevices() }
+        await pairedStore.waitUntilLoadStarted(teamID: "team-a")
+        await registry.waitUntilLoadStarted(teamID: "team-a")
+
+        await team.set("team-b")
+        store.currentTeamDidChange()
+        await store.loadPairedMacs()
+        await store.loadRegistryDevices()
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
+
+        await pairedStore.release(teamID: "team-a")
+        await registry.release(teamID: "team-a")
+        _ = await oldPairedLoad.value
+        _ = await oldRegistryLoad.value
+
+        #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-b"])
+        #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
@@ -75,6 +144,29 @@ import Testing
         #expect(store.workspaces.count == 3)
         #expect(store.selectedWorkspace?.id.rawValue == "workspace-3")
         #expect(store.selectedTerminalID?.rawValue == "workspace-3-terminal-1")
+    }
+
+    private static func pairedMac(id: String, teamID: String) throws -> MobilePairedMac {
+        MobilePairedMac(
+            macDeviceID: id,
+            displayName: id,
+            routes: [try CmxAttachRoute(id: "manual", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.1", port: 22))],
+            createdAt: Date(timeIntervalSince1970: 1),
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            isActive: false,
+            stackUserID: "user-1",
+            teamID: teamID
+        )
+    }
+
+    private static func registryDevice(id: String) -> RegistryDevice {
+        RegistryDevice(
+            deviceId: id,
+            platform: "mac",
+            displayName: id,
+            lastSeenAt: Date(timeIntervalSince1970: 2),
+            instances: []
+        )
     }
 
     @Test func createTerminalAddsTerminalToSelectedWorkspace() {
@@ -181,6 +273,182 @@ import Testing
 
         #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
         #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
+    }
+
+    @Test func aggregationRowIDScopingPreservesCurrentSelection() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let foregroundWorkspace = MobileWorkspacePreview(
+            id: "w-foreground",
+            macDeviceID: "mac-a",
+            name: "Foreground",
+            terminals: [MobileTerminalPreview(id: "terminal-foreground", name: "fg")]
+        )
+        let selectedWorkspace = MobileWorkspacePreview(
+            id: "w-selected",
+            macDeviceID: "mac-a",
+            name: "Selected",
+            terminals: [MobileTerminalPreview(id: "terminal-selected", name: "selected")]
+        )
+        let secondaryWorkspace = MobileWorkspacePreview(
+            id: "w-secondary",
+            macDeviceID: "mac-b",
+            name: "Secondary",
+            terminals: [MobileTerminalPreview(id: "terminal-secondary", name: "secondary")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [foregroundWorkspace, selectedWorkspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        store.selectedWorkspaceID = "w-selected"
+        store.selectedTerminalID = "terminal-selected"
+
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [foregroundWorkspace, selectedWorkspace],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [secondaryWorkspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        #expect(store.selectedWorkspace?.name == "Selected")
+        #expect(store.selectedWorkspace?.rpcWorkspaceID.rawValue == "w-selected")
+        #expect(store.selectedWorkspace?.macDeviceID == "mac-a")
+        #expect(store.selectedTerminalID?.rawValue == "terminal-selected")
+    }
+
+    @Test func anonymousForegroundRowsDoNotExposeAggregateSentinel() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let anonymousWorkspace = MobileWorkspacePreview(
+            id: "w-anonymous",
+            name: "Manual",
+            terminals: [MobileTerminalPreview(id: "terminal-anonymous", name: "manual")]
+        )
+        let secondaryWorkspace = MobileWorkspacePreview(
+            id: "w-secondary",
+            macDeviceID: "mac-b",
+            name: "Secondary",
+            terminals: [MobileTerminalPreview(id: "terminal-secondary", name: "secondary")]
+        )
+
+        store.setWorkspaceStatesForTesting([
+            MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
+                macDeviceID: MobileShellComposite.foregroundAnonymousKey,
+                workspaces: [anonymousWorkspace],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [secondaryWorkspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: nil)
+
+        let foreground = store.workspaces.first { $0.rpcWorkspaceID.rawValue == "w-anonymous" }
+        #expect(foreground?.macDeviceID == nil)
+        #expect(foreground?.remoteWorkspaceID?.rawValue == "w-anonymous")
+    }
+
+    @Test func deeplinkWorkspaceResolutionUsesMacOwnerWhenWorkspaceIDsCollide() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspaceA = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-a",
+            name: "Mac A",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "a")]
+        )
+        let workspaceB = MobileWorkspacePreview(
+            id: "shared",
+            macDeviceID: "mac-b",
+            name: "Mac B",
+            terminals: [MobileTerminalPreview(id: "terminal-shared", name: "b")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [workspaceA],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                workspaces: [workspaceB],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+
+        let resolvedWorkspaceID = try #require(store.workspaceID(
+            matchingRemoteWorkspaceID: "shared",
+            macDeviceID: "mac-b"
+        ))
+        let resolvedSurfaceOwnerID = try #require(store.workspaceID(
+            containingSurfaceID: "terminal-shared",
+            macDeviceID: "mac-b"
+        ))
+
+        let workspace = try #require(store.workspaces.first { $0.id == resolvedWorkspaceID })
+        #expect(workspace.macDeviceID == "mac-b")
+        #expect(resolvedSurfaceOwnerID == resolvedWorkspaceID)
+        #expect(store.workspaceID(matchingRemoteWorkspaceID: "shared", macDeviceID: "missing") == nil)
+    }
+
+    @Test func foregroundNotificationSuppressionRequiresExplicitSelection() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspace = MobileWorkspacePreview(
+            id: "row-a",
+            macDeviceID: "mac-a",
+            name: "First",
+            terminals: [MobileTerminalPreview(id: "terminal-a", name: "a")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                workspaces: [workspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        store.selectedWorkspaceID = nil
+
+        #expect(store.selectedWorkspace?.id.rawValue == "row-a")
+        #expect(!store.selectedWorkspaceMatches(remoteWorkspaceID: "row-a", macDeviceID: "mac-a"))
+
+        store.selectedWorkspaceID = "row-a"
+        #expect(store.selectedWorkspaceMatches(remoteWorkspaceID: "row-a", macDeviceID: "mac-a"))
+    }
+
+    @Test func secondaryUnavailableDowngradeKeepsRowsVisibleButInactive() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspace = MobileWorkspacePreview(
+            id: "secondary-row",
+            macDeviceID: "mac-b",
+            name: "Secondary",
+            terminals: [MobileTerminalPreview(id: "terminal-b", name: "b")]
+        )
+        store.setWorkspaceStatesForTesting([
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                displayName: "Mac B",
+                workspaces: [workspace],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: nil)
+
+        store.markSecondaryMacUnavailableForTesting("mac-b")
+
+        let downgraded = store.workspaces.first { $0.rpcWorkspaceID.rawValue == "secondary-row" }
+        #expect(downgraded?.macConnectionStatus == .unavailable)
+        #expect(downgraded?.name == "Secondary")
     }
 
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {

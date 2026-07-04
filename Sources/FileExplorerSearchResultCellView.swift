@@ -1,9 +1,20 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 final class FileExplorerSearchResultCellView: NSTableCellView {
     private let pathLabel = NSTextField(labelWithString: "")
     private let previewLabel = NSTextField(labelWithString: "")
+    static var preferredRowHeight: CGFloat {
+        max(
+            46,
+            ceil(
+                13 +
+                    lineHeight(for: GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)) +
+                    lineHeight(for: GlobalFontMagnification.monospacedSystemFont(ofSize: 11, weight: .regular))
+            )
+        )
+    }
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -17,13 +28,11 @@ final class FileExplorerSearchResultCellView: NSTableCellView {
 
     private func setupViews() {
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         pathLabel.textColor = .labelColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
 
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
-        previewLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         previewLabel.textColor = .secondaryLabelColor
         previewLabel.lineBreakMode = .byTruncatingTail
         previewLabel.maximumNumberOfLines = 1
@@ -43,10 +52,16 @@ final class FileExplorerSearchResultCellView: NSTableCellView {
     }
 
     func configure(with result: FileSearchResult, colorScheme: ColorScheme) {
+        pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
+        previewLabel.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 11, weight: .regular)
         pathLabel.textColor = .labelColor
         previewLabel.textColor = FileExplorerColors(colorScheme: colorScheme).secondaryTextColor
         pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
         previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
         toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
+    }
+
+    private static func lineHeight(for font: NSFont) -> CGFloat {
+        ceil(font.ascender - font.descender + font.leading)
     }
 }

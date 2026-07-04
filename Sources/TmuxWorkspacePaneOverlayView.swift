@@ -1,8 +1,12 @@
+import AppKit
+import CmuxFoundation
 import SwiftUI
 
 struct TmuxWorkspacePaneOverlayView: View {
     let unreadRects: [CGRect]
     let flashRect: CGRect?
+    let activePaneBorderRect: CGRect?
+    let activePaneBorderColorHex: String?
     let flashStartedAt: Date?
     let flashReason: WorkspaceAttentionFlashReason?
     @State private var completedFlashStartedAt: Date?
@@ -24,7 +28,7 @@ struct TmuxWorkspacePaneOverlayView: View {
                         }
                     }
             }
-        } else if !unreadRects.isEmpty {
+        } else if !unreadRects.isEmpty || activePaneBorderRect != nil {
             overlayCanvas(timelineDate: nil)
         } else {
             Color.clear
@@ -41,6 +45,15 @@ struct TmuxWorkspacePaneOverlayView: View {
 
     private func overlayCanvas(timelineDate: Date?) -> some View {
         Canvas { context, _ in
+            if let activePaneBorderRect,
+               let activePaneBorderColorHex {
+                drawActivePaneBorder(
+                    in: &context,
+                    rect: activePaneBorderRect,
+                    colorHex: activePaneBorderColorHex
+                )
+            }
+
             for rect in unreadRects {
                 drawUnreadRing(in: &context, rect: rect)
             }
@@ -58,6 +71,23 @@ struct TmuxWorkspacePaneOverlayView: View {
                 reason: flashReason ?? .notificationArrival
             )
         }
+    }
+
+    private func drawActivePaneBorder(
+        in context: inout GraphicsContext,
+        rect: CGRect,
+        colorHex: String
+    ) {
+        guard let path = ringPath(for: rect),
+              let color = NSColor(hex: colorHex) else { return }
+        context.stroke(
+            path,
+            with: .color(Color(nsColor: color)),
+            style: StrokeStyle(
+                lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth),
+                lineJoin: .round
+            )
+        )
     }
 
     private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
@@ -113,7 +143,7 @@ struct TmuxWorkspacePaneOverlayView: View {
     }
 }
 
-private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
+struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
     let startDate: Date
 
     func entries(from requestedStartDate: Date, mode: Mode) -> Entries {

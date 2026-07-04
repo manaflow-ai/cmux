@@ -92,6 +92,8 @@ Sidefeltet viser git-gren, tilknyttet PR-status/nummer, arbeidsmappe, lyttende p
 - **Nativ macOS-app** — Bygget med Swift og AppKit, ikke Electron. Rask oppstart, lavt minneforbruk.
 - **Ghostty-kompatibel** — Leser din eksisterende `~/.config/ghostty/config` for temaer, skrifttyper og farger
 - **GPU-akselerert** — Drevet av libghostty for jevn gjengivelse
+- **Tastatursnarveier** — [Omfattende snarveier](https://cmux.com/docs/keyboard-shortcuts) for arbeidsområder, delinger, nettleser og mer
+- **Åpen kildekode** — Gratis og GPL-lisensiert
 
 ## Installasjon
 
@@ -157,7 +159,10 @@ For mer informasjon om hvordan du konfigurerer cmux, [gå til dokumentasjonen v�
 | ⌃ ⌘ [ | Forrige arbeidsområde |
 | ⌘ ⇧ W | Lukk arbeidsområde |
 | ⌘ ⇧ R | Gi nytt navn til arbeidsområde |
+| ⌥ ⌘ E | Rediger arbeidsområdebeskrivelse |
 | ⌘ B | Vis/skjul sidefelt |
+| ⌥ ⌘ B | Vis/skjul høyre sidefelt |
+| ⌘ ⇧ E | Veksle fokus til høyre sidefelt |
 
 ### Overflater
 
@@ -184,6 +189,7 @@ For mer informasjon om hvordan du konfigurerer cmux, [gå til dokumentasjonen v�
 ### Nettleser
 
 Nettleserens utviklerverktøysnarveier følger Safari-standarder og kan tilpasses i `Innstillinger → Tastatursnarveier`.
+Snarveier for navigasjon i kommandopaletten, inkludert ⌃ P, kan også tilpasses og kan fjernes slik at tastetrykket når den aktive terminalen.
 
 | Snarvei | Handling |
 |----------|--------|
@@ -201,14 +207,17 @@ Nettleserens utviklerverktøysnarveier følger Safari-standarder og kan tilpasse
 |----------|--------|
 | ⌘ I | Vis varselpanel |
 | ⌘ ⇧ U | Hopp til nyeste uleste |
+| ⌥ ⌘ U | Veksle ulest-status for gjeldende element |
+| ⌃ ⌘ U | Merk gjeldende element som eldste uleste og hopp til neste nyeste uleste |
 
 ### Søk
 
 | Snarvei | Handling |
 |----------|--------|
 | ⌘ F | Søk |
-| ⌘ G / ⌘ ⇧ G | Søk neste / forrige |
-| ⌘ ⇧ F | Skjul søkelinje |
+| ⌘ ⇧ F | Søk i mappe |
+| ⌘ G / ⌥ ⌘ G | Søk neste / forrige |
+| ⌥ ⌘ ⇧ F | Skjul søkelinje |
 | ⌘ E | Bruk utvalg til søk |
 
 ### Terminal
@@ -226,6 +235,7 @@ Nettleserens utviklerverktøysnarveier følger Safari-standarder og kan tilpasse
 | Snarvei | Handling |
 |----------|--------|
 | ⌘ ⇧ N | Nytt vindu |
+| ⌘ ⇧ O | Gjenåpne forrige sesjon |
 | ⌘ , | Innstillinger |
 | ⌘ ⇧ , | Last inn konfigurasjon på nytt |
 | ⌘ Q | Avslutt |
@@ -235,6 +245,8 @@ Nettleserens utviklerverktøysnarveier følger Safari-standarder og kan tilpasse
 [Last ned cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
 cmux NIGHTLY er en separat app med sin egen bundle-ID, så den kjører ved siden av den stabile versjonen. Bygges automatisk fra den siste `main`-commiten og oppdateres automatisk via sin egen Sparkle-feed.
+
+Rapporter feil i nightly på [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) eller i [#nightly-bugs på Discord](https://discord.gg/xsgFEVrWCZ).
 
 ## Sesjonsgjenoppretting
 
@@ -246,13 +258,15 @@ Når du avslutter cmux, lagres den nåværende sesjonen. Ved omstart gjenopprett
 
 cmux tar ikke checkpoint av vilkårlig aktiv prosesstilstand. tmux, vim, shell og terminalapper uten støtte åpnes igjen som vanlige terminaler.
 
-Støttede agentøkter kan gjenopptas når hooks har lagret en native sesjons-ID:
+Støttede agentøkter kan gjenopptas når hooks har lagret en native sesjons-ID. Installer hooks etter at du har installert agent-CLI-en slik at binærfilen er på `PATH`:
 
 ```bash
 cmux hooks setup
 cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
+
+`cmux hooks setup` installerer støttede agenter den finner, og skriver ut et sammendrag for agenter som hoppes over. Støttede resume-integrasjoner inkluderer Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory og Qoder. Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjon er aktivert i Innstillinger.
 
 Avanserte brukere og integrasjoner kan knytte en egendefinert gjenopptakskommando til gjeldende terminal-surface. Dette er nyttig for verktøy med egen varig tilstand, som tmux-sesjoner eller egendefinerte agent-CLI-er:
 
@@ -262,7 +276,98 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Bindingen forblir knyttet til cmux-surfacen. Bindinger opprettet via offentlig CLI eller socket lagres for inspeksjon og manuell gjenopptakelse. cmux auto-kjører bare resume-bindinger den markerer som klarerte, for eksempel tmux-bindinger oppdaget fra levende prosesser. Sensitive miljønøkler som tokens, passord, hemmeligheter og API-nøkler fjernes før en resume-binding lagres.
+Bindingen forblir knyttet til cmux-surfacen. Bindinger opprettet via offentlig CLI eller socket lagres for inspeksjon og manuell gjenopptakelse med mindre du godkjenner et signert kommandoprefiks for automatisk gjenopptakelse. Godkjente prefikser er også bundet til arbeidsmappen og de eksakte miljøverdiene, når de er til stede. Gjennomgå eller rediger godkjenninger i **Innstillinger > Terminal > Resume Commands**. cmux auto-kjører bare resume-bindinger den markerer som klarerte, for eksempel tmux-bindinger oppdaget fra levende prosesser eller brukergodkjente prefikser. Sensitive miljønøkler som tokens, passord, hemmeligheter og API-nøkler fjernes før en resume-binding lagres.
+
+For å holde gjenopprettede agentterminaler i ro i stedet for å automatisk kjøre resume-kommandoene deres, slå av **Innstillinger > Terminal > Resume Agent Sessions on Reopen** eller angi dette i `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+Dette deaktiverer bare automatiske resume-kommandoer for agenter. cmux gjenoppretter fortsatt den lagrede layouten, arbeidsmappene, rullingshistorikken og nettleserhistorikken.
+
+Hvis du trenger å bruke det sist lagrede øyeblikksbildet manuelt på nytt, bruk:
+- `File > Reopen Previous Session`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+Under panseret skriver cmux et versjonert øyeblikksbilde under `~/Library/Application Support/cmux/`, og agent-hooks skriver sesjonstilordninger under `~/.cmuxterm/`. Ved gjenoppretting bygger cmux layouten på nytt først, og kjører deretter den støttede agentens native resume-kommando når automatisk agentgjenopptakelse er aktivert.
+
+Les hele veiledningen på <https://cmux.com/docs/session-restore>.
+
+## FAQ
+
+### Hvordan forholder cmux seg til Ghostty?
+
+cmux er ikke en fork av Ghostty. Den bruker [libghostty](https://github.com/ghostty-org/ghostty) som et bibliotek for terminalgjengivelse, på samme måte som apper bruker WebKit for nettvisninger. Ghostty er en frittstående terminal; cmux er en annen app bygget oppå dens gjengivelsesmotor.
+
+### Hvilke plattformer støttes?
+
+Bare macOS, foreløpig. cmux er en nativ Swift + AppKit-app.
+
+### Finnes det en iOS-app?
+
+Ja, i beta. Par iPhonen din med Macen din fra Mobile Connect-vinduet og koble til terminalene dine fra telefonen, med valgfri videresending av terminalvarsler. Den leveres på TestFlight som cmux BETA. Se [iOS-dokumentasjonen](https://cmux.com/docs/ios).
+
+### Hvilke kodeagenter fungerer cmux med?
+
+Alle sammen. cmux er en terminal, så enhver agent som kjører i en terminal fungerer rett ut av boksen: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent og alt annet du kan starte fra kommandolinjen.
+
+### Kan cmux orkestrere flere agenter og subagenter?
+
+Ja. Når en agent oppretter subagenter eller lagkamerater, gjør cmux dem til native paneler og delinger i stedet for skjulte bakgrunnsprosesser. Den støtter [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams) og [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode) fler-modell-orkestrering, så hver agent i en kjøring er synlig og kontrollerbar.
+
+### Kan jeg bruke cmux med eksterne maskiner?
+
+Ja. Åpne arbeidsområder over SSH og koble til eksterne tmux-sesjoner, slik at agenter kan kjøre på en ekstern vert mens du styrer dem fra cmux. Se [SSH og ekstern](https://cmux.com/docs/ssh).
+
+### Hvordan fungerer varsler?
+
+Når en prosess trenger oppmerksomhet, viser cmux varselringer rundt paneler, uleste-merker i sidefeltet, en varsel-popover og et macOS-skrivebordsvarsel. Disse utløses automatisk via standard terminal-escape-sekvenser (OSC 9/99/777), eller du kan utløse dem med [cmux CLI](https://cmux.com/docs/notifications#cli-usage) og [agentkroker](https://cmux.com/docs/notifications#integration-examples). Enhver agent som støtter hooks eller OSC fungerer, inkludert Claude Code, Codex, OpenCode og pi.
+
+### Er cmux programmerbar?
+
+Ja. Hver handling er tilgjengelig gjennom cmux CLI og en Unix-socket: opprett arbeidsområder, åpne delte paneler, send input, les skjerminnhold, ta skjermbilder og styr den innebygde nettleseren. Se [CLI-referansen](https://cmux.com/docs/api) og dokumentasjonen for [nettleserautomatisering](https://cmux.com/docs/browser-automation).
+
+### Hva kan den innebygde nettleseren gjøre?
+
+cmux kan dele et ekte nettleserpanel ved siden av terminalen din, og den er fullstendig programmerbar: naviger, ta øyeblikksbilde av DOM-en, klikk, skriv, kjør JavaScript og les konsoll- og nettverksaktivitet over det samme socket API-et. Agenter bruker den til å verifisere sine egne nettendringer uten å forlate cmux. Se [nettleserautomatisering](https://cmux.com/docs/browser-automation).
+
+### Har cmux skills?
+
+Ja. Skills er gjenbrukbare arbeidsflyter du kan gi enhver agent som kjører i cmux, for ting som CLI-kontroll, automatisering av arbeidsområder, innstillinger og nettleseroverflater. Bla i den åpne samlingen på [cmux-skills](https://github.com/manaflow-ai/cmux-skills), eller les [skills-dokumentasjonen](https://cmux.com/docs/skills).
+
+### Kan jeg tilpasse tastatursnarveier?
+
+Terminaltastebindinger leses fra Ghostty-konfigurasjonsfilen din (`~/.config/ghostty/config`). cmux-spesifikke snarveier (arbeidsområder, delinger, nettleser, varsler) kan tilpasses i Innstillinger. Se [standardsnarveiene](https://cmux.com/docs/keyboard-shortcuts) for en fullstendig liste.
+
+### Kan jeg tilpasse cmux?
+
+Ja. Terminalgjengivelse bruker Ghostty-konfigurasjonen din, så temaer, skrifttyper, farger og markør overføres direkte. cmux' egne innstillinger i `~/.config/cmux/cmux.json` styrer sidefeltet, fanelinjen, delte paneler og oppførsel, og hver [tastatursnarvei](https://cmux.com/docs/keyboard-shortcuts) kan redigeres. Se [konfigurasjon](https://cmux.com/docs/configuration).
+
+### Lagres sesjonene mine?
+
+Ja. cmux gjenoppretter vinduene, arbeidsområdene, panelene, arbeidsmappene og rullingshistorikken når du starter på nytt, og tilstanden overlever en full omstart av datamaskinen, ikke bare avslutning av appen. Agentsesjoner som Claude Code, Codex og OpenCode kommer også tilbake. Se [sesjonsgjenoppretting](https://cmux.com/docs/session-restore).
+
+### Hvordan sammenligner det seg med tmux?
+
+tmux er en terminalmultiplekser som kjører inne i en hvilken som helst terminal. cmux er en nativ macOS-app med et GUI: vertikale faner, delte paneler, en innebygd nettleser og et socket API, alt innebygd, uten behov for konfigurasjonsfiler eller prefiks-taster. Når det er sagt, kjører mange gjerne cmux med SSH og tmux sammen, og cmux kan koble til de eksterne tmux-sesjonene dine nativt ([beta](https://cmux.com/docs/remote-tmux)).
+
+### Er cmux gratis?
+
+Ja, cmux er gratis å bruke. Kildekoden er tilgjengelig på [GitHub](https://github.com/manaflow-ai/cmux).
+
+### Hvordan kan jeg støtte cmux?
+
+cmux er gratis og åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer, inkludert cmux AI, iOS-appen og Cloud VMs, sjekk ut [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+
+### Jeg har en funksjonsforespørsel eller fant en feil?
+
+Vi vil gjerne høre det. Åpne en [issue](https://github.com/manaflow-ai/cmux/issues) eller [pull request](https://github.com/manaflow-ai/cmux/pulls) på GitHub, eller [send oss en e-post](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
 ## Stjernehistorikk
 
@@ -292,6 +397,11 @@ Måter å engasjere seg:
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> Skann QR-koden for å bli med i fellesskapet.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode for å bli med i cmux-fellesskapet" width="240" />
+</p>
+
 ## Grunnleggerutgaven
 
 cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer:
@@ -301,7 +411,7 @@ cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte ut
 - **Prioriterte funksjonsforespørsler/feilrettinger**
 - **Tidlig tilgang: cmux AI som gir deg kontekst om hvert arbeidsområde, fane og panel**
 - **Tidlig tilgang: iOS-app med terminaler synkronisert mellom desktop og telefon**
-- **Tidlig tilgang: Sky-VMer**
+- **Tidlig tilgang: Cloud VMs**
 - **Tidlig tilgang: Stemmemodus**
 - **Min personlige iMessage/WhatsApp**
 

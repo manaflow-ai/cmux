@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import Combine
 import SQLite3
 import SwiftUI
@@ -158,15 +159,22 @@ struct SessionIndexViewTests {
         )
 
         let command = entry.resumeCommand ?? ""
+        // The codex resume now routes the codex executable through the cmux codex
+        // wrapper token and wraps the rendered command in `/bin/sh -c '…'` so a
+        // resumed codex session keeps its hooks (issue #5639). Assert the inner
+        // POSIX command preserves the sandbox-flag behavior of issue #5262.
+        #expect(command.hasPrefix("/bin/sh -c "))
+        let inner = Self.unwrapPortableShellCommand(command)
+        #expect(inner.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken))
         #expect(
-            command == "codex resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
+            inner == "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
         )
         #expect(
-            !command.contains("-s disabled"),
+            !inner.contains("-s disabled"),
             "Codex resume must not emit the invalid `-s disabled` flag (issue #5262)"
         )
         #expect(
-            !command.contains("-a never -s"),
+            !inner.contains("-a never -s"),
             "The bypass flag must replace, not accompany, -a/-s"
         )
     }
@@ -188,9 +196,12 @@ struct SessionIndexViewTests {
         )
 
         let command = entry.resumeCommand ?? ""
-        #expect(command == "codex resume codex-session-managed -a on-request")
+        let inner = Self.unwrapPortableShellCommand(command)
         #expect(
-            !command.contains("-s managed"),
+            inner == "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-managed -a on-request"
+        )
+        #expect(
+            !inner.contains("-s managed"),
             "Codex resume must not emit the invalid `-s managed` flag (issue #5262)"
         )
     }
@@ -211,7 +222,10 @@ struct SessionIndexViewTests {
                 effort: nil
             )
         )
-        #expect(readOnly.resumeCommand == "codex resume codex-ro -a untrusted -s read-only")
+        #expect(
+            Self.unwrapPortableShellCommand(readOnly.resumeCommand ?? "") ==
+                "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -a untrusted -s read-only"
+        )
 
         let dangerFullAccess = makeEntry(
             agent: .codex,
@@ -225,8 +239,21 @@ struct SessionIndexViewTests {
             )
         )
         #expect(
-            dangerFullAccess.resumeCommand == "codex resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
+            Self.unwrapPortableShellCommand(dangerFullAccess.resumeCommand ?? "") ==
+                "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
         )
+    }
+
+    /// Reverses `AgentResumeArgv.portableCodexResumeShellCommand`, recovering the
+    /// inner POSIX command from a `/bin/sh -c '<command>'` wrapper (undoing the
+    /// `'\''` single-quote escaping).
+    static func unwrapPortableShellCommand(_ command: String) -> String {
+        let prefix = "/bin/sh -c "
+        guard command.hasPrefix(prefix) else { return command }
+        var quoted = String(command.dropFirst(prefix.count))
+        guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
+        quoted = String(quoted.dropFirst().dropLast())
+        return quoted.replacingOccurrences(of: "'\\''", with: "'")
     }
 
     @Test

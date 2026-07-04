@@ -1,10 +1,12 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 /// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
     private var quickSearchQuery: String?
     private var colorScheme: ColorScheme = .light
@@ -24,7 +26,7 @@ final class FileExplorerHeaderView: NSView {
         iconView.contentTintColor = colors.secondaryIconTint
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        applyFonts()
         pathLabel.textColor = colors.secondaryTextColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
@@ -33,8 +35,11 @@ final class FileExplorerHeaderView: NSView {
         addSubview(iconView)
         addSubview(pathLabel)
 
+        let heightConstraint = heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight)
+        self.heightConstraint = heightConstraint
+
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
+            heightConstraint,
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -46,6 +51,11 @@ final class FileExplorerHeaderView: NSView {
             pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
         applyHeaderState()
+    }
+
+    func applyFonts() {
+        pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+        heightConstraint?.constant = RightSidebarChromeMetrics.secondaryBarHeight
     }
 
     func updateColorScheme(_ nextColorScheme: ColorScheme, force: Bool = false) {
@@ -71,10 +81,10 @@ final class FileExplorerHeaderView: NSView {
     private func applyHeaderState() {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-        if let quickSearchQuery {
+        if let quickSearchQuery, !quickSearchQuery.isEmpty {
             iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
                 .withSymbolConfiguration(config)
-            pathLabel.stringValue = quickSearchQuery.isEmpty ? "" : "/" + quickSearchQuery
+            pathLabel.stringValue = "/" + quickSearchQuery
             pathLabel.toolTip = pathLabel.stringValue
         } else {
             iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?

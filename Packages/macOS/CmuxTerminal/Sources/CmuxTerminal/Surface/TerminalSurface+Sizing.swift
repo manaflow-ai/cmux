@@ -1,10 +1,6 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
-internal import QuartzCore
-#if DEBUG
-internal import CMUXDebugLog
-#endif
 
 // MARK: - Surface sizing, scale, and mobile viewport caps
 
@@ -266,13 +262,18 @@ extension TerminalSurface {
 
     /// Caps the surface grid to a paired iPhone's viewport.
     ///
-    /// - Returns: Whether the runtime surface size changed.
+    /// - Returns: The actual cell grid applied after capping to the Mac pane, or
+    ///   `nil` when no live runtime surface is available.
     @discardableResult
     @MainActor
-    public func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
+    public func applyMobileViewportLimit(
+        columns: Int,
+        rows: Int,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "applyMobileViewportLimit") else {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
-            return false
+            return nil
         }
         let size = ghostty_surface_size(surface)
         let cellWidth = max(1, Int(size.cell_width_px))
@@ -298,6 +299,16 @@ extension TerminalSurface {
         let appliedWidth = min(targetWidth, baseWidth)
         let appliedHeight = min(targetHeight, baseHeight)
         let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
+        let appliedColumns = cellCount(
+            pixelDimension: appliedWidth,
+            cellSize: cellWidth,
+            nonGridPixels: horizontalNonGridPixels
+        )
+        let appliedRows = cellCount(
+            pixelDimension: appliedHeight,
+            cellSize: cellHeight,
+            nonGridPixels: verticalNonGridPixels
+        )
         updateMobileViewportBorder(
             appliedWidth: appliedWidth,
             appliedHeight: appliedHeight,
@@ -314,12 +325,12 @@ extension TerminalSurface {
         )
         #endif
 
-        guard sizeChanged else { return false }
+        guard sizeChanged else { return (appliedColumns, appliedRows) }
         ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
-        return true
+        return (appliedColumns, appliedRows)
     }
 
     /// Removes the mobile viewport cap and restores the uncapped size.
@@ -407,6 +418,11 @@ extension TerminalSurface {
         return UInt32(clampedCellCount * clampedCellSize + clampedNonGridPixels)
     }
 
+    private func cellCount(pixelDimension: UInt32, cellSize: Int, nonGridPixels: Int) -> Int {
+        let gridPixels = max(0, Int(pixelDimension) - max(0, nonGridPixels))
+        return max(1, gridPixels / max(1, cellSize))
+    }
+
     /// The current monospace cell size in points, or nil if the runtime
     /// surface is not ready. Used by remote tmux mirror sizing.
     @MainActor
@@ -452,64 +468,5 @@ extension TerminalSurface {
             drawRight: drawRightBorder,
             drawBottom: drawBottomBorder
         )
-    }
-
-    /// Force a full size recalculation and surface redraw.
-    @MainActor
-    public func forceRefresh(reason: String = "unspecified") {
-#if DEBUG
-        let hasSurface = surface != nil
-        let viewState: String
-        if let view = attachedView {
-            let inWindow = uiWindow != nil
-            let bounds = view.bounds
-            let metalOK = (view.layer as? CAMetalLayer) != nil
-            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
-        } else {
-            viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
-        }
-        logDebugEvent("forceRefresh: \(id) reason=\(reason) \(viewState)")
-#endif
-        guard let view = attachedView,
-              let window = uiWindow,
-              view.bounds.width > 0,
-              view.bounds.height > 0 else {
-            return
-        }
-#if DEBUG
-        recordDebugForceRefresh()
-#endif
-        // Re-read self.surface before each ghostty call to guard against the surface
-        // being freed during wake-from-sleep geometry reconciliation (issue #432).
-        // The surface can be invalidated between calls when AppKit layout triggers
-        // view lifecycle changes (e.g., forceRefreshSurface → layout → deinit → free).
-
-        // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
-        // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
-        // but callbacks have not resumed for the current display.
-        let displayID = (window.screen ?? NSScreen.main)?.displayID
-#if DEBUG
-        let accessReason = "forceRefresh.\(reason)"
-#else
-        let accessReason = "forceRefresh"
-#endif
-        guard let currentSurface = liveSurfaceForGhosttyAccess(reason: accessReason) else {
-            return
-        }
-        if let displayID,
-           displayID != 0 {
-            ghostty_surface_set_display_id(currentSurface, displayID)
-        }
-
-        view.forceRefreshSurface()
-#if DEBUG
-        let refreshReason = "forceRefresh.refresh.\(reason)"
-#else
-        let refreshReason = "forceRefresh.refresh"
-#endif
-        guard let surface = liveSurfaceForGhosttyAccess(reason: refreshReason) else {
-            return
-        }
-        ghostty_surface_refresh(surface)
     }
 }

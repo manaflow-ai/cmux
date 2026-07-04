@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
@@ -114,7 +115,7 @@ struct SessionIndexView: View {
 
             Toggle(isOn: $store.scopeToCurrentDirectory) {
                 Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             }
             .toggleStyle(.checkbox)
@@ -129,7 +130,7 @@ struct SessionIndexView: View {
                 store.reload()
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10, weight: .medium))
+                    .cmuxFont(size: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
             .help(String(localized: "sessionIndex.reload.tooltip", defaultValue: "Reload Vault"))
@@ -145,7 +146,7 @@ struct SessionIndexView: View {
         VStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.loading", defaultValue: "Loading Vault…"))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -154,11 +155,11 @@ struct SessionIndexView: View {
     private var emptyView: some View {
         VStack(spacing: 4) {
             Text(String(localized: "sessionIndex.empty.title", defaultValue: "Vault is empty"))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Text(String(localized: "sessionIndex.empty.subtitle",
                                    defaultValue: "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
@@ -274,7 +275,7 @@ private struct AgentIconImage: View, Equatable {
                 .frame(width: size, height: size)
         } else {
             Image(systemName: agent.systemImageName ?? "person.crop.circle")
-                .font(.system(size: max(size - 2, 10), weight: .regular))
+                .cmuxFont(size: max(size - 2, 10), weight: .regular)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 .frame(width: size, height: size)
         }
@@ -292,18 +293,14 @@ private struct GroupingButton: View {
             HStack(spacing: 3) {
                 Image(systemName: mode.symbolName)
                     .symbolRenderingMode(.monochrome)
-                    .font(
-                        .system(
-                            size: RightSidebarChromeControlStyle.secondaryIconSize,
-                            weight: RightSidebarChromeControlStyle.iconWeight
-                        )
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.secondaryIconSize,
+                        weight: RightSidebarChromeControlStyle.iconWeight
                     )
                 Text(mode.label)
-                    .font(
-                        .system(
-                            size: RightSidebarChromeControlStyle.labelSize,
-                            weight: RightSidebarChromeControlStyle.labelWeight
-                        )
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.labelSize,
+                        weight: RightSidebarChromeControlStyle.labelWeight
                     )
             }
             .rightSidebarChromePill(isSelected: isSelected, isHovered: isHovered, geometryKeyPrefix: "rightSidebarSecondaryControl_\(mode.rawValue)")
@@ -418,7 +415,7 @@ private struct IndexSectionView: View, Equatable {
             isPopoverOpen = true
         } label: {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                 .padding(.leading, 32)
                 .padding(.trailing, 12)
@@ -446,12 +443,12 @@ private struct IndexSectionView: View, Equatable {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13, weight: .regular))
+                    .cmuxFont(size: 13, weight: .regular)
                     .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .cmuxFont(size: 9, weight: .semibold)
                     .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
@@ -470,7 +467,7 @@ private struct IndexSectionView: View, Equatable {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -485,7 +482,7 @@ private struct IndexSectionView: View, Equatable {
             AgentIconImage(agent: agent, size: 14, colorScheme: colorScheme)
         case .folder:
             Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
+                .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 .frame(width: 14, height: 14)
         }
@@ -585,13 +582,13 @@ private struct SessionRow: View, Equatable {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
             Text(entry.displayTitle)
-                .font(.system(size: 13))
+                .cmuxFont(size: 13)
                 .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
             Text(relativeTime(entry.modified))
-                .font(.system(size: 12).monospacedDigit())
+                .cmuxFont(size: 12, monospacedDigit: true)
                 .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
                 .fixedSize()
         }
@@ -613,7 +610,7 @@ private struct SessionRow: View, Equatable {
             HStack(spacing: 6) {
                 AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
                 Text(entry.displayTitle)
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxFont(size: 12, weight: .medium)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -773,13 +770,13 @@ private struct SessionTranscriptPreviewView: View {
             AgentIconImage(agent: entry.agent, size: 14, colorScheme: colorScheme)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(RightSidebarContentTextStyle.primary(colorScheme: colorScheme))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let cwd = entry.cwdLabel {
                     Text(cwd)
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -787,7 +784,7 @@ private struct SessionTranscriptPreviewView: View {
             }
             Spacer(minLength: 8)
             Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .semibold))
+                .cmuxFont(size: 11, weight: .semibold)
                 .foregroundColor(
                     closeIsHovered
                         ? RightSidebarContentTextStyle.primary(colorScheme: colorScheme)
@@ -844,7 +841,7 @@ private struct SessionTranscriptPreviewView: View {
             ProgressView()
                 .controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Spacer(minLength: 0)
         }
@@ -855,10 +852,10 @@ private struct SessionTranscriptPreviewView: View {
     private func statusRow(systemImage: String, text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Text(text)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Spacer(minLength: 0)
         }
@@ -972,7 +969,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 3) {
                 Text(row.isContinuation ? "" : row.role.label)
-                    .font(.system(size: 10, weight: .semibold))
+                    .cmuxFont(size: 10, weight: .semibold)
                     .foregroundColor(row.role.foregroundColor)
                     .lineLimit(1)
                     .frame(width: 58, alignment: .trailing)
@@ -983,7 +980,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
                 }
             }
             Text(row.text)
-                .font(row.role.bodyFont)
+                .cmuxFont(size: row.role.bodyFontSize, design: row.role.bodyFontDesign)
                 .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2093,21 +2090,21 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
     }
 }
 
-private final class PopoverAnchorView: NSView {
-    var onDidMoveToWindow: (() -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        onDidMoveToWindow?()
-    }
-}
-
 private extension NSHostingController where Content == AnyView {
     func applyRightSidebarPopoverAppearance(_ colorScheme: ColorScheme, popover: NSPopover?) {
         let baseAppearance = view.window?.effectiveAppearance ?? NSApp.effectiveAppearance
         let appearance = FileExplorerColors.appearance(for: colorScheme, preservingVariantsOf: baseAppearance)
         popover?.appearance = appearance
         view.appearance = appearance
+    }
+}
+
+private final class PopoverAnchorView: NSView {
+    var onDidMoveToWindow: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onDidMoveToWindow?()
     }
 }
 
@@ -2197,8 +2194,8 @@ private struct SectionPopoverView: View {
             HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.primary)
+                    .cmuxFont(size: 13, weight: .semibold)
+                    .foregroundColor(RightSidebarContentTextStyle.primary(colorScheme: colorScheme))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
@@ -2209,7 +2206,7 @@ private struct SectionPopoverView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
@@ -2217,14 +2214,14 @@ private struct SectionPopoverView: View {
                     text: $query
                 )
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .focused($searchFieldFocused)
                 if !query.isEmpty {
                     Button {
                         query = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                     }
                     .buttonStyle(.plain)
@@ -2246,10 +2243,10 @@ private struct SectionPopoverView: View {
                     ForEach(errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .foregroundColor(.orange)
                             Text(msg)
-                                .font(.system(size: 11))
+                                .cmuxFont(size: 11)
                                 .foregroundColor(
                                     RightSidebarContentTextStyle.emphasized(
                                         colorScheme: colorScheme,
@@ -2271,7 +2268,7 @@ private struct SectionPopoverView: View {
                     } else if loaded.isEmpty {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
-                            .font(.system(size: 12))
+                            .cmuxFont(size: 12)
                             .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
@@ -2294,7 +2291,7 @@ private struct SectionPopoverView: View {
                         } else {
                             Text(String(localized: "sessionIndex.popover.endOfList",
                                         defaultValue: "You've reached the end"))
-                                .font(.system(size: 11))
+                                .cmuxFont(size: 11)
                                 .foregroundColor(RightSidebarContentTextStyle.quaternary(colorScheme: colorScheme))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 8)
@@ -2412,7 +2409,7 @@ private struct SectionPopoverView: View {
         HStack(spacing: 6) {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
             Spacer(minLength: 0)
         }
@@ -2498,7 +2495,7 @@ private struct SectionPopoverView: View {
             AgentIconImage(agent: agent, size: 14, colorScheme: colorScheme)
         case .folder:
             Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
+                .cmuxFont(size: 12, weight: .regular)
                 .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
                 .frame(width: 14, height: 14)
         }
@@ -2537,7 +2534,7 @@ private struct PopoverRow: View, Equatable {
         TimelineView(RelativeTimestampSchedule(modified: entry.modified)) { context in
             Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
         }
-        .font(.system(size: 11).monospacedDigit())
+        .cmuxFont(size: 11, monospacedDigit: true)
         .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
         .fixedSize()
     }
@@ -2545,10 +2542,12 @@ private struct PopoverRow: View, Equatable {
     var body: some View {
         HStack(spacing: 6) {
             AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
-            // Flatten hard breaks; lineLimit(1) does not always constrain
-            // Text backed by strings that contain explicit newlines.
+            // Flatten newlines so titles containing `<command-message>…\n…`
+            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
+            // always constrain a Text that has hard line breaks in the
+            // source string.
             Text(Self.flatten(entry.displayTitle))
-                .font(.system(size: 12))
+                .cmuxFont(size: 12)
                 .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -2681,7 +2680,8 @@ struct SectionPopoverHost: NSViewRepresentable {
     @Binding var isPresented: Bool
     let section: IndexSection
     let colorScheme: ColorScheme
-    /// Closure-typed search handle; the host does not hold a store reference.
+    /// Closure-typed search handle passed through to the SwiftUI popover
+    /// body. The host no longer holds a `SessionIndexStore` reference.
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let onResume: ((SessionEntry) -> Void)?
@@ -2726,9 +2726,18 @@ struct SectionPopoverHost: NSViewRepresentable {
 
         private let hostingController: NSHostingController<AnyView> = {
             NSHostingController(rootView: AnyView(EmptyView()))
-            // Do not set sizingOptions: NSPopover observes preferredContentSize
-            // and can override the manual contentSize while SwiftUI layout
-            // settles, briefly rendering the popover squished.
+            // DO NOT set sizingOptions here. sizingOptions =
+            // [.preferredContentSize] makes NSHostingController
+            // continuously rewrite its preferredContentSize from SwiftUI
+            // layout; NSPopover observes preferredContentSize and will
+            // override any manual popover.contentSize we set. On first
+            // open SwiftUI layout settles over multiple passes and
+            // preferredContentSize briefly reports a partial height —
+            // NSPopover latches onto that and renders squished (evidence:
+            // /tmp/cmux-debug-spin-fix.log, refreshContent logged
+            // fitting=360x486 at present, but visible popover was ~280).
+            // Instead we drive popover.contentSize manually from
+            // fittingSize on every updateNSView / present call.
         }()
         private var popover: NSPopover?
         private var currentSection: IndexSection?
@@ -2759,10 +2768,15 @@ struct SectionPopoverHost: NSViewRepresentable {
             currentSearch = search
             currentLoadSnapshot = loadSnapshot
             currentOnResume = onResume
-            // When hidden, defer rebuilding until `present()`; eager rootView
-            // rewrites on parent re-render caused the 100% CPU loop in #3010.
+            // When hidden, defer rebuilding the hosting view until `present()`.
+            // Rewriting rootView + forcing layout on every parent re-render was
+            // the 100% CPU loop behind #3010.
             guard popover?.isShown == true else { return }
-            // Refresh only when visible content, color scheme, or open identity changes.
+            // Rows capture stable closure bundles above the list boundary, so
+            // the section snapshot is the meaningful input here. Skipping
+            // identical visible-section updates avoids re-laying out the popover
+            // during unrelated parent re-renders while still refreshing when the
+            // visible content actually changes.
             guard lastRenderedSection != section
                 || lastRenderedColorScheme != colorScheme
                 || lastRenderedPresentationCount != presentationCount
@@ -2788,6 +2802,8 @@ struct SectionPopoverHost: NSViewRepresentable {
                 ) { [weak self] in
                     self?.closeFromContent()
                 }
+                // Tied to presentationCount so reopening the popover discards
+                // the prior open's view-local search and scroll state.
                 .background(Color(nsColor: .windowBackgroundColor))
                 .environment(\.colorScheme, colorScheme)
                 .id(identity)
@@ -2807,7 +2823,10 @@ struct SectionPopoverHost: NSViewRepresentable {
             }
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
-            // Only bump identity on hidden-to-shown; parent re-renders must not reset view-local state.
+            // Only bump identity on a hidden-to-shown transition. Bumping on every
+            // updateNSView (which fires on parent re-renders, e.g. ObservedObject
+            // store changes) would reset SectionPopoverView's view-local state
+            // on every tick.
             if !popover.isShown {
                 presentationCount += 1
                 refreshContent()

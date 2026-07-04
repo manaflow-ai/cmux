@@ -1,5 +1,13 @@
 export const blogPosts = [
   {
+    slug: "cmux-home",
+    key: "cmuxHome",
+    title: "cmux home",
+    date: "2026-06-23",
+    summary:
+      "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
+  },
+  {
     slug: "cmux-history",
     key: "cmuxHistory",
     title: "cmux history",

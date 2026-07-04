@@ -635,13 +635,17 @@ class CmuxPerfRunner:
 
         def max_budget(label: str, actual: float | int | None, budget: float | int, blocking: bool = True) -> None:
             if actual is None:
-                record(blocking, f"{label}: missing measurement")
+                # A missing measurement is a benchmark-contract failure, not a
+                # load-sensitive timing value, so it is always blocking.
+                failures.append(f"{label}: missing measurement")
             elif actual > budget:
                 record(blocking, f"{label}: {actual} > {budget}")
 
         def min_budget(label: str, actual: float | int | None, budget: float | int, blocking: bool = True) -> None:
             if actual is None:
-                record(blocking, f"{label}: missing measurement")
+                # A missing measurement is a benchmark-contract failure, not a
+                # load-sensitive timing value, so it is always blocking.
+                failures.append(f"{label}: missing measurement")
             elif actual < budget:
                 record(blocking, f"{label}: {actual} < {budget}")
 
@@ -694,7 +698,10 @@ class CmuxPerfRunner:
             if self.seed_synthetic_scrollback_fallback(real_scrollback):
                 self.benchmark_snapshot("snapshot_with_scrollback", include_scrollback=True)
             else:
-                self.result["measurements"]["snapshot_with_scrollback"] = real_scrollback
+                # Copy so best_of_snapshot_timing's in-place mutation of
+                # snapshot_with_scrollback does not clobber the raw
+                # snapshot_with_real_scrollback measurement (same dict object).
+                self.result["measurements"]["snapshot_with_scrollback"] = dict(real_scrollback)
             self.best_of_snapshot_timing("snapshot_with_scrollback", include_scrollback=True)
             self.benchmark_restore()
             self.apply_budgets()
