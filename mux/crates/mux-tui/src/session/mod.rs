@@ -239,6 +239,32 @@ impl Session {
         }
     }
 
+    pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) {
+        match self {
+            Session::Local(mux) => {
+                mux.move_tab(surface, pane, index);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(
+                    json!({"cmd": "move-tab", "surface": surface, "pane": pane, "index": index}),
+                );
+            }
+        }
+    }
+
+    pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
+        match self {
+            Session::Local(mux) => {
+                mux.move_workspace(workspace, index);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(
+                    json!({"cmd": "move-workspace", "workspace": workspace, "index": index}),
+                );
+            }
+        }
+    }
+
     pub fn close_surface(&self, surface: SurfaceId) {
         match self {
             Session::Local(mux) => mux.close_surface(surface),

@@ -284,12 +284,45 @@ impl Terminal {
     /// Plain text of a selection range given in viewport coordinates
     /// (inclusive). Returns `None` when either endpoint is out of bounds.
     pub fn selection_text(&mut self, start: (u16, u16), end: (u16, u16)) -> Option<String> {
-        let grid_ref = |x: u16, y: u16| -> Option<sys::GhosttyGridRef> {
+        self.selection_text_with_tag(
+            sys::GHOSTTY_POINT_TAG_VIEWPORT,
+            (start.0, start.1 as u64),
+            (end.0, end.1 as u64),
+        )
+    }
+
+    /// Plain text of a selection range given in absolute screen
+    /// coordinates (scrollbar offset + viewport row), inclusive.
+    /// Clamps the end row when scrollback has trimmed rows after the
+    /// selection was captured.
+    pub fn selection_text_absolute(
+        &mut self,
+        start: (u16, u64),
+        end: (u16, u64),
+    ) -> Option<String> {
+        let sb = self.scrollbar()?;
+        let last_row = sb.total.checked_sub(1)?;
+        if start.1 > last_row {
+            return None;
+        }
+        let end = (end.0, end.1.min(last_row));
+        if (end.1, end.0) < (start.1, start.0) {
+            return None;
+        }
+        self.selection_text_with_tag(sys::GHOSTTY_POINT_TAG_SCREEN, start, end)
+    }
+
+    fn selection_text_with_tag(
+        &mut self,
+        tag: sys::GhosttyPointTag,
+        start: (u16, u64),
+        end: (u16, u64),
+    ) -> Option<String> {
+        let grid_ref = |x: u16, y: u64| -> Option<sys::GhosttyGridRef> {
+            let y = u32::try_from(y).ok()?;
             let point = sys::GhosttyPoint {
-                tag: sys::GHOSTTY_POINT_TAG_VIEWPORT,
-                value: sys::GhosttyPointValue {
-                    coordinate: sys::GhosttyPointCoordinate { x, y: y as u32 },
-                },
+                tag,
+                value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
             };
             let mut out = sys::GhosttyGridRef {
                 size: std::mem::size_of::<sys::GhosttyGridRef>(),

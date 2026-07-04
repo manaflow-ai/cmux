@@ -92,26 +92,20 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     }
     app.hits.extend(hits);
 
-    // Session label / status message, right-aligned (the prefix indicator
-    // replaces it).
-    let label = app
-        .status_message
-        .as_ref()
-        .map(|msg| format!(" {} ", truncate(msg, area.width.saturating_sub(x) as usize)))
-        .unwrap_or_else(|| format!("[{}] ", app.session_label));
-    let label_w = label.chars().count() as u16;
-    if !app.prefix_armed && x + label_w < area.width {
-        frame.buffer_mut().set_stringn(
-            area.width - label_w,
-            status_y,
-            &label,
-            label_w as usize,
-            if app.status_message.is_some() {
-                base.fg(Color::Red).add_modifier(Modifier::BOLD)
-            } else {
-                base.fg(Color::Indexed(244))
-            },
-        );
+    // Status messages are right-aligned; otherwise the status bar stays
+    // empty after the screen list.
+    if let Some(message) = app.status_message.as_ref() {
+        let label = format!(" {} ", truncate(message, area.width.saturating_sub(x) as usize));
+        let label_w = label.chars().count() as u16;
+        if !app.prefix_armed && x + label_w < area.width {
+            frame.buffer_mut().set_stringn(
+                area.width - label_w,
+                status_y,
+                &label,
+                label_w as usize,
+                base.fg(Color::Red).add_modifier(Modifier::BOLD),
+            );
+        }
     }
 
     if app.prefix_armed {

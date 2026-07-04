@@ -23,6 +23,16 @@ def tree():
 def active_screen(ws):
     return next(s for s in ws["screens"] if s["active"])
 
+def send_prefix_t_until_tab_count(count):
+    last = None
+    for _ in range(5):
+        os.write(fd, b"\x02t")
+        drain(0.8)
+        last = active_screen(tree()[0])
+        if len(last["panes"][0]["tabs"]) >= count:
+            return last
+    raise AssertionError(last)
+
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
@@ -170,7 +180,9 @@ try:
     tty.setraw(fd)
     os.write(fd, b'\\x1b]11;?\\x1b\\\\')
     data = b''
-    end = time.time() + 2
+    # Generous deadline: the shell may still be consuming the pasted
+    # heredoc and the TUI coalesces frames (this raced at 2s).
+    end = time.time() + 8
     while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
         r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
         if not r:
@@ -207,17 +219,39 @@ copied = base64.b64decode(osc52[-1]).decode()
 assert "smoke-marker-ok" in copied, repr(copied)
 print("drag-select -> OSC52 clipboard copy ok")
 
+os.write(fd, b"clear; for i in $(seq -w 0 80); do printf 'sel-line-%s\\n' \"$i\"; done\r")
+wait_screen_contains(surface_id, "sel-line-80")
+assert rpc({"id": 101, "cmd": "scroll-surface", "surface": surface_id, "delta": -24})["ok"]
+drain(0.4)
+before_scroll = rpc({"id": 102, "cmd": "read-screen", "surface": surface_id})["data"]["text"]
+lines = before_scroll.splitlines()
+vrow = next(i for i, l in enumerate(lines) if "sel-line-" in l)
+start_col = 24 + lines[vrow].index("sel-line-")
+start_row = vrow + 2
+bottom_row = 28
+os.write(fd, f"\x1b[<0;{start_col};{start_row}M".encode())
+held_output_start = len(output)
+os.write(fd, f"\x1b[<32;{start_col + 10};{bottom_row}M".encode())
+drain(0.9)
+held_render = output[held_output_start:].decode("utf-8", "replace")
+assert re.search(r"sel-line-(2[0-9]|3[0-9]|4[0-9])", held_render), held_render[-2000:]
+os.write(fd, f"\x1b[<0;{start_col + 10};{bottom_row}m".encode())
+drain(0.6)
+osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
+assert osc52, "no OSC 52 clipboard write after auto-scroll drag-select"
+copied = base64.b64decode(osc52[-1]).decode()
+assert "sel-line-" in copied and "\n" in copied, repr(copied)
+print("drag-select auto-scroll and scroll-stable copy ok")
+
 # Click the + in the top border for a new tab (tab "1" label is 3 cols
 # wide plus optional title; find via hits is not possible from outside,
 # so use prefix-t which shares the same action path).
-os.write(fd, b"\x02t")
-drain(1.0)
-screen0 = active_screen(tree()[0])
+screen0 = send_prefix_t_until_tab_count(2)
+screen0 = send_prefix_t_until_tab_count(3)
 panes = screen0["panes"]
 assert len(panes) == 1, screen0
-assert len(panes[0]["tabs"]) == 2, screen0
-assert panes[0]["active_tab"] == 1, screen0
-print("prefix-t new tab in pane ok")
+assert len(panes[0]["tabs"]) == 3, screen0
+assert panes[0]["active_tab"] == 2, screen0
 
 # Alt-n: smart split. In this 75x27 content geometry, width > 2*height,
 # so the visually longer axis is horizontal and the split is right.
@@ -228,6 +262,28 @@ panes = screen0["panes"]
 assert len(panes) == 2, screen0
 assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "right", screen0
 print("alt-n smart split ok")
+
+left_pane = panes[0]
+right_pane = panes[1]
+tab_order = [t["surface"] for t in left_pane["tabs"]]
+os.write(fd, b"\x1b[<0;41;1M\x1b[<32;24;1M\x1b[<0;24;1m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+left_pane = panes_by_id[left_pane["id"]]
+right_pane = panes_by_id[right_pane["id"]]
+reordered = [t["surface"] for t in left_pane["tabs"]]
+assert reordered == [tab_order[2], tab_order[0], tab_order[1]], (tab_order, reordered, screen0)
+print("tab drag reorder within pane ok")
+
+moving_surface = left_pane["tabs"][0]["surface"]
+os.write(fd, b"\x1b[<0;27;1M\x1b[<32;63;1M\x1b[<0;63;1m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+assert moving_surface not in [t["surface"] for t in panes_by_id[left_pane["id"]]["tabs"]], screen0
+assert moving_surface in [t["surface"] for t in panes_by_id[right_pane["id"]]["tabs"]], screen0
+print("tab drag to another pane ok")
 
 # Split via socket while TUI is attached.
 new = rpc({"id": 6, "cmd": "split", "pane": panes[0]["id"], "dir": "down"})
@@ -292,12 +348,21 @@ assert len(workspaces) == 2, workspaces
 assert workspaces[1]["active"], workspaces
 print("prefix-W new workspace ok")
 
-# Click the first workspace's sidebar entry. Layout: row 0 header, row 1
-# blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2. Click
-# row 2 (SGR is 1-based: row 3).
-os.write(fd, b"\x1b[<0;2;3M\x1b[<0;2;3m")
+# Drag the original workspace below the new one. Layout: row 0 header,
+# row 1 blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2
+# (SGR mouse coordinates are 1-based).
+original_ws = ws_id
+os.write(fd, b"\x1b[<0;2;3M\x1b[<32;2;7M\x1b[<0;2;7m")
 drain(1.0)
-assert tree()[0]["active"], tree()
+workspaces = tree()
+assert [w["id"] for w in workspaces] == [w["id"] for w in workspaces if w["id"] != original_ws] + [original_ws], workspaces
+print("sidebar workspace drag reorder ok")
+
+# Click the moved original workspace's sidebar entry.
+os.write(fd, b"\x1b[<0;2;6M\x1b[<0;2;6m")
+drain(1.0)
+workspaces = tree()
+assert workspaces[1]["active"] and workspaces[1]["id"] == original_ws, workspaces
 print("sidebar click switches workspace ok")
 
 # Plain right-click inside the right-hand pane (col 81, row 6 SGR; clear

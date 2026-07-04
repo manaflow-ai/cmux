@@ -125,6 +125,15 @@ enum Command {
         dir: String,
         ratio: f32,
     },
+    MoveTab {
+        surface: SurfaceId,
+        pane: PaneId,
+        index: usize,
+    },
+    MoveWorkspace {
+        workspace: WorkspaceId,
+        index: usize,
+    },
     SetDefaultColors {
         #[serde(default)]
         fg: Option<String>,
@@ -466,6 +475,18 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             };
             if !mux.set_ratio(pane, dir, ratio) {
                 anyhow::bail!("unknown pane/split {pane}");
+            }
+            Ok(json!({}))
+        }
+        Command::MoveTab { surface, pane, index } => {
+            if !mux.move_tab(surface, pane, index) {
+                anyhow::bail!("unknown surface/pane or unchanged move");
+            }
+            Ok(json!({}))
+        }
+        Command::MoveWorkspace { workspace, index } => {
+            if !mux.move_workspace(workspace, index) {
+                anyhow::bail!("unknown workspace or unchanged move");
             }
             Ok(json!({}))
         }

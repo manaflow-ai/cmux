@@ -137,6 +137,29 @@ fn selection_text_extracts_range() {
 }
 
 #[test]
+fn selection_text_absolute_preserves_soft_wraps() {
+    let mut term = Terminal::new(10, 3, 1000, Callbacks::default()).unwrap();
+    term.vt_write(b"abcdefghijklmno");
+
+    let text = term.selection_text_absolute((0, 0), (4, 1)).unwrap();
+    assert_eq!(text.trim_end(), "abcdefghijklmno");
+}
+
+#[test]
+fn selection_text_absolute_spans_scrolled_out_rows() {
+    let mut term = Terminal::new(20, 3, 1000, Callbacks::default()).unwrap();
+    for i in 0..8 {
+        term.vt_write(format!("line{i:02}\r\n").as_bytes());
+    }
+    let sb = term.scrollbar().unwrap();
+    assert!(sb.scrolled_back() || sb.offset > 0, "{sb:?}");
+
+    let text = term.selection_text_absolute((0, 0), (5, 1)).unwrap();
+    assert!(text.contains("line00"), "{text:?}");
+    assert!(text.contains("line01"), "{text:?}");
+}
+
+#[test]
 fn scrollbar_tracks_scrollback() {
     let mut term = Terminal::new(20, 4, 1000, Callbacks::default()).unwrap();
     for i in 0..20 {

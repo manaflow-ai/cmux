@@ -195,6 +195,25 @@ fn control_socket_round_trip() {
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-tab failed: {line}");
+    let second_tab = v["data"]["surface"].as_u64().unwrap();
+
+    line.clear();
+    writeln!(
+        writer,
+        r#"{{"id":81,"cmd":"move-tab","surface":{surface_id},"pane":{pane_id},"index":2}}"#
+    )
+    .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "move-tab failed: {line}");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":82,"cmd":"list-workspaces"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    let tabs = v["data"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"].as_array().unwrap();
+    assert_eq!(tabs[0]["surface"], second_tab);
+    assert_eq!(tabs[1]["surface"], surface_id);
 
     // Split and resize the split ratio over the socket.
     line.clear();
@@ -229,6 +248,27 @@ fn control_socket_round_trip() {
     assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
     assert_eq!(ws["screens"].as_array().unwrap().len(), 2);
     assert_eq!(ws["screens"][1]["active"], true);
+
+    line.clear();
+    writeln!(writer, r#"{{"id":12,"cmd":"new-workspace","name":"second"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "new-workspace failed: {line}");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":13,"cmd":"move-workspace","workspace":{ws_id},"index":1}}"#)
+        .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "move-workspace failed: {line}");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":14,"cmd":"list-workspaces"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    let workspaces = v["data"]["workspaces"].as_array().unwrap();
+    assert_eq!(workspaces.len(), 2);
+    assert_eq!(workspaces[1]["id"], ws_id);
 
     // Wait for the marker to hit the screen, then read it over the socket.
     let deadline = Instant::now() + Duration::from_secs(10);
