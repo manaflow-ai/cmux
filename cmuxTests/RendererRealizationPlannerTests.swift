@@ -83,6 +83,39 @@ struct RendererRealizationPlannerTests {
         #expect(selected.contains(old))
     }
 
+    @Test func idleThresholdReclaimsHiddenSurfaceInsideWarmCap() {
+        let now: TimeInterval = 1000
+        let oldHidden = UUID()
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: [input(oldHidden, lastVisibleAt: now - 601)],
+            settings: settings(idle: 600, warm: 12),
+            now: now
+        )
+        #expect(selected.count == 1)
+        #expect(selected.contains(oldHidden))
+    }
+
+    @Test func warmCapOverflowReclaimsBeforeLongIdleThreshold() {
+        let now: TimeInterval = 1000
+        var ids: [UUID] = []
+        var inputs: [RendererRealizationPlannerInput] = []
+        for i in 0..<5 {
+            let id = UUID()
+            ids.append(id)
+            inputs.append(input(id, lastVisibleAt: now - TimeInterval(i)))
+        }
+
+        let selected = RendererRealizationPlanner.selectedSurfaceIds(
+            inputs: inputs, settings: settings(idle: 600, warm: 2), now: now
+        )
+
+        #expect(!selected.contains(ids[0]))
+        #expect(!selected.contains(ids[1]))
+        #expect(selected.contains(ids[2]))
+        #expect(selected.contains(ids[3]))
+        #expect(selected.contains(ids[4]))
+    }
+
     @Test func keepsWarmCapMostRecent() {
         let now: TimeInterval = 1000
         var ids: [UUID] = []
@@ -121,7 +154,7 @@ struct RendererRealizationPlannerTests {
         let off3 = UUID()
         let inputs = [
             input(visible, visible: true, lastVisibleAt: now), // rank 1 (warm)
-            input(off1, lastVisibleAt: now - 10),              // rank 2 (warm)
+            input(off1, lastVisibleAt: now - 1),               // rank 2 (warm)
             input(off2, lastVisibleAt: now - 20),              // rank 3 (release)
             input(off3, lastVisibleAt: now - 30),              // rank 4 (release)
         ]
