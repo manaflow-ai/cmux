@@ -3,6 +3,11 @@ import SQLite3
 
 extension InboxSQLiteStore {
     /// Inserts or updates an account status record.
+    ///
+    /// The user's notification preference is written only on first insert.
+    /// Status upserts from sync, push, and connect must not clobber it, so on
+    /// conflict `notifications_enabled` is preserved; it changes only through
+    /// ``setNotificationsEnabled(source:accountID:enabled:)``.
     /// - Parameter account: Account to persist.
     public func upsertAccount(_ account: InboxAccount) throws {
         try database.exec("""
@@ -15,8 +20,7 @@ extension InboxSQLiteStore {
             status = excluded.status,
             status_message = excluded.status_message,
             last_sync_at = excluded.last_sync_at,
-            capabilities_json = excluded.capabilities_json,
-            notifications_enabled = excluded.notifications_enabled;
+            capabilities_json = excluded.capabilities_json;
         """, binding: [
             .text(account.source.rawValue),
             .text(account.accountID),

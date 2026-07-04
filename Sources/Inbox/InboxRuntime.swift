@@ -222,7 +222,11 @@ final class InboxRuntime {
             hasSeededNotificationState = true
             return
         }
+        // Honor the per-account notification preference. Items are still
+        // marked seen while muted so re-enabling never replays old previews.
+        let mutedAccountIDs = Set(accounts.filter { !$0.notificationsEnabled }.map(\.id))
         for item in unreadItems where seenUnreadItemIDs.insert(item.itemID).inserted {
+            guard !mutedAccountIDs.contains("\(item.source.rawValue):\(item.accountID)") else { continue }
             postCmuxNotification(for: item)
         }
     }

@@ -63,4 +63,24 @@ import CmuxInbox
         let databaseBytes = try Data(contentsOf: url)
         #expect(String(data: databaseBytes, encoding: .utf8)?.contains("super-secret-token") != true)
     }
+
+    @Test func syncStatusUpsertPreservesNotificationsOptOut() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let tokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
+        let http = StubHTTPClient(responses: [])
+        let slack = SlackConnector(tokenStore: tokens, httpClient: http)
+        let hub = IntegrationHub(store: store, connectors: [slack], tokenStore: tokens)
+
+        _ = try await hub.connect(source: .slack, accountID: "default", displayName: "Workspace")
+        try await hub.setNotificationsEnabled(source: .slack, accountID: "default", enabled: false)
+
+        // Slack with a token but no channel IDs reports a degraded account
+        // built with the model default notificationsEnabled=true; syncing must
+        // not clobber the persisted opt-out.
+        _ = await hub.sync(source: .slack)
+
+        let account = try #require(try await hub.accounts().first { $0.source == .slack })
+        #expect(account.status == .degraded)
+        #expect(account.notificationsEnabled == false)
+    }
 }

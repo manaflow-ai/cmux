@@ -103,4 +103,27 @@ import CmuxInbox
         #expect(agentRows.map { $0.itemID } == [item.itemID])
         #expect(gmailRows.isEmpty)
     }
+
+    @Test func accountUpsertPreservesNotificationsOptOut() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let account = fixtures.account(source: .slack, accountID: "default")
+        try await store.upsertAccount(account)
+        try await store.setNotificationsEnabled(source: .slack, accountID: "default", enabled: false)
+
+        // Sync/push paths rebuild account records with the default
+        // notificationsEnabled=true; the status upsert must not clobber the
+        // stored opt-out.
+        var statusRefresh = account
+        statusRefresh.status = .degraded
+        statusRefresh.statusMessage = "Configure Slack channel IDs to enable backfill"
+        try await store.upsertAccount(statusRefresh)
+
+        let stored = try #require(try await store.accounts().first { $0.source == .slack })
+        #expect(stored.notificationsEnabled == false)
+        #expect(stored.status == .degraded)
+
+        try await store.setNotificationsEnabled(source: .slack, accountID: "default", enabled: true)
+        let reenabled = try #require(try await store.accounts().first { $0.source == .slack })
+        #expect(reenabled.notificationsEnabled == true)
+    }
 }
