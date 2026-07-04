@@ -1,4 +1,7 @@
-#if canImport(UIKit)
+// The suite drives the DEBUG-only `debugSkipRenderDispatchForTesting` hook (a
+// scene-less xctest host can never complete a Metal present), so it only
+// exists in DEBUG test configurations.
+#if DEBUG && canImport(UIKit)
 import CMUXMobileCore
 import Foundation
 import Testing
@@ -49,6 +52,13 @@ struct TerminalInputScrollToBottomTests {
         return Harness(window: window, view: view, delegate: delegate)
     }
 
+    /// Dismantles the harness and restores the process-wide render-skip hook
+    /// so later suites in the same test process exercise the real render path.
+    private func tearDown(_ harness: Harness) {
+        harness.view.prepareForDismantle()
+        GhosttySurfaceView.debugSkipRenderDispatchForTesting = false
+    }
+
     /// Awaiting (not run-loop pumping) lets the main queue drain so the
     /// output-queue → main completions under test can land.
     private func waitUntil(
@@ -89,7 +99,7 @@ struct TerminalInputScrollToBottomTests {
     @Test("typing while scrolled up snaps the viewport back to the bottom")
     func typedInputSnapsToBottom() async throws {
         let harness = try makeHarness()
-        defer { harness.view.prepareForDismantle() }
+        defer { tearDown(harness) }
         let marker = try await seedAndScrollUp(harness.view)
 
         harness.view.simulateInputProxyTextChangeForTesting("l", isComposing: false)
@@ -103,7 +113,7 @@ struct TerminalInputScrollToBottomTests {
     @Test("passive output while scrolled up does not force the viewport down")
     func passiveOutputDoesNotFollow() async throws {
         let harness = try makeHarness()
-        defer { harness.view.prepareForDismantle() }
+        defer { tearDown(harness) }
         let marker = try await seedAndScrollUp(harness.view)
 
         _ = await harness.view.processOutputAndWait(Data("passive-tail 1\r\npassive-tail 2\r\n".utf8))
