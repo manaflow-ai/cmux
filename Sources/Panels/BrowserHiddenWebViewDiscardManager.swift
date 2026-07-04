@@ -60,7 +60,7 @@ final class BrowserHiddenWebViewDiscardManager {
 
     init(
         policyDefaults: UserDefaults = .standard,
-        scheduleDiscardTimer: @escaping ScheduleDiscardTimer = BrowserHiddenWebViewDiscardManager.scheduleTaskDelay
+        scheduleDiscardTimer: @escaping ScheduleDiscardTimer = BrowserHiddenWebViewDiscardManager.scheduleMainRunLoopTimer
     ) {
         self.policyDefaults = policyDefaults
         self.scheduleDiscardTimer = scheduleDiscardTimer
@@ -306,23 +306,18 @@ final class BrowserHiddenWebViewDiscardManager {
         return now.timeIntervalSince(lastSystemWakeAt) < BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
     }
 
-    private static func scheduleTaskDelay(
+    private static func scheduleMainRunLoopTimer(
         _ delay: TimeInterval,
         _ handler: @escaping @MainActor () -> Void
     ) -> ScheduledDiscardCancel {
-        let nanoseconds = UInt64((max(0, delay) * 1_000_000_000).rounded(.up))
-        let task = Task { @MainActor in
-            do {
-                // Real hidden-webview discard delay; tests inject a manual scheduler.
-                try await Task.sleep(nanoseconds: nanoseconds)
-            } catch {
-                return
+        // One-shot UI lifecycle deadline; tests inject a manual scheduler.
+        let timer = Timer.scheduledTimer(withTimeInterval: max(0, delay), repeats: false) { _ in
+            MainActor.assumeIsolated {
+                handler()
             }
-            guard !Task.isCancelled else { return }
-            handler()
         }
         return {
-            task.cancel()
+            timer.invalidate()
         }
     }
 
