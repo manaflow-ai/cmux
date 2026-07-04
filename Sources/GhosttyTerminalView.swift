@@ -2818,6 +2818,12 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_RENDER:
             return false
+        case GHOSTTY_ACTION_MOUSE_SHAPE:
+            let shape = action.action.mouse_shape
+            DispatchQueue.main.async {
+                surfaceView.updateGhosttyMouseShape(shape)
+            }
+            return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
             surfaceView.enqueueScrollbarUpdate(scrollbar)
@@ -3415,11 +3421,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
         return { retention.release() }
+    }
+
+    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+        switch shape {
+        case GHOSTTY_MOUSE_SHAPE_DEFAULT:
+            return .arrow
+        case GHOSTTY_MOUSE_SHAPE_TEXT:
+            return .iBeam
+        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
+            return .iBeamCursorForVerticalLayout
+        case GHOSTTY_MOUSE_SHAPE_POINTER:
+            return .pointingHand
+        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+             GHOSTTY_MOUSE_SHAPE_CELL:
+            return .crosshair
+        case GHOSTTY_MOUSE_SHAPE_GRAB:
+            return .openHand
+        case GHOSTTY_MOUSE_SHAPE_GRABBING,
+             GHOSTTY_MOUSE_SHAPE_MOVE:
+            return .closedHand
+        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED,
+             GHOSTTY_MOUSE_SHAPE_NO_DROP:
+            return .operationNotAllowed
+        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+            return .contextualMenu
+        case GHOSTTY_MOUSE_SHAPE_COPY:
+            return .dragCopy
+        case GHOSTTY_MOUSE_SHAPE_ALIAS:
+            return .dragLink
+        case GHOSTTY_MOUSE_SHAPE_W_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_E_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_EW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_COL_RESIZE:
+            return .resizeLeftRight
+        case GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_NS_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_ROW_RESIZE:
+            return .resizeUpDown
+        default:
+            return .arrow
+        }
+    }
+
+    fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
+        guard ghosttyMouseShape != shape else { return }
+        ghosttyMouseShape = shape
+        window?.invalidateCursorRects(for: self)
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -3794,6 +3849,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
             appliedColorScheme = nil
+            // Reset any OSC 22 mouse shape carried over from the previous
+            // surface; the newly-bound surface re-emits its own shape via
+            // GHOSTTY_ACTION_MOUSE_SHAPE if it has one.
+            updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -3918,6 +3977,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         super.viewDidEndLiveResize()
         updateSurfaceSize(bypassLiveResizeCoalescing: true)
         invalidateTextInputCoordinates()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: Self.ghosttyMouseCursor(for: ghosttyMouseShape))
     }
 
     override var isOpaque: Bool { false }
