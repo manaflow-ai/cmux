@@ -45,26 +45,45 @@ struct RemoteTmuxWindowMirrorSizingTests {
         #expect(grid.rows == 83)       // header-corrected, not the container's 85
     }
 
-    /// The perpendicular axis takes the max, so uneven pane heights (e.g. one pane
-    /// momentarily reflowing) never under-report the taller pane.
+    /// The perpendicular axis takes the smallest visible capacity: tmux gives
+    /// side-by-side siblings the same height, so reporting the taller sibling would
+    /// make the shorter visible pane clip alt-screen content.
     @Test
-    func sideBySideSplitTakesMaxHeight() throws {
+    func sideBySideSplitUsesShortestVisibleHeight() throws {
         let node = try #require(RemoteTmuxRawLayoutParser.parse("1a2b,148x85,0,0{74x85,0,0,0,73x85,75,0,1}"))
         let grid = try #require(node.composedClientGrid { $0 == 0 ? (columns: 74, rows: 83) : (columns: 73, rows: 80) })
         #expect(grid.columns == 148)
-        #expect(grid.rows == 83)       // max(83, 80)
+        #expect(grid.rows == 80)       // min(83, 80)
     }
 
-    /// A stacked split sums heights (+1 divider row) and maxes width — the vertical
-    /// analogue. Each pane still loses its header rows, so the sum stays
-    /// header-corrected.
+    /// A stacked split sums heights (+1 divider row) and uses the shared visible
+    /// width — the vertical analogue. Each pane still loses its header rows, so
+    /// the sum stays header-corrected.
     @Test
     func stackedSplitSumsHeaderCorrectedHeights() throws {
         // 80x50 [ 80x25 @0 pane %0 / 80x24 @26 pane %1 ]  (25 + 1 divider + 24 = 50)
         let node = try #require(RemoteTmuxRawLayoutParser.parse("1a2b,80x50,0,0[80x25,0,0,0,80x24,0,26,1]"))
         let grid = try #require(node.composedClientGrid { $0 == 0 ? (columns: 80, rows: 23) : (columns: 80, rows: 22) })
-        #expect(grid.columns == 80)         // max(80, 80)
+        #expect(grid.columns == 80)
         #expect(grid.rows == 23 + 22 + 1)   // 46: header-corrected sum + 1 divider row
+    }
+
+    /// Nested rendered grids can have different visible heights on sibling
+    /// branches because a stacked branch contains two pane headers while a leaf
+    /// branch contains one. The composed client must fit the shorter nested branch.
+    @Test
+    func nestedSideBySideSplitUsesShortestRenderedBranchHeight() throws {
+        let node = try #require(
+            RemoteTmuxRawLayoutParser.parse("f92f,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}")
+        )
+        let rendered: [Int: (columns: Int, rows: Int)] = [
+            4: (60, 38),
+            5: (59, 18),
+            8: (59, 17)
+        ]
+        let grid = try #require(node.composedClientGrid { rendered[$0] })
+        #expect(grid.columns == 120)
+        #expect(grid.rows == 18 + 17 + 1)   // 36: nested stacked branch capacity
     }
 
     /// tmux's own layout invariant: composing each leaf's CLAIMED `(width, height)`

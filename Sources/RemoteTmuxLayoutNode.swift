@@ -91,12 +91,12 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
     /// A horizontal (side-by-side) split's width is the sum of its children's
     /// widths plus one divider column between each adjacent pair; a vertical
     /// (stacked) split's height is the sum of its children's heights plus one
-    /// divider row between each adjacent pair; the perpendicular axis takes the
-    /// max across children. tmux inserts a one-cell divider between adjacent
-    /// panes, so composing each leaf's own claimed `(width, height)` reproduces
-    /// the parent's exactly (see the layout-string example in
-    /// ``RemoteTmuxRawLayoutParser``) — the multi-pane analogue of the single-pane
-    /// path's ``TerminalSurface/renderedGridCells()``.
+    /// divider row between each adjacent pair. The perpendicular axis takes the
+    /// smallest child capacity: valid tmux claimed geometry has equal capacity
+    /// across siblings, while rendered cmux grids can differ when sibling
+    /// subtrees contain different numbers of pane headers. Choosing the smaller
+    /// visible capacity avoids telling tmux a nested branch can display more rows
+    /// or columns than its panes actually have.
     ///
     /// Feeding each leaf its ON-SCREEN rendered grid (which already excludes
     /// cmux's per-pane header) yields the client size that matches what is
@@ -120,22 +120,22 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
             return paneGrid(paneId)
         case let .horizontal(children):
             var columns = 0
-            var rows = 0
+            var rows: Int?
             for child in children {
                 guard let grid = child.composedClientGrid(paneGrid: paneGrid) else { return nil }
                 columns += grid.columns
-                rows = max(rows, grid.rows)
+                rows = rows.map { min($0, grid.rows) } ?? grid.rows
             }
-            return (columns: columns + max(0, children.count - 1), rows: rows)
+            return (columns: columns + max(0, children.count - 1), rows: rows ?? 0)
         case let .vertical(children):
-            var columns = 0
+            var columns: Int?
             var rows = 0
             for child in children {
                 guard let grid = child.composedClientGrid(paneGrid: paneGrid) else { return nil }
-                columns = max(columns, grid.columns)
+                columns = columns.map { min($0, grid.columns) } ?? grid.columns
                 rows += grid.rows
             }
-            return (columns: columns, rows: rows + max(0, children.count - 1))
+            return (columns: columns ?? 0, rows: rows + max(0, children.count - 1))
         }
     }
 }
