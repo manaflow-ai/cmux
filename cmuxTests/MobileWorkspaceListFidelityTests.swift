@@ -201,6 +201,78 @@ struct MobileWorkspaceListFidelityTests {
         #expect(after != changed, "a newer notification must change the mobile summary hash")
     }
 
+    @Test func remoteDirectoryTrustChangesObserverHashAndPayload() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-issue-7268-mobile-\(UUID().uuidString).sock",
+            terminalStartupCommand: "ssh seepine@192.168.5.20"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let untrustedHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        let untrustedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let untrustedTerminals = try #require(untrustedPayload["terminals"] as? [[String: Any]])
+        let untrustedTerminal = try #require(untrustedTerminals.first)
+        #expect(untrustedPayload["current_directory"] is NSNull)
+        #expect(untrustedTerminal["current_directory"] is NSNull)
+
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        let trustedHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(untrustedHash != trustedHash, "trusting a remote cwd must refresh the mobile list")
+        let trustedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let trustedTerminals = try #require(trustedPayload["terminals"] as? [[String: Any]])
+        let trustedTerminal = try #require(trustedTerminals.first)
+        #expect(trustedPayload["current_directory"] as? String == remoteDirectory)
+        #expect(trustedTerminal["current_directory"] as? String == remoteDirectory)
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let clearedHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(clearedHash != trustedHash, "clearing remote cwd trust must refresh the mobile list")
+        let clearedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let clearedTerminals = try #require(clearedPayload["terminals"] as? [[String: Any]])
+        let clearedTerminal = try #require(clearedTerminals.first)
+        #expect(clearedPayload["current_directory"] is NSNull)
+        #expect(clearedTerminal["current_directory"] is NSNull)
+    }
+
     /// Why some rows showed no relative time: the payload's only timestamp was
     /// `preview_at`, sourced from the latest notification, so a workspace that
     /// never fired a notification carried no timestamp at all and its trailing

@@ -150,15 +150,7 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
-        let directoryChangeRevision = NotificationCenter.default
-            .publisher(for: .workspaceCurrentDirectoryDidChange)
-            .filter { [weak self] notification in
-                guard let self else { return false }
-                return notification.userInfo?["workspaceId"] as? UUID == self.id
-            }
-            .map { _ in () }
-            .scan(UInt64(0)) { revision, _ in revision &+ 1 }
-            .prepend(0)
+        let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,

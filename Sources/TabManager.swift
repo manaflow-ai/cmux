@@ -5583,11 +5583,11 @@ extension TabManager {
                 notificationStore?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
                 into: &hasher
             )
-
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
             hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)
+                hasher.combine(workspace.remoteDirectoryReportPanelIds.contains(panelId))
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId))

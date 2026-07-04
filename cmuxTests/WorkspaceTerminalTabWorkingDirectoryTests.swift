@@ -164,21 +164,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         )
         let remotePanelId = try #require(workspace.focusedPanelId)
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "seepine@192.168.5.20",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 64007,
-                relayID: "relay-\(UUID().uuidString)",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-issue-7268-legacy-restore.sock",
-                terminalStartupCommand: sshCommand
-            ),
-            autoConnect: false
-        )
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         var snapshot = workspace.sessionSnapshot(includeScrollback: false)
         snapshot.panels[0].directory = localDirectory
         snapshot.panels[0].directoryIsTrustedRemoteReport = nil
@@ -210,21 +196,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let remotePanelId = try #require(workspace.focusedPanelId)
 
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "seepine@192.168.5.20",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 64007,
-                relayID: "relay-\(UUID().uuidString)",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-issue-7268.sock",
-                terminalStartupCommand: sshCommand
-            ),
-            autoConnect: false
-        )
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
 
         #expect(workspace.isRemoteWorkspace)
         #expect(workspace.isRemoteTerminalSurface(remotePanelId))
@@ -262,21 +234,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let workspace = try #require(manager.selectedWorkspace)
         let remotePanelId = try #require(workspace.focusedPanelId)
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "seepine@192.168.5.20",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 64007,
-                relayID: "relay-\(UUID().uuidString)",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-issue-7268-sidebar-state.sock",
-                terminalStartupCommand: sshCommand
-            ),
-            autoConnect: false
-        )
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
@@ -314,21 +272,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
             initialTerminalCommand: sshCommand
         )
         let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "seepine@192.168.5.20",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 64007,
-                relayID: "relay-\(UUID().uuidString)",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-issue-7268-restored.sock",
-                terminalStartupCommand: sshCommand
-            ),
-            autoConnect: false
-        )
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
 
         let restored = Workspace()
@@ -345,6 +289,36 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("autosave fingerprint changes when remote cwd trust changes")
+    func autosaveFingerprintChangesWhenRemoteDirectoryTrustChanges() throws {
+        let sharedDirectory = "/shared/project"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: sharedDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: sharedDirectory))
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+
+        let untrustedFingerprint = manager.sessionAutosaveFingerprint()
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: sharedDirectory)
+        let trustedFingerprint = manager.sessionAutosaveFingerprint()
+
+        #expect(
+            untrustedFingerprint != trustedFingerprint,
+            "a provenance-only remote cwd trust change must not be skipped by autosave"
+        )
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == remotePanelId }
+        )
+        #expect(panelSnapshot.directory == sharedDirectory)
+        #expect(panelSnapshot.directoryIsTrustedRemoteReport == true)
+    }
+
+    @MainActor
     @Test("reattached remote ssh terminal preserves trusted cwd")
     func reattachedRemoteSSHTerminalPreservesTrustedDirectory() throws {
         let localDirectory = "/Users/alice/development"
@@ -355,21 +329,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
             initialTerminalCommand: sshCommand
         )
         let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "seepine@192.168.5.20",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 64007,
-                relayID: "relay-\(UUID().uuidString)",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-issue-7268-reattach.sock",
-                terminalStartupCommand: sshCommand
-            ),
-            autoConnect: false
-        )
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
 
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
@@ -479,5 +439,20 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let responseText = TerminalController.shared.handleSocketLine(line)
         let responseData = try #require(responseText.data(using: .utf8))
         return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+    }
+
+    private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-issue-7268-\(UUID().uuidString).sock",
+            terminalStartupCommand: command
+        )
     }
 }

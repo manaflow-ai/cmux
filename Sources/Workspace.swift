@@ -404,9 +404,6 @@ extension Workspace {
             ? (panelCustomTitleSources[panelId] ?? .user)
             : nil
         let directory: String? = {
-            if isRemoteTerminalSurface(panelId) {
-                return reportedPanelDirectory(panelId: panelId)
-            }
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
                 return directory
@@ -2285,7 +2282,17 @@ final class Workspace: Identifiable, ObservableObject {
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
-            postWorkspaceCurrentDirectoryDidChange()
+            scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+            // Notify the sidebar so anchor-cwd-driven group config (color,
+            // icon, context menu, newWorkspacePlacement) refreshes even
+            // when the anchor isn't the visible/selected workspace. Group
+            // headers are the anchor's only sidebar surface, so a
+            // TabItemView-style observation isn't mounted for them.
+            NotificationCenter.default.post(
+                name: .workspaceCurrentDirectoryDidChange,
+                object: self,
+                userInfo: ["workspaceId": id]
+            )
         }
     }
     @Published private(set) var extensionSidebarProjectRootPath: String?
@@ -2293,24 +2300,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
-
-    private func postWorkspaceCurrentDirectoryDidChange() {
-        scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
-        // Notify the sidebar so anchor-cwd-driven group config (color, icon,
-        // context menu, newWorkspacePlacement) refreshes even when the anchor
-        // is not selected. Window-title and file-tree consumers also listen
-        // here for presented remote directory changes.
-        NotificationCenter.default.post(
-            name: .workspaceCurrentDirectoryDidChange,
-            object: self,
-            userInfo: ["workspaceId": id]
-        )
-    }
-
-    private func notifyPresentedCurrentDirectoryChanged(from previousDirectory: String?) {
-        guard previousDirectory != presentedCurrentDirectory else { return }
-        postWorkspaceCurrentDirectoryDidChange()
-    }
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -4685,7 +4674,8 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         if source == .liveReport, isRemoteTerminalSurface(panelId) {
-            return false
+            let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard existingDirectory.isEmpty else { return false }
         }
         let establishesRemoteProvenance = source.establishesRemoteProvenance && isRemoteTerminalSurface(panelId)
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
@@ -4710,9 +4700,14 @@ final class Workspace: Identifiable, ObservableObject {
             if currentDirectory != trimmed { currentDirectory = trimmed }
         }
         if isRemoteWorkspace {
-            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
-            if provenanceChanged && previousPresentedDirectory == presentedCurrentDirectory {
-                postWorkspaceCurrentDirectoryDidChange()
+            let presentedDirectoryChanged = previousPresentedDirectory != presentedCurrentDirectory
+            if presentedDirectoryChanged || provenanceChanged {
+                scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+                NotificationCenter.default.post(
+                    name: .workspaceCurrentDirectoryDidChange,
+                    object: self,
+                    userInfo: ["workspaceId": id]
+                )
             }
         }
         return true

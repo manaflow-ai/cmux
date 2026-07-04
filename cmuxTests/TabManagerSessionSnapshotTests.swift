@@ -1996,7 +1996,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        remoteWorkspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: "/home/dev/project")
+        remoteWorkspace.updatePanelDirectory(panelId: remotePanelId, directory: "/home/dev/project")
 
         let snapshotURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-session-restore-\(UUID().uuidString).json")
@@ -2128,7 +2128,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        remoteWorkspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: "/home/dev/persistent-project")
+        remoteWorkspace.updatePanelDirectory(panelId: remotePanelId, directory: "/home/dev/persistent-project")
         let expectedSessionID = Workspace.defaultSSHPTYSessionID(
             workspaceId: remoteWorkspace.id,
             panelId: remotePanelId
