@@ -182,13 +182,9 @@ public final class UpdateController {
         }
 
         if case .installing = state {
-            // A staged install supersedes any pending silent-download retry.
-            backgroundRetryTask?.cancel()
-            backgroundRetryTask = nil
-            backgroundRetryCount = 0
+            backgroundRetryTask?.cancel(); backgroundRetryTask = nil; backgroundRetryCount = 0
+            if restartWhenIdleTask != nil, !model.isRestartWhenIdleArmed { cancelRestartWhenIdleLoop() }
         } else if restartWhenIdleTask != nil {
-            // The staged install went away (dismissed, superseded, errored); stop waiting for
-            // idle. The model disarms its flag in the same transition.
             cancelRestartWhenIdleLoop()
         }
     }

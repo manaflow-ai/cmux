@@ -265,6 +265,36 @@ import Testing
         #expect(!restarted)
     }
 
+    @Test func restartLaterCancelsDeferredRestartForStagedInstall() async throws {
+        let controller = try makeController(clock: YieldClock())
+        let delegate = IdleStubDelegate()
+        controller.actionDelegate = delegate
+
+        var restarted = false
+        controller.model.setState(.installing(.init(
+            isAutoUpdate: true,
+            stagedVersion: "1.2.3",
+            retryTerminatingApplication: { restarted = true },
+            dismiss: { [model = controller.model] in
+                model.setRestartWhenIdleArmed(false)
+                model.dismissUpdateReadyToast()
+            }
+        )))
+        controller.requestRestartWhenIdle()
+        #expect(controller.model.isRestartWhenIdleArmed)
+
+        guard case .installing(let installing) = controller.model.state else {
+            Issue.record("expected staged install")
+            return
+        }
+        installing.dismiss()
+        delegate.isSafeToRestart = true
+
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!controller.model.isRestartWhenIdleArmed)
+        #expect(!restarted)
+    }
+
     @Test func restartWhenIdleIgnoredWithoutStagedInstall() throws {
         let controller = try makeController(clock: YieldClock())
         controller.requestRestartWhenIdle()

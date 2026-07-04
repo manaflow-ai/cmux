@@ -47,6 +47,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
                 immediateInstallationBlock()
             },
             dismiss: { [weak self] in
+                self?.model.setRestartWhenIdleArmed(false)
                 self?.model.dismissUpdateReadyToast()
             }
         )))
