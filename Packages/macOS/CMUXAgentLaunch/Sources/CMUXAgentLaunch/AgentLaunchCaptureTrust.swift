@@ -28,6 +28,7 @@ public enum AgentLaunchCaptureTrust {
         "factory": ["droid", "factory"],
         "gemini": ["gemini"],
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+        "hermes-agent": ["hermes-agent", "hermes"],
         "kiro": ["kiro", "kiro-cli"],
         "omp": ["omp"],
         "opencode": ["opencode", "omo", "omx", "omc"],
@@ -136,6 +137,11 @@ public enum AgentLaunchCaptureTrust {
         }
         if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
             descriptors.insert("claude")
+        }
+        if nameBase == "acli" || executableBase == "acli" {
+            if arguments.dropFirst().contains(where: { $0.lowercased() == "rovodev" }) {
+                descriptors.insert("rovodev")
+            }
         }
         return descriptors
     }
