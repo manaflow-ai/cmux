@@ -138,6 +138,7 @@ public final class WorkstreamCoordinator<Tab: WorkspaceTabRepresenting> {
     /// testable without a live model. Returns the `toIndex` to pass to
     /// `moveWorkstream(id:toIndex:)`.
     public static func relativeMoveTargetIndex(currentIndex: Int, peerIndex: Int, after: Bool) -> Int {
+        guard currentIndex != peerIndex else { return currentIndex }
         let peerPost = currentIndex < peerIndex ? peerIndex - 1 : peerIndex
         return after ? peerPost + 1 : peerPost
     }

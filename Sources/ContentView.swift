@@ -10406,7 +10406,28 @@ struct VerticalTabsSidebar: View {
             liveWorkspaceIds: Set(tabIds)
         )
         let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
-        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let workspaceGroups = tabManager.workspaceGroups
+        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
+            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+        )
+        // Drill-in filter: top level shows workstream-less workspaces; drilled-in
+        // shows only that workstream. With no workstreams this is identity.
+        let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
+        let workstreams = tabManager.workstreams
+        // Establish an observation dependency on membership revisions so add/
+        // remove (which only mutate Workspace.workstreamId, not the observed
+        // arrays) re-render this body. `let _ =` (a declaration) is required
+        // here: a bare `_ = expr` statement is rejected by @ViewBuilder.
+        let _ = tabManager.workstreamMembershipRevision
+        let visibleTabs = tabs.filter { $0.workstreamId == drilledInWorkstreamId }
+        let visibleTabIds = Set(visibleTabs.map(\.id))
+        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: visibleTabs,
+            groupsById: workspaceGroupById
+        )
+        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) && visibleTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
@@ -10416,29 +10437,6 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = tabManager.workspaceGroups
-        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
-        )
-        // Drill-in filter: the entire master-detail navigation is this single
-        // predicate. At the top level (drilledInWorkstreamId == nil) it keeps
-        // only workstream-less workspaces; drilled in, only that workstream's
-        // workspaces. With no workstreams every tab has workstreamId == nil, so
-        // this is the identity filter — no behavior change for non-adopters.
-        let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
-        let workstreams = tabManager.workstreams
-        // Establish an observation dependency on membership revisions so add/
-        // remove (which only mutate Workspace.workstreamId, not the observed
-        // arrays) re-render this body. `let _ =` (a declaration) is required
-        // here: a bare `_ = expr` statement is rejected by @ViewBuilder.
-        let _ = tabManager.workstreamMembershipRevision
-        let visibleTabs = tabs.filter { $0.workstreamId == drilledInWorkstreamId }
-        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: visibleTabs,
-            groupsById: workspaceGroupById
-        )
-        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         // Read unread via the observed `sidebarUnread` projection (NOT the
         // unobserved notificationStore singleton) so the rollup re-renders when
         // unread changes — important when every workspace lives in a workstream
@@ -14594,14 +14592,15 @@ struct TabItemView: View, Equatable {
             )
             : nil
 
+        let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
+        let visibleWorkspaceIds = Set(tabManager.tabs.compactMap { $0.workstreamId == drilledInWorkstreamId ? $0.id : nil })
+        if isCommand || isShift { selectedTabIds.formIntersection(visibleWorkspaceIds) }
+
         if isShift, let anchorIndex = shiftAnchorIndex {
             let lower = min(anchorIndex, index)
             let upper = max(anchorIndex, index)
-            // Filter out workspaces hidden inside collapsed groups so a
-            // Shift-click range never silently includes rows the user
-            // can't see (e.g. clicking a collapsed group's anchor and
-            // then Shift-clicking a row below would otherwise sweep
-            // every collapsed child between them).
+            // Filter out workspaces hidden inside collapsed groups so Shift-click
+            // never silently includes rows the user can't see.
             let collapsedGroupIds: Set<UUID> = Set(
                 tabManager.workspaceGroups
                     .filter { $0.isCollapsed }
@@ -14610,12 +14609,6 @@ struct TabItemView: View, Equatable {
             let anchorIdsByGroup: [UUID: UUID] = Dictionary(
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
-            // Only rows visible in the current drill-in view are selectable: a
-            // workspace is shown iff its workstreamId matches the drilled-in one
-            // (nil at the top level). Without this, a Shift-click range computed
-            // over the full tabs[] could sweep workspaces hidden in another
-            // workstream and apply bulk actions to rows the user can't see.
-            let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
             let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
                 if tab.workstreamId != drilledInWorkstreamId {
                     return nil
