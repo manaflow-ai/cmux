@@ -134,6 +134,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --prod-auth)
+      echo "==> --prod-auth: deprecated no-op; production auth is now the default for DEV reloads. Use --dev-auth for the local dogfood flow."
       AUTH_ENV_VALUE="production"
       shift
       ;;

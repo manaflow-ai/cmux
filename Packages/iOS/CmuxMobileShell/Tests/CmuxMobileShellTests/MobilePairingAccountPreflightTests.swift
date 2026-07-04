@@ -6,11 +6,9 @@ import Testing
 /// Account-binding preflight for scanned pairing links.
 ///
 /// The scanner accepts pairing URLs from every channel. Preflight therefore
-/// enforces only the actual account binding carried by the ticket and does not
-/// reject a QR because the link scheme came from a dev, beta, nightly, or stable
-/// build. Dev reloads that need to pair with real Macs now run production auth
-/// by default, so matching production Stack user ids pass just like release
-/// builds.
+/// never rejects a QR just because the link scheme came from a dev, beta,
+/// nightly, or stable build. It uses the scheme only to explain an already
+/// failed account binding when the two Stack projects are known to differ.
 @MainActor
 @Suite struct MobilePairingAccountPreflightTests {
     private func ticket(macUserID: String? = nil, macUserEmail: String? = nil) throws -> CmxAttachTicket {
@@ -31,19 +29,49 @@ import Testing
         )
     }
 
-    @Test func matchingUserIDsProceedWithoutConsultingPairingScheme() throws {
+    @Test func matchingUserIDsProceedEvenWhenChannelsDiffer() throws {
         let category = MobilePairingAccountPreflight(
+            scannedScheme: CmxPairingURLScheme.release,
             actualUserID: "user-1",
-            actualEmail: "same@example.com"
+            actualEmail: "same@example.com",
+            isDevelopmentAuthEnvironment: true
         ).failure(for: try ticket(macUserID: "user-1"))
 
         #expect(category == nil)
     }
 
-    @Test func userIDMismatchIsAuthFailedWithoutChannelRestrictionCopy() throws {
+    @Test func devPhoneScanningReleaseMacQRMismatchNamesTheAuthEnvironment() throws {
         let category = MobilePairingAccountPreflight(
+            scannedScheme: CmxPairingURLScheme.release,
+            actualUserID: "dev-user-id",
+            actualEmail: "same@example.com",
+            isDevelopmentAuthEnvironment: true
+        ).failure(for: try ticket(macUserID: "prod-user-id"))
+
+        #expect(category == .authEnvironmentMismatch(macChannelIsRelease: true))
+        #expect(category?.analyticsReason == "auth_environment_mismatch")
+        #expect(category?.isAuthorizationFailure == false)
+    }
+
+    @Test func prodPhoneScanningDevMacQRMismatchNamesTheAuthEnvironment() throws {
+        let category = MobilePairingAccountPreflight(
+            scannedScheme: CmxPairingURLScheme.development,
+            actualUserID: "prod-user-id",
+            actualEmail: "same@example.com",
+            isDevelopmentAuthEnvironment: false
+        ).failure(for: try ticket(macUserID: "dev-user-id"))
+
+        #expect(category == .authEnvironmentMismatch(macChannelIsRelease: false))
+        #expect(category?.analyticsReason == "auth_environment_mismatch")
+        #expect(category?.isAuthorizationFailure == false)
+    }
+
+    @Test func sameChannelUserIDMismatchIsAuthFailed() throws {
+        let category = MobilePairingAccountPreflight(
+            scannedScheme: CmxPairingURLScheme.release,
             actualUserID: "user-b",
-            actualEmail: "same@example.com"
+            actualEmail: "same@example.com",
+            isDevelopmentAuthEnvironment: false
         ).failure(for: try ticket(macUserID: "user-a"))
 
         #expect(category == .authFailed)
@@ -53,8 +81,10 @@ import Testing
 
     @Test func unknownLocalIdentityStillLetsHostVerificationOwnRejection() throws {
         let category = MobilePairingAccountPreflight(
+            scannedScheme: CmxPairingURLScheme.release,
             actualUserID: nil,
-            actualEmail: nil
+            actualEmail: nil,
+            isDevelopmentAuthEnvironment: true
         ).failure(for: try ticket(macUserID: "prod-user-id"))
 
         #expect(category == nil)
@@ -62,8 +92,10 @@ import Testing
 
     @Test func legacyEmailTicketKeepsEmailMismatch() throws {
         let category = MobilePairingAccountPreflight(
+            scannedScheme: CmxPairingURLScheme.release,
             actualUserID: nil,
-            actualEmail: "phone@example.com"
+            actualEmail: "phone@example.com",
+            isDevelopmentAuthEnvironment: false
         ).failure(for: try ticket(macUserEmail: "mac@example.com"))
 
         #expect(category == .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"))
@@ -71,8 +103,10 @@ import Testing
 
     @Test func legacyEmailTicketMatchesCaseInsensitively() throws {
         let category = MobilePairingAccountPreflight(
+            scannedScheme: CmxPairingURLScheme.release,
             actualUserID: nil,
-            actualEmail: " Phone@Example.COM "
+            actualEmail: " Phone@Example.COM ",
+            isDevelopmentAuthEnvironment: false
         ).failure(for: try ticket(macUserEmail: "phone@example.com"))
 
         #expect(category == nil)

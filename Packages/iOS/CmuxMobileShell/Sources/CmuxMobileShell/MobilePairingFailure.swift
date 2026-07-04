@@ -48,6 +48,12 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The owner's account could not be verified with the Mac (stale/invalid
     /// token, or a different signed-in account).
     case authFailed
+    /// The QR's account binding (`ub`) cannot match because the two auth
+    /// channels are declared to differ: release/nightly/beta Macs use the
+    /// production Stack project, while local dogfood dev Macs use development.
+    /// Stack user ids are per-project, so re-authenticating with the same email
+    /// cannot fix this mismatch.
+    case authEnvironmentMismatch(macChannelIsRelease: Bool)
     /// The pairing link/QR expired; a fresh one is needed.
     case ticketExpired
     /// The scanned/typed input was not a pairing QR cmux recognizes (malformed,
@@ -88,6 +94,7 @@ extension MobilePairingFailureCategory {
         case .accountMismatch: return "account_mismatch"
         case .emailMismatch: return "email_mismatch"
         case .authFailed: return "auth"
+        case .authEnvironmentMismatch: return "auth_environment_mismatch"
         case .ticketExpired: return "ticket_expired"
         case .invalidCode: return "invalid_code"
         case .unrecognizedVersion: return "unrecognized_version"
@@ -101,6 +108,8 @@ extension MobilePairingFailureCategory {
 
     /// Whether a definitive auth failure that should drive the re-auth prompt
     /// (Sign Out) instead of a "could not connect / Retry" banner.
+    /// ``authEnvironmentMismatch`` is deliberately not one: signing out cannot
+    /// move an account between Stack projects.
     public var isAuthorizationFailure: Bool {
         switch self {
         case .accountMismatch, .emailMismatch, .authFailed, .ticketExpired:
@@ -196,6 +205,17 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.authorizationFailed",
                 defaultValue: "Couldn't verify your account with this Mac. Make sure both devices are signed in with the same email, then try again."
             )
+        case let .authEnvironmentMismatch(macChannelIsRelease):
+            if macChannelIsRelease {
+                return L10n.string(
+                    "mobile.pairing.authEnvironmentMismatch",
+                    defaultValue: "This iPhone build uses cmux's development sign-in, so its account can never match a Mac running the release app, beta, or nightly, even with the same email."
+                )
+            }
+            return L10n.string(
+                "mobile.pairing.authEnvironmentMismatch.devMac",
+                defaultValue: "This iPhone uses cmux's production sign-in, but this Mac runs a dev build on the development sign-in environment, so their accounts can never match, even with the same email."
+            )
         case .ticketExpired:
             return L10n.string(
                 "mobile.pairing.attachTicketExpired",
@@ -266,6 +286,17 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.sameAccount",
                 defaultValue: "Both devices must be signed in to the same cmux account."
+            )
+        case let .authEnvironmentMismatch(macChannelIsRelease):
+            if macChannelIsRelease {
+                return L10n.string(
+                    "mobile.pairing.guidance.authEnvironment",
+                    defaultValue: "Install the default production-auth dev build, or pair with a dev-channel Mac signed in to the same account."
+                )
+            }
+            return L10n.string(
+                "mobile.pairing.guidance.authEnvironment.devMac",
+                defaultValue: "Pair with a Mac running the release cmux app, beta, or nightly, or use a development-auth iPhone build for dev Macs."
             )
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(

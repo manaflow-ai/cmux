@@ -133,6 +133,28 @@ import Testing
         #expect(category.message.contains("phone@example.com"))
     }
 
+    @Test func authEnvironmentMismatchTellsTheTruthAboutTheChannel() {
+        let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true)
+
+        #expect(category.analyticsReason == "auth_environment_mismatch")
+        #expect(category.message.contains("development sign-in"))
+        #expect(category.message != MobilePairingFailureCategory.authFailed.message)
+        #expect(!category.message.contains("Make sure both devices are signed in"))
+        #expect(category.guidance?.contains("production-auth dev build") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
+    @Test func authEnvironmentMismatchReverseDirectionHasItsOwnCopy() {
+        let category = MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: false)
+
+        #expect(category.analyticsReason == "auth_environment_mismatch")
+        #expect(category.message.contains("development sign-in"))
+        #expect(category.message != MobilePairingFailureCategory.authEnvironmentMismatch(macChannelIsRelease: true).message)
+        #expect(!category.message.contains("Make sure both devices are signed in"))
+        #expect(category.guidance?.contains("release cmux app") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
     @Test func insecureManualRouteIsUnsupportedRoute() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.insecureManualRoute,
@@ -203,6 +225,8 @@ import Testing
             .accountMismatch,
             .emailMismatch(expected: "mac@example.com", actual: "phone@example.com"),
             .authFailed,
+            .authEnvironmentMismatch(macChannelIsRelease: true),
+            .authEnvironmentMismatch(macChannelIsRelease: false),
             .ticketExpired,
             .invalidCode,
             .unrecognizedVersion,

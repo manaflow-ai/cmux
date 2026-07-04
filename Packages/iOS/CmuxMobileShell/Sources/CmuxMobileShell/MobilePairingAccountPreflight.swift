@@ -3,15 +3,19 @@ import Foundation
 
 /// Account-binding preflight for a scanned/pasted pairing code.
 ///
-/// Decides, before any route is dialed, whether the ticket's owner identity
-/// belongs to the signed-in user. The value stores the live phone-side identity
-/// so tests can construct it directly without standing up the full
-/// ``MobileShellComposite`` store.
+/// Decides, before any route is dialed, whether the ticket's owner identity can
+/// belong to the signed-in user. The value stores the live phone-side identity
+/// and the scanned URL's declared scheme so tests can construct it directly
+/// without standing up the full ``MobileShellComposite`` store.
 struct MobilePairingAccountPreflight: Sendable {
+    /// The scanned/pasted URL scheme, which declares the Mac's channel.
+    let scannedScheme: String?
     /// The current phone-side Stack user id.
     let actualUserID: String?
     /// The current phone-side account email.
     let actualEmail: String?
+    /// Whether ``actualUserID`` belongs to the development Stack project.
+    let isDevelopmentAuthEnvironment: Bool
 
     /// Returns the account-related failure to show, or `nil` when preflight
     /// should stay silent and let the host-side verification own rejection.
@@ -22,12 +26,23 @@ struct MobilePairingAccountPreflight: Sendable {
     /// matching email next to a foreign id. Legacy tickets without `ub` fall
     /// back to the email comparison. Unknown local identity (signed out or
     /// still restoring) returns `nil`.
+    ///
+    /// A user-id mismatch is explained as
+    /// ``MobilePairingFailureCategory/authEnvironmentMismatch(macChannelIsRelease:)``
+    /// only when the two auth channels are declared to differ. Matching ids
+    /// always proceed, regardless of URL scheme.
     func failure(for ticket: CmxAttachTicket) -> MobilePairingFailureCategory? {
         if let expectedUserID = normalizedNonEmpty(ticket.macUserID) {
             guard let actualUserID = normalizedNonEmpty(actualUserID) else {
                 return nil
             }
             guard actualUserID == expectedUserID else {
+                if isDevelopmentAuthEnvironment, macDeclaresRelease {
+                    return .authEnvironmentMismatch(macChannelIsRelease: true)
+                }
+                if !isDevelopmentAuthEnvironment, macDeclaresDevelopment {
+                    return .authEnvironmentMismatch(macChannelIsRelease: false)
+                }
                 return .authFailed
             }
             return nil
@@ -40,6 +55,18 @@ struct MobilePairingAccountPreflight: Sendable {
             return nil
         }
         return nil
+    }
+
+    private var macDeclaresRelease: Bool {
+        scannedScheme.map {
+            CmxPairingURLScheme.release.caseInsensitiveCompare($0) == .orderedSame
+        } ?? false
+    }
+
+    private var macDeclaresDevelopment: Bool {
+        scannedScheme.map {
+            CmxPairingURLScheme.development.caseInsensitiveCompare($0) == .orderedSame
+        } ?? false
     }
 
     private func normalizedEmail(_ value: String?) -> String? {

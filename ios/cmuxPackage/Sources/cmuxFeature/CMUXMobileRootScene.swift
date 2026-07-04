@@ -262,7 +262,8 @@ public struct CMUXMobileRootScene: View {
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let identityProvider = AuthCoordinatorIdentityProvider(
-            coordinator: auth.coordinator
+            coordinator: auth.coordinator,
+            isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
         let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()
