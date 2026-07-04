@@ -32,8 +32,8 @@ export default async function VaultCliAuthPage({
   return (
     <div className="mx-auto w-full max-w-3xl px-3 py-4">
       <div className="border-b border-border pb-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium uppercase tracking-wide">{t("title")}</h1>
+        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
       <ApproveForm initialCode={initialCode} />

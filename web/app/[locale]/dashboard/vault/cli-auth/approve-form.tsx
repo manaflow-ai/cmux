@@ -31,14 +31,14 @@ export function ApproveForm({ initialCode }: { initialCode: string }) {
 
   return (
     <form onSubmit={onSubmit} className="mt-4 flex max-w-sm flex-col gap-2">
-      <label className="text-xs font-medium uppercase tracking-wide text-muted" htmlFor="vault-user-code">
+      <label className="text-xs font-medium text-muted" htmlFor="vault-user-code">
         {t("codeLabel")}
       </label>
       <input
         id="vault-user-code"
         value={code}
         onChange={(event) => setCode(event.target.value.toUpperCase())}
-        className="border border-border bg-background px-3 py-1.5 font-mono text-xs uppercase text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+        className="border border-border bg-background px-3 py-1.5 font-mono text-xs text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
         autoComplete="one-time-code"
         inputMode="text"
         maxLength={8}

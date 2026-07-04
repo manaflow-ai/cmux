@@ -8,7 +8,6 @@ import {
   VAULT_SESSION_LIST_PAGE_SIZE,
   type SerializedVaultSessionListPage,
   type SerializedVaultSessionListRow,
-  type VaultSessionListAgent,
 } from "@/services/vault/sessionList";
 import {
   formatBytes,
@@ -19,17 +18,14 @@ import {
 } from "@/services/vault/format";
 
 type SessionsTableProps = {
-  readonly initialAgent: VaultSessionListAgent;
   readonly initialQuery: string;
   readonly initialRows: readonly SerializedVaultSessionListRow[];
   readonly initialNextCursor: string | null;
 };
 
-const AGENTS: readonly VaultSessionListAgent[] = ["all", "claude", "codex", "pi"];
 const LOAD_MORE_THRESHOLD = 20;
 
 export function SessionsTable({
-  initialAgent,
   initialQuery,
   initialRows,
   initialNextCursor,
@@ -40,7 +36,6 @@ export function SessionsTable({
   const pathname = usePathname();
   const [rows, setRows] = useState<readonly SerializedVaultSessionListRow[]>(initialRows);
   const [nextCursor, setNextCursor] = useState<string | null>(initialNextCursor);
-  const [agent, setAgent] = useState<VaultSessionListAgent>(initialAgent);
   const [query, setQuery] = useState(initialQuery);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -48,7 +43,7 @@ export function SessionsTable({
   const loadingRef = useRef(false);
   const requestIdRef = useRef(0);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeFilterRef = useRef({ agent: initialAgent, query: initialQuery });
+  const activeQueryRef = useRef(initialQuery);
 
   const clearSearchTimer = useCallback(() => {
     if (!searchTimerRef.current) return;
@@ -67,9 +62,8 @@ export function SessionsTable({
   const now = useMemo(() => new Date(), [rows]);
 
   const replaceUrl = useCallback(
-    (nextAgent: VaultSessionListAgent, nextQuery: string) => {
+    (nextQuery: string) => {
       const params = new URLSearchParams();
-      if (nextAgent !== "all") params.set("agent", nextAgent);
       if (nextQuery.trim()) params.set("q", nextQuery.trim());
       const qs = params.toString();
       router.replace(`${pathname}${qs ? `?${qs}` : ""}`);
@@ -80,11 +74,9 @@ export function SessionsTable({
   const fetchPage = useCallback(
     async ({
       reset,
-      nextAgent,
       nextQuery,
     }: {
       readonly reset: boolean;
-      readonly nextAgent: VaultSessionListAgent;
       readonly nextQuery: string;
     }) => {
       if (loadingRef.current && !reset) return;
@@ -103,7 +95,6 @@ export function SessionsTable({
       const params = new URLSearchParams({
         limit: String(VAULT_SESSION_LIST_PAGE_SIZE),
       });
-      if (nextAgent !== "all") params.set("agent", nextAgent);
       if (nextQuery.trim()) params.set("q", nextQuery.trim());
       if (cursor) params.set("cursor", cursor);
 
@@ -133,15 +124,14 @@ export function SessionsTable({
   );
 
   const applyFilters = useCallback(
-    (nextAgent: VaultSessionListAgent, nextQuery: string) => {
+    (nextQuery: string) => {
       clearSearchTimer();
-      activeFilterRef.current = { agent: nextAgent, query: nextQuery };
-      setAgent(nextAgent);
+      activeQueryRef.current = nextQuery;
       setQuery(nextQuery);
       setRows([]);
       setNextCursor(null);
-      replaceUrl(nextAgent, nextQuery);
-      void fetchPage({ reset: true, nextAgent, nextQuery });
+      replaceUrl(nextQuery);
+      void fetchPage({ reset: true, nextQuery });
       scrollElement?.scrollTo({ top: 0 });
     },
     [clearSearchTimer, fetchPage, replaceUrl, scrollElement],
@@ -152,7 +142,7 @@ export function SessionsTable({
       setQuery(value);
       clearSearchTimer();
       searchTimerRef.current = setTimeout(() => {
-        applyFilters(activeFilterRef.current.agent, value);
+        applyFilters(value);
       }, 250);
     },
     [applyFilters, clearSearchTimer],
@@ -163,8 +153,7 @@ export function SessionsTable({
     if (!last || last.index < rows.length - LOAD_MORE_THRESHOLD) return;
     void fetchPage({
       reset: false,
-      nextAgent: activeFilterRef.current.agent,
-      nextQuery: activeFilterRef.current.query,
+      nextQuery: activeQueryRef.current,
     });
   }, [fetchPage, rowVirtualizer, rows.length]);
 
@@ -182,8 +171,8 @@ export function SessionsTable({
     <div className="flex h-[calc(100vh-2.75rem)] min-h-[520px] flex-col px-3 py-3">
       <div className="mb-3 flex flex-col gap-2 border-b border-border pb-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">{t("eyebrow")}</p>
-          <h1 className="mt-1 text-sm font-medium uppercase tracking-wide">{t("title")}</h1>
+          <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
+          <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
           <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
         </div>
         <Link
@@ -194,23 +183,7 @@ export function SessionsTable({
         </Link>
       </div>
 
-      <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex gap-2 overflow-x-auto">
-          {AGENTS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => applyFilters(item, query)}
-              className={`border border-border px-3 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-                agent === item
-                  ? "bg-foreground text-background"
-                  : "bg-background text-foreground hover:bg-foreground hover:text-background"
-              }`}
-            >
-              {item === "all" ? t("agents.all") : t(`agents.${item}`)}
-            </button>
-          ))}
-        </div>
+      <div className="mb-3 flex justify-end">
         <label className="min-w-0 lg:w-80">
           <span className="sr-only">{t("searchLabel")}</span>
           <input
@@ -225,7 +198,7 @@ export function SessionsTable({
       <div className="overflow-hidden border border-border">
         <div
           role="row"
-          className="grid min-w-[1040px] grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border px-3 py-2 text-xs font-medium uppercase text-muted"
+          className="grid min-w-[1040px] grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border px-3 py-2 text-xs font-medium text-muted"
         >
           <div role="columnheader">{t("agent")}</div>
           <div role="columnheader">{t("session")}</div>
@@ -323,7 +296,7 @@ function SessionRow({
       style={style}
     >
       <div role="cell">
-        <span className="border border-border px-2 py-1 font-mono text-xs font-medium uppercase">
+        <span className="border border-border px-2 py-1 font-mono text-xs font-medium">
           {row.agent}
         </span>
       </div>

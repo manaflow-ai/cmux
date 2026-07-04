@@ -27,7 +27,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="flex h-11 items-center justify-between px-3">
           <Link
             href="/dashboard/vault"
-            className="font-medium uppercase tracking-wide focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+            className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           >
             {t("brand")}
           </Link>

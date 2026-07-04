@@ -61,121 +61,127 @@ export default async function VaultSessionDetailPage({
   }
 
   const resumeCommand = `cmux-vault resume ${session.agentSessionId}`;
+  const cwd = session.cwd ?? t("unknownCwd");
 
   return (
     <div className="mx-auto w-full max-w-6xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium uppercase tracking-wide">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-      </div>
-
-      <section className="border border-border p-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide">{t("metadata")}</h2>
-        <dl className="mt-3 grid gap-3 md:grid-cols-2">
-          <Metadata label={t("agent")} value={session.agent} />
-          <Metadata label={t("agentSessionId")} value={session.agentSessionId} />
-          <Metadata label={t("cwd")} value={session.cwd ?? t("unknownCwd")} />
-          <Metadata label={t("relPath")} value={session.relPath} />
-          <Metadata label={t("rawSize")} value={formatBytes(session.sizeBytes, locale)} />
-          <Metadata
-            label={t("compressedSize")}
-            value={session.compressedSizeBytes == null ? t("unknownSize") : formatBytes(session.compressedSizeBytes, locale)}
-          />
-          <Metadata label={t("firstUploaded")} value={formatDate(session.firstUploadedAt, locale)} />
-          <Metadata label={t("lastUploaded")} value={formatDate(session.lastUploadedAt, locale)} />
-        </dl>
-      </section>
-
-      <section className="border-x border-b border-border p-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide">{t("resumeTitle")}</h2>
-        <p className="mt-1 text-muted">{t("resumeHint")}</p>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="grid gap-2 border border-border p-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,auto)] md:items-center">
+        <div className="min-w-0 truncate font-mono text-xs text-muted" title={cwd}>
+          {cwd}
+        </div>
+        <span className="w-fit border border-border px-2 py-1 font-mono text-xs font-medium">
+          {session.agent}
+        </span>
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center md:justify-end">
           <code className="block overflow-x-auto border border-border bg-code-bg px-3 py-1.5 font-mono text-xs">
             {resumeCommand}
           </code>
           <CopyButton value={resumeCommand} label={t("copyCommand")} copiedLabel={t("copiedCommand")} />
         </div>
-      </section>
+      </div>
 
-      <section className="border-x border-b border-border p-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide">{t("downloadTitle")}</h2>
-        {downloadUrl ? (
-          <>
-            <a
-              href={downloadUrl}
-              rel="nofollow"
-              className="mt-3 inline-flex border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
-            >
-              {t("downloadLink")}
-            </a>
-            <p className="mt-2 text-muted">{t("downloadExpires")}</p>
-          </>
-        ) : (
-          <p className="mt-2 text-muted">{t("downloadUnavailable")}</p>
-        )}
-      </section>
-
-      <section className="border-x border-b border-border p-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide">{t("snapshotsTitle")}</h2>
-        <div className="mt-3 overflow-x-auto border border-border">
-          <table className="w-full min-w-[700px] border-collapse text-left">
-            <thead className="text-xs uppercase text-muted">
-              <tr className="border-b border-border">
-                <th className="px-3 py-2 font-medium">{t("sha256")}</th>
-                <th className="px-3 py-2 font-medium">{t("rawSize")}</th>
-                <th className="px-3 py-2 font-medium">{t("compressedSize")}</th>
-                <th className="px-3 py-2 font-medium">{t("uploadedAt")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {snapshots.map((snapshot) => (
-                <tr key={snapshot.sha256} className="border-b border-border">
-                  <td className="px-3 py-2 font-mono text-xs" title={snapshot.sha256}>
-                    {truncateMiddle(snapshot.sha256, 22)}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs tabular-nums">{formatBytes(snapshot.sizeBytes, locale)}</td>
-                  <td className="px-3 py-2 font-mono text-xs tabular-nums">{formatBytes(snapshot.compressedSizeBytes, locale)}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-muted">{formatDate(snapshot.uploadedAt, locale)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="border-x border-b border-border p-3">
-        <h2 className="text-sm font-medium uppercase tracking-wide">{t("transcriptTitle")}</h2>
+      <section className="mt-3">
         {preview ? (
-          <>
-            <p className="mt-1 text-muted">
+          <div className="h-[65vh] min-h-[420px] overflow-auto border border-border">
+            <p className="border-b border-border p-3 text-muted">
               {preview.capped || preview.messageLimitReached
                 ? t("previewTruncated", { count: preview.messages.length })
                 : t("previewShowing", { count: preview.messages.length })}
             </p>
-            <div className="mt-3 max-h-[520px] overflow-auto border border-border">
-              {preview.messages.length === 0 ? (
-                <p className="p-3 text-muted">{t("previewEmpty")}</p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {preview.messages.map((message, index) => (
-                    <li key={`${message.role}:${index}`} className="grid gap-2 p-3 md:grid-cols-[110px_minmax(0,1fr)]">
-                      <div className="font-mono text-xs font-medium uppercase text-muted">
-                        {roleLabel(message.role, t)}
-                      </div>
-                      <div className="whitespace-pre-wrap break-words">
-                        {message.text}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </>
+            {preview.messages.length === 0 ? (
+              <p className="p-3 text-muted">{t("previewEmpty")}</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {preview.messages.map((message, index) => (
+                  <li key={`${message.role}:${index}`} className="grid gap-2 p-3 md:grid-cols-[110px_minmax(0,1fr)]">
+                    <div className="font-mono text-xs font-medium text-muted">
+                      {roleLabel(message.role, t)}
+                    </div>
+                    <div className="whitespace-pre-wrap break-words">
+                      {message.text}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         ) : (
-          <p className="mt-2 text-muted">{t("previewUnavailable")}</p>
+          <div className="h-[65vh] min-h-[420px] border border-border p-3 text-muted">
+            {t("previewUnavailable")}
+          </div>
         )}
       </section>
+
+      <div className="mt-3 grid gap-3">
+        <details className="border border-border">
+          <summary className="cursor-pointer px-3 py-2 font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground">
+            {t("detailsSummary")}
+          </summary>
+          <div className="border-t border-border p-3">
+            <dl className="grid gap-3 md:grid-cols-2">
+              <Metadata label={t("agent")} value={session.agent} />
+              <Metadata label={t("agentSessionId")} value={session.agentSessionId} />
+              <Metadata label={t("cwd")} value={cwd} />
+              <Metadata label={t("relPath")} value={session.relPath} />
+              <Metadata label={t("rawSize")} value={formatBytes(session.sizeBytes, locale)} />
+              <Metadata
+                label={t("compressedSize")}
+                value={session.compressedSizeBytes == null ? t("unknownSize") : formatBytes(session.compressedSizeBytes, locale)}
+              />
+              <Metadata label={t("firstUploaded")} value={formatDate(session.firstUploadedAt, locale)} />
+              <Metadata label={t("lastUploaded")} value={formatDate(session.lastUploadedAt, locale)} />
+            </dl>
+            <div className="mt-3 border-t border-border pt-3">
+              {downloadUrl ? (
+                <>
+                  <a
+                    href={downloadUrl}
+                    rel="nofollow"
+                    className="inline-flex border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
+                  >
+                    {t("downloadLink")}
+                  </a>
+                  <p className="mt-2 text-muted">{t("downloadExpires")}</p>
+                </>
+              ) : (
+                <p className="text-muted">{t("downloadUnavailable")}</p>
+              )}
+            </div>
+          </div>
+        </details>
+
+        <details className="border border-border">
+          <summary className="cursor-pointer px-3 py-2 font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground">
+            {t("snapshotsSummary")}
+          </summary>
+          <div className="border-t border-border p-3">
+            <div className="overflow-x-auto border border-border">
+              <table className="w-full min-w-[700px] border-collapse text-left">
+                <thead className="text-xs text-muted">
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-2 font-medium">{t("sha256")}</th>
+                    <th className="px-3 py-2 font-medium">{t("rawSize")}</th>
+                    <th className="px-3 py-2 font-medium">{t("compressedSize")}</th>
+                    <th className="px-3 py-2 font-medium">{t("uploadedAt")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshots.map((snapshot) => (
+                    <tr key={snapshot.sha256} className="border-b border-border">
+                      <td className="px-3 py-2 font-mono text-xs" title={snapshot.sha256}>
+                        {truncateMiddle(snapshot.sha256, 22)}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs tabular-nums">{formatBytes(snapshot.sizeBytes, locale)}</td>
+                      <td className="px-3 py-2 font-mono text-xs tabular-nums">{formatBytes(snapshot.compressedSizeBytes, locale)}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-muted">{formatDate(snapshot.uploadedAt, locale)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </div>
     </div>
   );
 }
@@ -189,7 +195,7 @@ function Metadata({
 }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dt className="text-xs text-muted">{label}</dt>
       <dd className="mt-1 break-words font-mono text-xs">{value}</dd>
     </div>
   );
@@ -204,5 +210,5 @@ function roleLabel(
   if (normalized === "assistant") return t("roles.assistant");
   if (normalized === "system") return t("roles.system");
   if (normalized === "tool") return t("roles.tool");
-  return role.toUpperCase();
+  return normalized;
 }

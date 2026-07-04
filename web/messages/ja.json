@@ -53,17 +53,13 @@
     "overview": {
       "eyebrow": "cmux Vault",
       "title": "Vault概要",
-      "description": "コーディングエージェント別のストレージ使用量とアップロード状況です。",
+      "description": "同期済みセッションのストレージ使用量とアップロード状況です。",
       "emptyTitle": "同期済みセッションはまだありません",
       "emptyBody": "ローカルのエージェントセッションがあるマシンでCLIの同期コマンドを実行してください。",
       "totalSessions": "合計セッション",
       "totalRawBytes": "元サイズ",
       "totalCompressedBytes": "圧縮サイズ",
       "latestUpload": "最新アップロード",
-      "sessionsCount": "{count}件のセッション",
-      "rawBytes": "元サイズ",
-      "compressedBytes": "圧縮サイズ",
-      "lastUpload": "最終アップロード",
       "never": "なし"
     },
     "cliAuth": {
@@ -82,8 +78,6 @@
       "eyebrow": "cmux Vault",
       "title": "同期済みセッション",
       "description": "ローカルマシンから同期された最近のコーディングエージェントのトランスクリプトです。",
-      "emptyTitle": "同期済みセッションはまだありません",
-      "emptyBody": "ローカルのエージェントセッションがあるマシンでCLIの同期コマンドを実行してください。",
       "backToOverview": "概要に戻る",
       "agent": "エージェント",
       "session": "セッション",
@@ -103,19 +97,11 @@
       "noResults": "この条件に一致するセッションはありません。",
       "endOfList": "セッションの末尾です",
       "copySession": "コピー",
-      "copiedSession": "コピー済み",
-      "agents": {
-        "all": "すべて",
-        "claude": "Claude",
-        "codex": "Codex",
-        "pi": "Pi"
-      }
+      "copiedSession": "コピー済み"
     },
     "detail": {
-      "eyebrow": "cmux Vault",
-      "title": "セッション詳細",
-      "description": "最新スナップショットの確認、トランスクリプトのダウンロード、このエージェントセッションの再開ができます。",
-      "metadata": "メタデータ",
+      "detailsSummary": "詳細",
+      "snapshotsSummary": "スナップショット",
       "agent": "エージェント",
       "agentSessionId": "エージェントセッションID",
       "cwd": "作業ディレクトリ",
@@ -126,27 +112,22 @@
       "lastUploaded": "最終アップロード",
       "unknownCwd": "不明なディレクトリ",
       "unknownSize": "不明なサイズ",
-      "resumeTitle": "再開コマンド",
-      "resumeHint": "cmux-vaultを設定済みのマシンでローカル実行してください。",
       "copyCommand": "コマンドをコピー",
       "copiedCommand": "コピー済み",
-      "downloadTitle": "ダウンロード",
       "downloadLink": "最新トランスクリプトをダウンロード",
       "downloadExpires": "この署名付きリンクはまもなく期限切れになります。",
       "downloadUnavailable": "現在ダウンロードできません。",
-      "snapshotsTitle": "スナップショット",
       "sha256": "SHA-256",
       "uploadedAt": "アップロード日時",
-      "transcriptTitle": "トランスクリプトプレビュー",
       "previewShowing": "最初の{count}件のメッセージを表示しています。",
       "previewTruncated": "最初の{count}件のメッセージを表示しています。プレビューは途中で切り詰められました。",
       "previewUnavailable": "トランスクリプトプレビューを表示できません。",
       "previewEmpty": "表示可能なトランスクリプトメッセージが見つかりません。",
       "roles": {
-        "user": "USER",
-        "assistant": "ASSISTANT",
-        "system": "SYSTEM",
-        "tool": "TOOL"
+        "user": "user",
+        "assistant": "assistant",
+        "system": "system",
+        "tool": "tool"
       }
     }
   },

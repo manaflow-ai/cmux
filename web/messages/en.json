@@ -53,17 +53,13 @@
     "overview": {
       "eyebrow": "cmux Vault",
       "title": "Vault overview",
-      "description": "Storage and upload activity grouped by coding agent.",
+      "description": "Storage and upload activity for synced sessions.",
       "emptyTitle": "No synced sessions yet",
       "emptyBody": "Run the CLI sync command from a machine with local agent sessions.",
       "totalSessions": "Total sessions",
       "totalRawBytes": "Raw bytes",
       "totalCompressedBytes": "Compressed bytes",
       "latestUpload": "Latest upload",
-      "sessionsCount": "{count, plural, one {# session} other {# sessions}}",
-      "rawBytes": "Raw bytes",
-      "compressedBytes": "Compressed bytes",
-      "lastUpload": "Last upload",
       "never": "Never"
     },
     "cliAuth": {
@@ -82,8 +78,6 @@
       "eyebrow": "cmux Vault",
       "title": "Synced sessions",
       "description": "Recent coding-agent transcripts synced from your local machines.",
-      "emptyTitle": "No synced sessions yet",
-      "emptyBody": "Run the CLI sync command from a machine with local agent sessions.",
       "backToOverview": "Back to overview",
       "agent": "Agent",
       "session": "Session",
@@ -103,19 +97,11 @@
       "noResults": "No sessions match these filters.",
       "endOfList": "End of sessions",
       "copySession": "Copy",
-      "copiedSession": "Copied",
-      "agents": {
-        "all": "All",
-        "claude": "Claude",
-        "codex": "Codex",
-        "pi": "Pi"
-      }
+      "copiedSession": "Copied"
     },
     "detail": {
-      "eyebrow": "cmux Vault",
-      "title": "Session detail",
-      "description": "Inspect the latest snapshot, download the transcript, or resume this agent session.",
-      "metadata": "Metadata",
+      "detailsSummary": "details",
+      "snapshotsSummary": "snapshots",
       "agent": "Agent",
       "agentSessionId": "Agent session ID",
       "cwd": "Working directory",
@@ -126,27 +112,22 @@
       "lastUploaded": "Last upload",
       "unknownCwd": "Unknown directory",
       "unknownSize": "Unknown size",
-      "resumeTitle": "Resume command",
-      "resumeHint": "Run this locally from a machine with cmux-vault configured.",
       "copyCommand": "Copy command",
       "copiedCommand": "Copied",
-      "downloadTitle": "Download",
       "downloadLink": "Download latest transcript",
       "downloadExpires": "This presigned link expires shortly.",
       "downloadUnavailable": "Download is unavailable right now.",
-      "snapshotsTitle": "Snapshots",
       "sha256": "SHA-256",
       "uploadedAt": "Uploaded",
-      "transcriptTitle": "Transcript preview",
       "previewShowing": "Showing first {count} messages.",
       "previewTruncated": "Showing first {count} messages. Preview truncated.",
       "previewUnavailable": "Transcript preview is unavailable.",
       "previewEmpty": "No readable transcript messages found.",
       "roles": {
-        "user": "USER",
-        "assistant": "ASSISTANT",
-        "system": "SYSTEM",
-        "tool": "TOOL"
+        "user": "user",
+        "assistant": "assistant",
+        "system": "system",
+        "tool": "tool"
       }
     }
   },
