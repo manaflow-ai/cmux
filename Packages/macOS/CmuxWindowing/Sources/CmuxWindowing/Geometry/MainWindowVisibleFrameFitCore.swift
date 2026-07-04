@@ -107,7 +107,8 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
 
         let center = CGPoint(x: frame.midX, y: frame.midY)
         return displays.min { lhs, rhs in
-            distanceSquared(lhs.visibleFrame, center) < distanceSquared(rhs.visibleFrame, center)
+            distanceSquared(from: center, to: lhs.visibleFrame)
+                < distanceSquared(from: center, to: rhs.visibleFrame)
         }
     }
 
@@ -138,9 +139,11 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
         return max(0, intersection.width) * max(0, intersection.height)
     }
 
-    private func distanceSquared(_ rect: CGRect, _ point: CGPoint) -> CGFloat {
-        let dx = rect.midX - point.x
-        let dy = rect.midY - point.y
+    private func distanceSquared(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let nearestX = min(max(point.x, rect.minX), rect.maxX)
+        let nearestY = min(max(point.y, rect.minY), rect.maxY)
+        let dx = nearestX - point.x
+        let dy = nearestY - point.y
         return (dx * dx) + (dy * dy)
     }
 

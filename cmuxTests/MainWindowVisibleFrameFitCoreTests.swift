@@ -130,6 +130,30 @@ struct MainWindowVisibleFrameFitCoreTests {
         #expect(Self.rightDisplay.visibleFrame.contains(fitted))
     }
 
+    @Test func noOverlapFallbackTargetsNearestVisibleFrameEdge() throws {
+        let nearWideDisplay = SessionDisplayGeometry(
+            displayID: 91,
+            frame: CGRect(x: -9_000, y: 0, width: 10_000, height: 1_000),
+            visibleFrame: CGRect(x: -9_000, y: 0, width: 10_000, height: 960)
+        )
+        let fartherNarrowDisplay = SessionDisplayGeometry(
+            displayID: 92,
+            frame: CGRect(x: 1_200, y: 0, width: 100, height: 1_000),
+            visibleFrame: CGRect(x: 1_200, y: 0, width: 100, height: 960)
+        )
+        let offscreenFrame = CGRect(x: 1_010, y: 100, width: 80, height: 500)
+
+        let fitted = try #require(core.fittedFrame(
+            for: offscreenFrame,
+            displays: [nearWideDisplay, fartherNarrowDisplay],
+            minimumWidth: Self.minimumWidth,
+            minimumHeight: Self.minimumHeight
+        ))
+
+        #expect(nearWideDisplay.visibleFrame.contains(fitted))
+        #expect(fitted.maxX == nearWideDisplay.visibleFrame.maxX)
+    }
+
     @Test func topologySignatureIgnoresSideAndBottomDockInsetChanges() {
         let dockResized = SessionDisplayGeometry(
             displayID: Self.builtInDisplay.displayID,
