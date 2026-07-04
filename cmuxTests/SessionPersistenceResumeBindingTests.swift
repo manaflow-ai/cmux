@@ -605,7 +605,7 @@ import Testing
         #expect(process.terminationStatus == 0, "\(errorText)")
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
-        #expect(output == "\(cwd.path)|resume session-moved-cli --yolo\n")
+        #expect(output == "\(cwd.path)|resume session-moved-cli -c check_for_update_on_startup=false --yolo\n")
         #expect(!startupInput.contains(movedExecutable.path), "\(startupInput)")
     }
 
