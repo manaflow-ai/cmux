@@ -187,7 +187,205 @@ struct CLISSHPTYResizeInputTests {
         }
     }
 
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6306. When a
+    // `workspace.remote.pty_resize` delivery fails (e.g. it races a stale or
+    // blocked remote-session control path and the bounded RPC times out), the
+    // attach helper must not silently drop the size. It should retry the latest
+    // size on its own — without waiting for another SIGWINCH or input edge — so
+    // the remote PTY/TUI still converges and a manual workspace reconnect is not
+    // required. Here the first resize the daemon receives (the attach-time
+    // reconcile) fails; the helper must re-deliver the same size automatically.
+    @Test
+    func resizeRetriesAfterFailedDelivery() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyretry")
+        var listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "44444444-4444-4444-4444-444444444444"
+        let surfaceId = "55555555-5555-5555-5555-555555555555"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+        let bridgeReady = DispatchSemaphore(value: 0)
+        let firstResizeFailed = DispatchSemaphore(value: 0)
+        let retriedResizeSucceeded = DispatchSemaphore(value: 0)
+        let resizeAttempts = ResizeAttemptCounter()
+        let capturedRetryParams = CapturedResizeParams()
+        var masterFD: Int32 = -1
+        var slaveFD: Int32 = -1
+
+        defer {
+            if masterFD >= 0 { Darwin.close(masterFD) }
+            if slaveFD >= 0 { Darwin.close(slaveFD) }
+            if listenerFD >= 0 { Darwin.close(listenerFD) }
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+
+        // Open the PTY at the target size so the attach-time reconcile (which
+        // reads STDOUT's winsize after arming SIGWINCH) sends exactly this size
+        // as its first — and only — resize, with no SIGWINCH or input edge
+        // needed to drive it. Any subsequent send of this size can only come
+        // from the helper's own retry.
+        try setPTYSize(masterFD: masterFD, cols: 132, rows: 50)
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_resize":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let attempt = resizeAttempts.record()
+                if attempt == 1 {
+                    // Simulate a delivery failure on the first attempt.
+                    firstResizeFailed.signal()
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: [
+                            "code": "remote_session_unavailable",
+                            "message": "simulated stale remote-session control path",
+                        ]
+                    )
+                }
+                capturedRetryParams.store(params)
+                retriedResizeSucceeded.signal()
+                return v2Response(id: id, ok: true, result: [:])
+            case "workspace.remote.pty_sessions":
+                return v2Response(id: id, ok: true, result: ["sessions": []])
+            case "workspace.remote.pty_attach_end":
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        let bridgeHandled = startReadyBridge(bridge: bridge, bridgeReady: bridgeReady)
+
+        let process = Process()
+        let stderrPipe = Pipe()
+        let stdinFD = dup(slaveFD)
+        guard stdinFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let stdoutFD = dup(slaveFD)
+        guard stdoutFD >= 0 else {
+            Darwin.close(stdinFD)
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let stdinHandle = FileHandle(fileDescriptor: stdinFD, closeOnDealloc: true)
+        let stdoutHandle = FileHandle(fileDescriptor: stdoutFD, closeOnDealloc: true)
+        Darwin.close(slaveFD)
+        slaveFD = -1
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "ssh-pty-attach",
+            "--workspace", workspaceId,
+            "--session-id", sessionId,
+            "--attachment-id", surfaceId,
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        process.environment = environment
+        process.standardInput = stdinHandle
+        process.standardOutput = stdoutHandle
+        process.standardError = stderrPipe
+
+        try process.run()
+        stdinHandle.closeFile()
+        stdoutHandle.closeFile()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        #expect(bridgeReady.wait(timeout: .now() + 5) == .success)
+        #expect(
+            firstResizeFailed.wait(timeout: .now() + 5) == .success,
+            "Expected ssh-pty-attach to attempt the attach-time reconcile resize"
+        )
+        #expect(
+            retriedResizeSucceeded.wait(timeout: .now() + 5) == .success,
+            "Expected ssh-pty-attach to retry the resize after the first delivery failed, without a new SIGWINCH or input edge"
+        )
+
+        let retryParams = capturedRetryParams.snapshot()
+        #expect(retryParams?["cols"] as? Int == 132)
+        #expect(retryParams?["rows"] as? Int == 50)
+        #expect(resizeAttempts.count() >= 2)
+
+        if process.isRunning {
+            process.terminate()
+        }
+        let exited = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exited.signal()
+        }
+        _ = exited.wait(timeout: .now() + 5)
+        socketHandled.stop()
+        Darwin.close(listenerFD)
+        listenerFD = -1
+        _ = socketHandled.handled.wait(timeout: .now() + 5)
+        _ = bridgeHandled.wait(timeout: .now() + 5)
+    }
+
     private final class BundleToken {}
+
+    // Lock-protected count of resize attempts seen by the mock socket thread.
+    private final class ResizeAttemptCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+
+        func record() -> Int {
+            lock.lock()
+            value += 1
+            let result = value
+            lock.unlock()
+            return result
+        }
+
+        func count() -> Int {
+            lock.lock()
+            let result = value
+            lock.unlock()
+            return result
+        }
+    }
 
     // Lock-protected test capture shared by the mock socket thread and test thread.
     private final class MockSocketServerState: @unchecked Sendable {
@@ -441,6 +639,54 @@ struct CLISSHPTYResizeInputTests {
                 return
             }
         }
+    }
+
+    // Minimal bridge: accept, read the handshake line, reply "ready", then hold
+    // the connection open (draining any bytes) until the client closes it so the
+    // attach helper's output read loop stays alive while the resize retry runs.
+    private func startReadyBridge(
+        bridge: LoopbackTCPListener,
+        bridgeReady: DispatchSemaphore
+    ) -> DispatchSemaphore {
+        let handled = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.signal() }
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(bridge.fd, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
+            ready.withCString { ptr in
+                _ = Darwin.write(clientFD, ptr, strlen(ptr))
+            }
+            bridgeReady.signal()
+
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count > 0 { continue }
+                if count == 0 { return }
+                if errno != EINTR { return }
+            }
+        }
+        return handled
     }
 
     private func startBridgeServer(
