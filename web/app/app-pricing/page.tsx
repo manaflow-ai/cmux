@@ -1,11 +1,9 @@
 import type { CSSProperties } from "react";
+import { headers } from "next/headers";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
-import {
-  APP_PRICING_CHECKOUT_URL,
-  APP_PRICING_TEAM_CHECKOUT_URL,
-} from "../lib/billing";
+import { appPricingCheckoutURL } from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
   CurrentPlanBadge,
@@ -37,6 +35,9 @@ export default async function AppPricingPage({
 }) {
   const snapshot = await currentPlanSnapshot();
   const params = await searchParams;
+  const requestOrigin = appPricingRequestOrigin(await headers());
+  const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin);
+  const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin);
   const banner = appPricingBanner(params);
   const appearance = appPricingAppearance(params);
   const pageBackground = appPricingPageBackground(params, appearance);
@@ -103,7 +104,7 @@ export default async function AppPricingPage({
               {snapshot.isPro ? (
                 <DisabledButton>Current plan</DisabledButton>
               ) : (
-                <PrimaryLink href={APP_PRICING_CHECKOUT_URL}>{pricing.pro.cta}</PrimaryLink>
+                <PrimaryLink href={proCheckoutURL}>{pricing.pro.cta}</PrimaryLink>
               )}
               <p className="mt-5 text-sm font-medium">
                 {pricing.pro.featuresLead}
@@ -116,7 +117,7 @@ export default async function AppPricingPage({
               price={pricing.team.price}
               period={pricing.perUserMonth}
             >
-              <PrimaryLink href={APP_PRICING_TEAM_CHECKOUT_URL}>{pricing.team.cta}</PrimaryLink>
+              <PrimaryLink href={teamCheckoutURL}>{pricing.team.cta}</PrimaryLink>
               <p className="mt-5 text-sm font-medium">
                 {pricing.team.featuresLead}
               </p>
@@ -165,12 +166,12 @@ export default async function AppPricingPage({
                 pro: snapshot.isPro ? (
                   <DisabledButton size="compact">Current plan</DisabledButton>
                 ) : (
-                  <PrimaryLink href={APP_PRICING_CHECKOUT_URL} size="compact">
+                  <PrimaryLink href={proCheckoutURL} size="compact">
                     {pricing.pro.cta}
                   </PrimaryLink>
                 ),
                 team: (
-                  <PrimaryLink href={APP_PRICING_TEAM_CHECKOUT_URL} size="compact">
+                  <PrimaryLink href={teamCheckoutURL} size="compact">
                     {pricing.team.cta}
                   </PrimaryLink>
                 ),
@@ -341,4 +342,26 @@ function appPricingStyle(
     backgroundColor: pageBackground,
     colorScheme: "light",
   } as CSSProperties;
+}
+
+function appPricingRequestOrigin(headersList: Headers): string | null {
+  const forwardedHost = firstHeaderValue(headersList.get("x-forwarded-host"));
+  const host = forwardedHost ?? firstHeaderValue(headersList.get("host"));
+  if (!host) return null;
+  const forwardedProto = firstHeaderValue(headersList.get("x-forwarded-proto"));
+  const proto = forwardedProto ?? (isLoopbackHost(host) ? "http" : "https");
+  if (proto !== "http" && proto !== "https") return null;
+  return `${proto}://${host}`;
+}
+
+function firstHeaderValue(value: string | null): string | null {
+  const first = value?.split(",")[0]?.trim();
+  return first && first.length > 0 ? first : null;
+}
+
+function isLoopbackHost(host: string): boolean {
+  const hostname = host.startsWith("[")
+    ? host.slice(1, host.indexOf("]")).toLowerCase()
+    : host.split(":")[0]?.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { withCheckoutExternalBrowserIntent } from "../app/lib/billing";
+import {
+  appPricingCheckoutURL,
+  withCheckoutExternalBrowserIntent,
+} from "../app/lib/billing";
 
 describe("billing links", () => {
   test("marks relative checkout URLs for system-browser handoff", () => {
@@ -16,5 +19,30 @@ describe("billing links", () => {
     ).toBe(
       "https://cmux.com/api/billing/checkout?plan=pro&cmux_external_browser=1#pay",
     );
+  });
+
+  test("app pricing checkout uses the request origin", () => {
+    expect(appPricingCheckoutURL("pro", "http://localhost:9210")).toBe(
+      "http://localhost:9210/api/billing/checkout?plan=pro&cmux_external_browser=1",
+    );
+    expect(appPricingCheckoutURL("team", "https://cmux.com")).toBe(
+      "https://cmux.com/api/billing/checkout?plan=team&cmux_external_browser=1",
+    );
+  });
+
+  test("app pricing checkout keeps an explicit origin override", () => {
+    const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL = "https://billing.example/checkout";
+    try {
+      expect(appPricingCheckoutURL("pro", "http://localhost:9210")).toBe(
+        "https://billing.example/checkout?plan=pro&cmux_external_browser=1",
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previous;
+      }
+    }
   });
 });
