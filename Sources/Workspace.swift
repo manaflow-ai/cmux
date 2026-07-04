@@ -8764,7 +8764,7 @@ final class Workspace: Identifiable, ObservableObject {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
-        let directory = workingDirectory ?? currentDirectory
+        let directory = workingDirectory ?? (isRemoteWorkspace ? presentedCurrentDirectory : currentDirectory)
 
         let agentPanel = AgentSessionPanel(
             workspaceId: id,
@@ -8774,7 +8774,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle
-        if !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let directory, !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             panelDirectories[agentPanel.id] = directory
         }
 

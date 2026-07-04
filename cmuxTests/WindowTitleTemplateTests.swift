@@ -390,7 +390,8 @@ struct WindowTitleTemplateTests {
             workingDirectory: nil,
             focus: true
         ))
-        workspace.panelDirectories.removeValue(forKey: agentPanel.id)
+        #expect(workspace.panelDirectories[agentPanel.id] == remoteDirectory)
+        workspace.panelDirectories[agentPanel.id] = localDirectory
 
         #expect(workspace.terminalPanel(for: agentPanel.id) == nil)
         #expect(workspace.focusedPanelId == agentPanel.id)

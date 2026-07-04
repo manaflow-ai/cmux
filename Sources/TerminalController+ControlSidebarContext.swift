@@ -119,15 +119,19 @@ extension TerminalController: ControlSidebarContext {
         return registry.registration(id: key) != nil
     }
 
-    /// The byte-faithful twin of the deleted file-private
-    /// `agentLifecycleRegistryWorkingDirectory(tab:panelId:)`.
+    /// Mirrors the v2 lifecycle registry cwd resolver while preserving remote cwd trust.
     private func controlSidebarAgentLifecycleRegistryWorkingDirectory(tab: Workspace, panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { tab.panelDirectories[$0] },
-            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
-            tab.currentDirectory,
+            panelId.flatMap { controlSidebarReportedPanelDirectory(tab: tab, panelId: $0) },
+            tab.focusedPanelId.flatMap { controlSidebarReportedPanelDirectory(tab: tab, panelId: $0) },
+            tab.isRemoteWorkspace ? tab.presentedCurrentDirectory : tab.currentDirectory,
         ]
         return candidates.compactMap(controlSidebarNormalizedOptionValue).first
+    }
+
+    private func controlSidebarReportedPanelDirectory(tab: Workspace, panelId: UUID) -> String? {
+        tab.reportedPanelDirectory(panelId: panelId)
+            ?? (tab.allowsLocalDirectoryFallback(panelId: panelId) ? tab.panelDirectories[panelId] : nil)
     }
 
     /// The byte-faithful twin of the deleted file-private

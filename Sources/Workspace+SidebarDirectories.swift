@@ -38,8 +38,10 @@ extension Workspace {
     }
 
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
-        !isRemoteWorkspace ||
-            (!remoteDirectoryTrustRequiredPanelIds.contains(panelId) && !isRemoteTerminalSurface(panelId))
+        if !isRemoteWorkspace { return true }
+        guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),
+              !isRemoteTerminalSurface(panelId) else { return false }
+        return terminalPanel(for: panelId) != nil
     }
 
     func currentDirectoryChangeRevisionPublisher() -> AnyPublisher<UInt64, Never> {
