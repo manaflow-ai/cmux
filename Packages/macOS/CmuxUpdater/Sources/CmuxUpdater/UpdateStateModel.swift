@@ -389,6 +389,8 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
     case noInternet
     /// cmux.update install-watchdog trip: "Update Didn't Start" (the install-loop guard).
     case installDidNotStart
+    /// cmux.update readiness timeout: "Updater Not Ready".
+    case updaterNotReady
 
     /// The label shown for this scenario in the debug menu.
     public var menuTitle: String {
@@ -405,6 +407,11 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
             return String(
                 localized: "update.debug.error.installDidNotStart",
                 defaultValue: "Install Didn’t Start (watchdog)"
+            )
+        case .updaterNotReady:
+            return String(
+                localized: "update.debug.error.updaterNotReady",
+                defaultValue: "Updater Not Ready (readiness timeout)"
             )
         }
     }
@@ -458,6 +465,13 @@ public enum DebugUpdateErrorScenario: String, CaseIterable, Hashable, Sendable {
                 NSLocalizedDescriptionKey: String(
                     localized: "update.error.didNotStart.message",
                     defaultValue: "cmux couldn’t start the update. Check your internet connection and try again."
+                ),
+            ])
+        case .updaterNotReady:
+            return NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.updaterNotReadyCode, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "update.error.notReady",
+                    defaultValue: "Updater is still starting. Try again in a moment."
                 ),
             ])
         }
