@@ -606,7 +606,17 @@ jobs:
           # out, and run codesign --verify --deep --strict + spctl --assess. A
           # signature regression introduced during DMG packaging fails here
           # instead of shipping to users.
-          ./scripts/verify-released-app-bundle.sh --dmg cmux-nightly-macos.dmg
+          for attempt in 1 2 3; do
+            if ./scripts/verify-released-app-bundle.sh --dmg cmux-nightly-macos.dmg; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Shipped nightly DMG verification failed after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "Shipped nightly DMG verification failed on attempt $attempt; retrying in 10s" >&2
+            sleep 10
+          done
 
       - name: Upload dSYMs to Sentry
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')

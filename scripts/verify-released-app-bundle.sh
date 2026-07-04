@@ -138,6 +138,7 @@ self_test() {
 
   local workdir app
   workdir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-verify-selftest.XXXXXX")"
+  # shellcheck disable=SC2064
   trap "rm -rf '$workdir'" EXIT
   app="$workdir/SelfTest.app"
 
