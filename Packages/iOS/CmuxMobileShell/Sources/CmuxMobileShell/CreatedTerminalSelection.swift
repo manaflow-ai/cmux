@@ -7,19 +7,14 @@ struct CreatedTerminalSelection: Equatable {
 
     init(workspace: MobileWorkspacePreview, terminalID: MobileTerminalPreview.ID) {
         remoteWorkspaceID = workspace.rpcWorkspaceID
-        macDeviceID = Self.normalizedMacDeviceID(workspace.macDeviceID)
+        macDeviceID = workspace.macDeviceID.flatMap { $0.isEmpty ? nil : $0 }
         self.terminalID = terminalID
     }
 
     func matches(workspace: MobileWorkspacePreview) -> Bool {
         guard workspace.rpcWorkspaceID == remoteWorkspaceID else { return false }
-        return Self.normalizedMacDeviceID(workspace.macDeviceID) == macDeviceID
+        return workspace.macDeviceID.flatMap { $0.isEmpty ? nil : $0 } == macDeviceID
     }
 
-    mutating func adoptMacDeviceID(_ macDeviceID: String) { self.macDeviceID = Self.normalizedMacDeviceID(macDeviceID) }
-
-    private static func normalizedMacDeviceID(_ macDeviceID: String?) -> String? {
-        guard let macDeviceID, !macDeviceID.isEmpty else { return nil }
-        return macDeviceID
-    }
+    mutating func adoptMacDeviceID(_ macDeviceID: String) { self.macDeviceID = macDeviceID.isEmpty ? nil : macDeviceID }
 }

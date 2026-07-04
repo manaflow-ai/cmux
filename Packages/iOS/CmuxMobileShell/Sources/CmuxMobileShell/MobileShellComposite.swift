@@ -666,13 +666,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored nonisolated(unsafe) private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var lastTerminalEventAt: Date?
+    // MainActor-written; deinit only cancels this thread-safe task handle.
     @ObservationIgnored nonisolated(unsafe) private var terminalSubscriptionRefreshTask: Task<Void, Never>?
+    // MainActor-written; deinit only cancels this thread-safe task handle.
     @ObservationIgnored nonisolated(unsafe) private var createWorkspaceTask: Task<Void, Never>?
+    // MainActor-written; deinit only cancels this thread-safe task handle.
     @ObservationIgnored nonisolated(unsafe) private var createTerminalTask: Task<Void, Never>?
+    // MainActor-written; deinit only cancels this thread-safe task handle.
     @ObservationIgnored nonisolated(unsafe) private var workspaceListRefreshTask: Task<Void, Never>?
-    /// The user pull-to-refresh round-trip, kept on its own handle so the
-    /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
-    /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
+    /// User pull-to-refresh round-trip; separate so event refresh restarts cannot
+    /// truncate the spinner the pull awaits. Rapid pulls coalesce onto this task.
     @ObservationIgnored nonisolated(unsafe) private var pullToRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
@@ -692,14 +695,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var connections: [String: MacConnection] = [:]
     var foregroundMacDeviceID: String? {
         didSet {
-            if oldValue == nil, let foregroundMacDeviceID {
-                createdTerminalSelection?.adoptMacDeviceID(foregroundMacDeviceID)
-            }
+            if oldValue == nil, let foregroundMacDeviceID { createdTerminalSelection?.adoptMacDeviceID(foregroundMacDeviceID) }
             recomputeDerivedWorkspaceState()
         }
     }
-    /// Persistent read-only connections to non-foreground Macs, keyed by `macDeviceID`.
-    /// Best-effort: failures tear down the entry; foreground re-aggregation is fallback.
+    /// Persistent best-effort read-only connections to non-foreground Macs.
     @ObservationIgnored nonisolated(unsafe) var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:] // MainActor-written; deinit snapshots values and schedules MainActor cancellation.
     /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
     /// switch can cancel it; its scope guards then bail before any cross-account
