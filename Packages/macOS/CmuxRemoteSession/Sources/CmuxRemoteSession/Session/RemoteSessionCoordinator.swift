@@ -47,7 +47,6 @@ internal import CMUXDebugLog
 /// tunnel/broker.
 public final class RemoteSessionCoordinator: @unchecked Sendable {
     // MARK: - Collaborators (immutable after init)
-
     let queue = DispatchQueue(label: "com.cmux.remote-ssh.\(UUID().uuidString)", qos: .utility)
     let queueKey = DispatchSpecificKey<Void>()
     /// One-way publish seam to the owning workspace model (the app adapter
@@ -60,19 +59,18 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let reachabilityProbe: any RemoteHostReachabilityProbing
     let relayCommandRewriter: any RemoteRelayCommandRewriting
     let buildInfo: any RemoteSessionBuildInfoProviding
+    let environment: [String: String]
     let daemonStrings: RemoteDaemonStrings
     let strings: RemoteSessionStrings
     /// Sleep seam for every legacy `asyncAfter` delay (reconnect backoff,
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
     let reconnectPolicy = RemoteReconnectPolicy()
-
     // MARK: - Queue-confined state
     //
     // Every var below is confined to `queue` (see the isolation essay).
     // Internal (not private) only so the coordinator's same-module extension
     // files can reach them; nothing outside this type may touch them.
-
     var isStopping = false
     var proxyLease: RemoteProxyLease?
     var proxyEndpoint: BrowserProxyEndpoint?
@@ -132,7 +130,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// transport that may exit immediately (public because it is the default
     /// argument of the test-pinned ``reverseRelayStartupFailureDetail(process:stderrPipe:gracePeriod:)``).
     public static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
-
     /// Creates a coordinator for one remote-workspace connection attempt.
     ///
     /// - Parameters:
@@ -147,6 +144,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///     reconnect-suspend policy.
     ///   - relayCommandRewriter: Alias-aware CLI relay command rewriter.
     ///   - buildInfo: App-build inputs (`Bundle.main` stays app-side).
+    ///   - environment: Process environment used for dev-only daemon build overrides.
     ///   - daemonStrings: App-localized daemon error strings.
     ///   - strings: App-localized connection-state strings.
     ///   - clock: Sleep seam driving every retry/backoff delay (production
@@ -160,6 +158,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         reachabilityProbe: any RemoteHostReachabilityProbing,
         relayCommandRewriter: any RemoteRelayCommandRewriting,
         buildInfo: any RemoteSessionBuildInfoProviding,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         daemonStrings: RemoteDaemonStrings,
         strings: RemoteSessionStrings,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
@@ -172,6 +171,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.reachabilityProbe = reachabilityProbe
         self.relayCommandRewriter = relayCommandRewriter
         self.buildInfo = buildInfo
+        self.environment = environment
         self.daemonStrings = daemonStrings
         self.strings = strings
         self.clock = clock

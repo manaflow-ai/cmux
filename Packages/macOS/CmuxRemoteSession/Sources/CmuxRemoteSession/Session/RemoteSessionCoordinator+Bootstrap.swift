@@ -28,12 +28,12 @@ extension RemoteSessionCoordinator {
             homeDirectory: bootstrapState.homeDirectory
         )
         let remotePath = remoteLocation.absolutePath
-        let explicitOverrideBinary = Self.explicitRemoteDaemonBinaryURL()
+        let explicitOverrideBinary = Self.explicitRemoteDaemonBinaryURL(environment: environment)
         let forceExplicitOverrideInstall = explicitOverrideBinary != nil
         debugLog(
             "remote.bootstrap.platform os=\(platform.goOS) arch=\(platform.goArch) " +
             "version=\(version) remotePath=\(remotePath) relativePath=\(remoteLocation.relativePath) " +
-            "allowLocalBuildFallback=\(Self.allowLocalDaemonBuildFallback() ? 1 : 0) " +
+            "allowLocalBuildFallback=\(Self.allowLocalDaemonBuildFallback(environment: environment) ? 1 : 0) " +
             "explicitOverride=\(forceExplicitOverrideInstall ? 1 : 0)"
         )
 
@@ -222,7 +222,7 @@ extension RemoteSessionCoordinator {
     }
 
     func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
-        if let explicitBinary = Self.explicitRemoteDaemonBinaryURL(),
+        if let explicitBinary = Self.explicitRemoteDaemonBinaryURL(environment: environment),
            FileManager.default.isExecutableFile(atPath: explicitBinary.path) {
             debugLog("remote.build.explicit path=\(explicitBinary.path)")
             return explicitBinary
@@ -247,7 +247,7 @@ extension RemoteSessionCoordinator {
             return download.binaryURL
         }
 
-        guard Self.allowLocalDaemonBuildFallback() else {
+        guard Self.allowLocalDaemonBuildFallback(environment: environment) else {
             throw NSError(domain: "cmux.remote.daemon", code: 20, userInfo: [
                 NSLocalizedDescriptionKey: "this build does not include a verified cmuxd-remote manifest for \(goOS)-\(goArch). Use a release/nightly build, or set CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 for a dev-only fallback.",
             ])
