@@ -47,17 +47,18 @@ enum AppshotCapturer {
         // The Accessibility walk is synchronous IPC — up to thousands of
         // round-trips — and PNG encoding plus the file writes are CPU/disk work,
         // so run all of it off the bounded cooperative thread pool rather than
-        // blocking a pool thread. (The window/app title prefers the AX title,
-        // falling back to the CGWindowList title captured above.) `image` is an
-        // immutable, Sendable `CGImage?`, so it crosses into the queue closure
-        // like the other Sendable value captures.
+        // blocking a pool thread. The window title uses the CGWindowList title
+        // captured above; AX title/description strings are not ranged and are
+        // skipped on this untrusted hotkey path. `image` is an immutable,
+        // Sendable `CGImage?`, so it crosses into the queue closure like the
+        // other Sendable value captures.
         return await withCheckedContinuation { (continuation: CheckedContinuation<AppshotCapture?, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 let imagePath = image.flatMap { writePNG($0) }
-                var title = window.title
+                let title = window.title
                 var textPath: String?
                 if accessibility {
-                    let extracted = extractAccessibilityText(pid: frontPID, targetBounds: window.bounds, axTitle: &title)
+                    let extracted = extractAccessibilityText(pid: frontPID, targetBounds: window.bounds)
                     if !extracted.isEmpty {
                         textPath = writeText(extracted)
                     }
@@ -126,7 +127,7 @@ enum AppshotCapturer {
 
     // MARK: Accessibility text
 
-    private static func extractAccessibilityText(pid: pid_t, targetBounds: CGRect?, axTitle: inout String) -> String {
+    private static func extractAccessibilityText(pid: pid_t, targetBounds: CGRect?) -> String {
         // Bound EVERY synchronous AX IPC call in this process for the duration of
         // the walk. A per-element timeout only covers that one element (not the
         // window/child elements actually read), so set it on the system-wide
@@ -136,20 +137,15 @@ enum AppshotCapturer {
         AXUIElementSetMessagingTimeout(systemWide, maxAccessibilityCallTimeout)
         defer { AXUIElementSetMessagingTimeout(systemWide, 0) }
 
-        // One wall-clock budget for the ENTIRE capture: window resolution, the
-        // title read, and the node walk all share it, so a slow or hostile app
-        // (many windows and/or slow IPC) can't keep the capture — and
+        // One wall-clock budget for the ENTIRE capture: window resolution and
+        // the node walk share it, so a slow or hostile app (many windows and/or
+        // slow IPC) can't keep the capture — and
         // `isCapturing` — pending well past the advertised budget. Each AX call
         // is separately bounded by the process-wide messaging timeout above, so
         // the worst-case overshoot is one in-flight call past the deadline.
         let deadline = Date().addingTimeInterval(maxAccessibilityDuration)
         let app = AXUIElementCreateApplication(pid)
         let root = resolveTargetWindow(app: app, matching: targetBounds, deadline: deadline) ?? app
-
-        if axTitle.isEmpty, Date() < deadline,
-           let windowTitle = copyBoundedString(root, kAXTitleAttribute, limit: maxAccessibilityChars) {
-            axTitle = windowTitle
-        }
 
         var pieces: [String] = []
         var seen = Set<String>()
@@ -261,13 +257,14 @@ enum AppshotCapturer {
         guard nodesVisited < maxAccessibilityNodes, charCount < maxAccessibilityChars, Date() < deadline else { return }
         nodesVisited += 1
 
-        for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
+        for attribute in [kAXValueAttribute] {
             // Re-check the deadline before each AX read, not just once per node,
             // so a node's several IPC calls can't overshoot the budget together.
             guard charCount < maxAccessibilityChars, Date() < deadline else { return }
-            // Fetch at most the remaining budget. For a text element's value this
-            // uses a ranged AX read so a whole-document value is never materialized
-            // in full on this hotkey path.
+            // Fetch at most the remaining budget through a ranged AX read so a
+            // whole-document value is never materialized in full on this hotkey
+            // path. Title/description attributes have no ranged AX API and are
+            // intentionally skipped for this untrusted global-hotkey path.
             guard let bounded = boundedString(element, attribute, limit: maxAccessibilityChars - charCount) else { continue }
             let trimmed = bounded.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count > 1, seen.insert(trimmed).inserted else { continue }
@@ -286,57 +283,16 @@ enum AppshotCapturer {
         }
     }
 
-    /// Reads a string attribute, materializing at most `limit` characters as a
-    /// Swift `String`. For the value attribute — which can be a whole document —
-    /// it reads only a provably bounded amount first: a leading ranged fetch, or
-    /// a full read solely when the reported character count proves the value is
-    /// within budget. Title and description have no ranged or counted AX API, so
-    /// they are capped at read time by ``copyBoundedString``. A large or hostile
-    /// attribute is never materialized in full as a Swift string on this hotkey
+    /// Reads a string attribute only when AX exposes a ranged read for it, so a
+    /// large or hostile attribute is never materialized in full on this hotkey
     /// path.
     private static func boundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
         guard limit > 0 else { return nil }
-        if attribute == kAXValueAttribute {
-            // The value can be a whole document, so only accept it through a
-            // provably bounded read: a leading ranged fetch, or — if ranged is
-            // unsupported — a full read only when the reported character count
-            // proves it is within budget. Never materialize an unbounded value.
-            if let ranged = copyRangedString(element, location: 0, length: limit) {
-                // A provider that ignores the requested length could return more
-                // than `limit`; clamp so the bounded-read guarantee holds.
-                return ranged.count > limit ? String(ranged.prefix(limit)) : ranged
-            }
-            // Require a non-negative count within budget. A negative count (from a
-            // misbehaving provider) must not slip past into the bounded read
-            // below and let a whole-document value through.
-            guard let count = copyInt(element, kAXNumberOfCharactersAttribute),
-                  (0...limit).contains(count) else {
-                return nil
-            }
-        }
-        return copyBoundedString(element, attribute, limit: limit)
-    }
-
-    /// Copies a string attribute, bridging at most `limit` characters into a
-    /// Swift `String`. When a provider returns a very large CFString — a hostile
-    /// or buggy title/description on the global-hotkey path against an arbitrary
-    /// frontmost app — only a leading `limit`-character substring is bridged, so
-    /// cmux never trims, dedups, stores, or otherwise retains an unbounded Swift
-    /// string. The transient CFString is the AX framework's own IPC copy; no
-    /// public AX API exposes a ranged or counted read for non-value attributes
-    /// such as title/description, so capping the materialized Swift value is the
-    /// strongest available bound.
-    private static func copyBoundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
-        guard limit > 0 else { return nil }
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-              let value, CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
-        let cfString = value as! CFString
-        guard CFStringGetLength(cfString) > limit else { return cfString as String }
-        guard let clamped = CFStringCreateWithSubstring(nil, cfString, CFRange(location: 0, length: limit)) else {
-            return nil
-        }
-        return clamped as String
+        guard attribute == kAXValueAttribute,
+              let ranged = copyRangedString(element, location: 0, length: limit) else { return nil }
+        // A provider that ignores the requested length could return more than
+        // `limit`; clamp so the bounded-read guarantee holds after bridging.
+        return ranged.count > limit ? String(ranged.prefix(limit)) : ranged
     }
 
     /// Fetches up to `max` children of `element` via the counted AX array API,
@@ -366,13 +322,6 @@ enum AppshotCapturer {
         guard AXUIElementCopyAttributeValues(element, attribute as CFString, 0, max, &values) == .success
         else { return nil }
         return values as? [AXUIElement]
-    }
-
-    private static func copyInt(_ element: AXUIElement, _ attribute: String) -> Int? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-              let value, CFGetTypeID(value) == CFNumberGetTypeID() else { return nil }
-        return (value as! NSNumber).intValue
     }
 
     /// Fetches `[location, location+length)` characters from a text element via
