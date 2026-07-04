@@ -1,4 +1,5 @@
-import XCTest
+import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,9 +7,10 @@ import XCTest
 @testable import cmux
 #endif
 
-final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
-    func testImmediateStateUpdateAllowedWhenDesiredStateIsHidden() {
-        XCTAssertTrue(
+@Suite
+struct GhosttyTerminalViewVisibilityPolicyTests {
+    @Test func immediateStateUpdateAllowedWhenDesiredStateIsHidden() {
+        #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: false,
                 hostedViewHasSuperview: true,
@@ -17,8 +19,8 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
-        XCTAssertTrue(
+    @Test func immediateStateUpdateAllowedWhenBoundToCurrentHost() {
+        #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: true,
                 hostedViewHasSuperview: true,
@@ -27,9 +29,9 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
-        XCTAssertFalse(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+    @Test func immediateStateUpdateSkippedForStaleHostBoundElsewhere() {
+        #expect(
+            !GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
@@ -37,8 +39,8 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
-        XCTAssertTrue(
+    @Test func immediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
+        #expect(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
                 desiredVisibleInUI: true,
                 hostedViewHasSuperview: false,
@@ -47,21 +49,52 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testSwiftUIHostGeometryCallbackUsesImmediateSyncWithoutLayoutFlush() {
+    @Test func swiftUIHostGeometryCallbackUsesImmediateSyncWithoutLayoutFlush() {
         switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: 3873) {
         case .synchronizeWithoutLayoutFlush(let window):
-            XCTAssertEqual(window, 3873)
+            #expect(window == 3873)
         case .skip:
-            XCTFail("Window-attached host callbacks should immediately reconcile portal geometry without layout flushes")
+            Issue.record("Window-attached host callbacks should immediately reconcile portal geometry without layout flushes")
         }
     }
 
-    func testSwiftUIHostGeometryCallbackSkipsWithoutWindow() {
+    @Test func swiftUIHostGeometryCallbackSkipsWithoutWindow() {
         switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: Optional<Int>.none) {
         case .synchronizeWithoutLayoutFlush:
-            XCTFail("Detached host callbacks must not synchronize terminal portal geometry")
+            Issue.record("Detached host callbacks must not synchronize terminal portal geometry")
         case .skip:
             break
         }
+    }
+
+    @Test @MainActor func canvasTerminalRenderingDrivesRendererVisibility() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let mount = CanvasPaneContentMount(
+            content: .terminal(panel),
+            panelId: panel.id,
+            container: container,
+            onFocusPanel: { _ in }
+        )
+
+        #expect(panel.surface.isRendererPortalVisible)
+
+        mount.setRendering(false)
+        #expect(!panel.surface.isRendererPortalVisible)
+
+        mount.setRendering(true)
+        #expect(panel.surface.isRendererPortalVisible)
+
+        mount.setRendering(false)
+        #expect(!panel.surface.isRendererPortalVisible)
+
+        // A canvas tab that is unmounted — deselected via
+        // `CanvasRootView.reconcileMount`, or handed back to the split when
+        // leaving canvas — is no longer on screen, so it must report
+        // portal-hidden. Otherwise `RendererRealizationController` skips
+        // `releaseRenderer()` for every backgrounded canvas tab and leaks its
+        // GPU renderer. Release stays controller-driven (idle/warm policy).
+        mount.unmount()
+        #expect(!panel.surface.isRendererPortalVisible)
     }
 }

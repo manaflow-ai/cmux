@@ -128,6 +128,10 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
     func setRendering(_ rendering: Bool) {
         switch content {
         case .terminal(let panel):
+            panel.surface.setRendererPortalVisible(rendering)
+            if rendering {
+                panel.surface.realizeRenderer()
+            }
             panel.surface.setOcclusion(rendering)
         case .hosted(let panel, _):
             // Offscreen browsers may hidden-discard their webview; coming
@@ -148,7 +152,20 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setActive(false)
             hostedView.setFocusHandler(nil)
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
-            panel.surface.setOcclusion(true)
+            // Hide through the authoritative portal path rather than poking the
+            // surface directly. `setVisibleInUI(false)` flips the scroll view's
+            // `visibleInUI` flag and marks the surface portal-hidden and
+            // occluded without realizing on hide. unmount() also runs when a
+            // canvas tab is deselected (`CanvasRootView.reconcileMount`), where
+            // no portal re-hosts the surface: leaving it portal-visible would pin
+            // `RendererRealizationController` off this surface forever and leak
+            // its GPU renderer. Poking `TerminalSurface` occlusion directly would
+            // also desync the portal — a later `setVisibleInUI(true)` re-host
+            // would see `wasVisible == true` and skip re-occluding, leaving the
+            // re-shown split terminal frozen. Going through the shared path makes
+            // re-hosting a real false→true transition that re-realizes and
+            // re-occludes; renderer release stays controller-driven.
+            hostedView.setVisibleInUI(false)
             hostedView.removeFromSuperview()
         case .hosted(let panel, let view):
             if let browserPanel = panel as? BrowserPanel {
