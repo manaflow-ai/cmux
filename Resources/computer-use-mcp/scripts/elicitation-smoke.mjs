@@ -44,7 +44,7 @@ function summarizeResult(res) {
   return { isError: !!res.isError, text };
 }
 
-async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv = {} }) {
+async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv = {}, onElicitation = null }) {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverPath],
@@ -67,6 +67,7 @@ async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv
           throw new Error(`unexpected elicitation message: ${request.params.message}`);
         }
       }
+      onElicitation?.(request.params.message);
       return { action: "accept", content: {} };
     });
   }
@@ -355,6 +356,22 @@ if (!declined.isError || !declined.text.includes("not approved")) {
   process.exit(1);
 }
 
+const appControlPrompts = [];
+const repeatedAppControl = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_state", args: { app: "TestApp" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+  onElicitation: (message) => appControlPrompts.push(message),
+});
+console.log(`app-control approval prompts -> count=${appControlPrompts.length}`);
+if (repeatedAppControl.some((result) => result.isError) || appControlPrompts.length !== 2) {
+  console.error("FAIL: app-control approval should be one-shot, not cached by raw app selector");
+  process.exit(1);
+}
+
 const [raceState, raceFirst, raceSecond] = await runConcurrentElementRace();
 console.log(`concurrent element race -> state=${raceState.isError} first=${raceFirst.isError} second=${raceSecond.isError}`);
 if (raceState.isError || raceFirst.isError || !raceSecond.isError || !raceSecond.text.includes("computer_state")) {
@@ -386,6 +403,25 @@ const unsupportedKey = await runCalls({
 console.log(`unsupported key -> state=${unsupportedKey[0].isError} key=${unsupportedKey[1].isError}`);
 if (unsupportedKey[0].isError || !unsupportedKey[1].isError || !unsupportedKey[1].text.includes("unsupported key")) {
   console.error("FAIL: unsupported keys should return an error instead of reporting success");
+  process.exit(1);
+}
+
+const missingElement = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_scroll", args: { app: "TestApp", direction: "down" } },
+    { tool: "computer_action", args: { app: "TestApp", action: "AXPress" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(`missing element -> scroll=${missingElement[0].isError} action=${missingElement[1].isError}`);
+if (
+  !missingElement[0].isError ||
+  !missingElement[0].text.includes("element") ||
+  !missingElement[1].isError ||
+  !missingElement[1].text.includes("element")
+) {
+  console.error("FAIL: scroll/action should reject missing element indices");
   process.exit(1);
 }
 

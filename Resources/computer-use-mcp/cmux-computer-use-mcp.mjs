@@ -118,6 +118,7 @@ const MESSAGE_CATALOG = {
     dragStartY: "Screenshot pixel y of the drag start",
     dragged: "dragged",
     elementLatestState: "Element index from latest computer_state",
+    elementRequiredInput: "a finite `element` index from the latest computer_state is required",
     engineApprovalFallback: "The computer-use engine requests approval.",
     forwardedApprovalDisclosure: (client, prompt) =>
       `cmux computer use is requesting approval for ${client}.\n\n${prompt}\n\nApproving lets cmux share screenshots, the accessibility tree, and control results with ${client}, and lets ${client} drive the approved desktop scope.`,
@@ -196,6 +197,7 @@ const MESSAGE_CATALOG = {
     dragStartY: "ドラッグ開始位置のスクリーンショットピクセル y",
     dragged: "ドラッグしました",
     elementLatestState: "最新の computer_state の要素 index",
+    elementRequiredInput: "最新の computer_state の有限な `element` index が必要です",
     engineApprovalFallback: "computer-use エンジンが承認を要求しています。",
     forwardedApprovalDisclosure: (client, prompt) =>
       `cmux computer use が ${client} のために承認を要求しています。\n\n${prompt}\n\n承認すると、cmux はスクリーンショット、アクセシビリティツリー、操作結果を ${client} に共有し、${client} が承認されたデスクトップ範囲を操作できるようにします。`,
@@ -289,6 +291,11 @@ function isSupportedKeyName(key) {
   if (!parts.slice(0, -1).every((part) => SUPPORTED_KEY_MODIFIERS.has(part))) return false;
   if (parts.length === 1 && rawKey.length === 1 && !SUPPORTED_KEY_NAMES.has(rawKey)) return true;
   return SUPPORTED_KEY_NAMES.has(rawKey);
+}
+
+function isValidElementIndex(value) {
+  const index = Number(value);
+  return Number.isFinite(index) && Number.isInteger(index) && index >= 0;
 }
 
 function pngDimensions(buffer) {
@@ -546,11 +553,11 @@ func waitForFrontmost(_ app: NSRunningApplication, timeoutMS: Int) -> Bool {
     return NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
 }
 
-func ensureFrontmostForKeyboardInput(_ app: NSRunningApplication) {
+func ensureFrontmostForInput(_ app: NSRunningApplication) {
     if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return }
     _ = app.activate(options: [.activateIgnoringOtherApps])
     guard waitForFrontmost(app, timeoutMS: 1200) else {
-        fail("target app did not become frontmost for keyboard input")
+        fail("target app did not become frontmost for input")
     }
 }
 
@@ -738,8 +745,8 @@ if op == "state" {
 guard AXIsProcessTrusted() else {
     fail("Accessibility permission is required for cmux computer use.")
 }
-if op == "type_text" || op == "press_key" {
-    ensureFrontmostForKeyboardInput(app)
+if op == "type_text" || op == "press_key" || op == "click_element" || op == "click_point" || op == "scroll" || op == "drag" {
+    ensureFrontmostForInput(app)
 } else {
     _ = app.activate(options: [.activateIgnoringOtherApps])
 }
@@ -1047,10 +1054,12 @@ function elementFromSnapshot(snapshot, index) {
 }
 
 async function approveAppControl(app) {
-  return approveLocalCapability(
-    `app-control:${app}`,
-    localizedMessage("appControlApproval", app)
-  );
+  const result = await forwardElicitationToClient({
+    message: localizedMessage("appControlApproval", app),
+    mode: "form",
+    requestedSchema: { type: "object", properties: {} },
+  });
+  return result.action === "accept";
 }
 
 function providerError(error) {
@@ -1132,6 +1141,12 @@ async function callInputTool(tool, args) {
     return err(localizedMessage("appControlNotApproved", app));
   }
   const snapshot = s.snapshot(app);
+  if (args.element_index != null && !isValidElementIndex(args.element_index)) {
+    return err(localizedMessage("elementRequiredInput"));
+  }
+  if ((tool === "scroll" || tool === "perform_secondary_action") && !isValidElementIndex(args.element_index)) {
+    return err(localizedMessage("elementRequiredInput"));
+  }
   if (args.element_index != null && !s.snapshotApps.has(app)) {
     return err(localizedMessage("stateSnapshotRequired", app));
   }
