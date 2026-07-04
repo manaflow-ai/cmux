@@ -12,6 +12,7 @@ public struct ChatSessionListReducer: Sendable {
     /// The workspace whose sessions the list holds. A `descriptorChanged`
     /// for a different workspace is ignored; `nil` accepts every workspace.
     public let workspaceID: String?
+    private var removedVersionBySessionID: [String: Int] = [:]
 
     /// Creates a reducer scoped to one workspace.
     ///
@@ -26,12 +27,16 @@ public struct ChatSessionListReducer: Sendable {
     ///   - frame: The pushed session event.
     ///   - sessions: The current list.
     /// - Returns: The updated list (unchanged for irrelevant frames).
-    public func applying(
+    public mutating func applying(
         _ frame: ChatSessionEventFrame,
         to sessions: [ChatSessionDescriptor]
     ) -> [ChatSessionDescriptor] {
         switch frame.event {
         case .descriptorChanged(let descriptor):
+            if let removedVersion = removedVersionBySessionID[descriptor.id],
+               descriptor.version <= removedVersion {
+                return sessions
+            }
             // Out-of-workspace descriptors never enter a scoped list.
             if let workspaceID, descriptor.workspaceID != workspaceID {
                 return sessions
@@ -55,6 +60,7 @@ public struct ChatSessionListReducer: Sendable {
             } else {
                 updated.append(descriptor)
             }
+            removedVersionBySessionID.removeValue(forKey: descriptor.id)
             return updated
         case .stateChanged:
             // The bare state push carries NO version, so applying it here would
@@ -67,7 +73,22 @@ public struct ChatSessionListReducer: Sendable {
             // conversation's `ChatConversationStore` still consumes `stateChanged`
             // directly for its own live state (it is not version-reconciled).
             return sessions
-        case .appended, .updated, .terminalBlocks, .reset, .unknown:
+        case .sessionRemoved(let version):
+            let currentVersion = sessions.first(where: { $0.id == frame.sessionID })?.version
+            if let currentVersion, version < currentVersion {
+                return sessions
+            }
+            if version != Int.max {
+                removedVersionBySessionID[frame.sessionID] = max(
+                    removedVersionBySessionID[frame.sessionID] ?? 0,
+                    version
+                )
+            }
+            guard currentVersion != nil else {
+                return sessions
+            }
+            return sessions.filter { $0.id != frame.sessionID }
+        case .appended, .updated, .terminalBlocks, .streamingProse, .reset, .unknown:
             // Transcript-content frames don't affect the session list.
             return sessions
         }
