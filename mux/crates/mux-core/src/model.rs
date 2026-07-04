@@ -69,6 +69,38 @@ impl Node {
             }
         }
     }
+
+    pub(crate) fn set_deepest_ratio(
+        &mut self,
+        target: PaneId,
+        dir: SplitDir,
+        new_ratio: f32,
+    ) -> bool {
+        fn walk(node: &mut Node, target: PaneId, dir: SplitDir, new_ratio: f32) -> (bool, bool) {
+            match node {
+                Node::Leaf(id) => (*id == target, false),
+                Node::Split { dir: split_dir, ratio, a, b } => {
+                    let (a_contains, a_updated) = walk(a, target, dir, new_ratio);
+                    if a_updated {
+                        return (true, true);
+                    }
+                    let (b_contains, b_updated) = walk(b, target, dir, new_ratio);
+                    if b_updated {
+                        return (true, true);
+                    }
+                    let contains = a_contains || b_contains;
+                    if contains && *split_dir == dir {
+                        *ratio = new_ratio;
+                        (true, true)
+                    } else {
+                        (contains, false)
+                    }
+                }
+            }
+        }
+
+        walk(self, target, dir, new_ratio).1
+    }
 }
 
 /// A split-tree leaf: an ordered list of tabs (surfaces) with one active.

@@ -170,6 +170,22 @@ impl Session {
         }
     }
 
+    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) {
+        match self {
+            Session::Local(mux) => {
+                mux.set_ratio(pane, dir, ratio);
+            }
+            Session::Remote(remote) => {
+                let dir = match dir {
+                    SplitDir::Right => "right",
+                    SplitDir::Down => "down",
+                };
+                let _ = remote
+                    .request(json!({"cmd": "set-ratio", "pane": pane, "dir": dir, "ratio": ratio}));
+            }
+        }
+    }
+
     pub fn close_surface(&self, surface: SurfaceId) {
         match self {
             Session::Local(mux) => mux.close_surface(surface),

@@ -485,6 +485,23 @@ impl Mux {
         found
     }
 
+    /// Set the deepest split ratio in `dir` on the path to `pane`.
+    pub fn set_ratio(&self, pane: PaneId, dir: SplitDir, ratio: f32) -> bool {
+        let ratio = ratio.clamp(0.05, 0.95);
+        let found = {
+            let mut state = self.state.lock().unwrap();
+            state
+                .workspaces
+                .iter_mut()
+                .flat_map(|ws| ws.screens.iter_mut())
+                .any(|screen| screen.root.set_deepest_ratio(pane, dir, ratio))
+        };
+        if found {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        found
+    }
+
     /// Select a tab within a pane (default: the active pane) by index or
     /// relative delta.
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
@@ -682,6 +699,55 @@ mod tests {
         // Closing the last tab collapses the pane, screen, and workspace.
         mux.close_surface(s1.id);
         mux.with_state(|s| assert!(s.workspaces.is_empty()));
+    }
+
+    #[test]
+    fn set_ratio_updates_deepest_split_and_clamps() {
+        let mux = test_mux();
+        let s1 = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+        let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+        let s3 = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
+
+        assert!(mux.set_ratio(p1, SplitDir::Right, 0.8));
+        mux.with_state(|s| {
+            let root = &s.workspaces[0].screens[0].root;
+            let Node::Split { ratio: root_ratio, a, .. } = root else {
+                panic!("root should be split");
+            };
+            assert_eq!(*root_ratio, 0.5);
+            let Node::Split { ratio: inner_ratio, .. } = a.as_ref() else {
+                panic!("first child should be split");
+            };
+            assert_eq!(*inner_ratio, 0.8);
+        });
+
+        assert!(mux.set_ratio(p2, SplitDir::Right, -1.0));
+        mux.with_state(|s| {
+            let Node::Split { ratio, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should be split");
+            };
+            assert_eq!(*ratio, 0.05);
+        });
+
+        assert!(mux.set_ratio(p3, SplitDir::Right, 2.0));
+        mux.with_state(|s| {
+            let Node::Split { a, .. } = &s.workspaces[0].screens[0].root else {
+                panic!("root should be split");
+            };
+            let Node::Split { ratio, .. } = a.as_ref() else {
+                panic!("first child should be split");
+            };
+            assert_eq!(*ratio, 0.95);
+        });
+
+        assert!(!mux.set_ratio(9999, SplitDir::Right, 0.4));
+
+        mux.close_pane(p1);
+        mux.close_pane(p2);
+        mux.close_pane(p3);
     }
 
     #[test]

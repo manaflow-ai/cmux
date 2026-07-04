@@ -1,18 +1,18 @@
 //! Pane drawing: each pane renders a border box in its rect. The top
 //! border row doubles as the tab bar (always visible, with overflow
-//! scrolling), the right border column doubles as the scrollbar (shown
-//! whenever the surface has any scrollback), and the interior is the
-//! terminal content from the ghostty render state (with selection
-//! highlight). The active pane's border is highlighted — this is also
-//! where flashing notifications will hook in later.
+//! scrolling), the scrollbar is either a dedicated column inside the box
+//! or overlays the right border, and the interior is the terminal content
+//! from the ghostty render state (with selection highlight). The active
+//! pane's border is highlighted — this is also where flashing
+//! notifications will hook in later.
 
-use ghostty_vt::{Cell as VtCell, RenderState, Scrollbar};
+use ghostty_vt::{Cell as VtCell, RenderState};
 use mux_core::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
-use super::truncate;
-use crate::app::{App, Hit, PaneArea, Selection};
+use super::{thumb_geometry, truncate};
+use crate::app::{App, Hit, PaneArea, PaneEdge, Selection};
 use crate::config::{tab_label, Theme};
 
 /// Border style for a pane box: active gets the accent color, idle
@@ -43,6 +43,7 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             cursor = Some(c);
         }
         draw_scrollbar(app, frame, area, focused);
+        push_resize_hits(app, area);
     }
     cursor
 }
@@ -99,14 +100,16 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let (base, active_style) = if tab_cfg.solid_background {
         // Solid tab chips on the border line.
         (
-            Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(248)),
+            Style::default().bg(theme.tab_bg).fg(Color::Indexed(248)),
             if focused {
                 Style::default()
-                    .bg(Color::Indexed(240))
+                    .bg(theme.tab_active_bg.unwrap_or(Color::Indexed(240)))
                     .fg(Color::Indexed(255))
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().bg(Color::Indexed(238)).fg(Color::Indexed(252))
+                Style::default()
+                    .bg(theme.tab_active_bg.unwrap_or(Color::Indexed(238)))
+                    .fg(Color::Indexed(252))
             },
         )
     } else {
@@ -191,8 +194,12 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             overflow = true;
             break;
         }
-        let style = if i == active_tab { active_style } else { base };
+        let is_active = i == active_tab;
+        let style = if is_active { active_style } else { base };
         buf.set_stringn(x, bar.y, label, w as usize, style);
+        if tab_cfg.solid_background && is_active {
+            buf[(x, bar.y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+        }
         hits.push((
             Rect { x, y: bar.y, width: w, height: 1 },
             Hit::Tab { pane: pane_id, index: i },
@@ -287,14 +294,24 @@ fn draw_content(
     None
 }
 
-/// Scrollbar in the right border column. Visible whenever the surface
-/// has any scrollback (total > viewport); hidden only when no scrolling
-/// is possible at all. The thumb overlays the border line; the whole
-/// track is clickable/draggable.
+/// Scrollbar track. Visible whenever the surface has any scrollback
+/// (total > viewport); hidden only when no scrolling is possible at all.
+/// The whole track is clickable/draggable.
 fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(track) = area.track else { return };
     if track.height == 0 {
         return;
+    }
+    let dedicated_column = track.x + 1 < area.rect.x + area.rect.width;
+    let screen = frame.area();
+    let buf = frame.buffer_mut();
+    if dedicated_column {
+        for dy in 0..track.height {
+            let y = track.y + dy;
+            if track.x < screen.width && y < screen.height {
+                buf[(track.x, y)].set_symbol(" ").set_style(Style::default());
+            }
+        }
     }
     let Some(surface) = app.session.surface(area.surface) else { return };
     let Some(sb) = surface.with_terminal(|t| t.scrollbar()) else { return };
@@ -304,13 +321,13 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
 
     let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
 
-    // Hovering the track grows the thumb glyph for a bigger target.
+    // Hovering/dragging the track grows the thumb glyph for a bigger target.
     let hovered = app.hover.is_some_and(|(hx, hy)| track.contains(hx, hy));
-    let glyph = if hovered { "█" } else { "┃" };
+    let dragging = app.dragging_scrollbar() == Some(area.surface);
+    let active = hovered || dragging;
+    let glyph = if active { "▐" } else { "▕" };
 
-    let screen = frame.area();
-    let buf = frame.buffer_mut();
-    let thumb_style = if hovered || focused {
+    let thumb_style = if active || focused {
         Style::default().fg(Color::Indexed(252))
     } else {
         Style::default().fg(Color::Indexed(246))
@@ -329,14 +346,44 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
     app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
 }
 
-/// Thumb position and length (in track cells) for a scrollbar state.
-fn thumb_geometry(sb: &Scrollbar, track_height: u16) -> (u16, u16) {
-    let track = track_height.max(1) as f64;
-    let len = ((sb.len as f64 / sb.total as f64) * track).ceil().clamp(1.0, track) as u16;
-    let denom = (sb.total - sb.len).max(1) as f64;
-    let frac = (sb.offset as f64 / denom).clamp(0.0, 1.0);
-    let y = (frac * (track_height.saturating_sub(len)) as f64).round() as u16;
-    (y, len)
+fn push_resize_hits(app: &mut App, area: &PaneArea) {
+    let rect = area.rect;
+    if area.bar.is_none() || rect.width < 2 || rect.height < 2 {
+        return;
+    }
+    let (x0, y0) = (rect.x, rect.y);
+    let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
+    let pane = area.pane;
+    let cell = |x, y, horizontal, vertical| {
+        (Rect { x, y, width: 1, height: 1 }, Hit::PaneResize { horizontal, vertical })
+    };
+    let mut hits = vec![
+        cell(x0, y0, Some((pane, PaneEdge::Left)), Some((pane, PaneEdge::Top))),
+        cell(x1, y0, Some((pane, PaneEdge::Right)), Some((pane, PaneEdge::Top))),
+        cell(x0, y1, Some((pane, PaneEdge::Left)), Some((pane, PaneEdge::Bottom))),
+        cell(x1, y1, Some((pane, PaneEdge::Right)), Some((pane, PaneEdge::Bottom))),
+    ];
+    if rect.height > 2 {
+        hits.push((
+            Rect { x: x0, y: y0 + 1, width: 1, height: rect.height - 2 },
+            Hit::PaneResize { horizontal: Some((pane, PaneEdge::Left)), vertical: None },
+        ));
+        hits.push((
+            Rect { x: x1, y: y0 + 1, width: 1, height: rect.height - 2 },
+            Hit::PaneResize { horizontal: Some((pane, PaneEdge::Right)), vertical: None },
+        ));
+    }
+    if rect.width > 2 {
+        hits.push((
+            Rect { x: x0 + 1, y: y0, width: rect.width - 2, height: 1 },
+            Hit::PaneResize { horizontal: None, vertical: Some((pane, PaneEdge::Top)) },
+        ));
+        hits.push((
+            Rect { x: x0 + 1, y: y1, width: rect.width - 2, height: 1 },
+            Hit::PaneResize { horizontal: None, vertical: Some((pane, PaneEdge::Bottom)) },
+        ));
+    }
+    app.hits.extend(hits);
 }
 
 fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: Option<&Theme>) {

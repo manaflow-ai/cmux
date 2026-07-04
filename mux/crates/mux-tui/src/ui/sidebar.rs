@@ -27,7 +27,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     let base = Style::default();
     let dim = base.fg(Color::Indexed(242));
     let active_style = Style::default()
-        .bg(Color::Indexed(236))
+        .bg(app.config.theme.sidebar_active_bg)
         .fg(Color::Indexed(255))
         .add_modifier(Modifier::BOLD);
     let border = base.fg(Color::Indexed(237));
@@ -93,5 +93,6 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         set_line(buf, y, " + new workspace", dim);
         hits.push((row_rect(y), Hit::NewWorkspace));
     }
+    hits.push((Rect { x: width - 1, y: 0, width: 1, height }, Hit::SidebarResize));
     app.hits.extend(hits);
 }

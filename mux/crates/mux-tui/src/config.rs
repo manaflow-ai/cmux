@@ -8,17 +8,24 @@
 //!     "selection_background": "#3a3a3a",
 //!     "selection_foreground": null,
 //!     "sidebar_rail": "#87afd7",
+//!     "sidebar_active_bg": 236,
+//!     "tab_rail": "#87afd7",
+//!     "tab_bg": 236,
+//!     "tab_active_bg": null,
 //!     "border_active": "#87afd7",
 //!     "border_inactive": "#444444"
 //!   },
 //!   "tabs": {
-//!     "min_width": 5,
+//!     "min_width": 7,
 //!     "solid_background": true,
 //!     "show_titles": false,
 //!     "agents": ["claude", "codex", "opencode", "pi"]
 //!   },
 //!   "sidebar": {
 //!     "width": 22
+//!   },
+//!   "scrollbar": {
+//!     "position": "column"
 //!   }
 //! }
 //! ```
@@ -45,6 +52,8 @@ struct RawConfig {
     tabs: RawTabs,
     #[serde(default)]
     sidebar: RawSidebar,
+    #[serde(default)]
+    scrollbar: RawScrollbar,
     /// Key bindings: `"prefix"` plus one entry per action, e.g.
     /// `{"prefix": "ctrl+b", "new-tab": "c", "split-right": "%"}`.
     #[serde(default)]
@@ -57,6 +66,10 @@ struct RawTheme {
     selection_background: Option<ColorValue>,
     selection_foreground: Option<ColorValue>,
     sidebar_rail: Option<ColorValue>,
+    sidebar_active_bg: Option<ColorValue>,
+    tab_rail: Option<ColorValue>,
+    tab_bg: Option<ColorValue>,
+    tab_active_bg: Option<ColorValue>,
     border_active: Option<ColorValue>,
     border_inactive: Option<ColorValue>,
 }
@@ -74,6 +87,30 @@ struct RawTabs {
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
     width: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawScrollbar {
+    position: Option<ScrollbarPosition>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScrollbarPosition {
+    Column,
+    Border,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Scrollbar {
+    pub position: ScrollbarPosition,
+}
+
+impl Default for Scrollbar {
+    fn default() -> Self {
+        Scrollbar { position: ScrollbarPosition::Column }
+    }
 }
 
 /// A color in the config file: "#rrggbb", "#rgb", or an xterm-256 index.
@@ -100,6 +137,11 @@ pub struct Theme {
     /// None keeps each cell's own foreground under the selection.
     pub selection_fg: Option<Color>,
     pub sidebar_rail: Color,
+    pub sidebar_active_bg: Color,
+    pub tab_rail: Color,
+    pub tab_bg: Color,
+    /// None keeps the focused/unfocused active-tab two-tone default.
+    pub tab_active_bg: Option<Color>,
     pub border_active: Color,
     pub border_inactive: Color,
 }
@@ -111,6 +153,10 @@ impl Default for Theme {
             selection_bg: Color::Rgb(0x3a, 0x3a, 0x3a),
             selection_fg: None,
             sidebar_rail: Color::Indexed(110),
+            sidebar_active_bg: Color::Indexed(236),
+            tab_rail: Color::Indexed(110),
+            tab_bg: Color::Indexed(236),
+            tab_active_bg: None,
             border_active: Color::Indexed(110),
             border_inactive: Color::Indexed(238),
         }
@@ -135,7 +181,7 @@ pub struct Tabs {
 impl Default for Tabs {
     fn default() -> Self {
         Tabs {
-            min_width: 5,
+            min_width: 7,
             solid_background: true,
             show_titles: false,
             agents: ["claude", "codex", "opencode", "pi"].map(String::from).to_vec(),
@@ -363,6 +409,7 @@ pub struct Config {
     pub theme: Theme,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub scrollbar: Scrollbar,
     pub keys: Keys,
 }
 
@@ -389,6 +436,18 @@ pub fn load() -> Config {
     if let Some(c) = t.sidebar_rail.as_ref().and_then(ColorValue::to_color) {
         config.theme.sidebar_rail = c;
     }
+    if let Some(c) = t.sidebar_active_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_active_bg = c;
+    }
+    if let Some(c) = t.tab_rail.as_ref().and_then(ColorValue::to_color) {
+        config.theme.tab_rail = c;
+    }
+    if let Some(c) = t.tab_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.tab_bg = c;
+    }
+    if let Some(c) = t.tab_active_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.tab_active_bg = Some(c);
+    }
     if let Some(c) = t.border_active.as_ref().and_then(ColorValue::to_color) {
         config.theme.border_active = c;
     }
@@ -409,6 +468,9 @@ pub fn load() -> Config {
     }
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
+    }
+    if let Some(position) = raw.scrollbar.position {
+        config.scrollbar.position = position;
     }
     config.keys.apply(&raw.keys);
     config
@@ -542,9 +604,15 @@ mod tests {
         std::fs::write(
             &path,
             r##"{
-                "theme": {"selection_background": "#101010", "sidebar_rail": 42},
+                "theme": {
+                    "selection_background": "#101010",
+                    "sidebar_rail": 42,
+                    "sidebar_active_bg": "#202020",
+                    "tab_bg": 44
+                },
                 "tabs": {"min_width": 9, "solid_background": false},
-                "sidebar": {"width": 30}
+                "sidebar": {"width": 30},
+                "scrollbar": {"position": "border"}
             }"##,
         )
         .unwrap();
@@ -554,9 +622,12 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x10, 0x10, 0x10));
         assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert_eq!(config.theme.sidebar_active_bg, Color::Rgb(0x20, 0x20, 0x20));
+        assert_eq!(config.theme.tab_bg, Color::Indexed(44));
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
+        assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
     }

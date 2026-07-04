@@ -107,6 +107,12 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    SetRatio {
+        pane: PaneId,
+        /// "right" or "down"
+        dir: String,
+        ratio: f32,
+    },
     /// Close one tab.
     CloseSurface {
         surface: SurfaceId,
@@ -390,6 +396,17 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             };
             let surface = mux.split(pane, dir, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
+        }
+        Command::SetRatio { pane, dir, ratio } => {
+            let dir = match dir.as_str() {
+                "right" => SplitDir::Right,
+                "down" => SplitDir::Down,
+                other => anyhow::bail!("bad dir {other:?} (want \"right\" or \"down\")"),
+            };
+            if !mux.set_ratio(pane, dir, ratio) {
+                anyhow::bail!("unknown pane/split {pane}");
+            }
+            Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
             get_surface(mux, surface)?;

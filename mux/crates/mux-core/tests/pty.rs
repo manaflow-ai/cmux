@@ -149,21 +149,37 @@ fn control_socket_round_trip() {
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-tab failed: {line}");
 
+    // Split and resize the split ratio over the socket.
+    line.clear();
+    writeln!(writer, r#"{{"id":8,"cmd":"split","pane":{pane_id},"dir":"right"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "split failed: {line}");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":9,"cmd":"set-ratio","pane":{pane_id},"dir":"right","ratio":0.7}}"#)
+        .unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(v["ok"], true, "set-ratio failed: {line}");
+
     // New screen in the workspace: two screens, second active.
     line.clear();
-    writeln!(writer, r#"{{"id":8,"cmd":"new-screen"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":10,"cmd":"new-screen"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-screen failed: {line}");
 
     line.clear();
-    writeln!(writer, r#"{{"id":9,"cmd":"list-workspaces"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":11,"cmd":"list-workspaces"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     let ws = &v["data"]["workspaces"][0];
     let pane = &ws["screens"][0]["panes"][0];
     assert_eq!(pane["tabs"].as_array().unwrap().len(), 2);
     assert_eq!(pane["active_tab"], 1);
+    let ratio = ws["screens"][0]["layout"]["ratio"].as_f64().unwrap();
+    assert!((ratio - 0.7).abs() < 0.0001, "layout ratio was {ratio}");
     assert_eq!(ws["screens"].as_array().unwrap().len(), 2);
     assert_eq!(ws["screens"][1]["active"], true);
 
@@ -171,7 +187,7 @@ fn control_socket_round_trip() {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         line.clear();
-        writeln!(writer, r#"{{"id":10,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
+        writeln!(writer, r#"{{"id":12,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
         reader.read_line(&mut line).unwrap();
         let v: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(v["ok"], true, "read-screen failed: {line}");

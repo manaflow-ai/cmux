@@ -15,16 +15,26 @@ use crate::app::{App, ContextMenu};
 /// into the prompt so mouse handling matches the drawn geometry.
 pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
-    let Some(prompt) = app.prompt.as_mut() else { return };
     let hover = app.hover;
+    let shake = app.shake_frames;
+    if app.shake_frames > 0 {
+        app.shake_frames -= 1;
+    }
 
     let width: u16 = 40.min(screen.width.saturating_sub(2)).max(20);
     let height: u16 = 5;
     if screen.width < width || screen.height < height {
         return;
     }
-    let x = (screen.width - width) / 2;
+    let base_x = (screen.width - width) / 2;
+    let x = if shake <= 1 {
+        base_x
+    } else {
+        let offset = if shake.is_multiple_of(2) { 1 } else { -1 };
+        (base_x as i32 + offset).clamp(0, screen.width.saturating_sub(width) as i32) as u16
+    };
     let y = (screen.height - height) / 2;
+    let Some(prompt) = app.prompt.as_mut() else { return };
     prompt.rect = Rect { x, y, width, height };
 
     let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(252));

@@ -66,9 +66,9 @@ print("initial tree ok, screen", screen0["id"], "pane", pane_id, "surface", surf
 
 # Spawn-at-size: the first surface was created at its final render size.
 # Window 100x30, sidebar 22, status bar 1 -> pane rect 78x29; the border
-# box eats one cell on every side -> content 76x27.
+# box eats one cell on every side plus a dedicated scrollbar column -> content 75x27.
 size = panes[0]["tabs"][0]["size"]
-assert size == {"cols": 76, "rows": 27}, size
+assert size == {"cols": 75, "rows": 27}, size
 print("initial surface spawned at final size ok")
 
 # The tab bar is always visible: a single-tab pane still shows its
@@ -196,10 +196,37 @@ drain(1.0)
 assert tree()[0]["active"], tree()
 print("sidebar click switches workspace ok")
 
-# Right-click inside the right-hand pane (col 81, row 6 SGR; clear of the
-# sidebar and borders): a menu opens at the click cell with one-cell side
-# padding and no top padding, so the first item row IS the click row and
-# labels start one cell right. Click "Rename pane", type a name, Enter.
+# Plain right-click inside the right-hand pane (col 81, row 6 SGR; clear
+# of the sidebar and borders): the menu opens at the press cell and must
+# stay open after release in place.
+os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
+drain(0.8)
+text = output.decode("utf-8", "replace")
+assert "Rename pane" in text, text[-800:]
+assert "[ OK ]" not in text, text[-800:]
+os.write(fd, b"\x1b")  # close menu
+drain(0.4)
+
+# Right-press, drag to another row, and release activates that row. Row 2
+# is "New tab", so total tab count increases.
+tabs_before = sum(
+    len(p["tabs"])
+    for w in tree()
+    for s in w["screens"]
+    for p in s["panes"]
+)
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;7M\x1b[<2;81;7m")
+drain(1.0)
+tabs_after = sum(
+    len(p["tabs"])
+    for w in tree()
+    for s in w["screens"]
+    for p in s["panes"]
+)
+assert tabs_after == tabs_before + 1, (tabs_before, tabs_after, tree())
+print("right-drag menu row activation ok")
+
+# Open the menu normally again and left-click "Rename pane".
 os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
