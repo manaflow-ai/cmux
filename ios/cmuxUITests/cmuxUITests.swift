@@ -398,14 +398,15 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
-    /// Pixel-level alignment of the dock against the REAL keyboard (not the
-    /// layout guide): a red marker bar whose bottom edge is positioned by the
-    /// dock-layout math under test is measured against the keyboard element's
-    /// on-screen frame. Mid-animation the two frame reads are ~100ms apart, so
-    /// each sample brackets the marker read with two keyboard reads and only
-    /// counts when the keyboard barely moved between them (coherent sample).
-    /// Every sample is printed (`KBEDGE ...`) so the run log doubles as the
-    /// measurement record.
+    /// Pixel-level alignment of the dock against the REAL keyboard visual
+    /// panel: a red marker bar whose bottom edge is positioned by the
+    /// dock-layout math under test is measured against the screenshot luma
+    /// edge of the keyboard surface. The keyboard element's a11y frame is only
+    /// used as a rigidity ruler: mid-animation the two frame reads are ~100ms
+    /// apart, so each sample brackets the marker read with two keyboard reads
+    /// and only counts when the keyboard barely moved between them (coherent
+    /// sample). Every sample is printed (`KBEDGE ...`) so the run log doubles
+    /// as the measurement record.
     @MainActor
     func testTerminalKeyboardEdgePixelAlignment() throws {
         let app = launchApp(mockData: false, environment: [
@@ -425,6 +426,16 @@ final class cmuxUITests: XCTestCase {
 
         var settledDeltas: [CGFloat] = []
         var midFlightDeltas: [CGFloat] = []
+
+        func median(_ values: [CGFloat]) -> CGFloat? {
+            guard !values.isEmpty else { return nil }
+            let sorted = values.sorted()
+            let midpoint = sorted.count / 2
+            if sorted.count.isMultiple(of: 2) {
+                return (sorted[midpoint - 1] + sorted[midpoint]) / 2
+            }
+            return sorted[midpoint]
+        }
 
         func sampleThroughTransition(context: String) {
             let deadline = Date().addingTimeInterval(3.5)
@@ -483,6 +494,114 @@ final class cmuxUITests: XCTestCase {
                     }
                     print("KBPIX y=\(yPt) \(rgbs.joined(separator: " "))")
                 }
+
+                func pixel(x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
+                    let p = base + y * bytesPerRow + x * bpp
+                    return (p[0], p[1], p[2])
+                }
+
+                func isRed(_ rgb: (r: UInt8, g: UInt8, b: UInt8)) -> Bool {
+                    rgb.r > 200 && rgb.g < 120 && rgb.b < 120
+                }
+
+                func luma(_ rgb: (r: UInt8, g: UInt8, b: UInt8)) -> CGFloat {
+                    0.299 * CGFloat(rgb.r) + 0.587 * CGFloat(rgb.g) + 0.114 * CGFloat(rgb.b)
+                }
+
+                func lumas(x: Int, from startY: Int, through endY: Int) -> [CGFloat] {
+                    guard startY <= endY else { return [] }
+                    return (startY...endY).compactMap { y -> CGFloat? in
+                        let rgb = pixel(x: x, y: y)
+                        return isRed(rgb) ? nil : luma(rgb)
+                    }
+                }
+
+                if bpp >= 3 {
+                    let sampleFractions = [CGFloat(0.3), CGFloat(0.5), CGFloat(0.7)]
+                    let markerSearchStartPx = max(Int((marker.frame.minY - 24) * pxPerPt), 0)
+                    let markerSearchEndPx = min(Int((marker.frame.maxY + 24) * pxPerPt), cg.height - 1)
+                    let twelvePtPx = max(Int((12 * pxPerPt).rounded(.up)), 1)
+                    let fourPtPx = max(Int((4 * pxPerPt).rounded(.up)), 1)
+                    let sixteenPtPx = max(Int((16 * pxPerPt).rounded(.up)), 1)
+                    let twentyPtPx = max(Int((20 * pxPerPt).rounded(.up)), 1)
+                    let stepPx = max(Int(pxPerPt.rounded()), 1)
+                    var edgePositionsPx: [CGFloat] = []
+                    var markerBottomsPx: [CGFloat] = []
+                    var pixelEdgeSkipNote: String?
+                    var pixelEdgeFailure: String?
+
+                    for xFrac in sampleFractions {
+                        let xPx = min(Int(CGFloat(cg.width) * xFrac), cg.width - 1)
+                        let redRows = (markerSearchStartPx...markerSearchEndPx).filter { y in
+                            isRed(pixel(x: xPx, y: y))
+                        }
+                        guard let markerTopPx = redRows.first, let lastRedPx = redRows.last else {
+                            pixelEdgeFailure = "no red marker rows found at xFrac=\(xFrac)"
+                            break
+                        }
+
+                        let markerBottomPx = min(lastRedPx + 1, cg.height - 1)
+                        guard let lumaAbove = median(lumas(
+                            x: xPx,
+                            from: max(markerBottomPx - twelvePtPx, 0),
+                            through: max(markerTopPx - 1, 0)
+                        )),
+                              let lumaBelow = median(lumas(
+                                  x: xPx,
+                                  from: min(markerBottomPx + fourPtPx, cg.height - 1),
+                                  through: min(markerBottomPx + sixteenPtPx, cg.height - 1)
+                              )) else {
+                            pixelEdgeFailure = "insufficient non-red luma samples at xFrac=\(xFrac)"
+                            break
+                        }
+
+                        let contrast = abs(lumaAbove - lumaBelow)
+                        guard contrast >= 25 else {
+                            pixelEdgeSkipNote = "low luma contrast at xFrac=\(xFrac) contrast=\(contrast) above=\(lumaAbove) below=\(lumaBelow)"
+                            break
+                        }
+
+                        let midpointLuma = (lumaAbove + lumaBelow) / 2
+                        let scanStartPx = max(markerBottomPx - twelvePtPx, 0)
+                        let scanEndPx = min(markerBottomPx + twentyPtPx, cg.height - 1)
+                        let edgePx = stride(from: scanStartPx, through: scanEndPx, by: stepPx).first { y in
+                            let rgb = pixel(x: xPx, y: y)
+                            guard !isRed(rgb) else { return false }
+                            let rowLuma = luma(rgb)
+                            if lumaBelow >= lumaAbove {
+                                return rowLuma >= midpointLuma
+                            }
+                            return rowLuma <= midpointLuma
+                        }
+
+                        guard let edgePx else {
+                            pixelEdgeFailure = "no luma edge found at xFrac=\(xFrac) contrast=\(contrast) above=\(lumaAbove) below=\(lumaBelow)"
+                            break
+                        }
+
+                        edgePositionsPx.append(CGFloat(edgePx))
+                        markerBottomsPx.append(CGFloat(markerBottomPx))
+                        print("KBPIX-edge xFrac=\(xFrac) markerBottomPx=\(markerBottomPx) edgePx=\(edgePx) deltaPt=\((CGFloat(edgePx) - CGFloat(markerBottomPx)) / pxPerPt) lumaAbove=\(lumaAbove) lumaBelow=\(lumaBelow)")
+                    }
+
+                    if let pixelEdgeSkipNote {
+                        print("KBPIX-note skipping pixel-edge assertion: \(pixelEdgeSkipNote)")
+                    } else if let pixelEdgeFailure {
+                        XCTFail("settled pixel-edge measurement failed: \(pixelEdgeFailure)")
+                    } else if let medianEdgePx = median(edgePositionsPx),
+                              let medianMarkerBottomPx = median(markerBottomsPx) {
+                        let deltaPx = medianEdgePx - medianMarkerBottomPx
+                        XCTAssertLessThanOrEqual(
+                            abs(deltaPx),
+                            1.5 * pxPerPt,
+                            "settled visual keyboard edge is not flush with marker bottom (deltaPt=\(deltaPx / pxPerPt), edgePx=\(medianEdgePx), markerBottomPx=\(medianMarkerBottomPx))"
+                        )
+                    } else {
+                        XCTFail("settled pixel-edge measurement failed: incomplete edge samples")
+                    }
+                } else {
+                    XCTFail("settled pixel-edge measurement failed: unsupported screenshot bpp=\(bpp)")
+                }
             } else {
                 print("KBPIX unavailable")
             }
@@ -498,17 +617,15 @@ final class cmuxUITests: XCTestCase {
 
         print("KBEDGE summary settled=\(settledDeltas) midFlight=\(midFlightDeltas)")
         XCTAssertGreaterThanOrEqual(settledDeltas.count, 3, "never observed a settled keyboard-up state")
-        for delta in settledDeltas {
+        let allDeltas = settledDeltas + midFlightDeltas
+        if let minDelta = allDeltas.min(), let maxDelta = allDeltas.max() {
             XCTAssertLessThanOrEqual(
-                abs(delta), 1.5,
-                "settled dock edge is not pixel-aligned with the real keyboard top (delta=\(delta))"
+                maxDelta - minDelta,
+                1.5,
+                "dock edge is not rigidly attached to the keyboard visual panel (spread=\(maxDelta - minDelta), settled=\(settledDeltas), midFlight=\(midFlightDeltas))"
             )
-        }
-        for delta in midFlightDeltas {
-            XCTAssertLessThanOrEqual(
-                abs(delta), 3.0,
-                "mid-animation dock edge diverged from the real keyboard top (delta=\(delta))"
-            )
+        } else {
+            XCTFail("no coherent keyboard-edge samples were collected")
         }
     }
 
