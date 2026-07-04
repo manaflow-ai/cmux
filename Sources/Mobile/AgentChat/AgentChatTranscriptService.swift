@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxTerminal
 import Foundation
 
 /// Mac-side facade for the agent chat surface: tracks sessions from hook
@@ -10,23 +11,16 @@ final class AgentChatTranscriptService {
     /// The push topic chat clients subscribe to.
     static let eventTopic = "chat.message"
 
-    private let registry: AgentChatSessionRegistry
-    private let resolver: AgentChatTranscriptResolver
+    let registry: AgentChatSessionRegistry
+    let resolver: AgentChatTranscriptResolver
     private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
+    /// Drives the live agent-prose streaming preview.
+    private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved; skipped until an
     /// explicit history request retries, so per-hook-event resolution
     /// failures don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
-    /// Last time `adoptDetectedClaudeSession` ran a filesystem scan for a
-    /// surface that had no session yet, keyed by surface id. Bounds the
-    /// main-actor directory walk to once per `detectionScanThrottle` while a
-    /// title-detected claude has not yet written its transcript; a successful
-    /// adoption removes the entry.
-    private var detectionScanAt: [String: Date] = [:]
-    private var ghosttyTitleSubscription: GhosttyTitleChangeSubscription?
-    private static let detectionScanThrottle: TimeInterval = 4
-    private static let provisionalClaudeSessionIDPrefix = "detected-claude-surface-"
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -49,31 +43,95 @@ final class AgentChatTranscriptService {
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
+        self.proseStreamer = AgentChatProseStreamer(
+            emit: { [weak self] frame in self?.emit(frame: frame) },
+            snapshot: { surfaceID in Self.screenRows(surfaceID: surfaceID) },
+            hasSubscribers: { MobileHostService.hasEventSubscribers(topic: Self.eventTopic) }
+        )
+    }
+
+    /// Rendered screen rows (top to bottom) for a surface, the source the prose
+    /// streamer scrapes. Mirrors the render-grid observer's surface lookup.
+    @MainActor
+    private static func screenRows(surfaceID: UUID) -> [String]? {
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
+            return nil
+        }
+        return surface.mobileRenderGridFrame(stateSeq: 0, full: true)?.rows
+    }
+
+    /// A `(session, surface)` resume re-bind cmux authored during session
+    /// restore, buffered until the service is live (restore can run before app
+    /// setup assigns this service, so a direct call would be a silent no-op).
+    private struct PendingResumeIntent {
+        let sessionID: String
+        let source: String
+        let surfaceID: String?
+        let workspaceID: String?
+        let workingDirectory: String?
+    }
+
+    /// Resume re-binds recorded before ``start()`` wired the live instance.
+    private static var pendingResumeIntents: [PendingResumeIntent] = []
+    /// The started service, used to apply resume re-binds immediately once live.
+    private static weak var liveInstance: AgentChatTranscriptService?
+
+    /// Records, from cmux's own authority, that it is resuming `sessionID` onto
+    /// `surfaceID` (see
+    /// ``AgentChatSessionRegistry/noteResumeInitiated(sessionID:source:surfaceID:workspaceID:workingDirectory:)``).
+    /// Static so the restore path need not hold a service reference: before the
+    /// service starts (restore can run first) the intent is buffered and flushed
+    /// in ``start()``; after, it applies immediately.
+    static func recordResumeIntent(
+        sessionID: String,
+        source: String,
+        surfaceID: String?,
+        workspaceID: String?,
+        workingDirectory: String?
+    ) {
+        if let live = liveInstance {
+            live.noteResumeInitiated(
+                sessionID: sessionID,
+                source: source,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory
+            )
+        } else {
+            pendingResumeIntents.append(PendingResumeIntent(
+                sessionID: sessionID,
+                source: source,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory
+            ))
+        }
     }
 
     /// Seeds the session registry from the on-disk hook stores. Call once
-    /// at app startup.
-    ///
-    /// - Parameter adoptDetectedAgentSessions: Composition-root callback that
-    ///   adopts a title-detected agent for the workspace whose title changed.
-    func start(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
-        guard ghosttyTitleSubscription == nil else { return }
-        registry.seedFromHookStores()
-        observeAgentTitleChanges(adoptDetectedAgentSessions: adoptDetectedAgentSessions)
-    }
-
-    /// Watches terminal title changes so a coding agent launched without a
-    /// hook (e.g. via a shell wrapper that bypasses cmux's hook injection) is
-    /// adopted the instant its terminal title becomes the agent's (e.g.
-    /// "✳ Claude Code"), not only when the workspace is next opened. Adoption
-    /// emits a descriptor change, which pushes the toggle to listening phones.
-    private func observeAgentTitleChanges(adoptDetectedAgentSessions: @escaping @MainActor (String) -> Void) {
-        ghosttyTitleSubscription = GhosttyTitleChangeSubscription { change in
-            guard change.title.lowercased().contains("claude") else {
-                return
-            }
-            adoptDetectedAgentSessions(change.tabId.uuidString)
+    /// at app startup. Sessions are tracked only via the reliable hook-event
+    /// path thereafter; cmux does not detect agents that never fire a hook.
+    func start() {
+        Self.liveInstance = self
+        // Apply resume re-binds buffered before the service was wired. The seed
+        // only creates records that don't already exist, so an intent applied
+        // here is preserved (the seed skips it) and one applied after flips the
+        // seeded `.ended` record to `.idle`: either order converges.
+        let buffered = Self.pendingResumeIntents
+        Self.pendingResumeIntents.removeAll()
+        for intent in buffered {
+            registry.noteResumeInitiated(
+                sessionID: intent.sessionID,
+                source: intent.source,
+                surfaceID: intent.surfaceID,
+                workspaceID: intent.workspaceID,
+                workingDirectory: intent.workingDirectory
+            )
         }
+        // Seeding reads+parses the hook-store JSON off the main actor; kick it
+        // off and return. Live hook events also populate the registry, and the
+        // seed converges within milliseconds.
+        Task { [weak self] in await self?.registry.seedFromHookStores() }
     }
 
     /// Ingests one hook event (called from the socket dispatch path).
@@ -96,6 +154,23 @@ final class AgentChatTranscriptService {
            MobileHostService.hasEventSubscribers(topic: Self.eventTopic) {
             ensureTailer(for: record)
         }
+        // Drive the live prose-streaming preview off the turn lifecycle: a
+        // prompt starts the in-flight turn, Stop ends it.
+        switch event.hookEventName {
+        case .userPromptSubmit:
+            if record.state != .ended,
+               let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)) {
+                proseStreamer.turnStarted(
+                    sessionID: record.sessionID,
+                    surfaceID: surfaceID,
+                    agentKind: record.agentKind
+                )
+            }
+        case .stop, .sessionEnd:
+            proseStreamer.turnEnded(sessionID: record.sessionID)
+        default:
+            break
+        }
     }
 
     /// Lists chat-capable sessions.
@@ -115,84 +190,12 @@ final class AgentChatTranscriptService {
         registry.sessions(workspaceID: workspaceID)
     }
 
-    /// Adopts a Claude session cmux detected by terminal title but that
-    /// never registered via a hook (e.g. launched through a shell wrapper
-    /// that bypasses cmux's hook injection), so it gains a chat session and
-    /// toggle like a hooked agent. Creates a provisional surface-keyed session
-    /// before Claude writes its transcript, then attaches the transcript to
-    /// that same session once it appears.
-    ///
-    /// - Parameters:
-    ///   - workspaceID: The agent's workspace UUID string.
-    ///   - surfaceID: The hosting terminal surface UUID string.
-    ///   - workingDirectory: The agent's working directory.
-    /// - Returns: `true` when a session is present for the surface afterward.
-    @discardableResult
-    func adoptDetectedClaudeSession(
-        workspaceID: String,
-        surfaceID: String,
-        workingDirectory: String,
-        titleHint: String? = nil
-    ) -> Bool {
-        if let bound = registry.sessions(workspaceID: nil)
-            .first(where: { $0.surfaceID == surfaceID && $0.state != .ended }) {
-            registry.update(sessionID: bound.sessionID) { record in
-                record.workspaceID = workspaceID
-                record.surfaceID = surfaceID
-                record.workingDirectory = workingDirectory
-            }
-            guard bound.transcriptPath == nil else { return true }
-            if let resolved = newestClaudeTranscript(
-                workingDirectory: workingDirectory,
-                surfaceID: surfaceID,
-                excludingSessionID: bound.sessionID,
-                titleHint: titleHint,
-                forceScan: Self.isSpecificClaudeTitle(titleHint)
-            ) {
-                detectionScanAt.removeValue(forKey: surfaceID)
-                registry.update(sessionID: bound.sessionID) { record in
-                    record.transcriptPath = resolved.path
-                    record.workingDirectory = workingDirectory
-                }
-            }
-            return true
-        }
-        // A claude detected by title before it has written its transcript jsonl
-        // (the launch race) resolves to nothing. List-level adoption runs this
-        // on every workspace-list RPC and every "claude" title change across
-        // ALL workspaces, so without a throttle an un-resolvable surface drives
-        // a fresh main-actor directory walk on each call during a title burst.
-        // Bound the filesystem scan to once per surface per window; a success
-        // clears the entry (and `alreadyBound` short-circuits forever after).
-        if let resolved = newestClaudeTranscript(
-            workingDirectory: workingDirectory,
-            surfaceID: surfaceID,
-            excludingSessionID: nil,
-            titleHint: titleHint,
-            forceScan: false
-        ) {
-            detectionScanAt.removeValue(forKey: surfaceID)
-            registry.adoptDetectedSession(
-                sessionID: resolved.sessionID,
-                agentKind: .claude,
-                workspaceID: workspaceID,
-                surfaceID: surfaceID,
-                workingDirectory: workingDirectory,
-                transcriptPath: resolved.path,
-                at: Date()
-            )
-            return true
-        }
-        registry.adoptDetectedSession(
-            sessionID: Self.provisionalClaudeSessionID(surfaceID: surfaceID),
-            agentKind: .claude,
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            workingDirectory: workingDirectory,
-            transcriptPath: nil,
-            at: Date()
-        )
-        return true
+    /// Observe-floor detection: discover live codex/claude sessions from the
+    /// process table (no hooks required) and fold them into the registry.
+    /// Throttled; intended to run on the iOS list pull so a fresh detection
+    /// appears the moment the GUI asks for the list.
+    func observeAgentProcesses() async {
+        await registry.observeAgentProcesses()
     }
 
     /// The registry record for a session (send path needs the terminal
@@ -207,8 +210,44 @@ final class AgentChatTranscriptService {
     /// Re-adopts one session's terminal bindings from the hook store; see
     /// ``AgentChatSessionRegistry/refreshBindingsFromHookStore(sessionID:)``.
     @discardableResult
-    func refreshSessionBindings(sessionID: String) -> AgentChatSessionRecord? {
-        registry.refreshBindingsFromHookStore(sessionID: sessionID)
+    func refreshSessionBindings(sessionID: String) async -> AgentChatSessionRecord? {
+        await registry.refreshBindingsFromHookStore(sessionID: sessionID)
+    }
+
+    /// cmux-authored resume re-bind (see
+    /// ``AgentChatSessionRegistry/noteResumeInitiated(sessionID:source:surfaceID:workspaceID:workingDirectory:)``).
+    /// Called from the session-restore path when cmux auto-resumes an agent, so
+    /// the GUI reflects the live session immediately instead of waiting for a
+    /// SessionStart hook the agent (codex) does not fire on resume.
+    func noteResumeInitiated(
+        sessionID: String,
+        source: String,
+        surfaceID: String?,
+        workspaceID: String?,
+        workingDirectory: String?
+    ) {
+        registry.noteResumeInitiated(
+            sessionID: sessionID,
+            source: source,
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    /// Re-stamps a session's stored workspace id to the workspace its surface
+    /// currently lives in. cmux workspace ids regenerate on every Mac relaunch
+    /// while surface ids are stable, so a session created before the last
+    /// relaunch carries a stale `workspaceID`. The caller resolves the session's
+    /// live surface to its current workspace and calls this so the seed and the
+    /// live `descriptorChanged` pushes both scope to that workspace (the iOS
+    /// reducer is workspace-scoped and rejects stale-workspace live updates).
+    ///
+    /// - Parameters:
+    ///   - sessionID: The session to re-stamp.
+    ///   - workspaceID: The surface's current workspace UUID string.
+    func updateSessionWorkspace(sessionID: String, workspaceID: String) {
+        registry.update(sessionID: sessionID) { $0.workspaceID = workspaceID }
     }
 
     /// Serves one history page, starting the session's tailer on demand.
@@ -224,28 +263,10 @@ final class AgentChatTranscriptService {
         // A user opening the chat is the right moment to retry a previously
         // failed transcript resolution.
         failedResolutions.remove(sessionID)
-        if record.transcriptPath == nil,
-           Self.isProvisionalClaudeSessionID(sessionID),
-           let workingDirectory = record.workingDirectory,
-           let surfaceID = record.surfaceID,
-           let resolved = newestClaudeTranscript(
-               workingDirectory: workingDirectory,
-               surfaceID: surfaceID,
-               excludingSessionID: sessionID,
-               titleHint: record.title,
-               forceScan: true
-           ) {
-            registry.update(sessionID: sessionID) { $0.transcriptPath = resolved.path }
-        }
-        guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
-        if currentRecord.transcriptPath == nil,
-           Self.isProvisionalClaudeSessionID(sessionID) {
-            return ChatHistoryPage(messages: [], hasMore: false)
-        }
-        guard let tailer = ensureTailer(for: currentRecord) else { return nil }
+        guard let tailer = ensureTailer(for: record) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
-        if currentRecord.title == nil, let title = await tailer.title {
+        if record.title == nil, let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
         return page
@@ -265,7 +286,6 @@ final class AgentChatTranscriptService {
             entry["workspace_id"] = record.workspaceID
             entry["surface_id"] = record.surfaceID
             entry["transcript_path"] = record.transcriptPath
-            entry["is_provisional"] = Self.isProvisionalClaudeSessionID(record.sessionID)
             if let pid = record.pid {
                 entry["pid"] = pid
                 entry["pid_alive"] = kill(pid_t(pid), 0) == 0
@@ -283,12 +303,21 @@ final class AgentChatTranscriptService {
         }
         guard !failedResolutions.contains(record.sessionID) else { return nil }
         guard let path = resolver.transcriptPath(for: record) else {
-            if Self.isProvisionalClaudeSessionID(record.sessionID) {
-                return nil
-            }
             failedResolutions.insert(record.sessionID)
+            #if DEBUG
+            cmuxDebugLog(
+                "agentChat.transcript.resolve session=\(record.sessionID.prefix(8)) "
+                + "kind=\(record.agentKind.sourceName) cwd=\(record.workingDirectory ?? "nil") UNRESOLVED"
+            )
+            #endif
             return nil
         }
+        #if DEBUG
+        cmuxDebugLog(
+            "agentChat.transcript.resolve session=\(record.sessionID.prefix(8)) "
+            + "file=\((path as NSString).lastPathComponent)"
+        )
+        #endif
         if record.transcriptPath != path {
             registry.update(sessionID: record.sessionID) { $0.transcriptPath = path }
         }
@@ -307,6 +336,13 @@ final class AgentChatTranscriptService {
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        #if DEBUG
+        cmuxDebugLog(
+            "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
+            + "appended=\(batch.appended.count) updated=\(batch.updated.count) "
+            + "reset=\(batch.didReset ? 1 : 0) title=\(batch.discoveredTitle != nil ? 1 : 0)"
+        )
+        #endif
         if batch.didReset {
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
         }
@@ -314,6 +350,11 @@ final class AgentChatTranscriptService {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
         if !batch.appended.isEmpty {
+            // The authoritative prose for the turn just landed: settle the live
+            // preview so the committed message takes over with no duplicate.
+            if Self.batchContainsAgentProse(batch.appended) {
+                proseStreamer.authoritativeProseArrived(sessionID: sessionID)
+            }
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(batch.appended)))
         }
         if !batch.updated.isEmpty {
@@ -321,6 +362,16 @@ final class AgentChatTranscriptService {
         }
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
+        }
+    }
+
+    /// Whether a batch carries any committed agent prose, the signal that the
+    /// streaming preview for the turn should settle.
+    private static func batchContainsAgentProse(_ messages: [ChatMessage]) -> Bool {
+        messages.contains { message in
+            guard message.role == .agent else { return false }
+            if case .prose = message.kind { return true }
+            return false
         }
     }
 
@@ -345,13 +396,17 @@ final class AgentChatTranscriptService {
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
-        if stateChanged, record.state == .ended,
-           let tailer = tailers.removeValue(forKey: record.sessionID) {
-            // The transcript can no longer grow; release the file watcher
-            // and cache instead of holding them until app quit. Evicting
-            // only on the TRANSITION keeps unrelated record updates (title
-            // discovery while paging an ended session) from churning it.
-            Task { await tailer.stop() }
+        if stateChanged, record.state == .ended {
+            // The transcript can no longer grow; stop any live preview loop so
+            // an agent that exits without a Stop hook doesn't leak the poll task.
+            proseStreamer.turnEnded(sessionID: record.sessionID)
+            if let tailer = tailers.removeValue(forKey: record.sessionID) {
+                // The transcript can no longer grow; release the file watcher
+                // and cache instead of holding them until app quit. Evicting
+                // only on the TRANSITION keeps unrelated record updates (title
+                // discovery while paging an ended session) from churning it.
+                Task { await tailer.stop() }
+            }
         }
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
         if transcriptBecameAvailable, record.state != .ended {
@@ -380,54 +435,6 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         MobileHostService.emitEvent(topic: Self.eventTopic, payload: payload)
-    }
-
-    private func newestClaudeTranscript(
-        workingDirectory: String,
-        surfaceID: String,
-        excludingSessionID: String?,
-        titleHint: String?,
-        forceScan: Bool
-    ) -> (sessionID: String, path: String)? {
-        let now = Date()
-        if !forceScan,
-           let lastScan = detectionScanAt[surfaceID],
-           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle {
-            return nil
-        }
-        detectionScanAt[surfaceID] = now
-        var claimed = registry.claimedSessionIDs()
-        if let excludingSessionID {
-            claimed.remove(excludingSessionID)
-        }
-        return resolver.newestClaudeTranscript(
-            workingDirectory: workingDirectory,
-            excludingSessionIDs: claimed,
-            titleHint: titleHint
-        )
-    }
-
-    private static func provisionalClaudeSessionID(surfaceID: String) -> String {
-        provisionalClaudeSessionIDPrefix + surfaceID.lowercased()
-    }
-
-    private static func isProvisionalClaudeSessionID(_ sessionID: String) -> Bool {
-        sessionID.hasPrefix(provisionalClaudeSessionIDPrefix)
-    }
-
-    private static func isSpecificClaudeTitle(_ title: String?) -> Bool {
-        guard var title = title?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !title.isEmpty else {
-            return false
-        }
-        while let first = title.first, !first.isLetter && !first.isNumber {
-            title.removeFirst()
-            title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        let normalized = title.lowercased()
-        return !normalized.isEmpty
-            && normalized != "claude code"
-            && !normalized.hasPrefix("claude ·")
     }
 
     /// Encodes a wire value into the `[String: Any]` payload shape the

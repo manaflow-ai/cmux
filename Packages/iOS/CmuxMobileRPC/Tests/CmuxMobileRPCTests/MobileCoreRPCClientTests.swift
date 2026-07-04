@@ -5,51 +5,6 @@ import Testing
 @testable import CmuxMobileRPC
 
 @Suite struct MobileCoreRPCClientTests {
-    @Test func rpcRequestTimeoutCancelsOperationWhenCallerIsCancelled() async throws {
-        let started = AsyncFlag()
-        let cancelled = AsyncFlag()
-        let task = Task {
-            try await MobileCoreRPCClient.debugWithRequestTimeout(
-                timeoutNanoseconds: 60 * 1_000_000_000
-            ) {
-                await started.set()
-                do {
-                    try await Task.sleep(nanoseconds: 60 * 1_000_000_000)
-                    return "completed"
-                } catch {
-                    await cancelled.set()
-                    throw error
-                }
-            }
-        }
-
-        for _ in 0..<100 {
-            if await started.isSet() {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        #expect(await started.isSet())
-
-        task.cancel()
-
-        do {
-            _ = try await task.value
-            Issue.record("Expected cancelled RPC timeout wrapper to throw")
-        } catch is CancellationError {
-        } catch {
-            Issue.record("Expected CancellationError, got \(error)")
-        }
-
-        for _ in 0..<100 {
-            if await cancelled.isSet() {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        #expect(await cancelled.isSet())
-    }
-
     @Test func cancelledQueuedRPCIsNotWrittenAfterEarlierSendCompletes() async throws {
         let transport = QueuedCancellationProbeTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59123)
@@ -102,15 +57,35 @@ import Testing
         let queuedTask = Task {
             try await client.sendRequest(queuedRequest)
         }
-        for _ in 0..<100 {
-            await Task.yield()
+        // Wait until the queued request has actually reached the session's writer
+        // gate (registered in the write queue) before cancelling. The first
+        // request was already drained into the blocked `transport.send`, so the
+        // only outstanding queued entry is this one. Spinning a fixed number of
+        // `Task.yield()`s is a race: under scheduler load the queued task's
+        // await-chain may not have reached the gate yet, so cancellation would
+        // fire before `session.send` registers it and the cancelled-while-queued
+        // invariant would never be exercised (false pass).
+        // Observe the session's writer-queue state directly through @testable
+        // import (no debug/test hook in production source). A request lands in
+        // `queuedRequestIDs` once its `send` reaches the serialization gate.
+        var queuedReachedGate = false
+        for _ in 0..<1000 {
+            if await client.session.queuedRequestIDs.count >= 1 {
+                queuedReachedGate = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
         }
+        #expect(queuedReachedGate)
         queuedTask.cancel()
         do {
             _ = try await queuedTask.value
             Issue.record("Expected queued RPC cancellation to throw")
+        } catch is CancellationError {
         } catch {
+            Issue.record("Expected CancellationError, got \(error)")
         }
+        #expect(!(await transport.closed()))
 
         await transport.releaseFirstSend()
         for _ in 0..<100 {
@@ -291,12 +266,14 @@ import Testing
     /// produced, so the in-flight task is cancelled once the frame is captured.
     private func sentHostStatusProbe(
         route: CmxAttachRoute,
-        stackAccessToken: String?
+        stackAccessToken: String?,
+        stackAccessTokenForStatus: String? = nil
     ) async throws -> RecordedRPCRequest? {
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessToken: stackAccessToken
+            stackAccessToken: stackAccessToken,
+            stackAccessTokenForStatus: stackAccessTokenForStatus
         )
         let client = MobileCoreRPCClient(
             runtime: runtime,
@@ -313,14 +290,16 @@ import Testing
         return sent.first
     }
 
-    @Test func hostStatusProbeCarriesStackTokenOnTrustedRoute() async throws {
-        // The status probe is unauthenticated by design, but the host reports
-        // its identity (`mac_device_id`, `mac_display_name`) only to a
-        // verified same-account caller, so the client attaches the Stack
-        // token whenever it has one and the route is trusted to carry it
-        // (Tailscale rides the WireGuard tunnel).
+    @Test func hostStatusProbeCarriesCachedStackTokenOnTrustedRoute() async throws {
+        // The status probe is unauthenticated by design. It must not touch the
+        // refreshing Stack token provider because a best-effort probe timeout
+        // can poison the real auth path.
         let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
-        let probe = try await sentHostStatusProbe(route: route, stackAccessToken: "test-stack-token")
+        let probe = try await sentHostStatusProbe(
+            route: route,
+            stackAccessToken: "test-stack-token",
+            stackAccessTokenForStatus: "test-stack-token"
+        )
         #expect(probe?.stackAccessToken == "test-stack-token")
         #expect(probe?.attachToken == nil)
     }

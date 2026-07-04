@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
 assert spec and spec.loader
@@ -22,11 +23,19 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 
 
-def assert_areas(paths: list[str], *, macos: bool, web: bool, go: bool) -> None:
+def assert_areas(
+    paths: list[str],
+    *,
+    macos: bool,
+    web: bool,
+    go: bool,
+    agent_session_web: bool = False,
+) -> None:
     actual = module.classify_files(paths)
     assert actual.macos is macos, (paths, actual)
     assert actual.web is web, (paths, actual)
     assert actual.go is go, (paths, actual)
+    assert actual.agent_session_web is agent_session_web, (paths, actual)
 
 
 def test_docs_only_skips_expensive_areas() -> None:
@@ -45,8 +54,18 @@ def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True, go=False)
 
 
+def test_website_only_does_not_run_agent_session_resource_check() -> None:
+    assert_areas(["web/app/page.tsx"], macos=False, web=True, go=False, agent_session_web=False)
+
+
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
-    assert_areas(["webviews/src/agent-session/shared/message.test.ts"], macos=True, web=True, go=False)
+    assert_areas(
+        ["webviews/src/agent-session/shared/message.test.ts"],
+        macos=True,
+        web=True,
+        go=False,
+        agent_session_web=True,
+    )
 
 
 def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
@@ -55,16 +74,45 @@ def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
         macos=True,
         web=True,
         go=False,
+        agent_session_web=True,
+    )
+
+
+def test_markdown_viewer_webview_app_does_not_run_agent_session_resource_check() -> None:
+    assert_areas(
+        ["Resources/markdown-viewer/webviews-app/index.js"],
+        macos=True,
+        web=True,
+        go=False,
+        agent_session_web=False,
     )
 
 
 def test_root_agent_web_dependencies_run_web_and_macos() -> None:
-    assert_areas(["package.json", "bun.lock"], macos=True, web=True, go=False)
+    assert_areas(
+        ["package.json", "bun.lock"],
+        macos=True,
+        web=True,
+        go=False,
+        agent_session_web=True,
+    )
 
 
 def test_agent_session_resources_run_web_and_macos() -> None:
-    assert_areas(["Resources/agent-session-react/index.js"], macos=True, web=True, go=False)
-    assert_areas(["Resources/agent-session-solid/index.js"], macos=True, web=True, go=False)
+    assert_areas(
+        ["Resources/agent-session-react/index.js"],
+        macos=True,
+        web=True,
+        go=False,
+        agent_session_web=True,
+    )
+    assert_areas(
+        ["Resources/agent-session-solid/index.js"],
+        macos=True,
+        web=True,
+        go=False,
+        agent_session_web=True,
+    )
     assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False, go=False)
 
 
@@ -85,11 +133,17 @@ def test_app_source_runs_macos() -> None:
 
 
 def test_workflow_changes_run_everything() -> None:
-    assert_areas([".github/workflows/ci.yml"], macos=True, web=True, go=True)
+    assert_areas(
+        [".github/workflows/ci.yml"],
+        macos=True,
+        web=True,
+        go=True,
+        agent_session_web=True,
+    )
 
 
-def detect_step_script() -> str:
-    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_path.read_text(encoding="utf-8").splitlines()
     for index, line in enumerate(lines):
         if line == "      - name: Detect CI change areas":
             for run_index in range(index + 1, len(lines)):
@@ -108,8 +162,8 @@ def detect_step_script() -> str:
     raise AssertionError("Detect CI change areas run block not found")
 
 
-def workflow_job_block(job_name: str) -> str:
-    lines = CI_WORKFLOW.read_text(encoding="utf-8").splitlines()
+def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_path.read_text(encoding="utf-8").splitlines()
     marker = f"  {job_name}:"
     for index, line in enumerate(lines):
         if line == marker:
@@ -122,13 +176,19 @@ def workflow_job_block(job_name: str) -> str:
     raise AssertionError(f"{job_name} job not found")
 
 
-def run_detect_step_for_paths(paths: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-    script = detect_step_script()
+def run_detect_step_for_paths(
+    paths: list[str],
+    workflow_path: Path = CI_WORKFLOW,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
+        helper_copy = repo / "scripts" / "ci" / "detect_ci_change_areas.py"
+        helper_copy.parent.mkdir(parents=True, exist_ok=True)
+        helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
@@ -169,7 +229,7 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
 
     assert "CI router changed; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "go=true"]
+    assert outputs == ["macos=true", "web=true", "go=true", "agent_session_web=true"]
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
@@ -199,6 +259,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "macos=true",
             "web=true",
             "go=true",
+            "agent_session_web=true",
         ]
 
 
@@ -206,13 +267,31 @@ def test_workflow_empty_diff_runs_all_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
     assert "PR diff is empty; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "go=true"]
+    assert outputs == ["macos=true", "web=true", "go=true", "agent_session_web=true"]
 
 
 def test_router_changes_run_everything() -> None:
-    assert_areas(["scripts/ci/detect_ci_change_areas.py"], macos=True, web=True, go=True)
-    assert_areas(["scripts/ci/subprocess.py"], macos=True, web=True, go=True)
-    assert_areas(["tests/test_ci_change_areas.py"], macos=True, web=True, go=True)
+    assert_areas(
+        ["scripts/ci/detect_ci_change_areas.py"],
+        macos=True,
+        web=True,
+        go=True,
+        agent_session_web=True,
+    )
+    assert_areas(
+        ["scripts/ci/subprocess.py"],
+        macos=True,
+        web=True,
+        go=True,
+        agent_session_web=True,
+    )
+    assert_areas(
+        ["tests/test_ci_change_areas.py"],
+        macos=True,
+        web=True,
+        go=True,
+        agent_session_web=True,
+    )
 
 
 def test_ghosttykit_checksum_pin_runs_macos() -> None:
@@ -255,6 +334,7 @@ def test_cli_writes_github_outputs() -> None:
             "macos=false",
             "web=true",
             "go=false",
+            "agent_session_web=false",
         ]
 
 
@@ -282,11 +362,12 @@ def test_cli_empty_diff_runs_all_areas() -> None:
         )
 
         assert "PR diff is empty; running all CI areas." in result.stdout
-        assert "Resolved areas: macos=true web=true go=true" in result.stdout
+        assert "Resolved areas: macos=true web=true go=true agent_session_web=true" in result.stdout
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=true",
             "web=true",
             "go=true",
+            "agent_session_web=true",
         ]
 
 
@@ -299,7 +380,7 @@ def test_non_pr_events_run_all_areas() -> None:
         stderr=subprocess.PIPE,
     )
 
-    assert "Resolved areas: macos=true web=true go=true" in result.stdout
+    assert "Resolved areas: macos=true web=true go=true agent_session_web=true" in result.stdout
 
 
 def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
@@ -312,6 +393,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "web-typecheck",
         "react-apps-check",
         "web-db-migrations",
+        "app-host-unit-tests",
         "tests",
         "tests-build-and-lag",
         "release-ghostty-cli-helper",
@@ -322,6 +404,45 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
     assert "if: ${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
+
+
+def test_required_tests_status_waits_for_app_host_matrix() -> None:
+    block = workflow_job_block("tests")
+
+    assert "name: tests" in block
+    assert "      - changes" in block
+    assert "      - app-host-unit-tests" in block
+    assert "if: ${{ always() }}" in block
+    assert 'macos == "true" and tests["result"] != "success"' in block
+    assert 'tests["result"] not in {"success", "skipped"}' in block
+
+
+def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
+    block = workflow_job_block("agent-session-web-resources")
+
+    assert "if: ${{ needs.changes.outputs.agent_session_web == 'true' }}" in block
+
+
+def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:
+    result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
+
+    assert "Resolved areas: macos=false web=false go=false" in result.stdout
+    assert outputs == ["macos=false", "web=false", "go=false", "agent_session_web=false"]
+
+    benchmark = workflow_job_block("activation-session-benchmark", PERF_ACTIVATION_WORKFLOW)
+    sentinel = workflow_job_block("activation-session", PERF_ACTIVATION_WORKFLOW)
+
+    assert "needs: activation_changes" in benchmark
+    assert "if: ${{ needs.activation_changes.outputs.macos == 'true' }}" in benchmark
+    # The benchmark routes through MACOS_RUNNER_15 (Blacksmith) for all events,
+    # including PRs. Depot remains only as a manual workflow_dispatch override.
+    assert "vars.MACOS_RUNNER_15" in benchmark
+
+    assert "      - activation_changes" in sentinel
+    assert "      - activation-session-benchmark" in sentinel
+    assert "if: ${{ always() }}" in sentinel
+    assert 'macos == "true" and benchmark["result"] != "success"' in sentinel
+    assert 'benchmark["result"] not in {"success", "skipped"}' in sentinel
 
 
 if __name__ == "__main__":

@@ -603,18 +603,18 @@ extension TerminalSurface {
         flushPendingRemoteOutput(to: createdSurface)
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
-        // config/scale reconciliation. If runtime points don't match the inherited
-        // template points, re-apply via binding action so all creation paths
-        // (new surface, split, new workspace) preserve zoom from the source terminal.
-        if let inheritedFontPoints = configTemplate?.fontSize,
-           inheritedFontPoints > 0 {
+        // config/scale reconciliation. Re-apply runtime points so all creation
+        // paths preserve zoom from the source terminal.
+        if let inheritedBaseFontPoints = configTemplate?.fontSize,
+           inheritedBaseFontPoints > 0 {
+            let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
             let currentFontPoints = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface)
             let shouldReapply = {
                 guard let currentFontPoints else { return true }
-                return abs(currentFontPoints - inheritedFontPoints) > 0.05
+                return abs(currentFontPoints - inheritedRuntimeFontPoints) > 0.05
             }()
             if shouldReapply {
-                let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
+                let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
                 _ = performBindingAction(action)
             }
         }

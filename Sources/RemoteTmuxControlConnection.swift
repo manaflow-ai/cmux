@@ -83,7 +83,7 @@ final class RemoteTmuxControlConnection {
     private var stdinWriter: RemoteTmuxControlPipeWriter?
     private var stdoutReader: FileHandle?
     private var stderrReader: FileHandle?
-    private var streamContinuation: AsyncStream<Data>.Continuation?
+    private var stdoutPipeReader: RemoteTmuxStdoutPipeReader?
     private var stderrContinuation: AsyncStream<Data>.Continuation?
     /// Consumes the current spawn's stderr into `stderrBuffer`. Awaited before a
     /// failed reconnect attempt is classified, so the decision sees the complete
@@ -159,11 +159,13 @@ final class RemoteTmuxControlConnection {
     /// this, mutations are rejected and the connection reconnects instead of
     /// accepting unbounded user input that may never reach tmux.
     private static let maxPendingStdinBytes = 256 * 1024
-    /// Cap pending stdout chunks between SSH's pipe callback and the main-actor
-    /// parser. A full buffer means parsing/rendering has fallen behind remote
-    /// output; reconnecting and re-seeding is safer than corrupting the stream by
-    /// dropping arbitrary control-mode bytes or growing memory without bound.
-    private static let maxPendingStdoutChunks = 16
+    /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
+    /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
+    /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
+    /// cap keeps worst-case memory bounded if parsing falls behind or the remote
+    /// floods output. Parser byte budgets remain the control-stream corruption guard.
+    private static let maxPendingStdoutBytes = 32 * 1024 * 1024
+    private static let maxPendingStdoutChunks = 4096
 
     /// Subscription-name prefix for per-pane `pane_current_path` (`refresh-client -B`).
     /// The tmux pane id is appended so an inbound `%subscription-changed` can be
@@ -217,8 +219,8 @@ final class RemoteTmuxControlConnection {
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
-    ///   - onSessionChanged: fires when tmux confirms a session rename via
-    ///     `%session-changed`.
+    ///   - onSessionChanged: fires when tmux confirms a session name change via
+    ///     `%session-changed` or `%session-renamed`.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss
@@ -345,35 +347,15 @@ final class RemoteTmuxControlConnection {
             }
         )
 
-        let (stream, continuation) = AsyncStream<Data>.makeStream(
-            bufferingPolicy: .bufferingOldest(Self.maxPendingStdoutChunks)
+        let stdoutPipeReader = RemoteTmuxStdoutPipeReader(
+            maxPendingChunks: Self.maxPendingStdoutChunks,
+            maxPendingBytes: Self.maxPendingStdoutBytes,
+            onOverflow: { [weak self] in
+                self?.handleStdoutBackpressureOverflow()
+            }
         )
         let reader = outPipe.fileHandleForReading
-        reader.readabilityHandler = { [weak self] handle in
-            let chunk = handle.availableData
-            if chunk.isEmpty {
-                handle.readabilityHandler = nil
-                continuation.finish()
-                return
-            }
-
-            switch continuation.yield(chunk) {
-            case .enqueued:
-                break
-            case .dropped, .terminated:
-                handle.readabilityHandler = nil
-                continuation.finish()
-                Task { @MainActor [weak self] in
-                    self?.handleStdoutBackpressureOverflow()
-                }
-            @unknown default:
-                handle.readabilityHandler = nil
-                continuation.finish()
-                Task { @MainActor [weak self] in
-                    self?.handleStdoutBackpressureOverflow()
-                }
-            }
-        }
+        stdoutPipeReader.attach(to: reader)
         // Capture stderr via its own AsyncStream so a failed reconnect attempt can be
         // classified deterministically: `handleStreamEnd` awaits `stderrTask` (which
         // finishes on stderr EOF) before reading `stderrBuffer`, so the decision can't
@@ -392,7 +374,7 @@ final class RemoteTmuxControlConnection {
         // Finish BOTH streams on process exit so the consumers (and any awaiter)
         // always complete even if a reader's EOF callback is delayed.
         proc.terminationHandler = { _ in
-            continuation.finish()
+            stdoutPipeReader.close()
             errContinuation.finish()
         }
 
@@ -403,9 +385,8 @@ final class RemoteTmuxControlConnection {
             // replace this connection instead of reusing a dead one. Close the
             // stdin writer too, so the connection is left in a clean, retry-safe
             // state instead of holding a dead pipe that silently EPIPEs on write.
-            reader.readabilityHandler = nil
             errReader.readabilityHandler = nil
-            continuation.finish()
+            stdoutPipeReader.close()
             errContinuation.finish()
             stdinWriter.close()
             throw error
@@ -414,7 +395,7 @@ final class RemoteTmuxControlConnection {
         self.stdinWriter = stdinWriter
         stdoutReader = reader
         stderrReader = errReader
-        streamContinuation = continuation
+        self.stdoutPipeReader = stdoutPipeReader
         stderrContinuation = errContinuation
         stderrTask = Task { [weak self] in
             for await chunk in errStream {
@@ -423,8 +404,9 @@ final class RemoteTmuxControlConnection {
             }
         }
         ingestTask = Task { [weak self] in
-            for await chunk in stream {
+            for await chunk in stdoutPipeReader.stream {
                 self?.ingest(chunk)
+                stdoutPipeReader.release(chunk)
             }
             await self?.handleStreamEnd()
         }
@@ -937,12 +919,11 @@ final class RemoteTmuxControlConnection {
         process?.terminationHandler = nil
         // Tear down the readers deterministically rather than waiting for EOF (the
         // consumers are already cancelled).
-        stdoutReader?.readabilityHandler = nil
-        stdoutReader = nil
         stderrReader?.readabilityHandler = nil
         stderrReader = nil
-        streamContinuation?.finish()
-        streamContinuation = nil
+        stdoutPipeReader?.close()
+        stdoutPipeReader = nil
+        stdoutReader = nil
         stderrContinuation?.finish()
         stderrContinuation = nil
         stdinWriter?.close()
@@ -1143,20 +1124,21 @@ final class RemoteTmuxControlConnection {
             totalOutputBytes += data.count
             observers.emitPaneOutput(paneId, data)
         case let .sessionChanged(id, name):
-            guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
-                record("session-changed-invalid $\(id)")
-                requestWindows()
-                return
-            }
-            let oldName = sessionName
-            sessionId = id
-            // Track the new name too: `sessionName` is the value reused for
-            // attach/reconnect, so a remote rename must update it or the next
-            // reconnect targets a stale session and is wrongly declared gone.
-            sessionName = safeName
-            record("session-changed $\(id)")
-            observers.emitSessionChanged(oldName: oldName, newName: safeName)
-            requestWindows()
+            // An attached-session SWITCH: the window set changes with it, so
+            // re-fetch the topology.
+            applySessionNameChange(sessionId: id, name: name, event: "session-changed", refetchWindows: true)
+        case let .sessionRenamed(id, name, idBearingName):
+            // tmux's `rename-session` notification. Same name handling as
+            // `%session-changed` (track the new name for attach/reconnect and emit
+            // the name-change observers that re-key controller state and re-title
+            // the mirror workspace), but a rename does NOT change the window set,
+            // so skip the topology re-fetch.
+            guard let renameName = sessionRenamedName(
+                sessionId: id,
+                documentedName: name,
+                idBearingName: idBearingName
+            ) else { return }
+            applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
         case let .windowAdd(id):
@@ -1223,6 +1205,45 @@ final class RemoteTmuxControlConnection {
         case .ignoredNotification, .unparsed:
             break
         }
+    }
+
+    /// Shared handling for `%session-changed` and `%session-renamed`: validate the
+    /// name, update the tracked `sessionName` (and `sessionId` for session
+    /// switches), then emit the name-change observers (which re-key controller
+    /// state and re-title the mirror workspace). `sessionName` is reused for
+    /// attach/reconnect, so a stale value would make the next reconnect target the
+    /// wrong session and wrongly declare it gone.
+    ///
+    /// - Parameter refetchWindows: re-fetch the window topology afterwards. A
+    ///   session SWITCH (`%session-changed`) brings a different window set, so it
+    ///   must; a rename (`%session-renamed`) keeps the same windows, so it skips
+    ///   the extra round trip. An invalid name always re-fetches as a recovery
+    ///   resync regardless.
+    private func applySessionNameChange(sessionId newSessionId: Int?, name: String, event: String, refetchWindows: Bool) {
+        guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
+            let idSuffix = newSessionId.map { " $\($0)" } ?? ""
+            record("\(event)-invalid\(idSuffix)")
+            requestWindows()
+            return
+        }
+        let oldName = sessionName
+        if let newSessionId { sessionId = newSessionId }
+        sessionName = safeName
+        let idSuffix = newSessionId.map { " $\($0)" } ?? ""
+        record("\(event)\(idSuffix)")
+        observers.emitSessionChanged(oldName: oldName, newName: safeName)
+        if refetchWindows { requestWindows() }
+    }
+
+    private func sessionRenamedName(sessionId renamedSessionId: Int?, documentedName: String, idBearingName: String?) -> String? {
+        guard let renamedSessionId else { return documentedName }
+        // Real tmux id-bearing renames are broadcast for every session; only this
+        // connection's id may use the id-bearing interpretation.
+        guard let currentSessionId = sessionId, currentSessionId == renamedSessionId else {
+            record("session-renamed-ignored $\(renamedSessionId)")
+            return nil
+        }
+        return idBearingName ?? documentedName
     }
 
     private func handleCommandResult(lines: [String], isError: Bool) {

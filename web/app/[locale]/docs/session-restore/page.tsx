@@ -1,6 +1,6 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
 import { Callout } from "../../components/callout";
 import { CodeBlock } from "../../components/code-block";
@@ -19,11 +19,17 @@ export async function generateMetadata({
   };
 }
 
-export default function SessionRestorePage() {
-  const t = useTranslations("docs.sessionRestore");
+export default async function SessionRestorePage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "docs.sessionRestore" });
 
   return (
     <>
+      <DocsSchema namespace="docs.sessionRestore" path="/docs/session-restore" />
       <h1>{t("title")}</h1>
       <p>{t("intro")}</p>
 

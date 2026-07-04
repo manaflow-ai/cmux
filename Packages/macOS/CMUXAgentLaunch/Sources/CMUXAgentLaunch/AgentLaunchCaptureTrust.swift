@@ -18,6 +18,24 @@ public enum AgentLaunchCaptureTrust {
         "pi": ["omp"],
     ]
 
+    private static let nativeProcessAliasesByKind: [String: Set<String>] = [
+        "antigravity": ["agy"],
+        "claude": ["claude"],
+        "codex": ["codex"],
+        "codebuddy": ["codebuddy"],
+        "copilot": ["copilot"],
+        "cursor": ["cursor-agent", "cursor"],
+        "factory": ["droid", "factory"],
+        "gemini": ["gemini"],
+        "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+        "kiro": ["kiro", "kiro-cli"],
+        "omp": ["omp"],
+        "opencode": ["opencode", "omo", "omx", "omc"],
+        "pi": ["pi", "omp"],
+        "qoder": ["qodercli", "qoder"],
+        "rovodev": ["rovodev", "rovo", "rovo-dev"],
+    ]
+
     /// True when `launcher` plausibly describes a launch of agent `kind`.
     /// A nil/empty launcher is trusted: hooks fall back to their own kind.
     public static func launcherDescribesKind(_ launcher: String?, kind: String) -> Bool {
@@ -56,5 +74,85 @@ public enum AgentLaunchCaptureTrust {
         return !letters.isEmpty
             && letters.contains("c")
             && letters.allSatisfy { "cilms".contains($0) }
+    }
+
+    /// True when PID-derived process metadata describes the same native agent as
+    /// the hook kind. This keeps unrelated parents, including Xcode test hosts
+    /// and the cmux app executable, from becoming persisted resume commands.
+    public static func nativeProcessDescribesKind(
+        processName: String?,
+        arguments: [String]?,
+        kind: String
+    ) -> Bool {
+        guard let expectedKind = normalizedAgentName(kind),
+              let arguments else {
+            return false
+        }
+        return nativeProcessDescriptors(processName: processName, arguments: arguments).contains { descriptor in
+            descriptor == expectedKind
+                || nativeProcessAliasesByKind[expectedKind]?.contains(descriptor) == true
+                || descriptor == "\(expectedKind)-cli"
+        }
+    }
+
+    public static func nativeProcessDescribesKnownAgent(
+        processName: String?,
+        arguments: [String]
+    ) -> Bool {
+        let knownNames = Set(nativeProcessAliasesByKind.keys).union(nativeProcessAliasesByKind.values.flatMap { $0 })
+        return nativeProcessDescriptors(processName: processName, arguments: arguments).contains { descriptor in
+            knownNames.contains(descriptor)
+        }
+    }
+
+    private static func nativeProcessDescriptors(
+        processName: String?,
+        arguments: [String]
+    ) -> Set<String> {
+        var descriptors = Set<String>()
+        let nameBase = processBasename(processName)
+        let executableBase = processBasename(arguments.first)
+        if let nameBase {
+            descriptors.insert(nameBase)
+        }
+        if let executableBase {
+            descriptors.insert(executableBase)
+        }
+        if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
+            if arguments.dropFirst().contains(where: { argument in
+                let lowered = argument.lowercased()
+                return processBasename(argument) == "claude"
+                    || lowered.contains("/.claude/")
+                    || lowered.contains("/claude/versions/")
+            }) {
+                descriptors.insert("claude")
+            }
+            return descriptors
+        }
+
+        let executable = arguments.first?.lowercased() ?? ""
+        if nameBase == "codex" || executableBase == "codex" || executable.contains("/codex/codex") {
+            descriptors.insert("codex")
+        }
+        if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
+            descriptors.insert("claude")
+        }
+        return descriptors
+    }
+
+    private static func normalizedAgentName(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value.lowercased()
+    }
+
+    private static func processBasename(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: value).lastPathComponent.lowercased()
     }
 }

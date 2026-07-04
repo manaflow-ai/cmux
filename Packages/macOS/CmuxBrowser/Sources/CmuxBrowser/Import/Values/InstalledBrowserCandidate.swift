@@ -30,6 +30,19 @@ public struct InstalledBrowserCandidate: Identifiable, Hashable, Sendable {
     /// Convenience list of profile data-directory URLs.
     public var profileURLs: [URL] { profiles.map(\.rootURL) }
 
+    /// Whether a user-supplied lookup string names this browser.
+    public func matchesLookupQuery(_ query: String) -> Bool {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        if id.lowercased() == normalized { return true }
+        if displayName.lowercased() == normalized { return true }
+        if descriptor.aliases.contains(where: { $0.lowercased() == normalized }) { return true }
+        return descriptor.appNames.contains { appName in
+            appName.lowercased() == normalized ||
+                appName.replacingOccurrences(of: ".app", with: "").lowercased() == normalized
+        }
+    }
+
     /// Creates a detected-browser candidate.
     ///
     /// - Parameters:
