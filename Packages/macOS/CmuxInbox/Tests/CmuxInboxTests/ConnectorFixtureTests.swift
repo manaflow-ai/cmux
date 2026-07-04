@@ -79,16 +79,33 @@ import CmuxInbox
         #expect(result.items.first?.source == .slack)
         #expect(result.items.first?.bodyPreview == "hello slack")
         #expect(await http.authorizationHeaders() == ["Bearer xoxb-test"])
-        // The cursor is a message-ts high-watermark so the next sync only
-        // fetches newer messages instead of the same first page forever.
-        #expect(result.nextCursor == "1700000000.000100")
+        // The cursor is a per-channel message-ts high-watermark map so the
+        // next sync only fetches newer messages per channel instead of the
+        // same first page forever.
+        #expect(result.nextCursor == #"{"C123":"1700000000.000100"}"#)
         let watermarkHTTP = StubHTTPClient(responses: [
             InboxHTTPResponse(statusCode: 200, data: Data(#"{"ok":true,"messages":[]}"#.utf8)),
         ])
         let watermarked = SlackConnector(channelIDs: ["C123"], tokenStore: tokens, httpClient: watermarkHTTP)
+        // Legacy plain-timestamp cursors still act as the floor for every channel.
         let repeated = try await watermarked.sync(cursor: "1700000000.000100")
-        #expect(repeated.nextCursor == "1700000000.000100")
+        #expect(repeated.nextCursor == #"{"C123":"1700000000.000100"}"#)
         #expect(await watermarkHTTP.requestedURLs().first?.contains("oldest=1700000000.000100") == true)
+
+        // Each channel keeps its own floor: a fast channel must not advance
+        // a slower channel's cursor past unseen history.
+        let emptyOK = Data(#"{"ok":true,"messages":[]}"#.utf8)
+        let multiHTTP = StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 200, data: emptyOK),
+            InboxHTTPResponse(statusCode: 200, data: emptyOK),
+        ])
+        let multi = SlackConnector(channelIDs: ["C1", "C2"], tokenStore: tokens, httpClient: multiHTTP)
+        let multiResult = try await multi.sync(cursor: #"{"C1":"200.000000","C2":"100.000000"}"#)
+        let urls = await multiHTTP.requestedURLs()
+        #expect(urls.count == 2)
+        #expect(urls[0].contains("oldest=200.000000"))
+        #expect(urls[1].contains("oldest=100.000000"))
+        #expect(multiResult.nextCursor == #"{"C1":"200.000000","C2":"100.000000"}"#)
 
         let mention = try await connector.itemFromEventPayload(Data(#"{"event":{"type":"app_mention","channel":"C123","ts":"1700000001.000200","thread_ts":"1700000000.000100","user":"U123","text":"<@bot> help"}}"#.utf8))
         #expect(mention?.isActionable == true)
@@ -158,6 +175,39 @@ import CmuxInbox
                 thread: gmailThread
             )
         }
+    }
+
+    @Test func gmailReplyHeadersRejectCRLFInjection() throws {
+        let fixtures = InboxFixtures()
+        let thread = InboxThread(
+            threadID: "gmail-thread-injection",
+            source: .gmail,
+            accountID: "me",
+            externalThreadID: "t-injection",
+            participants: [InboxParticipant(displayName: "Sender", address: "victim@example.com\r\nCc: attacker@example.com")],
+            title: "Hello\r\nBcc: attacker@example.com",
+            lastActivityAt: fixtures.date
+        )
+
+        let request = try GmailConnector.sendMessageRequest(
+            token: "token",
+            accountID: "me",
+            draft: fixtures.draft(source: .gmail, threadID: thread.threadID, body: "Approved reply"),
+            thread: thread
+        )
+        let body = try #require(request.httpBody)
+        let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let rawBase64URL = try #require(object["raw"] as? String)
+        var base64 = rawBase64URL.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 { base64 += "=" }
+        let decoded = try #require(Data(base64Encoded: base64))
+        let raw = try #require(String(data: decoded, encoding: .utf8))
+
+        // Externally-controlled subject/address must not add header lines.
+        let headerSection = try #require(raw.components(separatedBy: "\r\n\r\n").first)
+        let headerLines = headerSection.components(separatedBy: "\r\n")
+        #expect(headerLines.count == 2)
+        #expect(headerLines.allSatisfy { !$0.lowercased().hasPrefix("bcc:") && !$0.lowercased().hasPrefix("cc:") })
     }
 
     @Test func gmailPollingHistoryRelayAndExpiredCursorAreModeled() async throws {

@@ -67,12 +67,17 @@ public actor SlackConnector: InboxConnector {
 
         var threads: [InboxThread] = []
         var items: [InboxItem] = []
-        var watermark = cursor
+        // One shared timestamp would skip messages: a fast channel advancing
+        // the watermark past a slow channel's history loses the gap, so each
+        // channel keeps its own high-watermark inside the opaque cursor.
+        var cursors = Self.channelCursors(from: cursor)
+        let legacyFloor = Self.legacyGlobalCursor(from: cursor)
         for channelID in channelIDs {
+            let channelFloor = cursors[channelID] ?? legacyFloor
             let response = try await httpClient.data(for: Self.conversationsHistoryRequest(
                 token: token,
                 channelID: channelID,
-                cursor: cursor
+                cursor: channelFloor
             ))
             if let status = statusOverride(from: response) {
                 return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
@@ -80,8 +85,10 @@ public actor SlackConnector: InboxConnector {
             let parsed = try parseHistory(data: response.data, channelID: channelID)
             threads.append(contentsOf: parsed.threads)
             items.append(contentsOf: parsed.items)
-            if let latestTS = parsed.latestTS, (Double(latestTS) ?? 0) > (Double(watermark ?? "") ?? 0) {
-                watermark = latestTS
+            if let latestTS = parsed.latestTS, (Double(latestTS) ?? 0) > (Double(channelFloor ?? "") ?? 0) {
+                cursors[channelID] = latestTS
+            } else if let channelFloor {
+                cursors[channelID] = channelFloor
             }
         }
         let status = InboxConnectorStatus(
@@ -97,9 +104,30 @@ public actor SlackConnector: InboxConnector {
             accounts: [account(status: .connected, lastSyncAt: Date.now)],
             threads: threads,
             items: items,
-            nextCursor: watermark,
+            nextCursor: Self.encodedChannelCursors(cursors) ?? cursor,
             status: status
         )
+    }
+
+    /// Decodes the per-channel cursor map. The cursor string is opaque to the
+    /// hub and store; non-JSON values are treated as a legacy global floor.
+    static func channelCursors(from cursor: String?) -> [String: String] {
+        guard let cursor, let data = cursor.data(using: .utf8),
+              let map = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return map
+    }
+
+    private static func legacyGlobalCursor(from cursor: String?) -> String? {
+        guard let cursor, !cursor.isEmpty, Double(cursor) != nil else { return nil }
+        return cursor
+    }
+
+    static func encodedChannelCursors(_ cursors: [String: String]) -> String? {
+        guard !cursors.isEmpty else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(cursors) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// Sends a user-approved Slack reply through `chat.postMessage`.
@@ -122,9 +150,9 @@ public actor SlackConnector: InboxConnector {
         }
     }
 
-    /// Builds the Web API history request. The cursor is a Slack message
-    /// timestamp high-watermark passed as `oldest` so each sync fetches only
-    /// messages newer than the last one already ingested.
+    /// Builds the Web API history request. The cursor is this channel's
+    /// message-timestamp high-watermark passed as `oldest` so each sync
+    /// fetches only messages newer than the last one already ingested.
     public static func conversationsHistoryRequest(token: String, channelID: String, cursor: String?) -> URLRequest {
         var components = URLComponents(string: "https://slack.com/api/conversations.history")!
         var query = [URLQueryItem(name: "channel", value: channelID), URLQueryItem(name: "limit", value: "100")]
