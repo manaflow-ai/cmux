@@ -11802,10 +11802,15 @@ struct VerticalTabsSidebar: View {
         // SidebarRowsFillLayout measured it (`sizeThatFits(height: nil)`) every
         // pass, realizing all rows and re-livelocking at scale (#2586 / #5764 /
         // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
-        let content = workspaceRows(
-            renderContext: renderContext,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
-        )
+        // The SSH Hosts section sits after the rows block (not inside it) so
+        // the end-of-list drop indicator above still hugs the last workspace
+        // row, while the interaction-neutralizing background below also covers
+        // the section.
+        let content = VStack(alignment: .leading, spacing: 0) {
+            workspaceRows(
+                renderContext: renderContext,
+                shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            )
             .overlay(alignment: .bottom) {
                 if emptyAreaTopDropIndicatorVisible() {
                     Rectangle()
@@ -11815,6 +11820,8 @@ struct VerticalTabsSidebar: View {
                         .offset(y: tabRowSpacing / 2)
                 }
             }
+            sshHostsSidebarSection
+        }
             // Neutralize ALL end-of-list empty-area interactions over the rows
             // block (2pt gaps, row padding, and the entire list when it
             // overflows) so none fall through to SidebarEmptyArea behind:
@@ -11890,7 +11897,6 @@ struct VerticalTabsSidebar: View {
                     )
                 }
             }
-            sshHostsSidebarSection
         }
         .padding(.vertical, SidebarWorkspaceListMetrics.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
