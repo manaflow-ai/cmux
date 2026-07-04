@@ -224,8 +224,10 @@ extension VerticalTabsSidebar {
     }
 }
 
-private extension Workspace {
+extension Workspace {
     func extensionWorktreeRemovalCandidateDirectories() -> [String?] {
+        guard !isRemoteWorkspace, !isRemoteTmuxMirror else { return [] }
+
         var directories: [String?] = [currentDirectory]
         directories.append(contentsOf: panelDirectories.values.map(Optional.some))
 
