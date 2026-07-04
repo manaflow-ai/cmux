@@ -1409,7 +1409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // re-enabled) child performance span before it leaves the device.
                 let scrubber = SentryEventScrubber()
                 options.beforeSend = { event in
-                    scrubber.scrub(scrubber.attachStartupLogTailIfCrash(to: event))
+                    scrubber.scrub(StartupBreadcrumbLog.attachTailIfCrash(to: event))
                 }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
                 options.beforeSendSpan = { span in scrubber.scrub(span) }

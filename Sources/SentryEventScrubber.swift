@@ -1,5 +1,4 @@
 import CmuxFoundation
-import Foundation
 import Sentry
 
 /// Applies a ``SentryScrubber`` to outgoing Sentry events and breadcrumbs so
@@ -110,26 +109,6 @@ struct SentryEventScrubber {
         return event
     }
 
-    /// Adds the bounded startup breadcrumb log tail to crash-shaped events.
-    ///
-    /// Call this before ``scrub(_:)-(Event)`` so the attached log tail flows
-    /// through the same path/email/secret redaction as every other context.
-    func attachStartupLogTailIfCrash(
-        to event: Event,
-        logURL: URL = StartupBreadcrumbLog.currentLogURL,
-        fileManager: FileManager = .default
-    ) -> Event {
-        guard isCrashOrFatalEvent(event),
-              let context = StartupBreadcrumbLog.tailContext(logURL: logURL, fileManager: fileManager) else {
-            return event
-        }
-
-        var contexts = event.context ?? [:]
-        contexts["startup_log"] = context
-        event.context = contexts
-        return event
-    }
-
     /// Redacts sensitive content from a breadcrumb in place and returns it.
     ///
     /// Suitable as `beforeBreadcrumb`. Returns the same breadcrumb (never `nil`,
@@ -188,21 +167,6 @@ struct SentryEventScrubber {
         rebuilt.message = scrubber.scrub(optional: message.message)
         rebuilt.params = message.params?.map { scrubber.scrub($0) }
         return rebuilt
-    }
-
-    private func isCrashOrFatalEvent(_ event: Event) -> Bool {
-        if event.level == .fatal {
-            return true
-        }
-
-        return event.exceptions?.contains { exception in
-            let type = exception.type.uppercased()
-            return type.hasPrefix("EXC_") ||
-                type.hasPrefix("SIG") ||
-                type == "NSRANGEEXCEPTION" ||
-                type == "NSINVALIDARGUMENTEXCEPTION" ||
-                type == "NSINTERNALINCONSISTENCYEXCEPTION"
-        } ?? false
     }
 
     /// Redacts the description, help link, and data payload of an exception mechanism.

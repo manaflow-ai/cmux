@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import os
+import Sentry
 
 enum StartupBreadcrumbLog {
     private static let maxFieldLength = 240
@@ -141,6 +142,26 @@ enum StartupBreadcrumbLog {
         ]
     }
 
+    /// Adds the bounded startup breadcrumb log tail to crash-shaped events.
+    ///
+    /// Call this before `SentryEventScrubber.scrub(_:)` so the attached log tail
+    /// flows through the same path/email/secret redaction as every other context.
+    static func attachTailIfCrash(
+        to event: Event,
+        logURL: URL = currentLogURL,
+        fileManager: FileManager = .default
+    ) -> Event {
+        guard isCrashOrFatalEvent(event),
+              let context = tailContext(logURL: logURL, fileManager: fileManager) else {
+            return event
+        }
+
+        var contexts = event.context ?? [:]
+        contexts["startup_log"] = context
+        event.context = contexts
+        return event
+    }
+
     private static func defaultLogURL(bundleIdentifier: String) -> URL {
         let logsDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)
             .first?
@@ -168,6 +189,21 @@ enum StartupBreadcrumbLog {
         }
         try fileManager.moveItem(at: url, to: rotatedURL)
         fileManager.createFile(atPath: url.path, contents: nil)
+    }
+
+    private static func isCrashOrFatalEvent(_ event: Event) -> Bool {
+        if event.level == .fatal {
+            return true
+        }
+
+        return event.exceptions?.contains { exception in
+            let type = exception.type.uppercased()
+            return type.hasPrefix("EXC_") ||
+                type.hasPrefix("SIG") ||
+                type == "NSRANGEEXCEPTION" ||
+                type == "NSINVALIDARGUMENTEXCEPTION" ||
+                type == "NSINTERNALINCONSISTENCYEXCEPTION"
+        } ?? false
     }
 
     private static func logFileComponent(_ value: String) -> String {

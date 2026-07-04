@@ -54,7 +54,7 @@ struct StartupBreadcrumbLogTests {
         event.level = .fatal
         let scrubber = SentryEventScrubber(scrubber: SentryScrubber(homeDirectory: "/Users/lawrence"))
 
-        let scrubbed = scrubber.scrub(scrubber.attachStartupLogTailIfCrash(to: event, logURL: logURL))
+        let scrubbed = scrubber.scrub(StartupBreadcrumbLog.attachTailIfCrash(to: event, logURL: logURL))
         let startupContext = try #require(scrubbed.context?["startup_log"])
         let tail = try #require(startupContext["tail"] as? String)
 
@@ -71,9 +71,8 @@ struct StartupBreadcrumbLogTests {
 
         let event = Event()
         event.level = .error
-        let scrubber = SentryEventScrubber()
 
-        let out = scrubber.attachStartupLogTailIfCrash(to: event, logURL: logURL)
+        let out = StartupBreadcrumbLog.attachTailIfCrash(to: event, logURL: logURL)
         #expect(out.context?["startup_log"] == nil)
     }
 
