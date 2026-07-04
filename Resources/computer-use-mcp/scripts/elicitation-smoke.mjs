@@ -183,6 +183,78 @@ if (!staleClick.isError || !staleClick.text.includes("run computer_state first")
   process.exit(1);
 }
 
+const [coordinateWithoutSnapshot] = await runCalls({
+  withElicitation: false,
+  calls: [{ tool: "computer_click", args: { app: "CoordinateApp", x: 3, y: 4 } }],
+});
+console.log(`coordinate click without visible snapshot -> click=${coordinateWithoutSnapshot.isError}`);
+if (!coordinateWithoutSnapshot.isError || !coordinateWithoutSnapshot.text.includes("visible screenshot")) {
+  console.error("FAIL: coordinate click should require a visible screenshot snapshot");
+  process.exit(1);
+}
+
+const [coordinateState, coordinateClick, staleCoordinateClick] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_state", args: { app: "CoordinateApp" } },
+    { tool: "computer_click", args: { app: "CoordinateApp", x: 3, y: 4 } },
+    { tool: "computer_click", args: { app: "CoordinateApp", x: 3, y: 4 } },
+  ],
+});
+console.log(
+  `coordinate click from computer_state -> state=${coordinateState.isError} click=${coordinateClick.isError} stale=${staleCoordinateClick.isError}`
+);
+if (
+  coordinateState.isError ||
+  coordinateClick.isError ||
+  !staleCoordinateClick.isError ||
+  !staleCoordinateClick.text.includes("visible screenshot")
+) {
+  console.error("FAIL: coordinate click should consume the visible computer_state snapshot");
+  process.exit(1);
+}
+
+const [coordinateScreenshot, screenshotClick, staleScreenshotClick] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_screenshot", args: { app: "ScreenshotCoordinateApp" } },
+    { tool: "computer_click", args: { app: "ScreenshotCoordinateApp", x: 5, y: 6 } },
+    { tool: "computer_click", args: { app: "ScreenshotCoordinateApp", x: 5, y: 6 } },
+  ],
+});
+console.log(
+  `coordinate click from computer_screenshot -> screenshot=${coordinateScreenshot.isError} click=${screenshotClick.isError} stale=${staleScreenshotClick.isError}`
+);
+if (
+  coordinateScreenshot.isError ||
+  screenshotClick.isError ||
+  !staleScreenshotClick.isError ||
+  !staleScreenshotClick.text.includes("visible screenshot")
+) {
+  console.error("FAIL: coordinate click should consume the visible computer_screenshot snapshot");
+  process.exit(1);
+}
+
+const [dragState, dragResult, staleDrag] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_state", args: { app: "DragCoordinateApp" } },
+    {
+      tool: "computer_drag",
+      args: { app: "DragCoordinateApp", fromX: 1, fromY: 2, toX: 3, toY: 4 },
+    },
+    {
+      tool: "computer_drag",
+      args: { app: "DragCoordinateApp", fromX: 1, fromY: 2, toX: 3, toY: 4 },
+    },
+  ],
+});
+console.log(`coordinate drag -> state=${dragState.isError} drag=${dragResult.isError} stale=${staleDrag.isError}`);
+if (dragState.isError || dragResult.isError || !staleDrag.isError || !staleDrag.text.includes("visible screenshot")) {
+  console.error("FAIL: coordinate drag should consume the visible screenshot snapshot");
+  process.exit(1);
+}
+
 const [flakyState, failedRefresh, staleAfterFailedRefresh] = await runCalls({
   withElicitation: false,
   calls: [

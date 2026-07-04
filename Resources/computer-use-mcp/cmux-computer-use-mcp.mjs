@@ -186,6 +186,11 @@ class AppServerSession {
     // and accessibility actions can all mutate the UI behind the old element
     // table. The next element-index action must follow a fresh computer_state.
     this.snapshotApps = new Set();
+    // Apps whose latest screenshot image was returned to the agent. Coordinate
+    // actions must be measured against a visible image, not an internal priming
+    // capture, and are consumed by every input action for the same freshness
+    // reason as element-index snapshots.
+    this.coordinateApps = new Set();
     this.startPromise = null;
     this.exitError = null;
     // Latest `mcpServer/startupStatus/updated` for the computer-use server,
@@ -251,6 +256,7 @@ class AppServerSession {
     this.threadId = null;
     this.boundApps.clear();
     this.snapshotApps.clear();
+    this.coordinateApps.clear();
     const pending = [...this.pending.values()];
     this.pending.clear();
     for (const entry of pending) {
@@ -381,6 +387,7 @@ class AppServerSession {
     this.threadId = null;
     this.boundApps.clear();
     this.snapshotApps.clear();
+    this.coordinateApps.clear();
     if (child) {
       child.removeAllListeners("exit");
       child.kill();
@@ -440,6 +447,13 @@ async function callReadOnlyTool(tool, args) {
   return callEngineReadOnly(s, tool, args);
 }
 
+function usesCoordinates(args) {
+  return (
+    (args.x != null && args.y != null) ||
+    (args.from_x != null && args.from_y != null && args.to_x != null && args.to_y != null)
+  );
+}
+
 // Input actions require the app to be bound in the current app-server thread.
 // A `get_app_state` in the same thread does that binding (and builds the
 // element-index table), so prime once per app — matching the engine's own
@@ -447,6 +461,8 @@ async function callReadOnlyTool(tool, args) {
 // the agent has seen the CURRENT table via computer_state (snapshotApps, never
 // set by internal priming or screenshot-only captures), because executing a
 // caller's index against a table it never saw can click the wrong control.
+// Coordinate actions are snapshot-specific too: the x/y values are only valid
+// against a screenshot image the agent actually received.
 async function callInputTool(tool, args) {
   const s = await session();
   // Fail closed on a missing/blank/non-string app: this bridge's approval,
@@ -463,6 +479,11 @@ async function callInputTool(tool, args) {
       `no computer_state snapshot for "${app}" in the current session; run computer_state first — element indices are snapshot-specific`
     );
   }
+  if (usesCoordinates(args) && !s.coordinateApps.has(app)) {
+    return err(
+      `no visible screenshot snapshot for "${app}" in the current session; run computer_state or computer_screenshot first — coordinates are snapshot-specific`
+    );
+  }
   if (!s.boundApps.has(app)) {
     // Priming is read-only, so it gets the cold-start retry; the input
     // action itself below is still never auto-retried.
@@ -473,6 +494,7 @@ async function callInputTool(tool, args) {
     s.boundApps.add(app);
   }
   s.snapshotApps.delete(app);
+  s.coordinateApps.delete(app);
   return s.callTool(tool, args);
 }
 
@@ -520,17 +542,21 @@ function passthrough(result, fallback) {
 // a vision agent sees exactly what Codex Computer Use sees.
 async function perceive(app) {
   const s = await session();
-  if (s.alive) s.snapshotApps.delete(app);
+  if (s.alive) {
+    s.snapshotApps.delete(app);
+    s.coordinateApps.delete(app);
+  }
   const result = await callEngineReadOnly(s, "get_app_state", { app });
   if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
+  const image = firstImage(result);
   if (s.alive) {
     s.boundApps.add(app);
     // The agent receives this element-index table, so element actions may
     // reference it — the only place snapshotApps is granted.
     s.snapshotApps.add(app);
+    if (image) s.coordinateApps.add(app);
   }
   const tree = truncateTree(firstText(result));
-  const image = firstImage(result);
   const content = [
     text(
       tree
@@ -738,9 +764,13 @@ const TOOLS = [
     run: async ({ app, display }) => {
       if (!app) return desktopScreenshot(display);
       const s = await session();
-      if (s.alive) s.snapshotApps.delete(app);
+      if (s.alive) {
+        s.snapshotApps.delete(app);
+        s.coordinateApps.delete(app);
+      }
       const result = await callEngineReadOnly(s, "get_app_state", { app });
       if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
+      const image = firstImage(result);
       // Screenshot-only capture: the agent sees the image but NOT the element
       // table this get_app_state just rebuilt, so bind the app and REVOKE any
       // earlier element-index authorization — the agent's indices refer to a
@@ -748,8 +778,8 @@ const TOOLS = [
       if (s.alive) {
         s.boundApps.add(app);
         s.snapshotApps.delete(app);
+        if (image) s.coordinateApps.add(app);
       }
-      const image = firstImage(result);
       return ok(image ? [image] : [text("(captured, no image)")]);
     },
   },
@@ -985,6 +1015,14 @@ async function forwardElicitationToClient(params) {
   return { action: result?.action === "cancel" ? "cancel" : "decline" };
 }
 
+let toolCallQueue = Promise.resolve();
+
+function enqueueToolCall(run) {
+  const queued = toolCallQueue.then(run, run);
+  toolCallQueue = queued.catch(() => {});
+  return queued;
+}
+
 async function handleRequest(message) {
   const { id, method, params } = message;
   switch (method) {
@@ -1014,7 +1052,7 @@ async function handleRequest(message) {
         return;
       }
       try {
-        mcpReply(id, await tool.run(params?.arguments ?? {}));
+        mcpReply(id, await enqueueToolCall(() => tool.run(params?.arguments ?? {})));
       } catch (error) {
         mcpReply(id, err(error?.message ?? String(error)));
       }

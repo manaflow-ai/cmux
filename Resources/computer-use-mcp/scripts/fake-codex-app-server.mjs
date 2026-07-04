@@ -43,6 +43,7 @@ function toolCallParams(message) {
 }
 
 function rejectStringElementIndex(message) {
+  if (!hasOwn(message.params?.arguments ?? {}, "element_index")) return false;
   if (typeof message.params?.arguments?.element_index === "number") return false;
   send({
     id: message.id,
@@ -89,7 +90,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       send({
         id: message.id,
         result: {
-          content: [{ type: "text", text: "0 button 'OK'" }],
+          content: [
+            { type: "text", text: "0 button 'OK'" },
+            { type: "image", data: "AA==", mimeType: "image/png" },
+          ],
           isError: false,
         },
       });
@@ -112,6 +116,16 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         id: message.id,
         result: {
           content: [{ type: "text", text: `${params.tool}:ok` }],
+          isError: false,
+        },
+      });
+      return;
+    }
+    if (params.tool === "drag") {
+      send({
+        id: message.id,
+        result: {
+          content: [{ type: "text", text: "dragged" }],
           isError: false,
         },
       });
