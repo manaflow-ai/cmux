@@ -375,6 +375,20 @@ if (
   process.exit(1);
 }
 
+const unsupportedKey = await runCalls({
+  withElicitation: true,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_key", args: { app: "TestApp", key: "hyperdrive" } },
+  ],
+  expectMessage: "Allow cmux computer use to inspect and control",
+});
+console.log(`unsupported key -> state=${unsupportedKey[0].isError} key=${unsupportedKey[1].isError}`);
+if (unsupportedKey[0].isError || !unsupportedKey[1].isError || !unsupportedKey[1].text.includes("unsupported key")) {
+  console.error("FAIL: unsupported keys should return an error instead of reporting success");
+  process.exit(1);
+}
+
 const cancelled = await runRawCancellationSmoke({ queued: false });
 console.log(
   `cancelled tool call -> isError=${cancelled.result.isError} followUp=${cancelled.afterCancel.isError} text=${cancelled.afterCancel.text}`
