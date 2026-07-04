@@ -3227,7 +3227,7 @@ class GhosttyApp {
             // enables mouse reporting). Without this the viewport keeps whatever
             // cursor the parent portal set, so text never shows the I-beam.
             let shape = action.action.mouse_shape
-            performOnMain {
+            Task { @MainActor [surfaceView, shape] in
                 surfaceView.applyGhosttyMouseShape(shape)
             }
             return true
