@@ -152,6 +152,7 @@ const MESSAGE_CATALOG = {
     typeDescription:
       "Type text into an app (the focused field). Confirm with the user before destructive, irreversible, or high-stakes actions.",
     typed: "typed",
+    unsupportedKey: (key) => `unsupported key: ${key}`,
     visibleSnapshotRequired: (app) =>
       `no visible snapshot for "${app}" in the current session; run computer_state or computer_screenshot first`,
     windowEnumerationNotApproved: "window enumeration was not approved",
@@ -229,6 +230,7 @@ const MESSAGE_CATALOG = {
     typeDescription:
       "アプリのフォーカス中フィールドにテキストを入力します。破壊的、取り消し困難、または重要度の高い操作の前にはユーザーに確認してください。",
     typed: "入力しました",
+    unsupportedKey: (key) => `未対応のキーです: ${key}`,
     visibleSnapshotRequired: (app) =>
       `このセッションには「${app}」の表示済みスナップショットがありません。先に computer_state または computer_screenshot を実行してください`,
     windowEnumerationNotApproved: "ウィンドウ一覧取得は承認されませんでした",
@@ -266,6 +268,26 @@ function usesCoordinates(args) {
     (args.x != null && args.y != null) ||
     (args.from_x != null && args.from_y != null && args.to_x != null && args.to_y != null)
   );
+}
+
+const SUPPORTED_KEY_NAMES = new Set([
+  "a", "s", "d", "f", "h", "g", "z", "x", "c", "v", "b", "q", "w", "e", "r",
+  "y", "t", "1", "2", "3", "4", "6", "5", "=", "9", "7", "-", "8", "0",
+  "]", "o", "u", "[", "i", "p", "return", "enter", "l", "j", "'", "k", ";",
+  "\\", ",", "/", "n", "m", ".", "tab", "space", "`", "delete", "backspace",
+  "escape", "esc", "home", "pageup", "end", "pagedown", "left", "right", "down",
+  "up", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11",
+  "f12",
+]);
+const SUPPORTED_KEY_MODIFIERS = new Set(["cmd", "command", "meta", "ctrl", "control", "alt", "option", "shift"]);
+
+function isSupportedKeyName(key) {
+  const parts = String(key ?? "").toLowerCase().split("+").filter(Boolean);
+  const rawKey = parts.at(-1);
+  if (!rawKey) return false;
+  if (!parts.slice(0, -1).every((part) => SUPPORTED_KEY_MODIFIERS.has(part))) return false;
+  if (parts.length === 1 && rawKey.length === 1 && !SUPPORTED_KEY_NAMES.has(rawKey)) return true;
+  return SUPPORTED_KEY_NAMES.has(rawKey);
 }
 
 function pngDimensions(buffer) {
@@ -381,12 +403,19 @@ if let payloadArgument, let data = Data(base64Encoded: payloadArgument) {
 }
 let inputObject = (try? JSONSerialization.jsonObject(with: inputData)) as? [String: Any] ?? [:]
 let op = inputObject["op"] as? String ?? ""
+let maxAXStringCharacters = 512
+let maxTreeCharacters = 60_000
+
+func boundedString(_ value: String, limit: Int = maxAXStringCharacters) -> String {
+    if value.count <= limit { return value }
+    return String(value.prefix(limit)) + "…"
+}
 
 func stringAttr(_ element: AXUIElement, _ attr: String) -> String {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success else { return "" }
-    if let string = value as? String { return string }
-    if let number = value as? NSNumber { return number.stringValue }
+    if let string = value as? String { return boundedString(string) }
+    if let number = value as? NSNumber { return boundedString(number.stringValue) }
     return ""
 }
 
@@ -443,7 +472,7 @@ func frameText(_ bounds: [String: Double]?) -> String {
 }
 
 func clean(_ value: String) -> String {
-    value.replacingOccurrences(of: "\\\\", with: "\\\\\\\\")
+    boundedString(value).replacingOccurrences(of: "\\\\", with: "\\\\\\\\")
         .replacingOccurrences(of: "\\"", with: "\\\\\\"")
         .replacingOccurrences(of: "\\n", with: " ")
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -582,11 +611,13 @@ let keyCodes: [String: CGKeyCode] = [
     "\`": 50, "delete": 51, "backspace": 51, "escape": 53, "esc": 53,
     "home": 115, "pageup": 116, "end": 119, "pagedown": 121,
     "left": 123, "right": 124, "down": 125, "up": 126,
+    "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97,
+    "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
 ]
 
 func pressKey(_ key: String) {
     let parts = key.lowercased().split(separator: "+").map(String.init)
-    guard let rawKey = parts.last else { return }
+    guard let rawKey = parts.last, !rawKey.isEmpty else { fail("unsupported key: \\(key)") }
     var flags = CGEventFlags()
     for part in parts.dropLast() {
         switch part {
@@ -594,14 +625,14 @@ func pressKey(_ key: String) {
         case "ctrl", "control": flags.insert(.maskControl)
         case "alt", "option": flags.insert(.maskAlternate)
         case "shift": flags.insert(.maskShift)
-        default: break
+        default: fail("unsupported key modifier: \\(part)")
         }
     }
     if parts.count == 1 && rawKey.count == 1 && keyCodes[rawKey] == nil {
         typeText(rawKey)
         return
     }
-    guard let code = keyCodes[rawKey] else { return }
+    guard let code = keyCodes[rawKey] else { fail("unsupported key: \\(key)") }
     let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)
     down?.flags = flags
     down?.post(tap: .cghidEventTap)
@@ -642,6 +673,7 @@ if op == "state" {
     var nextIndex = 0
     var lines: [String] = []
     var elements: [[String: Any]] = []
+    var treeCharacters = 0
 
     func visit(_ element: AXUIElement, path: [Int], depth: Int) {
         if nextIndex >= maxNodes { return }
@@ -658,12 +690,6 @@ if op == "state" {
         var elementInfo: [String: Any] = [
             "index": index,
             "path": path,
-            "role": role,
-            "subrole": subrole,
-            "title": title,
-            "value": value,
-            "description": description,
-            "help": help,
             "actions": actions,
         ]
         if let bounds { elementInfo["bounds"] = bounds }
@@ -678,7 +704,12 @@ if op == "state" {
         if !help.isEmpty { line += " help=\\"\\(clean(help))\\"" }
         line += frameText(bounds)
         if !actions.isEmpty { line += " actions=\\(actions)" }
-        lines.append(line)
+        if treeCharacters < maxTreeCharacters {
+            let remaining = maxTreeCharacters - treeCharacters
+            let clipped = line.count > remaining ? String(line.prefix(max(0, remaining))) + "…[truncated]" : line
+            lines.append(clipped)
+            treeCharacters += clipped.count + 1
+        }
 
         if depth >= maxDepth { return }
         let children = childrenAttr(element)
@@ -834,10 +865,33 @@ class ComputerUseSession {
   }
 
   rememberState(app, state, { exposeElements, exposeCoordinates }) {
-    this.snapshots.set(app, state);
+    const retained = {
+      elements: (state.elements ?? []).map((element) => ({
+        index: element.index,
+        path: Array.isArray(element.path) ? element.path : [],
+        bounds: element.bounds ?? null,
+        actions: Array.isArray(element.actions) ? element.actions : [],
+      })),
+      root: state.root ?? "app",
+      windowIndex: state.windowIndex ?? null,
+      window: state.window
+        ? {
+            bounds: state.window.bounds ?? null,
+          }
+        : null,
+      image: state.image
+        ? {
+            width: state.image.width ?? null,
+            height: state.image.height ?? null,
+            mimeType: state.image.mimeType ?? null,
+          }
+        : null,
+    };
+    this.dispose();
+    this.snapshots.set(app, retained);
     if (exposeElements) this.snapshotApps.add(app);
     else this.snapshotApps.delete(app);
-    if (exposeCoordinates && state.image) this.coordinateApps.add(app);
+    if (exposeCoordinates && state.image?.width && state.image?.height) this.coordinateApps.add(app);
     else this.coordinateApps.delete(app);
   }
 
@@ -1035,6 +1089,7 @@ async function callInputTool(tool, args) {
       action.text = args.text ?? "";
       break;
     case "press_key":
+      if (!isSupportedKeyName(args.key)) return err(localizedMessage("unsupportedKey", args.key ?? ""));
       action.op = "press_key";
       action.key = args.key ?? "";
       break;
