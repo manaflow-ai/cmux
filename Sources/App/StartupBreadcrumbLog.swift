@@ -197,7 +197,7 @@ enum StartupBreadcrumbLog {
         }
 
         return event.exceptions?.contains { exception in
-            let type = exception.type.uppercased()
+            let type = (exception.type ?? "").uppercased()
             return type.hasPrefix("EXC_") ||
                 type.hasPrefix("SIG") ||
                 type == "NSRANGEEXCEPTION" ||
