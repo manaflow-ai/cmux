@@ -377,7 +377,7 @@ def main() -> int:
                     manifest.parent,
                     root_by_resolved_path,
                     graph,
-                    remote_memo,
+                    current_remote_memo,
                 ):
                     resolution_affecting_roots.add(root)
 
