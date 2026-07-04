@@ -249,6 +249,82 @@ async function runRawCancellationSmoke({ queued }) {
   }
 }
 
+async function runUnknownCancellationSmoke() {
+  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
+  delete env.CMUX_CU_AUTO_APPROVE;
+  const child = spawn(process.execPath, [serverPath], { stdio: ["pipe", "pipe", "pipe"], env });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  const pending = new Map();
+  const lines = createInterface({ input: child.stdout });
+  const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+  const request = (id, method, params, timeoutMs = 1000) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method} timed out`));
+      }, timeoutMs);
+      pending.set(id, { resolve, reject, timer });
+      send({ id, method, params });
+    });
+  const notify = (method, params) => send({ method, params });
+  lines.on("line", (line) => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    const entry = pending.get(message.id);
+    if (!entry) return;
+    pending.delete(message.id);
+    clearTimeout(entry.timer);
+    entry.resolve(message);
+  });
+  child.on("exit", () => {
+    for (const [id, entry] of pending) {
+      pending.delete(id);
+      clearTimeout(entry.timer);
+      entry.reject(new Error("server exited"));
+    }
+  });
+  try {
+    await request("init", "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+
+    notify("notifications/cancelled", { requestId: "unknown-cancel", reason: "unknown smoke" });
+    const afterUnknown = await request(
+      "unknown-cancel",
+      "tools/call",
+      { name: "computer_target", arguments: {} },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+
+    const completed = await request(
+      "late-cancel",
+      "tools/call",
+      { name: "computer_target", arguments: {} },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+    notify("notifications/cancelled", { requestId: "late-cancel", reason: "late smoke" });
+    const afterLate = await request(
+      "late-cancel",
+      "tools/call",
+      { name: "computer_target", arguments: {} },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+
+    return { afterUnknown, completed, afterLate };
+  } finally {
+    child.kill();
+  }
+}
+
 const accepted = await run({
   withElicitation: true,
   expectMessage: ["Allow cmux computer use to inspect and control", "cu-elicitation-smoke", "screenshots", "accessibility tree"],
@@ -293,6 +369,15 @@ console.log(
 );
 if (queuedCancellationFailed || queuedCancelled.postActive.isError || queuedCancelled.followUp.isError) {
   console.error("FAIL: queued cancellations should clean up their tokens without stopping active or later calls");
+  process.exit(1);
+}
+
+const unknownCancelled = await runUnknownCancellationSmoke();
+console.log(
+  `unknown cancellation -> afterUnknown=${unknownCancelled.afterUnknown.isError} completed=${unknownCancelled.completed.isError} afterLate=${unknownCancelled.afterLate.isError}`
+);
+if (unknownCancelled.afterUnknown.isError || unknownCancelled.completed.isError || unknownCancelled.afterLate.isError) {
+  console.error("FAIL: unknown or late cancellations should not poison reusable request ids");
   process.exit(1);
 }
 
