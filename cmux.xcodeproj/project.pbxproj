@@ -5372,7 +5372,6 @@
 				C7A51D100000000000000002 /* AgentChatSessionRegistryObservationReviewRegressionTests.swift in Sources */,
 				C7A51D000000000000000002 /* AgentChatSessionRegistryObservationTests.swift in Sources */,
 				A9E020000000000000000010 /* AgentChatTranscriptResolverTests.swift in Sources */,
-				A9E020000000000000000010 /* AgentChatTranscriptResolverTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */,
