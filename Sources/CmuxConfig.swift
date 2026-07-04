@@ -2645,12 +2645,10 @@ final class CmuxConfigStore: ObservableObject {
         resolvedNewWorkspaceActionCache
     }
 
-    /// Resolves the configured new-workspace action for a sidebar extension that holds
-    /// the `runWorkspaceCommand` scope. That scope authorizes running user-defined
-    /// *workspace commands* only. `resolvedNewWorkspaceAction()` — used by the in-app
-    /// "+ New Workspace" button — can also resolve to a raw `type: "command"` or
-    /// `type: "agent"` action that sends shell input to a terminal, so this extension
-    /// entry point must fail closed and return only workspace-command actions.
+    /// Resolves the configured new-workspace action for sidebar extensions.
+    /// Extensions with `runWorkspaceCommand` may run only user-defined workspace
+    /// commands, while the in-app button can also resolve raw command/agent actions.
+    /// This entry point fails closed and returns only workspace-command actions.
     func resolvedNewWorkspaceActionForExtension() -> CmuxResolvedConfigAction? {
         guard let action = resolvedNewWorkspaceAction(),
               action.workspaceCommandName != nil else {
@@ -2773,11 +2771,13 @@ final class CmuxConfigStore: ObservableObject {
                 NSLog("[CmuxConfig] %@", issue.logMessage)
                 return NewWorkspaceActionResolution(action: nil, command: nil, issue: issue)
             }
-            if let actionCommandName = action.workspaceCommandName {
+            var resolvedAction = action
+            if resolvedAction.actionSourcePath == nil || resolvedAction.actionSourcePath == globalConfigPath, let actionSourcePath { resolvedAction.actionSourcePath = actionSourcePath }
+            if let actionCommandName = resolvedAction.workspaceCommandName {
                 let commandResolution = resolvedConfiguredNewWorkspaceCommand(
                     named: actionCommandName,
                     settingName: "ui.newWorkspace.action",
-                    settingSourcePath: action.actionSourcePath ?? actionSourcePath,
+                    settingSourcePath: resolvedAction.actionSourcePath,
                     commands: commands,
                     sourcePaths: sourcePaths
                 )
@@ -2789,12 +2789,12 @@ final class CmuxConfigStore: ObservableObject {
                     )
                 }
                 return NewWorkspaceActionResolution(
-                    action: action,
+                    action: resolvedAction,
                     command: commandResolution.command,
                     issue: nil
                 )
             }
-            return NewWorkspaceActionResolution(action: action, command: nil, issue: nil)
+            return NewWorkspaceActionResolution(action: resolvedAction, command: nil, issue: nil)
         }
 
         guard let commandName else {

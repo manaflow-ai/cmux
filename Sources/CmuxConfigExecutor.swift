@@ -101,7 +101,7 @@ struct CmuxConfigExecutor {
                 command: command,
                 tabManager: tabManager,
                 baseCwd: baseCwd,
-                configSourcePath: commandSourcePaths[command.id] ?? action.actionSourcePath,
+                configSourcePath: action.actionSourcePath ?? commandSourcePaths[command.id],
                 globalConfigPath: globalConfigPath,
                 displayTitle: action.title,
                 actionID: action.id,

@@ -121,6 +121,91 @@ struct CmuxConfigWorkspaceCommandSwiftTests {
     }
 
     @Test @MainActor
+    func resolvedWorkspaceCommandActionPreservesLocalAliasSourceForGlobalCommand() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let configDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = configDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "commands": [{
+            "name": "Global Deploy",
+            "workspace": { "name": "Deploy", "cwd": "." }
+          }]
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "project-deploy": { "type": "workspaceCommand", "commandName": "Global Deploy" }
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: globalConfigURL.path, startFileWatchers: false)
+        let context = store.executionContext(startingFrom: projectDirectory.path)
+        let command = try #require(context.loadedCommands.first { $0.name == "Global Deploy" })
+        #expect(context.commandSourcePaths[command.id] == globalConfigURL.path)
+
+        let action = try #require(context.resolvedWorkspaceCommandAction(identifier: "project-deploy"))
+        #expect(action.workspaceCommandName == "Global Deploy")
+        #expect(action.actionSourcePath == localConfigURL.path)
+    }
+
+    @Test @MainActor
+    func resolvedNewWorkspaceActionForExtensionPreservesLocalSettingSourceForGlobalAlias() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let configDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let localConfigURL = configDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "global-deploy": { "type": "workspaceCommand", "commandName": "Global Deploy" }
+          },
+          "commands": [{
+            "name": "Global Deploy",
+            "workspace": { "name": "Deploy", "cwd": "." }
+          }]
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "ui": {
+            "newWorkspace": { "action": "global-deploy" }
+          }
+        }
+        """.write(to: localConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: globalConfigURL.path, startFileWatchers: false)
+        let context = store.executionContext(startingFrom: projectDirectory.path)
+        let command = try #require(context.loadedCommands.first { $0.name == "Global Deploy" })
+        #expect(context.commandSourcePaths[command.id] == globalConfigURL.path)
+
+        let action = try #require(context.resolvedNewWorkspaceActionForExtension())
+        #expect(action.workspaceCommandName == "Global Deploy")
+        #expect(action.actionSourcePath == localConfigURL.path)
+    }
+
+    @Test @MainActor
     func resolvedNewWorkspaceActionForExtensionRejectsCommandAction() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
