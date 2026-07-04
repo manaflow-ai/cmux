@@ -59,6 +59,7 @@ public actor UserDefaultsSettingsStore {
             observedMutationWatermarks.beginMutationSource(source, for: key.userDefaultsKey)
         }
         storage.set(value, for: key)
+        storage.postDidChangeNotification()
         if let source {
             observedMutationWatermarks.endMutationSource(source, for: key.userDefaultsKey)
         }
@@ -80,6 +81,7 @@ public actor UserDefaultsSettingsStore {
             observedMutationWatermarks.beginMutationSource(source, for: key.userDefaultsKey)
         }
         storage.removeObject(forKey: key.userDefaultsKey)
+        storage.postDidChangeNotification()
         if let source {
             observedMutationWatermarks.endMutationSource(source, for: key.userDefaultsKey)
         }
