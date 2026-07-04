@@ -148,6 +148,11 @@ Options:
                             deliberately will not match the changelog top); when
                             no --notes-from-range base is given the generator
                             emits its fallback line.
+  --marketing-version <v>   Stamp an explicit MARKETING_VERSION (X.Y or X.Y.Z) at
+                            archive time. Use for the appstore lane so the build
+                            lands in the exact version train the ASC store version
+                            uses (e.g. 1.0) and can be attached. Mutually
+                            exclusive with --auto-version.
   -h, --help                Show this help.
 EOF
 }
@@ -209,6 +214,12 @@ NOTES_RANGE_BASE=""
 # commit-back, mirroring the timestamp build number) to the next patch above the
 # last iOS release, so betas show e.g. 1.0.4 while 1.0.3 is the last release.
 AUTO_VERSION=0
+# --marketing-version <X.Y[.Z]>: stamp an EXPLICIT MARKETING_VERSION at archive
+# time. For the App Store lane a build must land in the exact version train the
+# ASC store version uses (e.g. "1.0") to be attachable; the beta --auto-version
+# bump (1.0.3 -> 1.0.4) would produce a mismatched train. Mutually exclusive with
+# --auto-version.
+EXPLICIT_MARKETING_VERSION=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -253,6 +264,11 @@ while [[ $# -gt 0 ]]; do
     --auto-version)
       AUTO_VERSION=1
       shift
+      ;;
+    --marketing-version)
+      require_option_value "$1" "${2:-}"
+      EXPLICIT_MARKETING_VERSION="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -327,6 +343,22 @@ NOTES_AUDIENCE="internal"
 # tracks it.
 MARKETING_VERSION_ARGS=()
 BETA_MARKETING_VERSION=""
+if [[ -n "$EXPLICIT_MARKETING_VERSION" ]]; then
+  if [[ "$AUTO_VERSION" -eq 1 ]]; then
+    echo "error: --marketing-version and --auto-version are mutually exclusive." >&2
+    exit 2
+  fi
+  if [[ -n "$ARCHIVE_PATH" ]]; then
+    echo "error: --marketing-version cannot restamp a prebuilt --archive-path. Re-archive without --archive-path." >&2
+    exit 2
+  fi
+  if [[ ! "$EXPLICIT_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+    echo "error: --marketing-version '$EXPLICIT_MARKETING_VERSION' must be X.Y or X.Y.Z" >&2
+    exit 2
+  fi
+  MARKETING_VERSION_ARGS=( "MARKETING_VERSION=$EXPLICIT_MARKETING_VERSION" )
+  echo "marketing-version: stamping MARKETING_VERSION=$EXPLICIT_MARKETING_VERSION" >&2
+fi
 if [[ "$AUTO_VERSION" -eq 1 ]]; then
   # --auto-version stamps the marketing version at archive time and disables the
   # changelog version guard (RANGE_NOTES_MODE). Both only make sense when THIS
