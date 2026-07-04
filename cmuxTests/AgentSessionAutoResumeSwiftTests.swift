@@ -1093,9 +1093,14 @@ struct AgentSessionAutoResumeSwiftTests {
                 sessionId: freshSessionId,
                 expectedResumeToken: "--resume",
                 inputContains: [freshRuntimeCwd, "claude", "--resume"],
-                inputDoesNotContain: [staleLaunchCwd, staleSessionId],
-                expectedResumeState: nil
+                inputDoesNotContain: [staleLaunchCwd, staleSessionId]
             )
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning)
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+            let completedTerminal = restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal
+            #expect(completedTerminal?.resumeBinding == nil)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
         }
     }
 
@@ -1161,8 +1166,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 sessionId: codexSessionId,
                 expectedResumeToken: "'resume'",
                 inputContains: ["codex", "resume"],
-                inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"],
-                expectedResumeState: nil
+                inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }
@@ -1232,8 +1236,7 @@ struct AgentSessionAutoResumeSwiftTests {
                 sessionId: codexSessionId,
                 expectedResumeToken: "'resume'",
                 inputContains: ["codex", "resume"],
-                inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"],
-                expectedResumeState: nil
+                inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }

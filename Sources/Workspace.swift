@@ -4911,9 +4911,7 @@ final class Workspace: Identifiable, ObservableObject {
             terminalPanel.surface.requestInputDemandSurfaceStartIfNeeded()
         }
 
-        if restoredAgent != nil {
-            restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
-        }
+        restoredAgentResumeStatesByPanelId[panelId] = .awaitingAutoResumeCommand
         restoredAgentAutoResumeOnVisitPanelIds.remove(panelId)
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
