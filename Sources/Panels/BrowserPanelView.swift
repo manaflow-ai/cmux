@@ -630,6 +630,19 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var webViewHostedFocusFlash: BrowserPortalFocusFlashConfiguration? {
+        guard panel.shouldRenderWebView,
+              isVisibleInUI,
+              isCurrentPaneOwner,
+              focusFlashOpacity > 0 else {
+            return nil
+        }
+        return BrowserPortalFocusFlashConfiguration(
+            panelId: panel.id,
+            opacity: focusFlashOpacity
+        )
+    }
+
     private var developerToolsButtonHelp: String {
         let base = String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")
         let _ = keyboardShortcutSettingsObserver.revision
@@ -1095,12 +1108,15 @@ struct BrowserPanelView: View {
         }
     }
 
+    @ViewBuilder
     private var focusFlashOverlayView: some View {
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-            .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-            .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-            .padding(FocusFlashPattern.ringInset)
-            .allowsHitTesting(false)
+        if !panel.shouldRenderWebView {
+            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+                .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
+                .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
+                .padding(FocusFlashPattern.ringInset)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder
@@ -1835,6 +1851,7 @@ struct BrowserPanelView: View {
                         )
                     },
                     omnibarSuggestions: portalOmnibarSuggestions,
+                    focusFlash: webViewHostedFocusFlash,
                     paneTopChromeHeight: panel.isOmnibarVisible ? addressBarHeight : 0
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
@@ -5435,6 +5452,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     var paneOwnershipOverride: Bool? = nil
     let searchOverlay: BrowserPortalSearchOverlayConfiguration?
     let omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
+    let focusFlash: BrowserPortalFocusFlashConfiguration?
     let paneTopChromeHeight: CGFloat
 
     final class Coordinator {
@@ -7407,6 +7425,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             // Split zoom can instantiate a replacement local host before it joins a window.
             // Never let that off-window host steal the live page + inspector hierarchy away
             // from the currently visible local host.
+            slotView.setFocusFlash(nil)
             host.setLocalInlineSlotHidden(true)
             coordinator.lastPortalHostId = nil
             coordinator.lastSynchronizedHostGeometryRevision = 0
@@ -7436,6 +7455,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 #endif
+
+        slotView.setFocusFlash(shouldPreserveExternalFullscreenHost ? nil : focusFlash)
 
         let preferredAttachedWidthState = panel.preferredAttachedDeveloperToolsWidthState()
         host.setPreferredHostedInspectorWidth(
@@ -7614,6 +7635,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let generation = coordinator.attachGeneration
         let activePaneDropContext = coordinator.desiredPortalVisibleInUI ? paneDropContext : nil
         let activeSearchOverlay = coordinator.desiredPortalVisibleInUI ? searchOverlay : nil
+        let activeFocusFlash = coordinator.desiredPortalVisibleInUI ? focusFlash : nil
         let portalAnchorView = panel.portalAnchorView
         let portalHideReason = !isCurrentPaneOwner ? "lostPaneOwnership" : "hidden"
         let didReleasePortalHost: Bool
@@ -7700,6 +7722,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+            BrowserWindowPortalRegistry.updateFocusFlash(for: webView, configuration: activeFocusFlash)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
         }
@@ -7736,6 +7759,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 BrowserWindowPortalRegistry.updatePaneDropContext(for: webView, context: activePaneDropContext)
                 BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
                 BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+                BrowserWindowPortalRegistry.updateFocusFlash(for: webView, configuration: activeFocusFlash)
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
@@ -7784,6 +7808,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+            BrowserWindowPortalRegistry.updateFocusFlash(for: webView, configuration: activeFocusFlash)
             if !shouldBindNow,
                coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
                 BrowserWindowPortalRegistry.synchronizeForAnchor(portalAnchorView)
@@ -7815,6 +7840,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
             BrowserWindowPortalRegistry.updateSearchOverlay(for: webView, configuration: activeSearchOverlay)
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
+            BrowserWindowPortalRegistry.updateFocusFlash(for: webView, configuration: activeFocusFlash)
         }
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
