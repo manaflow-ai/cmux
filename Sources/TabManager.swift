@@ -5879,8 +5879,6 @@ extension TabManager {
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
         let occupiedGroupIds = Set(restorableTabs.compactMap(\.groupId))
-        // Build a per-group ordered list of restorable member IDs so we can
-        // record the anchor's index (restore-stable across UUID rotation).
         let restorableMembersByGroupId: [UUID: [UUID]] = {
             var map: [UUID: [UUID]] = [:]
             for tab in restorableTabs {
@@ -5890,6 +5888,16 @@ extension TabManager {
             }
             return map
         }()
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        func nearestRestorableParentGroupId(for group: WorkspaceGroup) -> UUID? {
+            var visited: Set<UUID> = [group.id]
+            var cursor = group.parentGroupId
+            while let parentId = cursor, visited.insert(parentId).inserted {
+                if occupiedGroupIds.contains(parentId) { return parentId }
+                cursor = groupsById[parentId]?.parentGroupId
+            }
+            return nil
+        }
         let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
             let restorableGroupIndexById = Dictionary(
                 uniqueKeysWithValues: workspaceGroups
@@ -5902,9 +5910,7 @@ extension TabManager {
                 .map { group in
                     let memberIds = restorableMembersByGroupId[group.id] ?? []
                     let anchorIndex = memberIds.firstIndex(of: group.anchorWorkspaceId)
-                    let parentGroupId = group.parentGroupId.flatMap { parentId in
-                        occupiedGroupIds.contains(parentId) ? parentId : nil
-                    }
+                    let parentGroupId = nearestRestorableParentGroupId(for: group)
                     return SessionWorkspaceGroupSnapshot(
                         id: group.id,
                         name: group.name,
@@ -6017,8 +6023,6 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
-        // Single atomic assignment of @Published properties so SwiftUI observers
-        // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
@@ -6035,11 +6039,6 @@ extension TabManager {
             let restoredPairs: [(snapshot: SessionWorkspaceGroupSnapshot, group: WorkspaceGroup)] = groupSnapshots.compactMap { groupSnapshot in
                 guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
                       seen.insert(groupSnapshot.id).inserted else { return nil }
-                // Resolve anchor: prefer the restore-stable index (since each
-                // restored workspace gets a fresh UUID, the old
-                // anchorWorkspaceId rarely matches). Fall back to the in-process
-                // UUID hint, then to "first member by tab order" for very old
-                // snapshots that pre-date both fields.
                 let anchorId: UUID = {
                     if let index = groupSnapshot.anchorMemberIndex,
                        members.indices.contains(index) {

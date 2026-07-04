@@ -137,6 +137,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         guard !groupByAnchorId.keys.contains(draggedWorkspace.id) else { return nil }
         guard let candidate = groupScopeCandidate(
             context: context,
+            draggedWorkspace: draggedWorkspace,
             groupsById: groupsById
         ) else {
             return nil
@@ -161,9 +162,17 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
 
     private func groupScopeCandidate(
         context: SidebarWorkspaceReorderHitContext,
+        draggedWorkspace: SidebarWorkspaceReorderWorkspaceSnapshot,
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
     ) -> (groupId: UUID, isAmbiguous: Bool)? {
         if let target = context.target {
+            if target.isGroupHeader,
+               let groupId = target.groupId,
+               let parentGroupId = groupsById[groupId]?.parentGroupId,
+               draggedWorkspace.groupId == parentGroupId,
+               groupsById[parentGroupId] != nil {
+                return (parentGroupId, false)
+            }
             if let groupId = target.groupId,
                groupsById[groupId] != nil {
                 switch context.edge {
@@ -203,6 +212,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         guard let group = groupsById[explicitGroupId] else { return nil }
         let targetIndicator = groupScopedIndicator(
             context: context,
+            explicitGroupId: explicitGroupId,
             fallbackAnchorWorkspaceId: group.anchorWorkspaceId
         )
         guard let targetWorkspaceId = targetIndicator.tabId else { return nil }
@@ -391,6 +401,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
 
     private func groupScopedIndicator(
         context: SidebarWorkspaceReorderHitContext,
+        explicitGroupId: UUID,
         fallbackAnchorWorkspaceId: UUID
     ) -> SidebarDropIndicator {
         if context.edge == .top,
@@ -402,7 +413,8 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         }
         if let target = context.target {
             if target.isGroupHeader {
-                return SidebarDropIndicator(tabId: target.workspaceId, edge: .bottom)
+                let edge = target.groupId == explicitGroupId ? .bottom : context.edge
+                return SidebarDropIndicator(tabId: target.workspaceId, edge: edge)
             }
             return SidebarDropIndicator(tabId: target.workspaceId, edge: context.edge)
         }
@@ -582,37 +594,6 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             )
         }
         return layouts
-    }
-
-    private func legalInsertionRange(
-        draggedWorkspace: SidebarWorkspaceReorderWorkspaceSnapshot,
-        explicitGroupId: UUID,
-        workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot],
-        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
-    ) -> ClosedRange<Int>? {
-        guard let group = groupsById[explicitGroupId],
-              draggedWorkspace.id != group.anchorWorkspaceId else {
-            return nil
-        }
-        let memberIndices = workspaces.indices.filter { workspaces[$0].groupId == explicitGroupId }
-        guard let firstIndex = memberIndices.first,
-              let lastIndex = memberIndices.last else {
-            return nil
-        }
-        let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
-            let member = workspaces[index]
-            if member.id != group.anchorWorkspaceId, member.isPinned {
-                count += 1
-            }
-        }
-        if draggedWorkspace.isPinned {
-            let lower = min(firstIndex + 1, workspaces.count)
-            let upper = min(firstIndex + 1 + pinnedMemberCount, workspaces.count)
-            return lower...max(lower, upper)
-        }
-        let lower = min(firstIndex + 1 + pinnedMemberCount, workspaces.count)
-        let upper = min(lastIndex + 1, workspaces.count)
-        return min(lower, upper)...max(lower, upper)
     }
 
     private func topLevelWorkspaceIds(
