@@ -51,7 +51,7 @@ extension Workspace {
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
-                let git = panelGitBranches[panelId]
+                let git = reportedPanelGitBranch(panelId: panelId)
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,

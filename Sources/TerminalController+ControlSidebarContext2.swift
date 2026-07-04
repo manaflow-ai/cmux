@@ -352,7 +352,7 @@ extension TerminalController {
             focusedPanel = nil
         }
 
-        let gitBranch = tab.gitBranch.map {
+        let gitBranch = tab.presentedGitBranch.map {
             ControlSidebarGitBranchInfo(branch: $0.branch, isDirty: $0.isDirty)
         }
 

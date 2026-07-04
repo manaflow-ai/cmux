@@ -170,8 +170,8 @@ extension Workspace {
         SidebarBranchOrdering()
             .orderedUniqueBranches(
                 orderedPanelIds: orderedPanelIds,
-                panelBranches: panelGitBranches,
-                fallbackBranch: gitBranch
+                panelBranches: sidebarPanelGitBranches(orderedPanelIds: orderedPanelIds),
+                fallbackBranch: presentedGitBranch
             )
             .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
     }
@@ -186,18 +186,39 @@ extension Workspace {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         return SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
-            panelBranches: panelGitBranches,
+            panelBranches: sidebarPanelGitBranches(orderedPanelIds: orderedPanelIds),
             panelDirectories: resolvedDirectories,
             panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
             defaultDirectory: presentedCurrentDirectory,
             homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
             ),
-            fallbackBranch: gitBranch
+            fallbackBranch: presentedGitBranch
         )
     }
 
     func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    var presentedGitBranch: SidebarGitBranchState? {
+        if isRemoteWorkspace, presentedCurrentDirectory == nil { return nil }
+        return gitBranch
+    }
+
+    func reportedPanelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
+        guard let branch = panelGitBranches[panelId] else { return nil }
+        if isRemoteWorkspace, reportedPanelDirectory(panelId: panelId) == nil { return nil }
+        return branch
+    }
+
+    private func sidebarPanelGitBranches(orderedPanelIds: [UUID]) -> [UUID: SidebarGitBranchState] {
+        var branches: [UUID: SidebarGitBranchState] = [:]
+        for panelId in orderedPanelIds {
+            if let branch = reportedPanelGitBranch(panelId: panelId) {
+                branches[panelId] = branch
+            }
+        }
+        return branches
     }
 }
