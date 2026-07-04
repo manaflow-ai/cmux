@@ -786,6 +786,8 @@ const TOOLS = [
       ) {
         return err(`launching "${app}" was not approved`);
       }
+      // Launching or focusing can replace the key window. Drop any old
+      // agent-visible state so the next input must refresh its snapshot.
       revokeAppState(app);
       try {
         const { stdout } = await execFileP("/usr/bin/open", ["-a", app], {

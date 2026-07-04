@@ -1024,6 +1024,11 @@ exit 88
                     "#!/usr/bin/env bash\necho 'codex does not accept arguments: app-server'\nexit 0\n",
                 )
                 env["CMUX_CU_CODEX"] = str(override_dir / "codex")
+            elif codex_override == "<sandbox-hanging-codex>":
+                override_dir = tmp / "codex-override"
+                override_dir.mkdir(parents=True, exist_ok=True)
+                make_executable(override_dir / "codex", "#!/usr/bin/env bash\nsleep 60\n")
+                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
             elif codex_override == "<sandbox-relative-codex>":
                 override_dir = tmp / "codex-relative"
                 override_dir.mkdir(parents=True, exist_ok=True)
@@ -1214,9 +1219,10 @@ def test_computer_use_mcp_skipped_when_server_script_missing(failures: list[str]
 
 def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
     # An explicit CMUX_CU_CODEX decides availability alone: an executable
-    # override injects even with nothing on PATH, and a broken override skips
-    # even when PATH (or Codex.app) has a codex — matching the MCP server's own
-    # no-fallback resolution of the override.
+    # absolute override injects even with nothing on PATH, without executing the
+    # override during ordinary Claude startup. Missing or relative overrides
+    # still fail closed; app-server protocol support is validated by the MCP
+    # server on first tool use.
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
@@ -1287,9 +1293,30 @@ def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
         setup_sandbox=computer_use_sandbox(codex_override="<sandbox-legacy-zero-codex>"),
     )
     expect(code == 0, f"computer use legacy-zero override: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
     expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use legacy-zero override: expected no injection, got {real_argv}",
+        config is not None,
+        f"computer use legacy-zero override: expected launch-time injection without probing the override, got {real_argv}",
+        failures,
+    )
+    if config is not None:
+        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
+        expect(
+            pinned.endswith("/codex-override/codex"),
+            f"computer use legacy-zero override: expected the override binary pinned via env, got {config}",
+            failures,
+        )
+
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-hanging-codex>"),
+    )
+    expect(code == 0, f"computer use hanging override: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect(
+        config is not None,
+        f"computer use hanging override: expected injection without executing the override, got {real_argv}",
         failures,
     )
 
@@ -1314,17 +1341,19 @@ def test_computer_use_mcp_does_not_auto_probe_path_codex(failures: list[str]) ->
         failures,
     )
 
-    # An explicit override that rejects `app-server` decides alone: no
-    # injection, no fallback.
+    # An explicit executable override is pinned without running `app-server
+    # --help` during Claude startup; the MCP server owns the later capability
+    # failure if the binary is stale.
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
         setup_sandbox=computer_use_sandbox(codex_override="<sandbox-legacy-codex>"),
     )
     expect(code == 0, f"computer use legacy override: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
     expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use legacy override: expected no injection, got {real_argv}",
+        config is not None,
+        f"computer use legacy override: expected launch-time injection without probing the override, got {real_argv}",
         failures,
     )
 

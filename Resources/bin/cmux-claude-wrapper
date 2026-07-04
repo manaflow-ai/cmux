@@ -835,55 +835,11 @@ cmux_computer_use_resolve_node() {
     printf '%s' "$node_real"
 }
 
-# Resolve the codex binary for automatic computer-use injection. The MCP server
-# can still resolve `codex` from PATH when configured manually, but the Claude
-# wrapper runs during ordinary agent startup and must not execute PATH-controlled
-# binaries from an untrusted workspace. Auto-attach only probes an explicit
-# CMUX_CU_CODEX path or the trusted Codex.app bundle, then pins the resolved path
-# into the injected config so the gate and the server agree on one binary.
-# A codex only counts if it actually speaks the app-server protocol the
-# computer-use engine runs on — legacy CLIs (e.g. a stray v0.2.x in
-# /usr/local/bin) reject the subcommand, and pinning one would surface 12
-# always-failing tools while a working Codex.app sits ignored. The probe runs
-# on the Claude launch path, so it is hard-bounded: perl's alarm(2) survives
-# exec and kills a hung candidate after 5s (macOS ships perl; no `timeout`).
-# Any failure — including the timeout or a missing perl — just skips this
-# candidate, so a misbehaving codex can never block Claude from starting.
-cmux_computer_use_codex_supports_app_server() {
-    # macOS ships /usr/bin/perl. If it is unavailable, skip auto-attach instead
-    # of probing PATH-controlled helpers during ordinary Claude startup.
-    local perl_bin=/usr/bin/perl
-    local env_bin=/usr/bin/env
-    [[ -x "$perl_bin" && -x "$env_bin" ]] || return 1
-    # Probe the explicit/trusted candidate under a minimal allowlisted env
-    # (mirrors the MCP server's child env): keep only what codex/node/subprocess
-    # resolution needs plus benign locale/proxy/cert vars and codex-owned
-    # CODEX_*/OPENAI_*. Do not forward cmux socket credentials, preserved
-    # Claude/backend auth-selection vars, or NODE_OPTIONS.
-    local -a env_args=()
-    local key
-    for key in HOME CODEX_HOME PATH TMPDIR USER LOGNAME SHELL TERM LANG LC_ALL TZ \
-        HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY http_proxy https_proxy no_proxy all_proxy \
-        SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS \
-        "${!LC_@}" "${!XDG_@}" "${!CODEX_@}" "${!OPENAI_@}"; do
-        [[ -n "${!key+x}" ]] && env_args+=("$key=${!key}")
-    done
-    # Subshell so the parent shell's signal-death notice ("Alarm clock") for a
-    # timed-out probe is captured instead of leaking to the user's terminal.
-    local output had_nocasematch=0 supported=0 rejected=0
-    output="$( ( "$env_bin" -i "${env_args[@]}" "$perl_bin" -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help ) 2>&1 )" || return 1
-    shopt -q nocasematch && had_nocasematch=1
-    shopt -s nocasematch
-    [[ "$output" == *app-server* ]] && supported=1
-    case "$output" in
-        *"does not accept"*|*unknown*|*unrecognized*|*invalid*|*"error:"*|*unsupported*)
-            rejected=1
-            ;;
-    esac
-    [[ "$had_nocasematch" -eq 1 ]] || shopt -u nocasematch
-    [[ "$supported" -eq 1 && "$rejected" -eq 0 ]]
-}
-
+# Resolve the codex binary for automatic computer-use injection. The wrapper
+# runs during ordinary agent startup, so it must not execute Codex just to check
+# support: current Codex.app help may do first-run setup. Auto-attach only pins
+# an absolute explicit CMUX_CU_CODEX path or the trusted Codex.app bundle; the
+# MCP server validates app-server support on first actual tool use.
 cmux_computer_use_canonical_executable() {
     local candidate="$1"
     [[ "$candidate" = /* && -x "$candidate" ]] || return 1
@@ -900,17 +856,13 @@ cmux_computer_use_resolve_codex() {
     if [[ -n "${CMUX_CU_CODEX:-}" ]]; then
         local codex_real
         codex_real="$(cmux_computer_use_canonical_executable "$CMUX_CU_CODEX")" || return 1
-        cmux_computer_use_codex_supports_app_server "$codex_real" || return 1
         printf '%s' "$codex_real"
         return 0
     fi
     local app_codex
     app_codex="$(cmux_computer_use_canonical_executable "/Applications/Codex.app/Contents/Resources/codex")" || return 1
-    if cmux_computer_use_codex_supports_app_server "$app_codex"; then
-        printf '%s' "$app_codex"
-        return 0
-    fi
-    return 1
+    printf '%s' "$app_codex"
+    return 0
 }
 
 cmux_computer_use_mcp_config() {
