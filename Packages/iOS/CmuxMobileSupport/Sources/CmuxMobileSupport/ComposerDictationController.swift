@@ -102,7 +102,11 @@ public final class ComposerDictationController {
     /// recognizer is permanently unavailable (unsupported locale, denied, or
     /// restricted); a transient busy state still leaves the button enabled so the
     /// user can toggle it off.
-    public var isAvailable: Bool { state != .unavailable }
+    /// `.unavailable` is per-backend, not permanent: a usable engine can appear
+    /// later (Parakeet installed and selected on a locale Apple Speech does not
+    /// support). Consult the factory on read — pure, no state mutation — so the
+    /// mic button re-enables and `toggle()` can perform the actual recovery.
+    public var isAvailable: Bool { state != .unavailable || Self.backendFactory().isSupported }
 
     /// Whether dictation currently owns the composer text, so the field must be
     /// locked (non-editable) until dictation settles to idle. True from
