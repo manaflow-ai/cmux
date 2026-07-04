@@ -104,6 +104,30 @@ import Testing
         #expect(gmailRows.isEmpty)
     }
 
+    @Test func syncUpsertDoesNotResurrectLocallyReadItems() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let thread = fixtures.thread(source: .slack, accountID: "team", title: "#alerts")
+        try await store.upsertThread(thread)
+        let remote = fixtures.item(source: .slack, accountID: "team", threadID: thread.threadID, suffix: "sticky", unread: true)
+        try await store.upsertItem(remote)
+        try await store.markRead(itemID: remote.itemID)
+
+        // The remote copy is still unread on the next sync; connectors without
+        // remote mark-read must not flip the local read back.
+        try await store.upsertItem(remote)
+        let rows = try await store.list(InboxListQuery(filter: .all, source: .slack, limit: 10))
+        #expect(rows.first?.isUnread == false)
+
+        // A genuine remote read signal still applies to a locally-unread item.
+        let second = fixtures.item(source: .slack, accountID: "team", threadID: thread.threadID, suffix: "remote-read", unread: true)
+        try await store.upsertItem(second)
+        var readRemote = second
+        readRemote.isUnread = false
+        try await store.upsertItem(readRemote)
+        let updated = try await store.list(InboxListQuery(filter: .all, source: .slack, limit: 10))
+        #expect(updated.first { $0.itemID == second.itemID }?.isUnread == false)
+    }
+
     @Test func unreadCountsExcludeReadActionableItems() async throws {
         let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
         let thread = fixtures.thread(source: .discord, title: "#ops")

@@ -3,6 +3,12 @@ import SQLite3
 
 extension InboxSQLiteStore {
     /// Inserts or updates an item, deduping by source account and external message id.
+    ///
+    /// Local reads are monotone across sync upserts: most connectors cannot
+    /// propagate mark-read remotely, so a re-synced still-unread remote copy
+    /// must not flip a locally-read item back to unread. A remote read signal
+    /// (`excluded.unread = 0`) still applies; explicit local mark-unread goes
+    /// through ``markRead(itemID:threadID:unread:)``, not this upsert.
     /// - Parameter item: Item to persist.
     public func upsertItem(_ item: InboxItem) throws {
         try database.transaction {
@@ -21,7 +27,7 @@ extension InboxSQLiteStore {
                 body_preview = excluded.body_preview,
                 body = excluded.body,
                 metadata_json = excluded.metadata_json,
-                unread = excluded.unread,
+                unread = MIN(items.unread, excluded.unread),
                 actionable = excluded.actionable,
                 draft_id = excluded.draft_id,
                 external_url = excluded.external_url;
