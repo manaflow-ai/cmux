@@ -113,6 +113,7 @@ struct MovedPanelSidebarStatusRoutingTests {
         }
         TerminalController.shared.setActiveTabManager(manager)
 
+        let unrelated = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
         let panel = moved.panelID.uuidString
 
         #expect(
@@ -135,12 +136,52 @@ struct MovedPanelSidebarStatusRoutingTests {
 
         #expect(
             TerminalController.shared.handleSocketLine(
+                "set_status unrelated Running --tab=\(unrelated.id.uuidString) --panel=\(panel)"
+            ) == "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(moved.source.statusEntries["unrelated"] == nil)
+        #expect(moved.destination.statusEntries["unrelated"] == nil)
+        #expect(unrelated.statusEntries["unrelated"] == nil)
+
+        #expect(
+            TerminalController.shared.handleSocketLine(
                 "set_status unknown Running --tab=\(UUID().uuidString) --panel=\(panel)"
             ) == "OK"
         )
         TerminalMutationBus.shared.drainForTesting()
         #expect(moved.source.statusEntries["unknown"] == nil)
         #expect(moved.destination.statusEntries["unknown"] == nil)
+    }
+
+    @Test func panelScopedMutationsRouteMovedSurfaceAfterSourceWorkspaceCloses() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let moved = try makeMovedTerminalSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let staleTab = moved.source.id.uuidString
+        let panel = moved.panelID.uuidString
+        manager.closeWorkspace(moved.source, recordHistory: false)
+        #expect(!manager.tabs.contains { $0.id == moved.source.id })
+
+        #expect(
+            TerminalController.shared.handleSocketLine(
+                "set_status closed-source Running --tab=\(staleTab) --panel=\(panel)"
+            ) == "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(moved.destination.statusEntries["closed-source"]?.value == "Running")
     }
 
     private func makeMovedTerminalSurface(

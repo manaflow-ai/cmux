@@ -110,13 +110,14 @@ extension TerminalController {
         }
 
         guard case .workspace(let tabID) = target,
-              preferredTab != nil else {
+              let relocated = AppDelegate.shared?.workspaceContainingPanel(
+                  panelId: panelID,
+                  preferredWorkspaceId: tabID
+              )?.workspace,
+              relocated.allowsPanelScopedMutationFallback(fromWorkspaceId: tabID, panelId: panelID) else {
             return nil
         }
-        return AppDelegate.shared?.workspaceContainingPanel(
-            panelId: panelID,
-            preferredWorkspaceId: tabID
-        )?.workspace
+        return relocated
     }
 
     func controlSidebarSchedulePanelScopedMutation(
