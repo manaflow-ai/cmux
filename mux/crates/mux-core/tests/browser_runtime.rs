@@ -1,8 +1,11 @@
 use std::net::TcpListener;
+use std::panic::{self, AssertUnwindSafe};
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use mux_core::platform;
 use mux_core::{Mux, SurfaceKind, SurfaceOptions};
 use serde_json::{json, Value};
 use tungstenite::{accept, Message};
@@ -34,8 +37,55 @@ fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T>
     }
 }
 
+fn browser_test_binary() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("CMUX_MUX_BROWSER_TEST_BINARY") {
+        let path = PathBuf::from(path);
+        if platform::is_executable_file(&path) {
+            return Some(path);
+        }
+        eprintln!(
+            "skipping browser runtime test; CMUX_MUX_BROWSER_TEST_BINARY is not executable: {}",
+            path.display()
+        );
+        return None;
+    }
+
+    let binary =
+        platform::chrome_candidates().into_iter().find(|path| platform::is_executable_file(path));
+    if binary.is_none() {
+        eprintln!(
+            "skipping browser runtime test; no Chrome/Chromium binary found via \
+             CMUX_MUX_BROWSER_TEST_BINARY or platform chrome_candidates()"
+        );
+    }
+    binary
+}
+
+fn run_with_timeout(name: &'static str, timeout: Duration, f: impl FnOnce() + Send + 'static) {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let result = panic::catch_unwind(AssertUnwindSafe(f));
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(())) => {}
+        Ok(Err(payload)) => panic::resume_unwind(payload),
+        Err(_) => panic!("{name} exceeded timeout of {timeout:?}"),
+    }
+}
+
 #[test]
 fn two_browser_surfaces_share_external_runtime_and_demux_frames() {
+    let Some(_binary) = browser_test_binary() else { return };
+    run_with_timeout(
+        "two_browser_surfaces_share_external_runtime_and_demux_frames",
+        Duration::from_secs(300),
+        two_browser_surfaces_share_external_runtime_and_demux_frames_body,
+    );
+}
+
+fn two_browser_surfaces_share_external_runtime_and_demux_frames_body() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let (closed_tx, closed_rx) = mpsc::channel();
@@ -63,7 +113,7 @@ fn two_browser_surfaces_share_external_runtime_and_demux_frames() {
                     let session = target.replace("target", "session");
                     write_json(&mut ws, json!({"id": id, "result": {"sessionId": session}}));
                 }
-                "Page.enable" | "Emulation.setDeviceMetricsOverride" => {
+                "Page.enable" | "Emulation.setDeviceMetricsOverride" | "Page.stopScreencast" => {
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                 }
                 "Page.startScreencast" => {
