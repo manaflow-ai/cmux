@@ -319,6 +319,22 @@ Test Suite 'Selected tests' failed at 2026-07-02 09:25:47.512.
     )
 
 
+def test_rejects_swift_testing_failed_run_without_suite_count() -> None:
+    # Swift Testing can omit the "in N suites" clause in its run-level summary.
+    # That summary still represents settled Swift Testing failure and must not be
+    # masked by clean/expected XCTest aggregate output.
+    expect_fail(
+        65,
+        """
+✘ Test run with 1 test failed after 0.123 seconds with 1 issue.
+Test Suite 'cmuxTests.xctest' failed at 2026-07-02 09:25:47.512.
+    Executed 1 test, with 1 failure (0 unexpected) in 0.100 seconds
+Test Suite 'Selected tests' failed at 2026-07-02 09:25:47.512.
+    Executed 1 test, with 1 failure (0 unexpected) in 0.100 seconds
+""",
+    )
+
+
 def test_accepts_swift_testing_individual_failures_retried_to_green_with_no_run_summary() -> None:
     # Mirrors the live *passing* shard 1/4 log: Swift Testing prints per-attempt
     # "✘ Test foo() failed" / "recorded an issue" events (15 of them on that green
@@ -376,6 +392,7 @@ def main() -> int:
     test_accepts_failed_aggregate_when_its_paired_summary_records_expected_failures()
     test_accepts_failed_aggregate_whose_paired_summary_counts_skipped_tests()
     test_rejects_swift_testing_failed_run_even_when_xctest_side_is_all_expected()
+    test_rejects_swift_testing_failed_run_without_suite_count()
     test_accepts_swift_testing_individual_failures_retried_to_green_with_no_run_summary()
     test_accepts_when_swift_testing_passes_alongside_completed_xctest()
     print("PASS: xcodebuild test result policy rejects masked failures")

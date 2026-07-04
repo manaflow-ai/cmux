@@ -124,7 +124,7 @@ FAILED_COMPLETION_RE = re.compile(
 # ``failed`` summary rejects a genuinely-failed Swift Testing run while never
 # tripping on a shard that passed.
 SWIFT_TESTING_FAILED_RE = re.compile(
-    r"Test run with \d+ tests? in \d+ suites? failed"
+    r"Test run with \d+ tests?(?: in \d+ suites?)? failed"
 )
 
 
