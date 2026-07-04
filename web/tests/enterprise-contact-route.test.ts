@@ -31,17 +31,6 @@ mock.module("node:dns", () => ({
   },
 }));
 
-mock.module("@/app/env", () => ({
-  env: {
-    RESEND_API_KEY: "re_test",
-    CMUX_FEEDBACK_FROM_EMAIL: "founders@manaflow.com",
-    CMUX_FEEDBACK_RATE_LIMIT_ID: "enterprise-test",
-    STACK_SECRET_SERVER_KEY: "stack-secret",
-    SLACK_ENTERPRISE_WEBHOOK_URL: "https://slack.test/enterprise",
-    SLACK_WAITLIST_WEBHOOK_URL: undefined,
-  },
-}));
-
 mock.module("resend", () => ({
   Resend: class MockResend {
     emails = { send: resendSend };

@@ -17,6 +17,8 @@ const hasActiveProSubscription = mock(async () => false);
 const syncProPlanMetadata = mock(async () => undefined);
 
 mock.module("../app/lib/stack", () => ({
+  getStackServerApp: () => ({ getUser }),
+  isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
 

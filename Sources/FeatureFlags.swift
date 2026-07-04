@@ -27,7 +27,7 @@ final class CmuxFeatureFlags {
     // Shows the Pro upgrade entrypoints (sidebar badge, Settings Account
     // card, palette command, Help menu item). Release builds hide them until
     // the PostHog flag is enabled; DEBUG keeps them visible for dogfood.
-    private(set) var isProUpgradeUIEnabled = Self.proUpgradeUIDefault
+    private(set) var isProUpgradeUIEnabled: Bool
 
     private static let proUpgradeUIKey = "pro-upgrade-ui-enabled-release"
     #if DEBUG
@@ -41,12 +41,17 @@ final class CmuxFeatureFlags {
     // Shows the top-right iPhone button that opens the Mobile Connect
     // (phone pairing) window. Default keeps it visible when flags are
     // unavailable; the window it opens ships in every build.
-    private(set) var isMobileConnectButtonEnabled = Self.mobileConnectButtonDefault
+    private(set) var isMobileConnectButtonEnabled: Bool
 
     private static let mobileConnectButtonKey = "mobile-connect-button-enabled-release"
     private static let mobileConnectButtonDefault = true
 
     private var flagsObserver: (any NSObjectProtocol)?
+
+    private init() {
+        isProUpgradeUIEnabled = Self.proUpgradeUIDefault
+        isMobileConnectButtonEnabled = Self.mobileConnectButtonDefault
+    }
 
     /// Called once from AppDelegate after PostHog analytics starts. Safe when
     /// the SDK never sets up — flags then keep their defaults.
