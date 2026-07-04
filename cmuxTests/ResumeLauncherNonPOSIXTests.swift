@@ -164,7 +164,7 @@ import CmuxCore
         let shellLeaf = shellURL.lastPathComponent
         let dispatchedCommand = (shellLeaf == "zsh" || shellLeaf == "bash")
             ? resumeCommand
-            : TerminalStartupReturnShellScript.posixShellDispatchCommand(resumeCommand)
+            : posixShellDispatchCommandForTest(resumeCommand)
         process.arguments = arguments + [dispatchedCommand]
         process.environment = [
             "HOME": sandbox.homeURL.path,
@@ -199,5 +199,9 @@ import CmuxCore
 
     private func shellQuotedForTest(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func posixShellDispatchCommandForTest(_ command: String) -> String {
+        "/bin/sh -c " + shellQuotedForTest(command)
     }
 }
