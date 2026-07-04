@@ -233,7 +233,7 @@ extension CMUXCLI {
 
     func cmuxThemeOverrideConfigURL(targetBundleIdentifier: String) throws -> URL {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw CLIError(message: "Unable to resolve Application Support directory")
+            throw CLIError(message: "Failed to locate the Application Support directory")
         }
         return CmuxGhosttyConfigPathResolver().editableConfigURL(
             currentBundleIdentifier: targetBundleIdentifier,
