@@ -5,18 +5,29 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error, route: CmxAttachRoute? = nil) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
+    func disconnectForAuthorizationFailureIfNeeded(
+        _ error: any Error,
+        route: CmxAttachRoute? = nil,
+        preservingActiveConnection: Bool = false
+    ) -> Bool {
+        guard shouldDisconnectForAuthorizationFailure(error) else {
             return false
         }
         let category = MobilePairingFailureCategory.classify(error: error, route: route ?? activeRoute)
-        // Not `applyPairingFailure`: this path also sets `connectionRequiresReauth`,
-        // uses fallback-if-empty, and gates analytics on `pairingAttemptMethod` so
-        // live-connection auth evictions never emit `ios_pairing_failed`.
+        // Not `applyPairingFailure`: this path can also set
+        // `connectionRequiresReauth`, uses fallback-if-empty, and gates analytics
+        // on `pairingAttemptMethod` so live-connection auth evictions never emit
+        // `ios_pairing_failed`.
         connectionError = category.message.isEmpty
             ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
             : category.message
         connectionErrorGuidance = category.guidance
+        // Auth failures from a new pairing attempt should report that attempt's
+        // failure without evicting the already-connected Mac.
+        guard !preservingActiveConnection else {
+            recordPairingFailed(reason: category.analyticsReason, phase: "auth")
+            return true
+        }
         connectionRequiresReauth = true
         connectionState = .disconnected
         macConnectionStatus = .unavailable
@@ -29,7 +40,7 @@ extension MobileShellComposite {
         return true
     }
 
-    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
+    private func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }

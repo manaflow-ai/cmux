@@ -1670,7 +1670,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
-            if disconnectForAuthorizationFailureIfNeeded(underlyingError, route: failureRoute) { return .failed }
+            if disconnectForAuthorizationFailureIfNeeded(
+                underlyingError,
+                route: failureRoute,
+                preservingActiveConnection: preservesActiveConnection
+            ) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: underlyingError, route: failureRoute)
             applyPairingFailure(category, phase: "connect")
             clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
@@ -3074,7 +3078,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
-        _ = beginPairingValidationAttempt()
+        let validationAttemptID = beginPairingValidationAttempt()
         let preservesActiveConnection = hasActiveMacConnection
         connectionAttemptGeneration = UUID()
         if connectionState != .connected {
@@ -3149,7 +3153,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let candidateRoutes = routeSelection.supportedRoutes(for: ticket, supportedKinds: runtime?.supportedRouteKinds ?? [])
-        if let approval = await firstManualHostRouteNeedingApproval(in: candidateRoutes),
+        let manualHostApproval = await firstManualHostRouteNeedingApproval(in: candidateRoutes)
+        guard isCurrentPairingAttempt(validationAttemptID) else { return .superseded }
+        if let approval = manualHostApproval,
            case let .hostPort(host, _) = approval.route.endpoint {
             queueManualHostTrustWarning(
                 route: approval.route,
@@ -3218,7 +3224,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Definitive auth failures drive the re-auth prompt rather than a
             // generic connection error (matches the manual-host path); the
             // helper records the analytics failure + guidance.
-            if disconnectForAuthorizationFailureIfNeeded(underlyingError, route: failureRoute) { return .failed }
+            if disconnectForAuthorizationFailureIfNeeded(
+                underlyingError,
+                route: failureRoute,
+                preservingActiveConnection: preservesActiveConnection
+            ) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: underlyingError, route: failureRoute)
             applyPairingFailure(category, phase: "connect")
             clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)

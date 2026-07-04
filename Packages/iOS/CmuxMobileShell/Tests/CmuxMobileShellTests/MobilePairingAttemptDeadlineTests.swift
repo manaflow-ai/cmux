@@ -251,6 +251,32 @@ import Testing
         #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.88:58465")
     }
 
+    @Test func stalePairingURLManualHostApprovalLookupCannotReplaceCurrentPrompt() async throws {
+        let trustStore = BlockingManualHostTrustStore()
+        let store = makeStore(
+            runtime: PairingDeadlineRuntime(supportedRouteKinds: [.manualHost]),
+            manualHostTrustStore: trustStore
+        )
+        let firstURL = try attachURL(for: manualHostTicket(host: "192.168.1.77"))
+        let secondURL = try attachURL(for: manualHostTicket(host: "192.168.1.88"))
+
+        let first = Task { @MainActor in
+            await store.connectPairingURLResult(firstURL)
+        }
+        await trustStore.waitUntilFirstLookupIsBlocked()
+
+        let second = await store.connectPairingURLResult(secondURL)
+
+        #expect(second == .needsUserApproval)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.88:58465")
+
+        await trustStore.releaseFirstLookup()
+        let firstResult = await first.value
+
+        #expect(firstResult == .superseded)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.88:58465")
+    }
+
     @Test func failedPairingWhileConnectedReportsAttemptedRoute() async throws {
         let clock = TestClock()
         let oldRouter = LivenessHostRouter()
@@ -266,7 +292,45 @@ import Testing
         #expect(store.connectionError?.contains("100.64.0.5") == true)
     }
 
+    @Test func authFailureDuringPairingWhileConnectedKeepsExistingConnection() async throws {
+        let clock = TestClock()
+        let oldRouter = LivenessHostRouter()
+        let oldBox = TransportBox()
+        let runtime = PairingDeadlineRuntime(
+            transportFactory: AuthorizationFailingTransportFactory()
+        )
+        let store = makeStore(runtime: runtime, connectionState: .connected)
+        try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
+        let originalClient = try #require(store.remoteClient)
+
+        let result = await store.connectPairingURLResult(Self.qrURL)
+
+        #expect(result == .failed)
+        #expect(store.connectionState == .connected)
+        #expect(store.remoteClient === originalClient)
+        #expect(store.connectionRequiresReauth == false)
+        #expect(store.connectionError?.isEmpty == false)
+    }
+
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
+
+    private func manualHostTicket(host: String) throws -> CmxAttachTicket {
+        let route = try CmxAttachRoute(
+            id: "manual-\(host)",
+            kind: .manualHost,
+            endpoint: .hostPort(host: host, port: 58_465),
+            priority: 0
+        )
+        return try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+    }
 
     private func makeStore(
         runtime: any MobileSyncRuntime = PairingDeadlineRuntime(),
