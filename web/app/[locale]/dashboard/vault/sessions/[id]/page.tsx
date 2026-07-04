@@ -29,7 +29,7 @@ export default async function VaultSessionDetailPage({
   }
   const user = await getStackServerApp().getUser({ or: "return-null" });
   if (!user) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, `/vault/sessions/${id}`)));
+    redirect(vaultSignInHref(localizedVaultPath(locale, `/dashboard/vault/sessions/${id}`)));
   }
 
   const db = cloudDb();

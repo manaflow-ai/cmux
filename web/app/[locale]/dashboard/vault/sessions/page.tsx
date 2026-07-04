@@ -27,7 +27,7 @@ export default async function VaultSessionsPage({
   }
   const user = await getStackServerApp().getUser({ or: "return-null" });
   if (!user) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/vault/sessions")));
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/vault/sessions")));
   }
 
   const agent = normalizeVaultSessionListAgent(filters.agent ?? null);

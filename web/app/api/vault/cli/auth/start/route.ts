@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
     expiresAt,
   });
 
-  const verification = new URL("/vault/cli-auth", request.url);
+  const verification = new URL("/dashboard/vault/cli-auth", request.url);
   verification.searchParams.set("code", userCode);
 
   return jsonResponse({

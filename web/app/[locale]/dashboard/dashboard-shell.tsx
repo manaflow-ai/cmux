@@ -8,16 +8,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations("vault.nav");
   const pathname = usePathname();
   const items = [
-    { href: "/vault", label: t("overview"), active: pathname === "/vault" },
+    { href: "/dashboard/vault", label: t("overview"), active: pathname === "/dashboard/vault" },
     {
-      href: "/vault/sessions",
+      href: "/dashboard/vault/sessions",
       label: t("sessions"),
-      active: pathname.startsWith("/vault/sessions"),
+      active: pathname.startsWith("/dashboard/vault/sessions"),
     },
     {
-      href: "/vault/cli-auth",
+      href: "/dashboard/vault/cli-auth",
       label: t("cliSetup"),
-      active: pathname.startsWith("/vault/cli-auth"),
+      active: pathname.startsWith("/dashboard/vault/cli-auth"),
     },
   ];
 
@@ -25,7 +25,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b border-border bg-background">
         <div className="flex h-14 items-center justify-between px-4 sm:px-6">
-          <Link href="/vault" className="text-sm font-semibold tracking-tight">
+          <Link href="/dashboard/vault" className="text-sm font-semibold tracking-tight">
             {t("brand")}
           </Link>
           <UserButton />

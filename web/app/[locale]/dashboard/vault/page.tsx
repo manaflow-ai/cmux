@@ -23,7 +23,7 @@ export default async function VaultOverviewPage({
   }
   const user = await getStackServerApp().getUser({ or: "return-null" });
   if (!user) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/vault")));
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/vault")));
   }
 
   const rows = await cloudDb()
@@ -90,7 +90,7 @@ export default async function VaultOverviewPage({
             {rows.map((row) => (
               <Link
                 key={row.agent}
-                href={`/vault/sessions?agent=${row.agent}`}
+                href={`/dashboard/vault/sessions?agent=${row.agent}`}
                 className="rounded-md border border-border p-4 transition-colors hover:border-foreground"
               >
                 <div className="flex items-center justify-between gap-4">

@@ -187,7 +187,7 @@ export function SessionsTable({
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">{t("description")}</p>
         </div>
         <Link
-          href="/vault"
+          href="/dashboard/vault"
           className="text-sm text-muted underline underline-offset-4 hover:text-foreground"
         >
           {t("backToOverview")}
@@ -317,7 +317,7 @@ function SessionRow({
       role="row"
       onClick={() => {
         onNavigate();
-        router.push(`/vault/sessions/${row.id}`);
+        router.push(`/dashboard/vault/sessions/${row.id}`);
       }}
       className="absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-4 text-sm transition-colors hover:bg-muted/5"
       style={style}

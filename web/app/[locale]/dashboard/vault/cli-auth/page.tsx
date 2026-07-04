@@ -22,7 +22,7 @@ export default async function VaultCliAuthPage({
   }
   const user = await getStackServerApp().getUser({ or: "return-null" });
   if (!user) {
-    const returnPath = new URL(localizedVaultPath(locale, "/vault/cli-auth"), "https://cmux.com");
+    const returnPath = new URL(localizedVaultPath(locale, "/dashboard/vault/cli-auth"), "https://cmux.com");
     if (code) returnPath.searchParams.set("code", code);
     redirect(vaultSignInHref(`${returnPath.pathname}${returnPath.search}`));
   }

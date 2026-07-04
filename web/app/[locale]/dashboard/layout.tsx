@@ -21,7 +21,7 @@ export default async function DashboardLayout({
   const stackServerApp = getStackServerApp();
   const user = await stackServerApp.getUser({ or: "return-null" });
   if (!user) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/vault/sessions")));
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/vault/sessions")));
   }
 
   return (
