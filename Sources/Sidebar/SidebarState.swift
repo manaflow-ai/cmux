@@ -89,13 +89,14 @@ enum SidebarSelectedWorkspaceScrollPolicy {
     ) -> UUID {
         var cursor = group
         var visited: Set<UUID> = []
+        var collapsedAnchorWorkspaceId: UUID?
         while let current = cursor {
-            guard visited.insert(current.id).inserted else { return selectedWorkspaceId }
+            guard visited.insert(current.id).inserted else { return collapsedAnchorWorkspaceId ?? selectedWorkspaceId }
             if current.isCollapsed {
-                return current.anchorWorkspaceId
+                collapsedAnchorWorkspaceId = current.anchorWorkspaceId
             }
             cursor = current.parentGroupId.flatMap { groupsById[$0] }
         }
-        return selectedWorkspaceId
+        return collapsedAnchorWorkspaceId ?? selectedWorkspaceId
     }
 }

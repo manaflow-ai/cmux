@@ -263,7 +263,7 @@ import Testing
     @Test func scrollTargetUsesCollapsedAncestorAnchor() {
         let parentId = UUID()
         let parentAnchorId = UUID()
-        let child = makeGroup(isCollapsed: false, anchorWorkspaceId: UUID(), parentGroupId: parentId)
+        let child = makeGroup(isCollapsed: true, anchorWorkspaceId: UUID(), parentGroupId: parentId)
         let parent = makeGroup(id: parentId, isCollapsed: true, anchorWorkspaceId: parentAnchorId)
 
         #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(

@@ -429,7 +429,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 indicatorScope: .topLevel
             )
         }
-        if let groupId = target.groupId,
+        if let groupId = target.groupId.flatMap({ rootGroup(containing: $0, groupsById: groupsById)?.id }),
            let layout = groupLayoutsById[groupId] {
             let boundaryIndicator = groupBoundaryIndicator(
                 context: context,
@@ -468,10 +468,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         }
         let workspaceId: UUID
         if let groupId = target.groupId,
-           let group = groupsById[groupId] {
+           let group = rootGroup(containing: groupId, groupsById: groupsById) {
             workspaceId = group.anchorWorkspaceId
         } else if let groupId = workspacesById[target.workspaceId]?.groupId,
-                  let group = groupsById[groupId] {
+                  let group = rootGroup(containing: groupId, groupsById: groupsById) {
             workspaceId = group.anchorWorkspaceId
         } else {
             workspaceId = target.workspaceId
@@ -545,7 +545,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         var anchorTargetByGroupId: [UUID: SidebarWorkspaceReorderDropTarget] = [:]
         var lastIndexByGroupId: [UUID: Int] = [:]
         for (index, target) in sortedTargets.enumerated() {
-            guard let groupId = target.groupId,
+            guard let groupId = target.groupId.flatMap({ rootGroup(containing: $0, groupsById: groupsById)?.id }),
                   let group = groupsById[groupId] else {
                 continue
             }
@@ -560,7 +560,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         var nextRootTarget: SidebarWorkspaceReorderDropTarget?
         for index in sortedTargets.indices.reversed() {
             let target = sortedTargets[index]
-            if let groupId = target.groupId,
+            if let groupId = target.groupId.flatMap({ rootGroup(containing: $0, groupsById: groupsById)?.id }),
                lastIndexByGroupId[groupId] == index {
                 nextRootTargetByGroupId[groupId] = nextRootTarget
             }
