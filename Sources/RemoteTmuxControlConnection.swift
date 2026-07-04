@@ -700,6 +700,19 @@ final class RemoteTmuxControlConnection {
         )
     }
 
+    /// Fetches one window's REAL pane rectangles and patches the stored
+    /// trees with them. The layout string is not ground truth: under
+    /// `pane-border-status` tmux publishes the pre-title tree while the
+    /// displayed panes sit one row lower and shorter — placement must render
+    /// where the panes actually are, so every layout event is followed by
+    /// this fetch (its reply is a no-op when the rects already agree).
+    func requestPaneRects(windowId: Int) {
+        sendInternal(
+            "list-panes -t @\(windowId) -F \"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}\"",
+            kind: .paneRects(windowId)
+        )
+    }
+
     /// Rearranges the tracked window order to reflect a just-applied reorder.
     /// `reordered` is the new sequence of a subset of windows (the ones the user
     /// dragged); windows not in it keep their slots. This is synchronous and exact
@@ -1447,6 +1460,29 @@ final class RemoteTmuxControlConnection {
             return
         }
         switch kind {
+        case let .paneRects(windowId):
+            guard let window = windowsByID[windowId] else { break }
+            var rects: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
+            for line in lines {
+                let parts = line.split(separator: " ")
+                guard parts.count == 5,
+                      let paneId = RemoteTmuxControlStreamParser.id(parts[0], sigil: "%"),
+                      let x = Int(parts[1]), let y = Int(parts[2]),
+                      let width = Int(parts[3]), let height = Int(parts[4])
+                else { continue }
+                rects[paneId] = (x: x, y: y, width: width, height: height)
+            }
+            guard !rects.isEmpty else { break }
+            let patched = window.layout.patchingLeafRects(rects)
+            let patchedVisible = window.visibleLayout?.patchingLeafRects(rects)
+            guard patched != window.layout || patchedVisible != window.visibleLayout else { break }
+            windowsByID[windowId] = RemoteTmuxWindow(
+                id: windowId, name: window.name,
+                width: window.width, height: window.height,
+                layout: patched, visibleLayout: patchedVisible, zoomed: window.zoomed
+            )
+            record("pane-rects @\(windowId)")
+            observers.notifyTopologyChanged()
         case .listWindows:
             var order: [Int] = []
             var next: [Int: RemoteTmuxWindow] = [:]
@@ -1498,6 +1534,10 @@ final class RemoteTmuxControlConnection {
                     lastSizeRequestWindowId = nil
                 }
                 activePaneByWindow = activePaneByWindow.filter { liveIDs.contains($0.key) }
+                // The string trees just replaced any patched rects; re-fetch
+                // every window's real pane rectangles (no %layout-change is
+                // coming for windows that didn't move).
+                for id in order { requestPaneRects(windowId: id) }
                 prunePaneState(keeping: Set(next.values.flatMap { $0.paneIDsInOrder }))
                 windowOrder = order
                 observers.notifyTopologyChanged()
@@ -1610,6 +1650,7 @@ final class RemoteTmuxControlConnection {
         )
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
         prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
+        requestPaneRects(windowId: windowId)
     }
 
     private func prunePaneState(keeping livePanes: Set<Int>) {

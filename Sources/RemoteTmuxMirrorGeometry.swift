@@ -66,9 +66,28 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
         // every pane below the window top already sits under a tmux
         // separator row, so the band is the only strip tmux doesn't provide
         // — and because it is uniform across branches, bottom edges still
-        // align regardless of stacking depth.
-        let rows = (pixelHeight - chrome.height) / max(1, cellHeightPx) - 1
+        // align regardless of stacking depth. When tmux itself reserves the
+        // title rows (pane-border-status: no pane sits at the window top),
+        // the band is tmux's and every pushed row is a grid row.
+        let band = Self.paneTouchesTop(of: structure) ? 1 : 0
+        let rows = (pixelHeight - chrome.height) / max(1, cellHeightPx) - band
         return (cols: max(Self.minCols, cols), rows: max(Self.minRows, rows))
+    }
+
+    /// Whether any pane's cell rect starts at the window's top row. False
+    /// exactly when tmux inserted a row above every top pane — its
+    /// `pane-border-status` title rows — in which case the mirror must not
+    /// stack a second, synthetic band on top.
+    static func paneTouchesTop(of node: RemoteTmuxLayoutNode) -> Bool {
+        switch node.content {
+        case .pane:
+            // <= 0, not == 0: real tmux offsets are never negative, but
+            // trees built programmatically (tests, placeholders) may carry
+            // -1 — those must behave like the ordinary no-title-rows case.
+            return node.y <= 0
+        case let .horizontal(children), let .vertical(children):
+            return children.contains { paneTouchesTop(of: $0) }
+        }
     }
 
     /// Floors below which a client size is never pushed: tmux clamps
@@ -138,21 +157,32 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
     ) -> RemoteTmuxMirrorFrames {
         var paneFrames: [Int: CGRect] = [:]
         var dividers: [CGRect] = []
-        let bandPx = CGFloat(cellHeightPx)
-        let containerPx = CGRect(
-            x: 0, y: bandPx,
+        var containerPx = CGRect(
+            x: 0, y: 0,
             width: containerPt.width * scale,
-            height: containerPt.height * scale - bandPx
+            height: containerPt.height * scale
         )
         // The title band: one cell-high strip across the top, the synthetic
         // twin of tmux's separator rows, so EVERY pane has a strip above it
         // (window-top panes get this band; every other pane sits under a
         // tmux separator). The active pane's dot renders in the strip above
-        // it — over strip background, never over content.
-        dividers.append(CGRect(
-            x: 0, y: 0, width: containerPt.width * scale, height: bandPx
-        ))
-        place(layout, in: containerPx, paneFrames: &paneFrames, dividers: &dividers)
+        // it — over strip background, never over content. Skipped when tmux
+        // reserves the title rows itself (pane-border-status): those arrive
+        // as offset gaps below and render as strips without our help.
+        if Self.paneTouchesTop(of: layout) {
+            let bandPx = CGFloat(cellHeightPx)
+            dividers.append(CGRect(
+                x: 0, y: 0, width: containerPx.width, height: bandPx
+            ))
+            containerPx = CGRect(
+                x: 0, y: bandPx,
+                width: containerPx.width, height: containerPx.height - bandPx
+            )
+        }
+        place(
+            layout, in: containerPx, cellOrigin: (x: layout.x, y: layout.y),
+            paneFrames: &paneFrames, dividers: &dividers
+        )
         return RemoteTmuxMirrorFrames(
             paneFramesPt: paneFrames.mapValues { $0.divided(by: scale) },
             dividersPt: dividers.map { $0.divided(by: scale) }
@@ -160,26 +190,59 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
     }
 
     /// Recursive placement in device pixels. `region` is the pixel rect the
-    /// parent allocated to this node (cross-axis fill happens by inheriting
-    /// the region's cross extent).
+    /// parent allocated to this node and `cellOrigin` the cell coordinate
+    /// that rect's top-leading corner corresponds to (cross-axis fill
+    /// happens by inheriting the region's cross extent).
+    ///
+    /// GAPS COME FROM THE TREE'S OWN OFFSETS, never from an assumed one-cell
+    /// separator: each child declares its absolute cell position, so
+    /// whatever rows or columns tmux inserted between (or above) children —
+    /// separators, or per-pane title rows under `pane-border-status` — land
+    /// here as strip rects automatically. A hardcoded gap silently
+    /// mis-places every pane the moment tmux grows new kinds of chrome.
     private func place(
         _ node: RemoteTmuxLayoutNode,
         in region: CGRect,
+        cellOrigin: (x: Int, y: Int),
         paneFrames: inout [Int: CGRect],
         dividers: inout [CGRect]
     ) {
         switch node.content {
-        case let .pane(id):
+        case .pane(let id):
             paneFrames[id] = region
-        case let .horizontal(children):
+        case .horizontal(let children):
             // Edge rails: x_k = region.minX + rounded cumulative spend, where
             // each child spends cells·cellPx + its own chrome width and each
-            // gap spends one separator cell.
+            // gap spends exactly the cells the offsets declare.
             var cursor = region.minX
-            for (index, child) in children.enumerated() {
+            var cursorCellX = cellOrigin.x
+            for child in children {
+                let gapCells = max(0, child.x - cursorCellX)
+                if gapCells > 0 {
+                    let gapEnd = min(cursor + CGFloat(gapCells * cellWidthPx), region.maxX)
+                    dividers.append(CGRect(
+                        x: cursor, y: region.minY, width: gapEnd - cursor, height: region.height
+                    ))
+                    cursor = gapEnd
+                    cursorCellX = child.x
+                }
                 let chrome = Self.chromePx(of: child, padW: surfacePadWidthPx, padH: 0).width
                 let spend = CGFloat(child.width * cellWidthPx + chrome)
                 let next = (cursor + spend).rounded()
+                // A child can also sit BELOW its declared row inside this
+                // region (its own title row under pane-border-status): band
+                // the skipped rows as a strip and give the child what
+                // remains.
+                var childTop = region.minY
+                let dropCells = max(0, child.y - cellOrigin.y)
+                if dropCells > 0 {
+                    let bandEnd = min(childTop + CGFloat(dropCells * cellHeightPx), region.maxY)
+                    dividers.append(CGRect(
+                        x: cursor, y: childTop,
+                        width: min(next + 1, region.maxX) - cursor, height: bandEnd - childTop
+                    ))
+                    childTop = bandEnd
+                }
                 // +1 device px into the following gap: the frame otherwise sits
                 // EXACTLY on the cell-quantization boundary, and any half-pixel
                 // lost downstream (point conversion, portal snapping) floors the
@@ -187,24 +250,30 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                 // Rails stay exact; the overlap hides under the pane (dividers
                 // render below panes).
                 let childRegion = CGRect(
-                    x: cursor, y: region.minY,
+                    x: cursor, y: childTop,
                     width: min(next + 1, region.maxX) - cursor,
-                    height: region.height
+                    height: region.maxY - childTop
                 )
-                place(child, in: childRegion, paneFrames: &paneFrames, dividers: &dividers)
+                place(
+                    child, in: childRegion, cellOrigin: (x: child.x, y: child.y),
+                    paneFrames: &paneFrames, dividers: &dividers
+                )
                 cursor = next
-                if index < children.count - 1 {
-                    let gap = CGFloat(cellWidthPx)
-                    let gapEnd = min(cursor + gap, region.maxX)
+                cursorCellX = child.x + child.width
+            }
+        case .vertical(let children):
+            var cursor = region.minY
+            var cursorCellY = cellOrigin.y
+            for child in children {
+                let gapCells = max(0, child.y - cursorCellY)
+                if gapCells > 0 {
+                    let gapEnd = min(cursor + CGFloat(gapCells * cellHeightPx), region.maxY)
                     dividers.append(CGRect(
-                        x: cursor, y: region.minY, width: gapEnd - cursor, height: region.height
+                        x: region.minX, y: cursor, width: region.width, height: gapEnd - cursor
                     ))
                     cursor = gapEnd
+                    cursorCellY = child.y
                 }
-            }
-        case let .vertical(children):
-            var cursor = region.minY
-            for (index, child) in children.enumerated() {
                 let chrome = Self.chromePx(
                     of: child,
                     padW: 0,
@@ -218,16 +287,12 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                     width: region.width,
                     height: min(next + 1, region.maxY) - cursor
                 )
-                place(child, in: childRegion, paneFrames: &paneFrames, dividers: &dividers)
+                place(
+                    child, in: childRegion, cellOrigin: (x: child.x, y: child.y),
+                    paneFrames: &paneFrames, dividers: &dividers
+                )
                 cursor = next
-                if index < children.count - 1 {
-                    let gap = CGFloat(cellHeightPx)
-                    let gapEnd = min(cursor + gap, region.maxY)
-                    dividers.append(CGRect(
-                        x: region.minX, y: cursor, width: region.width, height: gapEnd - cursor
-                    ))
-                    cursor = gapEnd
-                }
+                cursorCellY = child.y + child.height
             }
         }
     }

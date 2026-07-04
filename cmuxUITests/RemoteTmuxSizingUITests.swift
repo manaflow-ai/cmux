@@ -163,6 +163,21 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         }
     }
 
+    /// `pane-border-status top`: tmux carves a title row above every pane
+    /// but publishes the PRE-title tree in layout strings, so the mirror
+    /// must place panes from the real rects (`list-panes`) instead. The
+    /// exact-render oracle then asserts against reality: every pane renders
+    /// the grid tmux actually displays, title rows and all.
+    func testPaneBorderStatusTitleRowsSettle() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildLabSession()
+        _ = tmux(["set", "-w", "-t", "\(sessionName):0", "pane-border-status", "top"])
+        attachSession()
+        try assertSettles(selectedWindow: 0, within: 15, context: "with pane-border-status top")
+    }
+
     /// A geometry-only layout change NOT caused by the app — a co-attached
     /// client's `resize-pane` — must heal (bounded correction), not stick
     /// mismatched and not oscillate.

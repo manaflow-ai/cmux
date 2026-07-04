@@ -27,9 +27,9 @@ import Testing
     }
 
     private func node(
-        _ content: RemoteTmuxLayoutContent, w: Int = -1, h: Int = -1
+        _ content: RemoteTmuxLayoutContent, w: Int = -1, h: Int = -1, x: Int = 0, y: Int = 0
     ) -> RemoteTmuxLayoutNode {
-        RemoteTmuxLayoutNode(width: w, height: h, x: 0, y: 0, content: content)
+        RemoteTmuxLayoutNode(width: w, height: h, x: x, y: y, content: content)
     }
 
     /// Deterministic pseudo-random generator so failures reproduce.
@@ -282,6 +282,70 @@ import Testing
         #expect(abs(pane.minY - bandPt) < 0.001, "pane must start below the band")
         let cells = geo.clientCells(pixelWidth: 1600, pixelHeight: 1240, structure: tree)
         #expect(cells.rows == 1240 / 34 - 1, "rows must exclude the title-band row")
+    }
+
+    /// Placement gaps come from the tree's own offsets, so rows tmux
+    /// inserts beyond plain separators — pane-border-status title rows —
+    /// land as strips and panes sit exactly where tmux put them. With tmux
+    /// providing every title row (no pane at the window top), the synthetic
+    /// band must also stand down, in both g and f.
+    @Test func offsetDrivenPlacementAdoptsTmuxTitleRows() {
+        let geo = geometry
+        let cellPt = CGFloat(geo.cellHeightPx) / geo.scale
+        // v[p1,p2] as tmux lays it out under pane-border-status top:
+        // title row 0, p1 rows 1–9, title/separator row 10, p2 rows 11–19.
+        let stacked = node(.vertical([
+            node(.pane(1), w: 40, h: 9, x: 0, y: 1),
+            node(.pane(2), w: 40, h: 9, x: 0, y: 11),
+        ]), w: 40, h: 20)
+        let container = CGSize(width: 400, height: 400)
+        let frames = geo.frames(layout: stacked, containerPt: container)
+        let p1 = frames.paneFramesPt[1]!
+        let p2 = frames.paneFramesPt[2]!
+        #expect(abs(p1.minY - cellPt) < 0.6, "p1 must sit below tmux's title row, got \(p1.minY)")
+        let p2ExpectedTop = p1.maxY - 0.5 + cellPt // rail end (+1px bias) + title row
+        #expect(abs(p2.minY - p2ExpectedTop) < 1.1,
+                "p2 must sit below the mid title row, got \(p2.minY) expected ~\(p2ExpectedTop)")
+        // No synthetic band: the first strip is tmux's own title row (full
+        // width at y 0), and f keeps every pushed row a grid row.
+        #expect(RemoteTmuxMirrorGeometry.paneTouchesTop(of: stacked) == false)
+        let rows = geo.clientCells(pixelWidth: 800, pixelHeight: 680, structure: stacked).rows
+        #expect(rows == 680 / geo.cellHeightPx, "no band row may be subtracted when tmux provides titles")
+        // Side-by-side panes each carrying their own title row: the drop
+        // renders as a strip and the panes sit one row down.
+        let sideBySide = node(.horizontal([
+            node(.pane(1), w: 20, h: 19, x: 0, y: 1),
+            node(.pane(2), w: 19, h: 19, x: 21, y: 1),
+        ]), w: 40, h: 20)
+        let hFrames = geo.frames(layout: sideBySide, containerPt: container)
+        #expect(abs(hFrames.paneFramesPt[1]!.minY - cellPt) < 0.6)
+        #expect(abs(hFrames.paneFramesPt[2]!.minY - cellPt) < 0.6)
+    }
+
+    /// list-panes rect patching: leaves take their REAL rects (the layout
+    /// string's pre-title geometry replaced), splits keep string geometry,
+    /// unknown panes stay untouched.
+    @Test func patchingLeafRectsRewritesOnlyKnownLeaves() {
+        let tree = node(.horizontal([
+            node(.pane(1), w: 50, h: 20, x: 0, y: 0),
+            node(.vertical([
+                node(.pane(2), w: 49, h: 9, x: 51, y: 0),
+                node(.pane(3), w: 49, h: 10, x: 51, y: 10),
+            ]), w: 49, h: 20, x: 51, y: 0),
+        ]), w: 100, h: 20)
+        let patched = tree.patchingLeafRects([
+            1: (x: 0, y: 1, width: 50, height: 19),
+            2: (x: 51, y: 1, width: 49, height: 8),
+        ])
+        guard case let .horizontal(top) = patched.content,
+              case let .vertical(right) = top[1].content else {
+            Issue.record("structure must be preserved"); return
+        }
+        #expect(top[0].y == 1 && top[0].height == 19)
+        #expect(right[0].y == 1 && right[0].height == 8)
+        #expect(right[1].y == 10 && right[1].height == 10) // unknown: untouched
+        #expect(top[1].width == 49 && top[1].y == 0) // split node: untouched
+        #expect(patched.width == 100)
     }
 
     @Test func chromeFoldMatchesHandComputedNestedTree() {
