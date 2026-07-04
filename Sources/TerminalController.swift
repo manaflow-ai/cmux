@@ -4107,11 +4107,10 @@ class TerminalController {
                     v2String(params, "description_source")
                         ?? v2String(params, "descriptionSource")
                 )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                let source: Workspace.CustomDescriptionSource = switch sourceRaw {
-                case "user", nil:
-                    .user
-                case "agent":
-                    .agent
+                let source: Workspace.CustomDescriptionSource
+                switch sourceRaw {
+                case "user", nil: source = .user
+                case "agent": source = .agent
                 default:
                     result = .err(
                         code: "invalid_params",
