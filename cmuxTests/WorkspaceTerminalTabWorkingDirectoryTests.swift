@@ -253,7 +253,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[remotePanelId])
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil && restored.presentedCurrentDirectory == nil)
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        _ = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true, suppressWorkspaceRemoteStartupCommand: true))
+        let localPanel = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true, workingDirectory: localDirectory, suppressWorkspaceRemoteStartupCommand: true))
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [localPanel.id]) == [localDirectory])
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(remotePanelId) && workspace.reportedPanelDirectory(panelId: remotePanelId) == nil)
         #expect(workspace.closePanel(remotePanelId, force: true))
@@ -280,7 +281,6 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
         }
-
         let preReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
         #expect(preReportSnapshot.currentDirectory == "")
         #expect(preReportSnapshot.focusedPanel == nil)
