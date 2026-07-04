@@ -160,7 +160,7 @@ extension CMUXCLI {
     /// process id so the app can additionally reject the persist when another
     /// agent's process still owns the shared workspace title.
     func persistAgentSessionTitleAfterExit(
-        _ exitTitle: AgentSessionExitTitle?,
+        _ exitTitle: (title: String, derivedFromTranscript: Bool)?,
         workspaceId: String,
         excludingSessionId: String,
         excludingPid: Int?,
@@ -200,27 +200,20 @@ extension CMUXCLI {
         }
     }
 
-    /// A title to re-apply to a workspace when an agent session exits, plus
-    /// whether it was derived from the agent transcript (a *new* auto-naming
-    /// action that must honor the opt-in) versus a title cmux already applied
-    /// during the session (which is only being preserved).
-    struct AgentSessionExitTitle {
-        let title: String
-        let derivedFromTranscript: Bool
-    }
-
+    /// Returns the title to re-apply to a workspace when an agent session exits,
+    /// plus whether it was newly derived from the transcript or already applied.
     func agentSessionExitTitle(
         agent: String,
         record: ClaudeHookSessionRecord
-    ) -> AgentSessionExitTitle? {
+    ) -> (title: String, derivedFromTranscript: Bool)? {
         if let applied = normalizedAgentSessionExitTitle(record.autoNameLastTitle) {
-            return AgentSessionExitTitle(title: applied, derivedFromTranscript: false)
+            return (title: applied, derivedFromTranscript: false)
         }
         guard agent == "claude",
               let derived = latestClaudeTranscriptTitle(path: record.transcriptPath) else {
             return nil
         }
-        return AgentSessionExitTitle(title: derived, derivedFromTranscript: true)
+        return (title: derived, derivedFromTranscript: true)
     }
 
     private func latestClaudeTranscriptTitle(path: String?) -> String? {
