@@ -76,6 +76,11 @@ import Testing
         // 172.x outside 16..31 is not RFC1918 private.
         #expect(proximityClassifier.classify(.hostPort(host: "172.15.0.1", port: 1)) == .relay)
         #expect(proximityClassifier.classify(.hostPort(host: "172.32.0.1", port: 1)) == .relay)
+        // Shortened hextets that merely start with fe/fc/fd are not inside the
+        // link-local or unique-local ranges.
+        #expect(proximityClassifier.classify(.hostPort(host: "fe8::1", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "fc::1", port: 1)) == .relay)
+        #expect(proximityClassifier.classify(.hostPort(host: "fd::1", port: 1)) == .relay)
         // A general hostname needs DNS.
         #expect(proximityClassifier.classify(.hostPort(host: "example.com", port: 1)) == .relay)
         // iroh peer and websocket URL transports are relay-class.

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Classifies attach endpoints into ``CmxRouteProximity`` tiers.
@@ -83,18 +84,29 @@ public struct CmxRouteProximityClassifier: Sendable {
     }
 
     private func classifyIPv6(_ host: String) -> CmxRouteProximity {
-        if host == "::1" { return .loopback }
+        guard let bytes = ipv6Bytes(host), bytes.count == 16 else { return .relay }
+        if bytes.prefix(15).allSatisfy({ $0 == 0 }) && bytes[15] == 1 {
+            return .loopback
+        }
         // Tailscale's IPv6 ULA prefix fd7a:115c:a1e0::/48 - check before generic
         // ULA so a Tailscale v6 address ranks as tailnet, not plain LAN.
-        if host.hasPrefix("fd7a:115c:a1e0") { return .tailnet }
-        // fe80::/10 link-local: first 10 bits 1111111010, i.e. the leading hextet
-        // spans fe80-febf, so match fe8x / fe9x / feax / febx.
-        if host.hasPrefix("fe8") || host.hasPrefix("fe9")
-            || host.hasPrefix("fea") || host.hasPrefix("feb") {
+        if bytes[0] == 0xfd, bytes[1] == 0x7a, bytes[2] == 0x11,
+           bytes[3] == 0x5c, bytes[4] == 0xa1, bytes[5] == 0xe0 {
+            return .tailnet
+        }
+        // fe80::/10 link-local: first byte is fe and the next two bits are 10.
+        if bytes[0] == 0xfe, (bytes[1] & 0xc0) == 0x80 {
             return .lan
         }
         // fc00::/7 unique-local (fc.. / fd..).
-        if host.hasPrefix("fc") || host.hasPrefix("fd") { return .lan }
+        if (bytes[0] & 0xfe) == 0xfc { return .lan }
         return .relay
+    }
+
+    private func ipv6Bytes(_ host: String) -> [UInt8]? {
+        var address = in6_addr()
+        let parsed = host.withCString { inet_pton(AF_INET6, $0, &address) }
+        guard parsed == 1 else { return nil }
+        return withUnsafeBytes(of: &address) { Array($0) }
     }
 }
