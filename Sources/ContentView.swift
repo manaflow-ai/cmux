@@ -756,78 +756,6 @@ private func installFileDropOverlayWhenReady(
     }
 }
 
-@MainActor
-private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
-    private struct Snapshot: Equatable {
-        let workspaceId: UUID?
-        let currentDirectory: String?
-        let remoteConfiguration: WorkspaceRemoteConfiguration?
-        let remoteConnectionState: WorkspaceRemoteConnectionState?
-        let remoteConnectionDetail: String?
-        let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
-    }
-
-    @Published private(set) var directoryChangeGeneration: UInt64 = 0
-    private weak var tabManager: TabManager?
-    private var cancellable: AnyCancellable?
-
-    func wire(tabManager: TabManager) {
-        guard self.tabManager !== tabManager || cancellable == nil else { return }
-        self.tabManager = tabManager
-        cancellable = tabManager.selectedTabIdPublisher
-            .map { [weak tabManager] tabId -> Workspace? in
-                guard let tabId, let tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.id == tabId })
-            }
-            .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<Snapshot, Never> in
-                guard let workspace else {
-                    return Just(
-                        Snapshot(
-                            workspaceId: nil,
-                            currentDirectory: nil,
-                            remoteConfiguration: nil,
-                            remoteConnectionState: nil,
-                            remoteConnectionDetail: nil,
-                            remoteDaemonStatus: nil
-                        )
-                    )
-                    .eraseToAnyPublisher()
-                }
-                return workspace.$currentDirectory
-                    .combineLatest(
-                        workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
-                    )
-                    .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
-                        let (
-                            currentDirectory,
-                            remoteConfiguration,
-                            remoteConnectionState,
-                            remoteConnectionDetail
-                        ) = values
-                        return Snapshot(
-                            workspaceId: workspace.id,
-                            currentDirectory: currentDirectory,
-                            remoteConfiguration: remoteConfiguration,
-                            remoteConnectionState: remoteConnectionState,
-                            remoteConnectionDetail: remoteConnectionDetail,
-                            remoteDaemonStatus: remoteDaemonStatus
-                        )
-                    }
-                    .eraseToAnyPublisher()
-            }
-            .switchToLatest()
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.directoryChangeGeneration &+= 1
-            }
-    }
-}
-
 struct ContentView: View {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
@@ -873,9 +801,11 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
-    @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
+    @State private var selectedWorkspaceSidebarRootObservationWorkspaceId: UUID?
+    @State private var selectedWorkspaceSidebarRootObservationPublisher: AnyPublisher<Void, Never> =
+        Empty().eraseToAnyPublisher()
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
@@ -2271,7 +2201,7 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        if workspace.isRemoteWorkspace {
+        if workspace.shouldUseRemoteWorkspaceRootForSidebars {
             Task { [weak workspace, fileExplorerStore] in
                 guard let workspace else { return }
                 do {
@@ -2296,6 +2226,19 @@ struct ContentView: View {
         )
     }
 
+    private func refreshSelectedWorkspaceSidebarRootObservationPublisher(selectedId: UUID?) {
+        guard selectedWorkspaceSidebarRootObservationWorkspaceId != selectedId else { return }
+        selectedWorkspaceSidebarRootObservationWorkspaceId = selectedId
+        guard let selectedId,
+              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+            selectedWorkspaceSidebarRootObservationPublisher = Empty().eraseToAnyPublisher()
+            return
+        }
+        selectedWorkspaceSidebarRootObservationPublisher = tab.makeSidebarRootObservationPublisher()
+            .receive(on: RunLoop.main)
+            .eraseToAnyPublisher()
+    }
+
     private func syncFileExplorerDirectory() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
@@ -2308,7 +2251,7 @@ struct ContentView: View {
 
         fileExplorerStore.showHiddenFiles = true
 
-        if tab.isRemoteWorkspace {
+        if tab.shouldUseRemoteWorkspaceRootForSidebars {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             guard shouldSyncFileExplorerStore else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
@@ -2473,7 +2416,7 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
+            refreshSelectedWorkspaceSidebarRootObservationPublisher(selectedId: tabManager.selectedTabId)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -2557,6 +2500,8 @@ struct ContentView: View {
             startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
             reconcileMountedWorkspaceIds(selectedId: newValue)
             AppDelegate.shared?.syncBonsplitTabShortcutHintEligibility(in: observedWindow)
+            refreshSelectedWorkspaceSidebarRootObservationPublisher(selectedId: newValue)
+            syncFileExplorerDirectory()
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -2573,8 +2518,7 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
         })
 
-        // File explorer: keep the Combine subscription stable across body re-evaluations.
-        view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
+        view = AnyView(view.onReceive(selectedWorkspaceSidebarRootObservationPublisher) { _ in
             syncFileExplorerDirectory()
         })
 

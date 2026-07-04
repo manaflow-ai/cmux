@@ -54,6 +54,7 @@ private struct SidebarObservationState: Equatable {
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
     let remoteConnectionDetail: String?
+    let remoteDaemonStatus: WorkspaceRemoteDaemonStatus
     let activeRemoteTerminalSessionCount: Int
     let listeningPorts: [Int]
     let browserMediaActivity: BrowserMediaActivity
@@ -108,6 +109,34 @@ extension Workspace {
             .eraseToAnyPublisher()
     }
 
+    func makeSidebarRootObservationPublisher() -> AnyPublisher<Void, Never> {
+        let remoteFields = Publishers.CombineLatest4(
+            $remoteConfiguration,
+            $remoteConnectionState,
+            $remoteConnectionDetail,
+            $remoteDaemonStatus
+        )
+        .combineLatest(
+            $activeRemoteTerminalSessionCount
+        )
+
+        return $currentDirectory
+            .combineLatest(remoteFields)
+            .map { currentDirectory, remoteFields in
+                SidebarRootObservationState(
+                    currentDirectory: currentDirectory,
+                    remoteConfiguration: remoteFields.0.0,
+                    remoteConnectionState: remoteFields.0.1,
+                    remoteConnectionDetail: remoteFields.0.2,
+                    remoteDaemonStatus: remoteFields.0.3,
+                    activeRemoteTerminalSessionCount: remoteFields.1
+                )
+            }
+            .removeDuplicates()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
     /// Merged immediate observation across workspaces for the extension
     /// sidebar. Coalesced again across the merge: per-workspace coalescing
     /// caps each stream, but N workspaces bursting concurrently would still
@@ -147,6 +176,9 @@ extension Workspace {
             $remoteConfiguration,
             $remoteConnectionState,
             $remoteConnectionDetail,
+            $remoteDaemonStatus
+        )
+        .combineLatest(
             $activeRemoteTerminalSessionCount
         )
         return Publishers.CombineLatest4(
@@ -176,10 +208,11 @@ extension Workspace {
                     panelGitBranches: gitFields.1,
                     pullRequest: gitFields.2,
                     panelPullRequests: gitFields.3,
-                    remoteConfiguration: remoteFields.0,
-                    remoteConnectionState: remoteFields.1,
-                    remoteConnectionDetail: remoteFields.2,
-                    activeRemoteTerminalSessionCount: remoteFields.3,
+                    remoteConfiguration: remoteFields.0.0,
+                    remoteConnectionState: remoteFields.0.1,
+                    remoteConnectionDetail: remoteFields.0.2,
+                    remoteDaemonStatus: remoteFields.0.3,
+                    activeRemoteTerminalSessionCount: remoteFields.1,
                     listeningPorts: listeningPorts,
                     browserMediaActivity: self.browserMediaActivity
                 )
