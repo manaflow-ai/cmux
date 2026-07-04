@@ -154,10 +154,13 @@ final class InboxRuntime {
         Task {
             do {
                 try await hub.markRead(itemID: itemID, threadID: threadID, unread: unread)
+                await refresh(seedNotifications: true)
             } catch {
+                // Reconcile first: refresh() resets loadState, so the failure
+                // must be applied after it or the banner vanishes instantly.
+                await refresh(seedNotifications: true)
                 loadState = .failed(Self.userFacingMessage(for: error))
             }
-            await refresh(seedNotifications: true)
         }
     }
 
