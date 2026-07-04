@@ -167,6 +167,8 @@ struct WorkstreamCoordinatorTests {
         #expect(C.relativeMoveTargetIndex(currentIndex: 2, peerIndex: 0, after: false) == 0)
         // "C after A": source 2, peer 0 -> 1.
         #expect(C.relativeMoveTargetIndex(currentIndex: 2, peerIndex: 0, after: true) == 1)
+        #expect(C.relativeMoveTargetIndex(currentIndex: 1, peerIndex: 1, after: false) == 1)
+        #expect(C.relativeMoveTargetIndex(currentIndex: 1, peerIndex: 1, after: true) == 1)
     }
 
     @Test
@@ -181,6 +183,19 @@ struct WorkstreamCoordinatorTests {
         )
         world.coordinator.moveWorkstream(id: a, toIndex: target)
         #expect(world.model.workstreams.map(\.id) == [b, a, c])
+    }
+
+    @Test
+    func relativeMoveAgainstSelfKeepsOrder() {
+        let world = makeWorld()
+        let a = world.coordinator.createWorkstream(name: "A")
+        let b = world.coordinator.createWorkstream(name: "B")
+        let c = world.coordinator.createWorkstream(name: "C")
+        let target = WorkstreamCoordinator<WorkstreamStubTab>.relativeMoveTargetIndex(
+            currentIndex: 1, peerIndex: 1, after: true
+        )
+        world.coordinator.moveWorkstream(id: b, toIndex: target)
+        #expect(world.model.workstreams.map(\.id) == [a, b, c])
     }
 
     @Test
