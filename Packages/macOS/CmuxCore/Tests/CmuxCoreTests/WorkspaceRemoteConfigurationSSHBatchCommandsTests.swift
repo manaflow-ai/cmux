@@ -99,6 +99,24 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         )
     }
 
+    /// The stdio daemon transport appends its own positional remote command,
+    /// which OpenSSH refuses while a host ssh_config `RemoteCommand` is in
+    /// effect ("Cannot execute command-line and remote command.", issue
+    /// #7246) — the argv must override it before the destination.
+    @Test("daemonTransportArguments override a host-configured RemoteCommand")
+    func daemonTransportArgumentsOverrideHostConfiguredRemoteCommand() {
+        let arguments = configuration().daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+        let overrideIndex = arguments.indices.dropLast().first {
+            arguments[$0] == "-o" && arguments[$0 + 1] == "RemoteCommand=none"
+        }
+        let destinationIndex = arguments.firstIndex(of: "cmux-macmini")
+        #expect(overrideIndex != nil)
+        #expect(destinationIndex != nil)
+        if let overrideIndex, let destinationIndex {
+            #expect(overrideIndex < destinationIndex)
+        }
+    }
+
     @Test("daemonSocketForwardArguments shape")
     func daemonSocketForwardArguments() {
         let arguments = configuration().daemonSocketForwardArguments(
