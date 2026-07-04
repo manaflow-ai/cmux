@@ -1,14 +1,22 @@
 import CmuxAgentChat
 import CmuxMobileSupport
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// The horizontal shortcut row above the composer field.
 public struct ChatAccessoryChipRow: View {
+    private static let scrollTrailingFadeWidth: CGFloat = 34
+
     private let agentState: ChatAgentState
     private let leadingShortcuts: [ChatAccessoryShortcut]
     private let shortcuts: [ChatAccessoryShortcut]
     private let onInterrupt: (Bool) -> Void
     private let onOpenTerminal: () -> Void
+
+    @State private var scrollContentWidth: CGFloat = 0
+    @State private var scrollViewportWidth: CGFloat = 0
 
     /// Creates the chip row.
     ///
@@ -37,43 +45,50 @@ public struct ChatAccessoryChipRow: View {
     }
 
     public var body: some View {
+        HStack(spacing: 10) {
+            if !displayedLeadingShortcuts.isEmpty {
+                leadingShortcutCluster
+                    .layoutPriority(2)
+                    .zIndex(1)
+            }
+            if !displayedScrollableShortcuts.isEmpty {
+                scrollableShortcutStrip
+            }
+        }
+        .frame(height: 32)
+    }
+
+    private var leadingShortcutCluster: some View {
         HStack(spacing: 6) {
             ForEach(displayedLeadingShortcuts) { shortcut in
                 chip(shortcut)
             }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
 
-            if !displayedScrollableShortcuts.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(displayedScrollableShortcuts) { shortcut in
-                            chip(shortcut)
-                        }
-                    }
-                    // Inset the row content slightly so the fade reveals/clips
-                    // chips rather than cropping the very first/last chip flush
-                    // at the edge.
-                    .padding(.horizontal, 2)
-                }
-                .frame(height: 32)
-                .layoutPriority(1)
-                // Soft horizontal scroll-edge fade so chips dissolve at the
-                // margins instead of being hard-clipped by the scroll view's
-                // straight edge.
-                .mask {
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: 0.035),
-                            .init(color: .black, location: 0.965),
-                            .init(color: .clear, location: 1),
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
+    private var scrollableShortcutStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(displayedScrollableShortcuts) { shortcut in
+                    chip(shortcut)
                 }
             }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                scrollContentWidth = width
+            }
+            .padding(.trailing, scrollNeedsTrailingFade ? Self.scrollTrailingFadeWidth : 2)
         }
         .frame(height: 32)
+        .layoutPriority(1)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+            scrollViewportWidth = width
+        }
+        .compositingGroup()
+        .clipShape(.rect)
+        .mask {
+            scrollTrailingFadeMask
+        }
     }
 
     private var displayedLeadingShortcuts: [ChatAccessoryShortcut] {
@@ -98,6 +113,10 @@ public struct ChatAccessoryChipRow: View {
 
     private var usesHostShortcuts: Bool {
         !leadingShortcuts.isEmpty || !shortcuts.isEmpty
+    }
+
+    private var scrollNeedsTrailingFade: Bool {
+        scrollContentWidth + 2 > scrollViewportWidth + 1
     }
 
     private var stopShortcut: ChatAccessoryShortcut {
@@ -156,6 +175,7 @@ public struct ChatAccessoryChipRow: View {
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain)
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityIdentifier(shortcut.id)
         .accessibilityLabel(shortcut.accessibilityLabel ?? shortcut.title)
     }
@@ -167,6 +187,26 @@ public struct ChatAccessoryChipRow: View {
                 .font(.system(size: 13, weight: .medium))
         } else {
             Text(shortcut.title)
+        }
+    }
+
+    @ViewBuilder
+    private var scrollTrailingFadeMask: some View {
+        if scrollNeedsTrailingFade {
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(.black)
+
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: Self.scrollTrailingFadeWidth)
+            }
+        } else {
+            Rectangle()
+                .fill(.black)
         }
     }
 }

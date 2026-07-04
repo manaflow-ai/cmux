@@ -14,10 +14,11 @@ extension ChatKeyboardTrackingViewController {
             let tableFrame = frameInWindow(for: tableView)
             tableView.keyboardDebugPresentationFrameMaxYProvider = { [weak self, weak tableView] in
                 guard let self,
-                      let tableView,
-                      let frame = self.frameInWindow(for: tableView)
+                      tableView != nil
                 else { return nil }
-                return frame.maxY + self.presentationDeltaY() - tableView.composerOverlayBottomInset
+                return self.presentationAdjustedFrameInWindow(
+                    for: self.transcriptHostingController.view.superview
+                )?.maxY
             }
             tableView.keyboardDebugComposerPresentationMinYProvider = { [weak self] in
                 guard let self else { return nil }
@@ -30,7 +31,7 @@ extension ChatKeyboardTrackingViewController {
             tableView.keyboardDebugBottomConstraint = -overlap
             tableView.keyboardDebugComposerMinY = composerFrame?.minY ?? 0
             tableView.keyboardDebugComposerPresentationMinY = composerPresentationFrame?.minY ?? 0
-            tableView.keyboardDebugPresentationFrameMaxY = (tableFrame?.maxY ?? 0) + presentationDeltaY()
+            tableView.keyboardDebugPresentationFrameMaxY = tableFrame?.maxY ?? 0
             tableView.keyboardDebugAnimationID = keyboardTransitionID
             tableView.keyboardDebugAnimationActive = isKeyboardAnimationActive
             tableView.keyboardDebugAnimationProgress = animationProgress
@@ -54,10 +55,6 @@ extension ChatKeyboardTrackingViewController {
         return max(0, view.bounds.maxY - guideFrame.minY)
     }
 
-    private func presentationDeltaY() -> CGFloat {
-        keyboardOverlap - currentVisibleKeyboardOverlap()
-    }
-
     private func frameInWindow(for targetView: UIView) -> CGRect? {
         guard let window = targetView.window else { return nil }
         return targetView.convert(targetView.bounds, to: window)
@@ -65,9 +62,13 @@ extension ChatKeyboardTrackingViewController {
 
     private func presentationAdjustedFrameInWindow(for targetView: UIView?) -> CGRect? {
         guard let targetView,
-              let frame = frameInWindow(for: targetView)
-        else { return nil }
-        return frame.offsetBy(dx: 0, dy: presentationDeltaY())
+              let window = targetView.window
+        else {
+            return nil
+        }
+        let sourceLayer = targetView.layer.presentation() ?? targetView.layer
+        let targetLayer = window.layer.presentation() ?? window.layer
+        return sourceLayer.convert(sourceLayer.bounds, to: targetLayer)
     }
 }
 #endif

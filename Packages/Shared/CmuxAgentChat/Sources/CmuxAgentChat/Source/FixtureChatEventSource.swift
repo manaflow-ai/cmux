@@ -147,9 +147,13 @@ public actor FixtureChatEventSource: ChatEventSource {
         case .reset:
             backlog = []
             terminalBacklog = []
+        case .streamingProse:
+            // A live preview is transient and not part of history; forward it to
+            // subscribers but never fold it into the backlog.
+            break
         case .unknown:
             break
-        case .stateChanged, .descriptorChanged:
+        case .stateChanged, .descriptorChanged, .sessionRemoved:
             break
         }
         for continuation in continuations.values {
