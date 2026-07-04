@@ -18,6 +18,10 @@ const THINKING_CHOICES: OptionChoice[] = [
 const EFFORT_CHOICES: OptionChoice[] = ["low", "medium", "high", "xhigh", "max"]
   .map((value) => ({ value, label: value }));
 const DEFAULT_MODEL: OptionChoice = { value: "default", label: "Default" };
+interface ClaudeModelMeta {
+  efforts: OptionChoice[];
+  supportsFastMode: boolean;
+}
 
 interface ClaudeState {
   proc?: Bun.Subprocess<"pipe", "pipe", "pipe">;
@@ -25,6 +29,7 @@ interface ClaudeState {
   pending: Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>;
   model: string;
   modelChoices: OptionChoice[];
+  modelMeta: Map<string, ClaudeModelMeta>;
   permissionMode: string;
   thinking: string;
   effort: string;
@@ -80,15 +85,23 @@ export const claudeAdapter: Adapter = {
     await refreshClaudeOptions(sess);
   },
   async listOptions(cwd) {
-    const choices = await fetchClaudeModels(cwd);
-    return buildOptions({
+      const choices = await fetchClaudeModels(cwd);
+    const st = {
       model: "default",
-      modelChoices: choices,
+      modelChoices: choices.choices,
+      modelMeta: choices.meta,
       permissionMode: "default",
       thinking: "0",
       effort: "medium",
       fastMode: false,
-    });
+    };
+    normalizeEffort(st);
+    return buildOptions(st);
+  },
+  async forkSession(source, target) {
+    const providerSessionId = source.internal.providerSessionId as string | undefined;
+    if (!providerSessionId) throw new Error("claude session id is not available yet");
+    target.internal.claudeFork = { providerSessionId };
   },
 };
 
@@ -100,6 +113,7 @@ function state(sess: SessionCtx): ClaudeState {
       pending: new Map(),
       model: stringOption(sess, "model", "default"),
       modelChoices: [DEFAULT_MODEL],
+      modelMeta: new Map([["default", { efforts: EFFORT_CHOICES, supportsFastMode: true }]]),
       permissionMode: stringOption(sess, "permissionMode", sess.autoApprove ? "acceptEdits" : "default"),
       thinking: stringOption(sess, "thinking", "0"),
       effort: stringOption(sess, "effort", "medium"),
@@ -134,6 +148,8 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     "--verbose",
   ];
   if (st.model !== "default") args.push("--model", st.model);
+  const fork = sess.internal.claudeFork as { providerSessionId?: string } | undefined;
+  if (fork?.providerSessionId) args.push("--resume", fork.providerSessionId, "--fork-session");
   if (st.permissionMode !== "default") args.push("--permission-mode", st.permissionMode);
   if (sess.autoApprove) args.push("--allowedTools", "Bash Read Edit Write Glob Grep WebFetch WebSearch");
   if (typeof sess.startOptions.effort === "string") args.push("--effort", st.effort);
@@ -227,6 +243,9 @@ async function setClaudeOption(sess: SessionCtx, id: string, value: OptionValue)
       if (typeof value !== "string") throw new Error("model must be a string");
       await control(sess, "set_model", value === "default" ? {} : { model: value });
       st.model = value;
+      const changed = normalizeEffort(st);
+      if (changed.effort) await control(sess, "apply_flag_settings", { settings: { effortLevel: st.effort } });
+      if (changed.fastMode) await control(sess, "apply_flag_settings", { settings: { fastMode: st.fastMode } });
       break;
     }
     case "permissionMode": {
@@ -263,7 +282,10 @@ async function refreshClaudeOptions(sess: SessionCtx) {
   const st = state(sess);
   if (seedModelChoices(sess, st)) emitOptions(sess);
   const res = await control(sess, "list_models");
-  st.modelChoices = normalizeModels(res?.models);
+  const catalog = normalizeModelCatalog(res?.models);
+  st.modelChoices = catalog.choices;
+  st.modelMeta = catalog.meta;
+  normalizeEffort(st);
   emitOptions(sess);
   if (st.commands.length) sess.emit({ kind: "commands", trigger: "/", commands: st.commands });
 }
@@ -276,29 +298,53 @@ function seedModelChoices(sess: SessionCtx, st: ClaudeState): boolean {
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(state(sess)) });
+  sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true } });
 }
 
-function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "permissionMode" | "thinking" | "effort" | "fastMode">): SessionOption[] {
-  return [
+function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "modelMeta" | "permissionMode" | "thinking" | "effort" | "fastMode">): SessionOption[] {
+  const meta = modelMeta(st);
+  const opts: SessionOption[] = [
     { id: "model", label: "Model", kind: "select", value: st.model, choices: st.modelChoices.length ? st.modelChoices : [DEFAULT_MODEL] },
     { id: "permissionMode", label: "Mode", kind: "select", value: st.permissionMode, choices: PERMISSION_CHOICES },
     { id: "thinking", label: "Thinking", kind: "select", value: st.thinking, role: "thinking-budget", choices: THINKING_CHOICES },
-    { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: EFFORT_CHOICES },
-    { id: "fastMode", label: "Fast", kind: "toggle", value: st.fastMode },
+    { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: meta.efforts },
   ];
+  if (meta.supportsFastMode) opts.push({ id: "fastMode", label: "Fast", kind: "toggle", value: st.fastMode });
+  return opts;
 }
 
-function normalizeModels(models: any): OptionChoice[] {
-  if (!Array.isArray(models)) return [DEFAULT_MODEL];
-  return models.map((m) => ({
-    value: String(m.value ?? m.model ?? m.id ?? "default"),
-    label: String(m.displayName ?? m.name ?? m.value ?? "Model"),
-    description: m.description ? String(m.description) : undefined,
-  }));
+function modelMeta(st: Pick<ClaudeState, "model" | "modelMeta">): ClaudeModelMeta {
+  return st.modelMeta.get(st.model) ?? st.modelMeta.get("default") ?? { efforts: EFFORT_CHOICES, supportsFastMode: true };
 }
 
-async function fetchClaudeModels(cwd: string): Promise<OptionChoice[]> {
+function normalizeEffort(st: Pick<ClaudeState, "model" | "modelMeta" | "effort" | "fastMode">): { effort: boolean; fastMode: boolean } {
+  const meta = modelMeta(st);
+  const beforeEffort = st.effort;
+  const beforeFast = st.fastMode;
+  if (!meta.efforts.some((c) => c.value === st.effort)) st.effort = meta.efforts[0]?.value ?? "medium";
+  if (!meta.supportsFastMode) st.fastMode = false;
+  return { effort: st.effort !== beforeEffort, fastMode: st.fastMode !== beforeFast };
+}
+
+function normalizeModelCatalog(models: any): { choices: OptionChoice[]; meta: Map<string, ClaudeModelMeta> } {
+  const meta = new Map<string, ClaudeModelMeta>([["default", { efforts: EFFORT_CHOICES, supportsFastMode: true }]]);
+  if (!Array.isArray(models)) return { choices: [DEFAULT_MODEL], meta };
+  const choices = models.map((m) => {
+    const value = String(m.value ?? m.model ?? m.id ?? "default");
+    const efforts = Array.isArray(m.supportedEffortLevels) && m.supportedEffortLevels.length
+      ? m.supportedEffortLevels.map((e: any) => ({ value: String(e.effortLevel ?? e), label: String(e.effortLevel ?? e) }))
+      : EFFORT_CHOICES;
+    meta.set(value, { efforts, supportsFastMode: m.supportsFastMode === true });
+    return {
+      value,
+      label: String(m.displayName ?? m.name ?? m.value ?? "Model"),
+      description: m.description ? String(m.description) : undefined,
+    };
+  });
+  return { choices, meta };
+}
+
+async function fetchClaudeModels(cwd: string): Promise<{ choices: OptionChoice[]; meta: Map<string, ClaudeModelMeta> }> {
   const proc = Bun.spawn([
     "claude",
     "-p",
@@ -323,7 +369,7 @@ async function fetchClaudeModels(cwd: string): Promise<OptionChoice[]> {
         if (response?.request_id !== "cmux-list-options") return;
         clearTimeout(timer);
         if (response.subtype !== "success") reject(new Error(response.error ?? response.message ?? "claude list_models failed"));
-        else resolve(normalizeModels(response.response?.models));
+        else resolve(normalizeModelCatalog(response.response?.models));
       }, () => {
         clearTimeout(timer);
         reject(new Error("claude exited while listing models"));
@@ -359,6 +405,9 @@ function handleLine(sess: SessionCtx, line: string) {
       if (ev.subtype === "init") {
         const st = state(sess);
         st.commands = normalizeCommands(ev.slash_commands);
+        sess.internal.providerSessionId = ev.session_id;
+        const fork = sess.internal.claudeFork as { providerSessionId?: string } | undefined;
+        if (fork && ev.session_id) fork.providerSessionId = ev.session_id;
         sess.emit({ kind: "meta", model: ev.model, providerSessionId: ev.session_id });
         if (st.commands.length) sess.emit({ kind: "commands", trigger: "/", commands: st.commands });
       } else if (ev.subtype === "status" && ev.permissionMode) {

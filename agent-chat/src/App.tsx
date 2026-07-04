@@ -9,6 +9,7 @@ import {
   type CommandGroup,
   type OptionValue,
   type Provider,
+  type SessionActions,
   type SessionOption,
   type SessionState,
 } from "./session";
@@ -126,6 +127,9 @@ const ShieldIcon = () => (
 );
 const EllipsisIcon = () => (
   <svg viewBox="0 0 16 16" width="15" height="15"><path d="M3.5 8h.1M8 8h.1M12.5 8h.1" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
+);
+const CopyIcon = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14"><path d="M5.2 5.2h7.1v7.1H5.2zM3.7 10.8H3V3.7h7.1v.7" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" /></svg>
 );
 
 function useAutoGrow(value: string, max: number) {
@@ -898,7 +902,6 @@ function Composer() {
 
   return (
     <section id="composer-view">
-      <h1>What should the agent do?</h1>
       <div id="composer-card">
         <div className="input-wrap">
           <textarea
@@ -961,7 +964,41 @@ function ToolBlock({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   );
 }
 
-function Blocks({ blocks }: { blocks: Block[] }) {
+function durationText(stats: string): string {
+  return stats.split(" · ").find((part) => /^\d+(\.\d+)?s$/.test(part.trim())) ?? "";
+}
+
+function TurnActions({ stats, text, actions, onFork }: { stats: string; text: string; actions: SessionActions; onFork: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 900);
+    }).catch(() => {});
+  };
+  return (
+    <div className="turn-actions">
+      <span className="turn-duration">{durationText(stats)}</span>
+      <button className="turn-action-btn" type="button" aria-label="Copy response" onClick={copy}>
+        {copied ? <Check /> : <CopyIcon />}
+      </button>
+      <Popover.Root>
+        <Popover.Trigger className="turn-action-btn" aria-label="Message actions"><EllipsisIcon /></Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Positioner sideOffset={6} align="start">
+            <Popover.Popup className="turn-menu menu">
+              {stats ? <div className="turn-menu-stats">{stats}</div> : null}
+              {actions.fork ? <button className="turn-menu-item" type="button" onClick={onFork}>Fork chat</button> : null}
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
+    </div>
+  );
+}
+
+function Blocks({ blocks, actions, onFork }: { blocks: Block[]; actions: SessionActions; onFork: () => void }) {
+  let lastAssistant = "";
   return (
     <>
       {blocks.map((b, i) => {
@@ -969,6 +1006,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
           case "user":
             return <div className="msg user" key={i}><div className="body">{b.text}</div></div>;
           case "assistant":
+            lastAssistant = b.text;
             return <div className="msg assistant" key={i}><div className="body" dangerouslySetInnerHTML={{ __html: renderMd(b.text) }} /></div>;
           case "thinking":
             return (
@@ -984,7 +1022,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
           case "error":
             return <div className="error-block-wrap" key={i}><div className="error-block">{b.text}</div></div>;
           case "footer":
-            return <div className="turn-footer" key={i}>{b.text}</div>;
+            return <TurnActions key={i} stats={b.text} text={lastAssistant} actions={actions} onFork={onFork} />;
         }
       })}
     </>
@@ -992,7 +1030,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
 }
 
 function Chat() {
-  const { providers, session, blocks, options, commands, reply, stop, setOption, compose } = useCtx();
+  const { providers, session, blocks, options, actions, commands, reply, stop, setOption, fork, compose } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1041,7 +1079,7 @@ function Chat() {
   return (
     <section id="chat-view">
       <div id="messages" ref={scrollRef} onScroll={onScroll}>
-        <Blocks blocks={blocks} />
+        <Blocks blocks={blocks} actions={actions} onFork={fork} />
       </div>
       <div id="chat-input-row">
         <div id="chat-card">

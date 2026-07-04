@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
-  | { kind: "options"; options: SessionOption[] }
+  | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
   | { kind: "status"; text: string }
@@ -32,6 +32,7 @@ export interface SessionOption {
 export interface CommandEntry { name: string; description?: string; source?: string; }
 export interface CommandGroup { trigger: CommandTrigger; commands: CommandEntry[]; }
 export interface ProviderCapabilities { options: SessionOption[]; triggers: CommandTrigger[]; }
+export interface SessionActions { fork?: boolean; }
 
 export type Block =
   | { kind: "user"; text: string }
@@ -83,7 +84,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
       );
     case "done": {
       const closed = closeStreaming(blocks);
-      return evt.stats ? [...closed, { kind: "footer", text: evt.stats }] : closed;
+      return [...closed, { kind: "footer", text: evt.stats ?? "" }];
     }
     case "error":
       return [...closeStreaming(blocks), { kind: "error", text: evt.message }];
@@ -106,6 +107,7 @@ export interface SessionState {
   session: SessionSummary | null;
   blocks: Block[];
   options: SessionOption[];
+  actions: SessionActions;
   commands: CommandGroup[];
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
@@ -114,6 +116,7 @@ export interface SessionState {
   reply(text: string): void;
   stop(): void;
   setOption(id: string, value: OptionValue): void;
+  fork(): void;
   requestProviderOptions(provider: string, cwd: string): void;
   requestProviderCommands(provider: string, cwd: string): void;
 }
@@ -130,6 +133,7 @@ export function useSession(): SessionState {
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [options, setOptions] = useState<SessionOption[]>([]);
+  const [actions, setActions] = useState<SessionActions>({});
   const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [providerOptions, setProviderOptions] = useState<Record<string, SessionOption[]>>({});
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
@@ -168,6 +172,7 @@ export function useSession(): SessionState {
             setSession(msg.session);
             setBlocks([]);
             setOptions([]);
+            setActions({});
             setCommands([]);
             setPhase("chat");
             break;
@@ -177,6 +182,7 @@ export function useSession(): SessionState {
             setSession(msg.session);
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
             setOptions(latestOptions(msg.events as AgentEvent[]));
+            setActions(latestActions(msg.events as AgentEvent[]));
             setCommands(latestCommands(msg.events as AgentEvent[]));
             setPhase("chat");
             break;
@@ -185,6 +191,7 @@ export function useSession(): SessionState {
             sessionIdRef.current = null;
             setSession(null);
             setOptions([]);
+            setActions({});
             setCommands([]);
             setPhase("composer");
             break;
@@ -198,8 +205,12 @@ export function useSession(): SessionState {
               const evt = msg.evt as AgentEvent;
               setBlocks((bs) => foldEvent(bs, evt));
               if (evt.kind === "options") setOptions(evt.options);
+              if (evt.kind === "options") setActions(evt.actions ?? {});
               if (evt.kind === "commands") setCommands((gs) => upsertCommands(gs, evt));
             }
+            break;
+          case "session-forked":
+            window.open("/s/" + msg.session.id, "_blank");
             break;
           case "options-list":
             setProviderOptions((m) => ({ ...m, [msg.provider]: msg.options ?? [] }));
@@ -225,6 +236,7 @@ export function useSession(): SessionState {
     setSession(null);
     setBlocks([]);
     setOptions([]);
+    setActions({});
     setCommands([]);
     setPhase("composer");
   }, []);
@@ -236,6 +248,9 @@ export function useSession(): SessionState {
   }, [sendRaw]);
   const setOption = useCallback((id: string, value: OptionValue) => {
     if (sessionIdRef.current) sendRaw({ op: "set-option", sessionId: sessionIdRef.current, id, value });
+  }, [sendRaw]);
+  const fork = useCallback(() => {
+    if (sessionIdRef.current) sendRaw({ op: "fork", sessionId: sessionIdRef.current });
   }, [sendRaw]);
   const requestProviderOptions = useCallback((provider: string, cwd: string) => {
     sendRaw({ op: "list-options", provider, cwd });
@@ -254,6 +269,7 @@ export function useSession(): SessionState {
     session,
     blocks,
     options,
+    actions,
     commands,
     providerOptions,
     providerCommands,
@@ -262,6 +278,7 @@ export function useSession(): SessionState {
     reply,
     stop,
     setOption,
+    fork,
     requestProviderOptions,
     requestProviderCommands,
   };
@@ -272,6 +289,13 @@ function latestOptions(events: AgentEvent[]): SessionOption[] {
     if (events[i].kind === "options") return (events[i] as Extract<AgentEvent, { kind: "options" }>).options;
   }
   return [];
+}
+
+function latestActions(events: AgentEvent[]): SessionActions {
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind === "options") return (events[i] as Extract<AgentEvent, { kind: "options" }>).actions ?? {};
+  }
+  return {};
 }
 
 function latestCommands(events: AgentEvent[]): CommandGroup[] {

@@ -12,6 +12,7 @@ interface PiState {
   modelChoices: OptionChoice[];
   thinking: string;
   thinkingNormalized: boolean;
+  sessionFile?: string;
   commands: CommandEntry[];
   initialApplied: boolean;
 }
@@ -62,6 +63,14 @@ export const piAdapter: Adapter = {
   async listCommands(cwd) {
     return [{ trigger: "/", commands: await fetchPiCommands(cwd) }];
   },
+  async forkSession(source, target) {
+    await captureState(source);
+    const sessionFile = state(source).sessionFile;
+    if (!sessionFile) throw new Error("pi source session file is not available");
+    target.internal.piForkSourceFile = sessionFile;
+    target.startOptions = { ...source.startOptions };
+    emitOptions(target);
+  },
 };
 
 function state(sess: SessionCtx): PiState {
@@ -74,6 +83,7 @@ function state(sess: SessionCtx): PiState {
       modelChoices: [],
       thinking: typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "off",
       thinkingNormalized: false,
+      sessionFile: typeof sess.internal.piSessionFile === "string" ? sess.internal.piSessionFile : undefined,
       commands: [],
       initialApplied: false,
     };
@@ -86,7 +96,12 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
   const st = state(sess);
   if (st.proc && st.proc.exitCode === null && !st.proc.killed) return st.proc;
 
-  const proc = Bun.spawn(["pi", "--mode", "rpc"], {
+  const args = ["pi", "--mode", "rpc"];
+  const forkSourceFile = sess.internal.piForkSourceFile as string | undefined;
+  if (st.sessionFile) args.push("--session", st.sessionFile);
+  else if (forkSourceFile) args.push("--fork", forkSourceFile);
+
+  const proc = Bun.spawn(args, {
     cwd: sess.cwd,
     stdin: "pipe",
     stdout: "pipe",
@@ -142,6 +157,7 @@ async function applyInitialOptions(sess: SessionCtx) {
   if (typeof sess.startOptions.model === "string") await setPiOption(sess, "model", st.model);
   if (typeof sess.startOptions.thinking === "string") await setPiOption(sess, "thinking", st.thinking);
   if (!st.modelChoices.length || !st.commands.length) await refreshPi(sess);
+  await captureState(sess);
 }
 
 async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {
@@ -172,6 +188,7 @@ async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {
 
 async function refreshPi(sess: SessionCtx) {
   const st = state(sess);
+  await captureState(sess);
   if (seedModelChoices(sess, st)) emitOptions(sess);
   const models = await request(sess, { type: "get_available_models" });
   st.modelChoices = normalizeModels(models?.models ?? models?.data?.models);
@@ -185,6 +202,7 @@ async function refreshPi(sess: SessionCtx) {
   const commands = await request(sess, { type: "get_commands" });
   st.commands = normalizeCommands(commands?.commands ?? commands?.data?.commands);
   sess.emit({ kind: "commands", trigger: "/", commands: st.commands });
+  await captureState(sess);
 }
 
 function seedModelChoices(sess: SessionCtx, st: PiState): boolean {
@@ -196,7 +214,19 @@ function seedModelChoices(sess: SessionCtx, st: PiState): boolean {
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(state(sess)) });
+  sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true } });
+}
+
+async function captureState(sess: SessionCtx) {
+  const st = state(sess);
+  const res = await request(sess, { type: "get_state" });
+  const sessionFile = res?.sessionFile ?? res?.state?.sessionFile;
+  if (sessionFile) {
+    st.sessionFile = String(sessionFile);
+    sess.internal.piSessionFile = st.sessionFile;
+    sess.internal.piForkSourceFile = undefined;
+    sess.emit({ kind: "meta", providerSessionId: st.sessionFile });
+  }
 }
 
 function buildOptions(st: Pick<PiState, "model" | "modelChoices" | "thinking">): SessionOption[] {

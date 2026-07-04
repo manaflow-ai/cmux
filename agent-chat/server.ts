@@ -157,6 +157,22 @@ function refreshSession(sess: Session) {
   });
 }
 
+async function forkSession(source: Session): Promise<Session> {
+  if (!source.adapter.forkSession) throw new Error(`${source.provider} does not support fork`);
+  const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions });
+  fork.events = source.events.slice();
+  try {
+    await source.adapter.forkSession(source, fork);
+    refreshSession(fork);
+    return fork;
+  } catch (err) {
+    fork.adapter.dispose(fork);
+    sessions.delete(fork.id);
+    broadcastSessions();
+    throw err;
+  }
+}
+
 function parseOptions(raw: unknown): Record<string, OptionValue> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, OptionValue> = {};
@@ -473,6 +489,14 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       Promise.resolve(sess.adapter.setOption(sess, id, value)).catch((err) => {
         sess.emit({ kind: "error", message: String(err) });
       });
+      break;
+    }
+    case "fork": {
+      const sess = sessions.get(String(msg.sessionId));
+      if (!sess) return;
+      Promise.resolve(forkSession(sess))
+        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork) })))
+        .catch((err) => sess.emit({ kind: "error", message: String(err) }));
       break;
     }
     case "list-options": {

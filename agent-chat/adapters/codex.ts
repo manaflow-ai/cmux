@@ -137,6 +137,26 @@ export const codexAdapter: Adapter = {
   async listCommands(cwd) {
     return [{ trigger: "$", commands: await listSkills(cwd) }];
   },
+  async forkSession(source, target) {
+    const threadId = source.internal.threadId as string | undefined;
+    if (!threadId) throw new Error("codex thread id is not available yet");
+    const srv = await ensureServer();
+    const res = await srv.request("thread/fork", { threadId });
+    const forkThreadId = res.thread?.id ?? res.threadId;
+    if (!forkThreadId) throw new Error("codex thread/fork returned no thread id");
+    target.internal.threadId = forkThreadId;
+    srv.sessionsByThread.set(forkThreadId, target);
+    const sourceState = codexState(source);
+    target.internal.codex = {
+      ...sourceState,
+      turnWaiters: [],
+      currentTurnId: undefined,
+      commands: sourceState.commands.slice(),
+    };
+    target.internal.deltaItems = new Set<string>();
+    target.emit({ kind: "meta", providerSessionId: forkThreadId });
+    emitOptions(target);
+  },
 };
 
 async function ensureServer(): Promise<AppServer> {
@@ -441,7 +461,7 @@ async function setCodexOption(sess: SessionCtx, id: string, value: OptionValue) 
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(codexState(sess)) });
+  sess.emit({ kind: "options", options: buildOptions(codexState(sess)), actions: { fork: true } });
 }
 
 function buildOptions(st: CodexState): SessionOption[] {

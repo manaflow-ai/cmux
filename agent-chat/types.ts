@@ -1,7 +1,7 @@
 // Common event schema every adapter normalizes into. The UI only knows this.
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
-  | { kind: "options"; options: SessionOption[] }
+  | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
   | { kind: "status"; text: string }
@@ -46,6 +46,10 @@ export interface ProviderCapabilities {
   triggers: CommandTrigger[];
 }
 
+export interface SessionActions {
+  fork?: boolean;
+}
+
 export interface SessionCtx {
   id: string;
   provider: string;
@@ -70,6 +74,7 @@ export interface Adapter {
   refreshOptions?(sess: SessionCtx): Promise<void>;
   listOptions?(cwd: string): Promise<SessionOption[]>;
   listCommands?(cwd: string): Promise<{ trigger: CommandTrigger; commands: CommandEntry[] }[]>;
+  forkSession?(source: SessionCtx, target: SessionCtx): Promise<void>;
   capabilities?: ProviderCapabilities;
 }
 
