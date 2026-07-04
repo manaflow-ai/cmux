@@ -13544,9 +13544,9 @@ class TerminalController {
         }
     }
 
-    private func clearMobileViewportReports(surfaceID: UUID, reason: String) {
+    private func clearMobileViewportReports(surfaceID: UUID, reason: String, clearGenerations: Bool = false) {
         mobileViewportReportsBySurfaceID[surfaceID] = nil
-        mobileViewportGenerationsBySurfaceID[surfaceID] = nil
+        if clearGenerations { mobileViewportGenerationsBySurfaceID[surfaceID] = nil }
         mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
         mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
         terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
@@ -13713,7 +13713,7 @@ class TerminalController {
                 data: ["surface_id": surfaceId.uuidString]
             )
         }
-        clearMobileViewportReports(surfaceID: surfaceId, reason: "mobile.terminal.close")
+        clearMobileViewportReports(surfaceID: surfaceId, reason: "mobile.terminal.close", clearGenerations: true)
         return .ok([
             "closed": true,
             "workspace_id": resolved.workspace.id.uuidString,
