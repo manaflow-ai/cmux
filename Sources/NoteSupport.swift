@@ -263,12 +263,18 @@ enum NoteSupport {
     /// mtime descending. Returns an empty array if the directory does not
     /// exist.
     ///
-    /// Bounded: the streaming enumerator materializes (stats + sorts) at most
-    /// `limit` entries, so this scan — reached from every note-store read via
-    /// the unindexed-note merge — stays cheap even if a project-controlled
-    /// `.cmux/notes` directory is huge. Beyond the cap, selection follows
-    /// filesystem order; the cap is far above any practical flat-note count.
-    static func listNotes(forProjectRoot root: String, limit: Int = 2000) -> [NoteListEntry] {
+    /// Bounded two ways, since this scan is reached from every note-store read
+    /// via the unindexed-note merge and the directory is project-controlled:
+    /// `scanLimit` caps how many directory entries are examined at all (the
+    /// real work bound — it counts every entry, valid or not), and `limit`
+    /// caps the returned array. All valid entries within the scan budget are
+    /// collected and sorted before truncation, so up to `scanLimit` entries
+    /// the result is exactly the `limit` most recently modified notes.
+    static func listNotes(
+        forProjectRoot root: String,
+        limit: Int = 2000,
+        scanLimit: Int = 20000
+    ) -> [NoteListEntry] {
         let dir = notesDirectory(forProjectRoot: root)
         guard let enumerator = FileManager.default.enumerator(
             at: URL(fileURLWithPath: dir, isDirectory: true),
@@ -278,8 +284,10 @@ enum NoteSupport {
             return []
         }
         var notes: [NoteListEntry] = []
+        var scanned = 0
         for case let url as URL in enumerator {
-            if notes.count >= limit { break }
+            scanned += 1
+            if scanned > scanLimit { break }
             let path = url.path
             guard path.hasSuffix(".md") else { continue }
             let values = try? url.resourceValues(forKeys: [
@@ -298,7 +306,11 @@ enum NoteSupport {
                 mtime: values?.contentModificationDate ?? .distantPast
             ))
         }
-        return notes.sorted { $0.mtime > $1.mtime }
+        notes.sort { $0.mtime > $1.mtime }
+        if notes.count > limit {
+            notes.removeSubrange(limit...)
+        }
+        return notes
     }
 
     /// Delete the note file for `slug`. Returns true if a file was deleted.

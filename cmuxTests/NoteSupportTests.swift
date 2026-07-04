@@ -157,6 +157,34 @@ struct NoteSupportTests {
         XCTAssertFalse(try NoteSupport.deleteNote(slug: "todo", projectRoot: root.path))
     }
 
+    @Test func testListNotesKeepsMostRecentlyModifiedWhenOverLimit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fs = FileManager.default
+        let notesDir = NoteSupport.notesDirectory(forProjectRoot: root.path)
+        try fs.createDirectory(atPath: notesDir, withIntermediateDirectories: true)
+        defer { try? fs.removeItem(at: root) }
+
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        for index in 0..<5 {
+            let path = (notesDir as NSString).appendingPathComponent("note-\(index).md")
+            fs.createFile(atPath: path, contents: Data("body \(index)".utf8))
+            try fs.setAttributes(
+                [.modificationDate: base.addingTimeInterval(TimeInterval(index * 60))],
+                ofItemAtPath: path
+            )
+        }
+
+        // Sorting must happen before truncation: the survivors are the most
+        // recently modified notes, not whichever entries enumerate first.
+        let entries = NoteSupport.listNotes(forProjectRoot: root.path, limit: 3)
+        XCTAssertEqual(entries.map(\.slug), ["note-4", "note-3", "note-2"])
+
+        // The scan budget bounds raw directory work independently of `limit`.
+        let scanned = NoteSupport.listNotes(forProjectRoot: root.path, limit: 3, scanLimit: 2)
+        XCTAssertTrue(scanned.count <= 2)
+    }
+
     @Test func testIndexedNoteCreateAttachesAndReusesCurrentSurfaceNote() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
