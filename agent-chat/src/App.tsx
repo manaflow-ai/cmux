@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Select } from "@base-ui-components/react/select";
-import { Switch } from "@base-ui-components/react/switch";
 import { Popover } from "@base-ui-components/react/popover";
+import { Tooltip } from "@base-ui-components/react/tooltip";
 import {
   useSession,
   type Block,
@@ -37,6 +37,47 @@ function Dot({ id }: { id: string }) {
   return <span className="dot" style={{ background: colorFor(id), color: colorFor(id) }} />;
 }
 
+function ProviderIcon({ id }: { id: string }) {
+  const color = colorFor(id);
+  if (id === "claude") {
+    return (
+      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
+        <path d="M8 1.7v12.6M1.7 8h12.6M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  if (id === "codex") {
+    return (
+      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
+        <path d="M8 1.8l4.9 2.8v5.7L8 13.2l-4.9-2.9V4.6L8 1.8zm0 0v4.1m4.9-1.3L9.3 6.7m-6.2-2.1l3.6 2.1m-3.6 3.6l3.6-2.1m6.2 2.1L9.3 8.2M8 13.2V9.1" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (id === "opencode") {
+    return (
+      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
+        <rect x="2.2" y="3" width="11.6" height="10" rx="2" fill="none" stroke="currentColor" strokeWidth="1.25" />
+        <path d="M4.6 6.1l2 1.9-2 1.9M7.9 10.1h3.1" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (id === "pi") {
+    return (
+      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
+        <text x="8" y="11.8" textAnchor="middle" fontSize="13" fontWeight="650" fill="currentColor">π</text>
+      </svg>
+    );
+  }
+  if (id === "gemini") {
+    return (
+      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
+        <path d="M8 1.8c.7 3.1 2.1 4.5 5.2 5.2C10.1 7.7 8.7 9.1 8 12.2 7.3 9.1 5.9 7.7 2.8 7 5.9 6.3 7.3 4.9 8 1.8z" fill="currentColor" />
+      </svg>
+    );
+  }
+  return <Dot id={id} />;
+}
+
 const ArrowUp = () => (
   <svg viewBox="0 0 16 16" width="16" height="16"><path d="M8 13V3.5M4 7l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
 );
@@ -48,6 +89,24 @@ const Check = () => (
 );
 const FolderIcon = () => (
   <svg viewBox="0 0 14 12" width="13" height="11" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M1 3.4c0-.7.5-1.3 1.2-1.3h2.5l1.2 1.4h5.7c.7 0 1.2.6 1.2 1.3v4.9c0 .7-.5 1.3-1.2 1.3H2.2C1.5 11 1 10.4 1 9.7z" /></svg>
+);
+const SparkIcon = () => (
+  <svg viewBox="0 0 16 16" width="15" height="15"><path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" /></svg>
+);
+const BoltIcon = () => (
+  <svg viewBox="0 0 16 16" width="15" height="15"><path d="M8.8 1.8L3.9 8.7h3.6l-.5 5.5 5.1-7.1H8.4l.4-5.3z" fill="currentColor" /></svg>
+);
+const BarsIcon = () => (
+  <svg viewBox="0 0 16 16" width="15" height="15"><path d="M3 12V9.8M6.3 12V7.8M9.6 12V5.6M12.9 12V3.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
+);
+const PlanIcon = () => (
+  <svg viewBox="0 0 16 16" width="15" height="15"><path d="M2.5 4.3l3.4-1.5 4.2 1.5 3.4-1.5v8.9l-3.4 1.5-4.2-1.5-3.4 1.5V4.3zM5.9 2.8v8.9M10.1 4.3v8.9" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" /></svg>
+);
+const ShieldIcon = () => (
+  <svg viewBox="0 0 16 16" width="15" height="15"><path d="M8 2.2l4.7 1.7v3.6c0 3.1-1.9 5.3-4.7 6.3-2.8-1-4.7-3.2-4.7-6.3V3.9L8 2.2z" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" /><path d="M5.8 7.9l1.4 1.4 3-3.1" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" /></svg>
+);
+const EllipsisIcon = () => (
+  <svg viewBox="0 0 16 16" width="15" height="15"><path d="M3.5 8h.1M8 8h.1M12.5 8h.1" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
 );
 
 function useAutoGrow(value: string, max: number) {
@@ -61,21 +120,53 @@ function useAutoGrow(value: string, max: number) {
   return ref;
 }
 
+function comboForAction(action?: KeyAction): string {
+  if (!action) return "";
+  return KEYMAP.find((k) => k.action === action)?.combo ?? "";
+}
+
+function comboGlyph(combo: string): string {
+  return combo
+    .replaceAll("Ctrl", "⌃")
+    .replaceAll("Shift", "⇧")
+    .replaceAll("Tab", "⇥")
+    .replaceAll("+", "");
+}
+
+function HintTooltip({ label, action, children }: { label: string; action?: KeyAction; children: ReactElement }) {
+  const combo = comboForAction(action);
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger delay={450} render={children} />
+      <Tooltip.Portal>
+        <Tooltip.Positioner sideOffset={7}>
+          <Tooltip.Popup className="tooltip">
+            <span>{label}</span>
+            {combo ? <kbd>{comboGlyph(combo)}</kbd> : null}
+          </Tooltip.Popup>
+        </Tooltip.Positioner>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
 function ProviderSelect({ providers, value, onChange }: { providers: Provider[]; value: string; onChange: (v: string) => void }) {
   const label = providers.find((p) => p.id === value)?.label ?? value;
   return (
     <Select.Root value={value} onValueChange={(v) => onChange(v as string)}>
-      <Select.Trigger className="chip select-trigger">
-        <Dot id={value} />
-        <span className="select-value">{label}</span>
-        <Select.Icon className="chev"><Chevron /></Select.Icon>
-      </Select.Trigger>
+      <HintTooltip label="Switch provider">
+        <Select.Trigger className="row-control provider-trigger select-trigger">
+          <ProviderIcon id={value} />
+          <span className="row-value">{label}</span>
+          <Select.Icon className="chev"><Chevron /></Select.Icon>
+        </Select.Trigger>
+      </HintTooltip>
       <Select.Portal>
         <Select.Positioner className="select-positioner" sideOffset={8} align="start">
           <Select.Popup className="menu">
             {providers.map((p) => (
               <Select.Item key={p.id} value={p.id} className="menu-item">
-                <Dot id={p.id} />
+                <ProviderIcon id={p.id} />
                 <Select.ItemText>{p.label}</Select.ItemText>
                 <Select.ItemIndicator className="mi-check"><Check /></Select.ItemIndicator>
               </Select.Item>
@@ -90,10 +181,12 @@ function ProviderSelect({ providers, value, onChange }: { providers: Provider[];
 function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: string) => void; onCommit: (v: string) => void }) {
   return (
     <Popover.Root onOpenChange={(open) => { if (!open) onCommit(cwd); }}>
-      <Popover.Trigger className="chip" title={cwd}>
-        <FolderIcon />
-        <span className="cwd-label">{basename(cwd)}</span>
-      </Popover.Trigger>
+      <HintTooltip label="Change working directory">
+        <Popover.Trigger className="row-control cwd-trigger">
+          <FolderIcon />
+          <span className="cwd-label">{basename(cwd)}</span>
+        </Popover.Trigger>
+      </HintTooltip>
       <Popover.Portal>
         <Popover.Positioner sideOffset={8} align="start">
           <Popover.Popup className="popover">
@@ -119,21 +212,53 @@ function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: st
   );
 }
 
-function optionHint(id: string): string {
-  if (id === "model") return "Ctrl+P cycles · Ctrl+Shift+P opens";
-  if (id === "effort" || id === "thinking") return "Ctrl+T";
-  if (id === "fastMode") return "Ctrl+F";
-  if (id === "mode" || id === "permissionMode" || id === "approvals") return "Shift+Tab";
-  return "";
+function currentChoice(option?: SessionOption) {
+  if (!option) return null;
+  const value = String(option.value ?? "");
+  return option.choices?.find((c) => c.value === value) ?? (value ? { value, label: value } : null);
 }
 
-function OptionSelectChip({
+function prettyValue(option?: SessionOption): string {
+  const choice = currentChoice(option);
+  if (!choice) return "";
+  const raw = String(choice.value ?? "");
+  const label = String(choice.label ?? raw);
+  if (label && label !== raw) return label;
+  if (/^x/i.test(raw) || raw === "max") return "Extra high";
+  return raw
+    .replace(/[-_]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function optionAction(id: string): KeyAction | undefined {
+  if (id === "model") return "open-model";
+  if (id === "effort" || id === "thinking") return "cycle-thinking";
+  if (id === "fastMode") return "toggle-fast";
+  if (id === "mode" || id === "permissionMode") return "cycle-mode";
+  return undefined;
+}
+
+function optionTooltip(option: SessionOption): string {
+  if (option.id === "model") return "Adjust model";
+  if (option.id === "effort") return "Adjust effort level";
+  if (option.id === "thinking") return "Adjust thinking level";
+  if (option.id === "fastMode") return "Toggle fast mode";
+  if (option.id === "mode" || option.id === "permissionMode") return "Change mode";
+  return `Adjust ${option.label}`;
+}
+
+function InlineSelect({
   option,
+  icon,
+  label,
   onChange,
   open,
   onOpenChange,
 }: {
   option: SessionOption;
+  icon: ReactNode;
+  label: string;
   onChange: (id: string, value: OptionValue) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -143,7 +268,6 @@ function OptionSelectChip({
     ? option.choices
     : (value ? [{ value, label: value }] : []);
   const current = choices.find((c) => c.value === value)?.label ?? (value || option.label);
-  const title = [option.description, optionHint(option.id)].filter(Boolean).join(" · ");
   return (
     <Select.Root
       value={value}
@@ -152,11 +276,12 @@ function OptionSelectChip({
       onOpenChange={(next) => onOpenChange(next)}
       onValueChange={(v) => onChange(option.id, String(v))}
     >
-      <Select.Trigger className="chip option-chip select-trigger" title={title || option.label}>
-        <span className="option-label">{option.label}</span>
-        <span className="select-value">{current}</span>
-        <Select.Icon className="chev"><Chevron /></Select.Icon>
-      </Select.Trigger>
+      <HintTooltip label={optionTooltip(option)} action={optionAction(option.id)}>
+        <Select.Trigger className="row-control row-select select-trigger" aria-label={option.label}>
+          <span className="row-icon">{icon}</span>
+          <span className="row-value">{label || current}</span>
+        </Select.Trigger>
+      </HintTooltip>
       <Select.Portal>
         <Select.Positioner className="select-positioner" sideOffset={8} align="start">
           <Select.Popup className="menu option-menu">
@@ -173,66 +298,185 @@ function OptionSelectChip({
   );
 }
 
-function OptionToggleChip({ option, onChange }: { option: SessionOption; onChange: (id: string, value: OptionValue) => void }) {
-  const title = [option.description, optionHint(option.id)].filter(Boolean).join(" · ");
+function cycleSelect(option: SessionOption, onChange: (id: string, value: OptionValue) => void) {
+  if (option.kind !== "select" || !option.choices?.length || option.disabled) return;
+  const i = option.choices.findIndex((c) => c.value === option.value);
+  const next = option.choices[(i + 1 + option.choices.length) % option.choices.length];
+  if (next) onChange(option.id, next.value);
+}
+
+const INLINE_OPTION_IDS = new Set(["model", "effort", "thinking", "fastMode", "mode", "permissionMode"]);
+
+function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChange: (id: string, value: OptionValue) => void }) {
+  if (!options.length) return null;
   return (
-    <label className={"switch-row option-toggle" + (option.disabled ? " disabled" : "")} title={title || option.label}>
-      <Switch.Root
-        checked={Boolean(option.value)}
-        disabled={option.disabled}
-        onCheckedChange={(v) => onChange(option.id, Boolean(v))}
-        className="switch"
-      >
-        <Switch.Thumb className="switch-thumb" />
-      </Switch.Root>
-      {option.label}
-    </label>
+    <Popover.Root>
+      <HintTooltip label="More options">
+        <Popover.Trigger className="row-control row-icon-only" aria-label="More options">
+          <EllipsisIcon />
+        </Popover.Trigger>
+      </HintTooltip>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={8} align="end">
+          <Popover.Popup className="overflow-menu menu">
+            {options.map((option) => (
+              <div className="overflow-option" key={option.id}>
+                <div className="overflow-title">{option.label}</div>
+                {option.kind === "toggle" ? (
+                  <button
+                    type="button"
+                    className={"overflow-toggle" + (option.value ? " active" : "")}
+                    disabled={option.disabled}
+                    onClick={() => onChange(option.id, !option.value)}
+                  >
+                    {option.value ? "On" : "Off"}
+                  </button>
+                ) : (
+                  <div className="overflow-choices">
+                    {(option.choices ?? []).map((choice) => (
+                      <button
+                        type="button"
+                        key={choice.value}
+                        className={"overflow-choice" + (choice.value === option.value ? " active" : "")}
+                        disabled={option.disabled}
+                        onClick={() => onChange(option.id, choice.value)}
+                      >
+                        {choice.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
-function OptionsToolbar({
+function StaticProvider({ provider }: { provider: string }) {
+  return (
+    <HintTooltip label="Provider">
+      <span className="row-control static-provider">
+        <ProviderIcon id={provider} />
+        <span className="row-value">{provider}</span>
+      </span>
+    </HintTooltip>
+  );
+}
+
+function StaticCwd({ cwd }: { cwd: string }) {
+  return (
+    <HintTooltip label="Working directory">
+      <span className="row-control cwd-trigger">
+        <FolderIcon />
+        <span className="cwd-label">{basename(cwd)}</span>
+      </span>
+    </HintTooltip>
+  );
+}
+
+function StatusRow({
+  provider,
+  providers,
+  onProviderChange,
+  cwd,
+  onCwdChange,
+  onCwdCommit,
   options,
   onChange,
   openOptionId,
   setOpenOptionId,
+  autoApprove,
+  setAutoApprove,
+  trailing,
 }: {
+  provider: string;
+  providers?: Provider[];
+  onProviderChange?: (v: string) => void;
+  cwd: string;
+  onCwdChange?: (v: string) => void;
+  onCwdCommit?: (v: string) => void;
   options: SessionOption[];
   onChange: (id: string, value: OptionValue) => void;
   openOptionId: string | null;
   setOpenOptionId: (id: string | null) => void;
+  autoApprove?: boolean;
+  setAutoApprove?: (v: boolean) => void;
+  trailing?: ReactNode;
 }) {
-  if (!options.length) return null;
+  const model = options.find((o) => o.id === "model" && o.kind === "select");
+  const effortLike = options.filter((o) => (o.id === "effort" || o.id === "thinking") && o.kind === "select");
+  const fast = options.find((o) => o.id === "fastMode" && o.kind === "toggle");
+  const mode = options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
+  const overflow = options.filter((o) => !INLINE_OPTION_IDS.has(o.id));
+  const modeLabel = mode && !["", "default", "build"].includes(String(mode.value)) ? prettyValue(mode) : "";
   return (
-    <div className="options-toolbar">
-      {options.map((o) => o.kind === "toggle"
-        ? <OptionToggleChip key={o.id} option={o} onChange={onChange} />
-        : (
-          <OptionSelectChip
-            key={o.id}
-            option={o}
-            onChange={onChange}
-            open={openOptionId === o.id}
-            onOpenChange={(open) => setOpenOptionId(open ? o.id : null)}
-          />
-        ))}
+    <div className="status-row">
+      {providers && onProviderChange
+        ? <ProviderSelect providers={providers} value={provider} onChange={onProviderChange} />
+        : <StaticProvider provider={provider} />}
+      {model ? (
+        <InlineSelect
+          option={model}
+          icon={<SparkIcon />}
+          label={currentChoice(model)?.label ?? String(model.value || "Model")}
+          onChange={onChange}
+          open={openOptionId === model.id}
+          onOpenChange={(open) => setOpenOptionId(open ? model.id : null)}
+        />
+      ) : null}
+      {fast ? (
+        <HintTooltip label={optionTooltip(fast)} action="toggle-fast">
+          <button
+            type="button"
+            aria-label={fast.label}
+            disabled={fast.disabled}
+            className={"row-control row-icon-only fast-toggle" + (fast.value ? " active" : "")}
+            onClick={() => onChange(fast.id, !fast.value)}
+          >
+            <BoltIcon />
+          </button>
+        </HintTooltip>
+      ) : null}
+      {effortLike.map((option) => (
+        <InlineSelect
+          key={option.id}
+          option={option}
+          icon={<BarsIcon />}
+          label={prettyValue(option)}
+          onChange={onChange}
+          open={openOptionId === option.id}
+          onOpenChange={(open) => setOpenOptionId(open ? option.id : null)}
+        />
+      ))}
+      {mode && modeLabel ? (
+        <HintTooltip label={optionTooltip(mode)} action="cycle-mode">
+          <button type="button" className="row-control" onClick={() => cycleSelect(mode, onChange)}>
+            <PlanIcon />
+            <span className="row-value">{modeLabel}</span>
+          </button>
+        </HintTooltip>
+      ) : null}
+      {onCwdChange && onCwdCommit ? <CwdPopover cwd={cwd} onChange={onCwdChange} onCommit={onCwdCommit} /> : <StaticCwd cwd={cwd} />}
+      {setAutoApprove ? (
+        <HintTooltip label="Toggle auto-approve">
+          <button
+            type="button"
+            aria-label="Auto-approve"
+            className={"row-control row-icon-only shield-toggle" + (autoApprove ? " active" : "")}
+            onClick={() => setAutoApprove(!autoApprove)}
+          >
+            <ShieldIcon />
+          </button>
+        </HintTooltip>
+      ) : null}
+      <OverflowMenu options={overflow} onChange={onChange} />
+      <div className="status-row-spacer" />
+      {trailing}
     </div>
   );
-}
-
-function StatusStrip({ options }: { options: SessionOption[] }) {
-  const parts = ["model", "effort", "thinking", "mode", "permissionMode", "approvals"]
-    .map((id) => options.find((o) => o.id === id))
-    .filter(Boolean)
-    .map((o) => {
-      const opt = o!;
-      const value = opt.kind === "toggle"
-        ? (opt.value ? "on" : "off")
-        : opt.choices?.find((c) => c.value === opt.value)?.label ?? String(opt.value || "");
-      return value ? `${opt.label}: ${value}` : "";
-    })
-    .filter(Boolean);
-  if (!parts.length) return null;
-  return <div className="status-strip">{parts.join(" · ")}</div>;
 }
 
 function commandContext(text: string, caret: number, groups: CommandGroup[]) {
@@ -566,7 +810,6 @@ function Composer() {
     <section id="composer-view">
       <h1>What should the agent do?</h1>
       <div id="composer-card">
-        <StatusStrip options={options} />
         <div className="input-wrap">
           <textarea
             ref={taRef}
@@ -585,23 +828,25 @@ function Composer() {
           />
           {commandMenu.menu}
         </div>
-        <div className="toolbar">
-          <div className="tb-group">
-            <ProviderSelect providers={providers} value={provider} onChange={changeProvider} />
-            <CwdPopover cwd={cwd} onChange={changeCwd} onCommit={commitCwd} />
-          </div>
-          <OptionsToolbar options={options} onChange={setLocalOption} openOptionId={openOptionId} setOpenOptionId={setOpenOptionId} />
-          <div className="tb-spacer" />
-          <label className="switch-row">
-            <Switch.Root checked={autoApprove} onCheckedChange={setAutoApprove} className="switch">
-              <Switch.Thumb className="switch-thumb" />
-            </Switch.Root>
-            auto-approve
-          </label>
-          <button className="send" type="button" aria-label="Start" disabled={!prompt.trim()} onClick={submit}>
-            <ArrowUp />
-          </button>
-        </div>
+        <StatusRow
+          provider={provider}
+          providers={providers}
+          onProviderChange={changeProvider}
+          cwd={cwd}
+          onCwdChange={changeCwd}
+          onCwdCommit={commitCwd}
+          options={options}
+          onChange={setLocalOption}
+          openOptionId={openOptionId}
+          setOpenOptionId={setOpenOptionId}
+          autoApprove={autoApprove}
+          setAutoApprove={setAutoApprove}
+          trailing={(
+            <button className="send" type="button" aria-label="Start" disabled={!prompt.trim()} onClick={submit}>
+              <ArrowUp />
+            </button>
+          )}
+        />
       </div>
       <div id="composer-hint">Enter to start · Shift+Enter for newline · Ctrl+/ for shortcuts</div>
       {helpOpen ? <ShortcutOverlay provider={provider} options={options} running={false} onClose={() => setHelpOpen(false)} /> : null}
@@ -703,7 +948,6 @@ function Chat() {
       </div>
       <div id="chat-input-row">
         <div id="chat-card">
-          <StatusStrip options={options} />
           <div className="input-wrap chat-text-wrap">
             <textarea
               ref={taRef}
@@ -721,16 +965,22 @@ function Chat() {
             />
             {commandMenu.menu}
           </div>
-          <div className="chat-toolbar">
-            <OptionsToolbar options={options} onChange={setOption} openOptionId={openOptionId} setOpenOptionId={setOpenOptionId} />
-            <div className="tb-spacer" />
-            <div className="chat-actions">
+          <StatusRow
+            provider={session?.provider ?? "agent"}
+            cwd={session?.cwd ?? ""}
+            options={options}
+            onChange={setOption}
+            openOptionId={openOptionId}
+            setOpenOptionId={setOpenOptionId}
+            trailing={(
+              <div className="chat-actions">
               {running ? <button id="stop-btn" type="button" onClick={stop}>Stop</button> : null}
               <button className="send" type="button" aria-label="Send" disabled={!text.trim()} onClick={submit}>
                 <ArrowUp />
               </button>
-            </div>
-          </div>
+              </div>
+            )}
+          />
         </div>
       </div>
       {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={options} running={running} onClose={() => setHelpOpen(false)} /> : null}

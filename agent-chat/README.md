@@ -86,7 +86,7 @@ stays in adapters.
 | opencode/gemini ACP | model, mode | `session/new` `configOptions` / ACP `modes`; opencode setter is `session/set_config_option` (`session/set_config` is not supported by 1.17.13) |
 | opencode/gemini ACP | commands | `available_commands_update`, emitted as `/` commands; opencode accepts slash command prompt text and routes it to `session.command` |
 
-Keyboard shortcuts are defined once in `src/keymap.ts` and the toolbar plus
+Keyboard shortcuts are defined once in `src/keymap.ts` and the status row plus
 keyboard handler both call the same `setOption` path:
 
 | shortcut | action |
