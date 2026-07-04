@@ -5,11 +5,16 @@ import Observation
 // MARK: - Monitor
 
 /// One instance owns the background poll timer, scans every live pane each tick,
-/// and attributes process-tree memory by controlling tty. The user-facing
-/// warning badge and dismissible banner were removed in issue #6614, so the scan
-/// now only maintains the engine's monitoring state (surfaced in DEBUG logs) and
-/// the still-wired system memory-pressure response. The heavy libproc scan runs
-/// off the main thread; only the small state updates touch `@MainActor`.
+/// and attributes process-tree memory by controlling tty. When a pane's process
+/// tree first crosses the configurable threshold the guardrail fires
+/// `onPaneRunaway` (issue #6313) so the app can post a calm, per-pane
+/// notification before macOS can OOM-suspend the whole app. The intrusive
+/// sidebar warning badge + dismissible "kill pane" banner from the original
+/// feature were removed in issue #6614 and are deliberately not reintroduced;
+/// the notification reuses the standard notification channel instead. The scan
+/// also drives the still-wired system memory-pressure response. The heavy
+/// libproc scan runs off the main thread; only the small state updates touch
+/// `@MainActor`.
 @MainActor
 @Observable
 final class PaneMemoryGuardrail {
@@ -19,6 +24,9 @@ final class PaneMemoryGuardrail {
     private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
     private static let scopedScanInterval: TimeInterval = 15
+    /// Re-notify the same pane at most once per this interval, even if it keeps
+    /// flapping across the engine's clear/threshold band, so a leak can't spam.
+    private static let runawayNotificationCooldown: TimeInterval = 300
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
@@ -29,6 +37,12 @@ final class PaneMemoryGuardrail {
     /// Invoked when the OS reports warning/critical system memory pressure.
     @ObservationIgnored
     var onSystemMemoryPressure: (@MainActor () -> Void)?
+    /// Invoked with each pane that first crossed the runaway-memory threshold
+    /// this tick (edge-triggered, hysteresis-cleared by the engine). Wired to a
+    /// per-pane in-app notification so a leaking process is observable before it
+    /// OOM-suspends the app (issue #6313).
+    @ObservationIgnored
+    var onPaneRunaway: (@MainActor ([PaneMemoryWarning]) -> Void)?
 
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
@@ -44,6 +58,11 @@ final class PaneMemoryGuardrail {
     private var scanApplyTask: Task<Void, Never>?
     @ObservationIgnored
     private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
+    /// When each live pane was last notified about a runaway tree, so we can
+    /// rate-limit per pane. Pruned to the live pane set every tick, so it can
+    /// never grow without bound as panes open and close.
+    @ObservationIgnored
+    private var lastRunawayNotificationAt: [PaneMemoryPaneKey: Date] = [:]
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
 
@@ -334,6 +353,31 @@ final class PaneMemoryGuardrail {
         return selectedProcessGroups.sorted()
     }
 
+    /// Rate-limits the engine's edge-triggered crossings to one notification per
+    /// pane per `cooldown`, and prunes `lastNotifiedAt` to the live pane set so
+    /// it can never grow without bound as panes open and close. Pure and
+    /// `nonisolated` so the policy is testable without timers, ghostty, or libproc.
+    nonisolated static func runawayNotificationsToPresent(
+        bannersToPresent: [PaneMemoryWarning],
+        liveKeys: Set<PaneMemoryPaneKey>,
+        now: Date,
+        cooldown: TimeInterval,
+        lastNotifiedAt: inout [PaneMemoryPaneKey: Date]
+    ) -> [PaneMemoryWarning] {
+        // Forget closed panes first so the rate-limit map stays bounded.
+        lastNotifiedAt = lastNotifiedAt.filter { liveKeys.contains($0.key) }
+        var toPresent: [PaneMemoryWarning] = []
+        for warning in bannersToPresent {
+            let key = warning.key
+            if let last = lastNotifiedAt[key], now.timeIntervalSince(last) < cooldown {
+                continue
+            }
+            lastNotifiedAt[key] = now
+            toPresent.append(warning)
+        }
+        return toPresent
+    }
+
     private func applySamples(
         _ batch: PaneMemoryGuardrailSampleBatch,
         thresholdBytes: Int64
@@ -351,10 +395,21 @@ final class PaneMemoryGuardrail {
         isScanning = false
         scanApplyTask = nil
 
-        // Keep the engine's monitoring state machine current. Its warn/clear
-        // output no longer drives any UI (the badge + banner were removed in
-        // issue #6614); it is retained for the DEBUG scan log below.
+        // Advance the engine's edge-trigger + hysteresis state machine. Each
+        // pane that newly crossed the threshold this tick is surfaced as a calm
+        // per-pane notification (issue #6313); the bespoke badge + dismissible
+        // banner were removed in issue #6614 and are not reintroduced here.
         let output = engine.ingest(samples: samples, thresholdBytes: thresholdBytes)
+        let toNotify = Self.runawayNotificationsToPresent(
+            bannersToPresent: output.bannersToPresent,
+            liveKeys: Set(samples.map(\.key)),
+            now: Date(),
+            cooldown: Self.runawayNotificationCooldown,
+            lastNotifiedAt: &lastRunawayNotificationAt
+        )
+        if !toNotify.isEmpty {
+            onPaneRunaway?(toNotify)
+        }
         emitScanDebugLog(samples: samples, output: output, thresholdBytes: thresholdBytes, includesCMUXScope: batch.includesCMUXScope)
     }
 
@@ -382,6 +437,7 @@ final class PaneMemoryGuardrail {
         scanApplyTask?.cancel()
         scanApplyTask = nil
         lastScopedOnlySamplesByKey.removeAll()
+        lastRunawayNotificationAt.removeAll()
         lastScopedScanAt = .distantPast
     }
 }

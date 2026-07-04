@@ -1,6 +1,31 @@
 import Foundation
 
 extension AppDelegate {
+    /// Posts a calm, per-pane in-app notification for each pane that just crossed
+    /// the runaway-memory threshold (issue #6313). Reuses the standard
+    /// `TerminalNotificationStore` channel — the same one agent and crash
+    /// notifications use — so it drives the existing unread indicator and
+    /// click-to-navigate to the offending pane without the bespoke sidebar badge
+    /// and dismissible "kill pane" banner that issue #6614 removed.
+    ///
+    /// Per-pane rate-limiting is handled upstream in `PaneMemoryGuardrail` (whose
+    /// map is pruned to live panes), so this does NOT pass a `cooldownKey`: the
+    /// store's cooldown map never evicts, and a per-pane-UUID key there would
+    /// grow without bound as panes open and close.
+    func presentPaneMemoryRunawayNotifications(_ warnings: [PaneMemoryWarning]) {
+        guard let notificationStore else { return }
+        for warning in warnings {
+            let content = warning.notificationContent
+            notificationStore.addNotification(
+                tabId: warning.workspaceId,
+                surfaceId: warning.panelId,
+                title: content.title,
+                subtitle: content.subtitle,
+                body: content.body
+            )
+        }
+    }
+
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
         paneMemoryGuardrailTabManagers().flatMap { manager in
             manager.tabs.flatMap { workspace in
