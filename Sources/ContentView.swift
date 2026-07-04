@@ -765,7 +765,6 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
-        let panelDirectories: [UUID: String]
         let activeRemoteTerminalSessionCount: Int
     }
 
@@ -792,7 +791,6 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
                             remoteDaemonStatus: nil,
-                            panelDirectories: [:],
                             activeRemoteTerminalSessionCount: 0
                         )
                     )
@@ -808,14 +806,12 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                     )
                     .combineLatest(
                         workspace.$remoteDaemonStatus,
-                        workspace.$panelDirectories,
                         workspace.$activeRemoteTerminalSessionCount
                     )
                     .map { values in
                         let (
                             previousValues,
                             remoteDaemonStatus,
-                            panelDirectories,
                             activeRemoteTerminalSessionCount
                         ) = values
                         let (
@@ -826,12 +822,13 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         ) = previousValues
                         return Snapshot(
                             workspaceId: workspace.id,
-                            currentDirectory: currentDirectory,
+                            currentDirectory: workspace.isRemoteWorkspace
+                                ? workspace.presentedCurrentDirectory
+                                : currentDirectory,
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
                             remoteDaemonStatus: remoteDaemonStatus,
-                            panelDirectories: panelDirectories,
                             activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                         )
                     }
