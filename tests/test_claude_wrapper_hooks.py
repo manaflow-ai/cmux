@@ -972,7 +972,7 @@ exit 88
         if path_helper_trap:
             helper_dir = tmp / "path-helper-trap"
             helper_dir.mkdir(parents=True, exist_ok=True)
-            for helper in ("env", "tr"):
+            for helper in ("env", "stat", "tr"):
                 make_executable(helper_dir / helper, f"#!/bin/sh\necho unexpected {helper} >&2\nexit 99\n")
             env["PATH"] = f"{helper_dir}:{env['PATH']}"
         if disabled:
@@ -2293,6 +2293,7 @@ def main() -> int:
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(failures)
+    test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_mcp_skipped_without_codex_auth(failures)
     test_computer_use_mcp_skips_workspace_node(failures)
     test_computer_use_mcp_skipped_for_strict_mcp_config(failures)

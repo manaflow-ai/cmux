@@ -763,8 +763,11 @@ cmux_computer_use_json_escape() {
 
 cmux_computer_use_world_writable_dir() {
     local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
     local mode
-    mode="$(stat -f %Lp "$dir" 2>/dev/null || stat -c %a "$dir" 2>/dev/null)" || return 1
+    mode="$("$stat_bin" -f %Lp "$dir" 2>/dev/null || "$stat_bin" -c %a "$dir" 2>/dev/null)" || return 1
     [[ "$mode" =~ ^[0-9]+$ ]] || return 1
     local other=$((mode % 10))
     (( (other & 2) != 0 ))
