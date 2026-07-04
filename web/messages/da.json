@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Skjul luk-knappen for hvert arbejdsområde i sidepanelet, så arbejdsområdets titler kan bruge den frigivne bredde.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },
         "fileExplorer": {

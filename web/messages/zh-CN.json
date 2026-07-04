@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "隐藏边栏中每个工作区的关闭按钮，让工作区标题使用腾出的宽度。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },
         "fileExplorer": {

@@ -60,6 +60,8 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `sidebar.hideAllDetails` | boolean | `false` | Hide all per-workspace detail rows. |
+| `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
+| `sidebar.hideWorkspaceCloseButton` | boolean | `false` | Hide the per-workspace close button in the sidebar so workspace titles can use the reclaimed width. |
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
 | `sidebar.branchLayout` | `"vertical"` or `"inline"` | `"vertical"` | Show git branch details stacked vertically or inline. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |

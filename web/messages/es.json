@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Oculta el botón de cierre de cada espacio de trabajo en la barra lateral para que los títulos puedan usar el ancho recuperado.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
         "fileExplorer": {

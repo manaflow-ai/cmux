@@ -9497,6 +9497,7 @@ private enum SidebarFontSizeProvider {
 struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
+    let hidesWorkspaceCloseButton: Bool
     let showsWorkspaceDescription: Bool
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
@@ -9544,6 +9545,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 
         hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
         wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
+        hidesWorkspaceCloseButton = settings.value(for: catalog.sidebar.hideWorkspaceCloseButton)
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: catalog.sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: catalog.sidebar.showNotificationMessage),
@@ -13725,12 +13727,9 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
+                // Unless disabled in settings, the close button reserves width
+                // while hidden so hover never re-lays-out the row.
+                if canCloseWorkspace && !settings.hidesWorkspaceCloseButton {
                     Button(action: {
                         #if DEBUG
                         cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")

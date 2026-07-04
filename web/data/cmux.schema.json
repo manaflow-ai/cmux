@@ -821,6 +821,12 @@
           "default": false,
           "description": "Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line."
         },
+        "hideWorkspaceCloseButton": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.sidebar.hideWorkspaceCloseButton",
+          "description": "Hide the per-workspace close button in the sidebar so workspace titles can use the reclaimed width."
+        },
         "showWorkspaceDescription": {
           "type": "boolean",
           "default": true,

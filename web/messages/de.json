@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Blendet die Schließen-Schaltfläche pro Arbeitsbereich in der Seitenleiste aus, damit Arbeitsbereichstitel die zurückgewonnene Breite nutzen können.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

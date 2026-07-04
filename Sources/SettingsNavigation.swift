@@ -386,6 +386,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "font-size", String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), "font size text scale workspace title badge metadata shortcut hint sidebar-font-size"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "wrap-workspace-titles", String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), "workspace title wrap multiline pr pull request"),
+        setting(.sidebarAppearance, "hide-workspace-close-button", String(localized: "settings.sidebar.hideWorkspaceCloseButton", defaultValue: "Hide Workspace Close Button"), "workspace close x button title width reclaim"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
         setting(.sidebarAppearance, "sidebar-branch-layout", String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), "branch directory vertical inline"),
         setting(.sidebarAppearance, "stack-branch-directory", String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"), "branch directory cwd path stack two rows separate lines"),
@@ -461,9 +462,7 @@ enum SettingsSearchIndex {
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
     ] + terminalScrollSpeedSettingEntries
-
     private static let allEntries = sectionEntries + settingEntries
-
     private static let entriesByID: [String: SettingsSearchEntry] = Dictionary(
         uniqueKeysWithValues: allEntries.map { ($0.id, $0) }
     )
@@ -513,6 +512,7 @@ enum SettingsSearchIndex {
         "canvas.snappingEnabled": settingID(for: .app, idSuffix: "canvas-snapping"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
+        "sidebar.hideWorkspaceCloseButton": settingID(for: .sidebarAppearance, idSuffix: "hide-workspace-close-button"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
         "sidebar.branchLayout": settingID(for: .sidebarAppearance, idSuffix: "sidebar-branch-layout"),
         "sidebar.stackBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "stack-branch-directory"),

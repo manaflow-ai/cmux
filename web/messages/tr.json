@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "hideWorkspaceCloseButton": "Kenar çubuğundaki her çalışma alanı için kapatma düğmesini gizler, böylece çalışma alanı başlıkları geri kazanılan genişliği kullanabilir.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {
