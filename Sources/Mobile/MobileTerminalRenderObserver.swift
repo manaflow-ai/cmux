@@ -22,36 +22,36 @@ final class MobileTerminalRenderObserver {
     private struct PendingTerminalBytes {
         var seq: UInt64
         var data: Data
+        var overflowed = false
 
         init(seq: UInt64, data: Data, budget: Int) {
             self.seq = seq
             self.data = data
-            trim(to: budget)
+            enforceBudget(budget)
         }
 
         mutating func append(seq nextSeq: UInt64, data nextData: Data, budget: Int) {
+            guard !overflowed else { return }
             let currentEnd = seq &+ UInt64(data.count)
             if currentEnd == nextSeq {
                 data.append(nextData)
             } else if nextSeq > currentEnd {
-                seq = nextSeq
-                data = nextData
+                data.removeAll(keepingCapacity: false)
+                overflowed = true
             } else {
                 let overlap = currentEnd - nextSeq
                 guard overlap < UInt64(nextData.count) else {
-                    trim(to: budget)
                     return
                 }
                 data.append(contentsOf: nextData.dropFirst(Int(overlap)))
             }
-            trim(to: budget)
+            enforceBudget(budget)
         }
 
-        private mutating func trim(to budget: Int) {
+        private mutating func enforceBudget(_ budget: Int) {
             guard budget > 0, data.count > budget else { return }
-            let overflow = data.count - budget
-            data.removeFirst(overflow)
-            seq &+= UInt64(overflow)
+            data.removeAll(keepingCapacity: false)
+            overflowed = true
         }
     }
 
@@ -315,6 +315,7 @@ final class MobileTerminalRenderObserver {
         guard let pending = pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID) else {
             return nil
         }
+        guard !pending.overflowed else { return nil }
         return [
             "surface_id": surfaceID.uuidString,
             "seq": pending.seq,
@@ -334,12 +335,22 @@ final class MobileTerminalRenderObserver {
             return nil
         }
 
-        guard let emission = try? snapshot.frame.renderGridEmission(
-            comparedTo: renderGridStatesBySurfaceID[surfaceID]
-        ) else { return nil }
-        let frame = emission.frame
-        renderGridStatesBySurfaceID[surfaceID] = emission.state
-        guard let payload = try? frame.jsonObject() else { return nil }
+        let forceFullFrame = pendingByteEventsBySurfaceID[surfaceID]?.overflowed == true
+        let frame: MobileTerminalRenderGridFrame
+        if forceFullFrame {
+            frame = snapshot.frame
+            renderGridStatesBySurfaceID[surfaceID] = frame.emissionState
+        } else {
+            guard let emission = try? snapshot.frame.renderGridEmission(
+                comparedTo: renderGridStatesBySurfaceID[surfaceID]
+            ) else { return nil }
+            frame = emission.frame
+            renderGridStatesBySurfaceID[surfaceID] = emission.state
+        }
+        guard var payload = try? frame.jsonObject() else { return nil }
+        if forceFullFrame {
+            payload["hybrid_bytes_overflowed"] = true
+        }
         #if DEBUG
         cmuxDebugLog(
             "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +

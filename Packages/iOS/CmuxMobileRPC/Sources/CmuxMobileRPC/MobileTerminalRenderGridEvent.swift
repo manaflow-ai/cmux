@@ -11,14 +11,19 @@ public import Foundation
 public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
     /// The nested render-grid frame, if the payload used the wrapped form.
     public let frame: MobileTerminalRenderGridFrame?
+    /// Whether matching hybrid raw bytes were suppressed because the host-side
+    /// pending byte buffer overflowed before the render-grid flush.
+    public let hybridBytesOverflowed: Bool
 
     private enum CodingKeys: String, CodingKey {
         case frame = "render_grid"
+        case hybridBytesOverflowed = "hybrid_bytes_overflowed"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         frame = try container.decodeIfPresent(MobileTerminalRenderGridFrame.self, forKey: .frame)
+        hybridBytesOverflowed = try container.decodeIfPresent(Bool.self, forKey: .hybridBytesOverflowed) ?? false
     }
 
     /// Decode a wrapped render-grid event from a raw JSON payload.

@@ -7369,7 +7369,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: renderGridDTO?.hybridBytesOverflowed == true ? "hybrid_overflow" : "event")
     }
 
     private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {
