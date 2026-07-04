@@ -157,4 +157,137 @@ import Testing
         #expect(usesTopLevelRows)
         #expect(explicitGroupId == nil)
     }
+
+    @Test func nestedChildFolderTopEdgeTargetsParentGroupSiblingScope() throws {
+        let parentGroupId = UUID()
+        let childGroupId = UUID()
+        let parentAnchor = UUID()
+        let childAnchor = UUID()
+        let childMember = UUID()
+        let dragged = UUID()
+        let outside = UUID()
+
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: nestedFolderRequest(
+                point: CGPoint(x: 20, y: 44),
+                parentGroupId: parentGroupId,
+                childGroupId: childGroupId,
+                parentAnchor: parentAnchor,
+                childAnchor: childAnchor,
+                childMember: childMember,
+                dragged: dragged,
+                outside: outside,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: parentAnchor, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childAnchor, isPinned: false, groupId: childGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childMember, isPinned: false, groupId: childGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: outside, isPinned: false, groupId: nil),
+                ]
+            )
+        ))
+
+        #expect(plan.indicator == SidebarDropIndicator(tabId: childAnchor, edge: .top))
+        #expect(plan.indicatorScope == .group(parentGroupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected parent-group reorder plan")
+            return
+        }
+        #expect(targetIndex == 1)
+        #expect(!usesTopLevelRows)
+        #expect(explicitGroupId == parentGroupId)
+    }
+
+    @Test func nestedChildFolderBottomEdgeTargetsParentGroupSiblingScope() throws {
+        let parentGroupId = UUID()
+        let childGroupId = UUID()
+        let parentAnchor = UUID()
+        let childAnchor = UUID()
+        let childMember = UUID()
+        let dragged = UUID()
+        let outside = UUID()
+
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: nestedFolderRequest(
+                point: CGPoint(x: 120, y: 68),
+                parentGroupId: parentGroupId,
+                childGroupId: childGroupId,
+                parentAnchor: parentAnchor,
+                childAnchor: childAnchor,
+                childMember: childMember,
+                dragged: dragged,
+                outside: outside,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: parentAnchor, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childAnchor, isPinned: false, groupId: childGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childMember, isPinned: false, groupId: childGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: outside, isPinned: false, groupId: nil),
+                ]
+            )
+        ))
+
+        #expect(plan.indicator == SidebarDropIndicator(tabId: childAnchor, edge: .bottom))
+        #expect(plan.indicatorScope == .group(parentGroupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected parent-group reorder plan")
+            return
+        }
+        #expect(targetIndex == 2)
+        #expect(!usesTopLevelRows)
+        #expect(explicitGroupId == parentGroupId)
+    }
+
+    private func nestedFolderRequest(
+        point: CGPoint,
+        parentGroupId: UUID,
+        childGroupId: UUID,
+        parentAnchor: UUID,
+        childAnchor: UUID,
+        childMember: UUID,
+        dragged: UUID,
+        outside: UUID,
+        workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot]
+    ) -> SidebarWorkspaceReorderDropRequest {
+        SidebarWorkspaceReorderDropRequest(
+            point: point,
+            draggedWorkspaceId: dragged,
+            workspaces: workspaces,
+            groups: [
+                SidebarWorkspaceReorderGroupSnapshot(id: parentGroupId, anchorWorkspaceId: parentAnchor, isPinned: false),
+                SidebarWorkspaceReorderGroupSnapshot(
+                    id: childGroupId,
+                    anchorWorkspaceId: childAnchor,
+                    isPinned: false,
+                    parentGroupId: parentGroupId
+                ),
+            ],
+            targets: [
+                SidebarWorkspaceReorderDropTarget(
+                    workspaceId: parentAnchor,
+                    groupId: parentGroupId,
+                    isGroupHeader: true,
+                    frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                ),
+                SidebarWorkspaceReorderDropTarget(
+                    workspaceId: childAnchor,
+                    groupId: childGroupId,
+                    isGroupHeader: true,
+                    frame: CGRect(x: 12, y: 40, width: 168, height: 32)
+                ),
+                SidebarWorkspaceReorderDropTarget(
+                    workspaceId: childMember,
+                    groupId: childGroupId,
+                    isGroupHeader: false,
+                    frame: CGRect(x: 24, y: 80, width: 156, height: 32)
+                ),
+                SidebarWorkspaceReorderDropTarget(
+                    workspaceId: outside,
+                    groupId: nil,
+                    isGroupHeader: false,
+                    frame: CGRect(x: 0, y: 120, width: 180, height: 32)
+                ),
+            ]
+        )
+    }
 }

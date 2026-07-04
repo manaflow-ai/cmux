@@ -479,6 +479,7 @@
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
 		B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */; };
 		B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */; };
+		C6611001C6611001C6611001 /* SessionWorkspaceGroupSnapshotParentChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6611002C6611002C6611002 /* SessionWorkspaceGroupSnapshotParentChainTests.swift */; };
 		DE71CE000000000000000004 /* DeviceRegistryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000003 /* DeviceRegistryClient.swift */; };
 		DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000001 /* DeviceRegistryClientTests.swift */; };
 		DE000A020000000000000001 /* DevWindowDisplayDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */; };
@@ -1790,6 +1791,7 @@
 		C57B00090000000000000002 /* CustomSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanelView.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
+		C6611002C6611002C6611002 /* SessionWorkspaceGroupSnapshotParentChainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionWorkspaceGroupSnapshotParentChainTests.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
 		B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderPathLookupCache.swift; sourceTree = "<group>"; };
@@ -3838,6 +3840,7 @@
 				E241BE1D74A7459C8D9C16BC /* WorkspaceTitleProvenanceTests.swift */,
 				F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */,
 				BC5355A1BF10411A88950AEC /* ControlWorkspaceGroupCreateParentInferenceTests.swift */,
+				C6611002C6611002C6611002 /* SessionWorkspaceGroupSnapshotParentChainTests.swift */,
 				7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */,
 				70034F4D644C4896B8B925F3 /* AutoNamingCodexAdapterTests.swift */,
 				07EC52007B2144C59C047774 /* AutoNamingGrokAdapterTests.swift */,
@@ -5682,6 +5685,7 @@
 				F0ACC0DE0000000000000005 /* WorkspaceForkConversationContextMenuTests.swift in Sources */,
 				C9A57401C9A57401C9A57401 /* WorkspaceGroupMoveToMenuStateTests.swift in Sources */,
 				C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */,
+				C6611001C6611001C6611001 /* SessionWorkspaceGroupSnapshotParentChainTests.swift in Sources */,
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */,
