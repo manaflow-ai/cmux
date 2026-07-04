@@ -339,6 +339,8 @@ extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
     static let supportedSettingsJSONPaths: Set<String> = [
+        PaneChromeSettings.paneBorderColorKey,
+        PaneChromeSettings.activePaneBorderColorKey,
         "app.language",
         "app.appearance",
         "app.appIcon",

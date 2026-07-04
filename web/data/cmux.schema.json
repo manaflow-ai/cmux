@@ -18,6 +18,18 @@
       "default": 1,
       "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
     },
+    "paneBorderColor": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.paneBorderColor",
+      "description": "Override the cmux pane divider color in split workspaces. This affects cmux pane boundaries, not Ghostty internal splits."
+    },
+    "activePaneBorderColor": {
+      "$ref": "#/$defs/colorHexOrNull",
+      "default": null,
+      "descriptionKey": "schemaDescriptions.activePaneBorderColor",
+      "description": "Optional border color drawn around the focused cmux pane in split workspaces."
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
