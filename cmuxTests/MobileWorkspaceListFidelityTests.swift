@@ -327,8 +327,7 @@ struct MobileWorkspaceListFidelityTests {
             suppressWorkspaceRemoteStartupCommand: true
         ))
         #expect(!workspace.isRemoteTerminalSurface(localPanel.id))
-        #expect(workspace.updatePanelDirectory(panelId: localPanel.id, directory: localDirectory))
-        #expect(workspace.reportedPanelDirectory(panelId: localPanel.id) == localDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: localPanel.id) == nil)
 
         let payload = TerminalController.shared.mobileWorkspacePayload(
             workspace: workspace,
