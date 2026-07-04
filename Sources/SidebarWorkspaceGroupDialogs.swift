@@ -43,8 +43,10 @@ func presentSidebarWorkspaceGroupRenamePrompt(
 
 /// Prompts for a custom hex color for a workspace group and applies it through
 /// the shared `TabManager.setWorkspaceGroupColor` mutation path. Mirrors the
-/// per-workspace custom-color prompt: validates via `WorkspaceTabColorSettings`
-/// and surfaces an invalid-color warning on bad input.
+/// per-workspace custom-color prompt: validates and persists the color into the
+/// shared palette via `WorkspaceTabColorSettings.addCustomColor` (so a picked
+/// color becomes a reusable swatch, exactly like the workspace prompt) and
+/// surfaces an invalid-color warning on bad input.
 @MainActor
 func presentSidebarWorkspaceGroupColorPrompt(
     tabManager: TabManager,
@@ -80,7 +82,7 @@ func presentSidebarWorkspaceGroupColorPrompt(
 
     let response = runCmuxModalAlert(alert)
     guard response == .alertFirstButtonReturn else { return }
-    guard let normalized = WorkspaceTabColorSettings.normalizedHex(input.stringValue) else {
+    guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
         presentSidebarWorkspaceGroupInvalidColorAlert()
         return
     }

@@ -134,14 +134,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 defaultValue: "Group Color"
             )
         ) {
-            Button {
-                onChooseCustomColor()
-            } label: {
-                Label(
-                    String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"),
-                    systemImage: "paintpalette"
-                )
-            }
+            // Item order mirrors the per-workspace "Workspace Color" submenu
+            // (ContentView): Clear (when an override exists), then the custom
+            // chooser, then the palette swatches.
             if storedColorHex != nil {
                 Button {
                     onSetColor(nil)
@@ -151,6 +146,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                         systemImage: "xmark.circle"
                     )
                 }
+            }
+            Button {
+                onChooseCustomColor()
+            } label: {
+                Label(
+                    String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"),
+                    systemImage: "paintpalette"
+                )
             }
             let palette = WorkspaceTabColorSettings.palette()
             if !palette.isEmpty {
