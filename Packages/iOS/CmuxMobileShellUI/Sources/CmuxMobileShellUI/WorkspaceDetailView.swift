@@ -22,9 +22,7 @@ struct WorkspaceDetailView: View {
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let createTerminal: () -> Void
-    /// Close this workspace on the Mac. When `nil` (older Macs without the
-    /// `workspace.close.v1` capability, or previews) the close affordance is
-    /// hidden from the top-bar menu. Mirrors the workspace list's gating.
+    /// Close this workspace on the Mac; `nil` hides the affordance for older Macs or previews.
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
@@ -53,9 +51,7 @@ struct WorkspaceDetailView: View {
     @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
-    /// The session chat mode was entered on, pinned so a newer session
-    /// sorting first cannot swap the conversation out from under the user
-    /// mid-read. Cleared when chat mode turns off.
+    /// The chat-mode session, pinned so newer sessions cannot swap the conversation mid-read.
     @State var pinnedChatSessionID: String?
     @State var chatSessions: [ChatSessionDescriptor] = []
     @State var chatSessionsWorkspaceID: String?

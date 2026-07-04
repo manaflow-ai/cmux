@@ -5,7 +5,7 @@ import Testing
 /// Pure pull-request probe logic. The selection/policy cases are migrated from
 /// the app target's `TabManagerPullRequestProbeTests`, where they tested the
 /// same logic as TabManager statics before the extraction.
-@Suite struct PullRequestProbeServiceTests {
+@Suite(.serialized) struct PullRequestProbeServiceTests {
     private func item(
         number: Int,
         state: String,
@@ -13,7 +13,8 @@ import Testing
         updatedAt: String?,
         mergedAt: String? = nil,
         headRefName: String? = nil,
-        baseRefName: String? = nil
+        baseRefName: String? = nil,
+        ciStatus: PullRequestCIStatus = .neutral
     ) -> GitHubPullRequestProbeItem {
         GitHubPullRequestProbeItem(
             number: number,
@@ -22,7 +23,8 @@ import Testing
             updatedAt: updatedAt,
             mergedAt: mergedAt,
             headRefName: headRefName,
-            baseRefName: baseRefName
+            baseRefName: baseRefName,
+            ciStatus: ciStatus
         )
     }
 
@@ -168,7 +170,7 @@ import Testing
 
     @Test func resolveRefreshResultsMatchesPrefersAndPropagatesFailures() {
         let wsA = UUID(), wsB = UUID(), wsC = UUID(), panel = UUID()
-        let pr = item(number: 7, state: "OPEN", url: "https://github.com/o/r/pull/7", updatedAt: "2026-06-01T00:00:00Z", headRefName: "feat/x")
+        let pr = item(number: 7, state: "OPEN", url: "https://github.com/o/r/pull/7", updatedAt: "2026-06-01T00:00:00Z", headRefName: "feat/x", ciStatus: .success)
         let entry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: Date(),
             pullRequestsByBranch: ["feat/x": pr]
@@ -189,6 +191,7 @@ import Testing
         }
         #expect(resolved.number == 7)
         #expect(resolved.statusRawValue == PullRequestStatus.open.rawValue)
+        #expect(resolved.ciStatus == .success)
 
         guard case .transientFailure = results[1].resolution else {
             Issue.record("expected transientFailure for branch with transient lookup")
@@ -198,5 +201,29 @@ import Testing
             Issue.record("expected unsupportedRepository for empty slugs")
             return
         }
+    }
+
+    @Test func resolveRefreshResultsDropsCIStatusForMergedAndClosedPullRequests() {
+        let ws = UUID(), panel = UUID()
+        let pr = item(
+            number: 8,
+            state: "MERGED",
+            url: "https://github.com/o/r/pull/8",
+            updatedAt: "2026-06-01T00:00:00Z",
+            headRefName: "feat/x",
+            ciStatus: .failure
+        )
+        let entry = WorkspacePullRequestRepoCacheEntry(fetchedAt: Date(), pullRequestsByBranch: ["feat/x": pr])
+        let results = PullRequestProbeService.resolveRefreshResults(
+            candidates: [WorkspacePullRequestCandidate(workspaceId: ws, panelId: panel, branch: "feat/x", repoSlugs: ["o/r"])],
+            repoResults: ["o/r": .success(entry, usedCache: false, transientBranches: [])]
+        )
+
+        guard case .resolved(let resolved) = results[0].resolution else {
+            Issue.record("expected resolved, got \(results[0].resolution)")
+            return
+        }
+        #expect(resolved.statusRawValue == PullRequestStatus.merged.rawValue)
+        #expect(resolved.ciStatus == .neutral)
     }
 }

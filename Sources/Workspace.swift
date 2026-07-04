@@ -9,7 +9,6 @@ import CmuxWorkspaces
 import CmuxTerminal
 import SwiftUI
 import AppKit
-import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxSettings
@@ -5047,7 +5046,7 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        isStale: Bool = false
+        isStale: Bool = false, ciStatus: SidebarPullRequestCIStatus? = nil
     ) {
         let existing = panelPullRequests[panelId]
         let normalizedBranch = branch?.normalizedSidebarBranchName
@@ -5068,13 +5067,14 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return existing.branch
         }()
+        let resolvedCIStatus = ciStatus ?? (status == .open && existing?.number == number && existing?.label == label && existing?.url == url ? existing?.ciStatus ?? .neutral : .neutral)
         let state = SidebarPullRequestState(
             number: number,
             label: label,
             url: url,
             status: status,
             branch: resolvedBranch,
-            isStale: isStale
+            isStale: isStale, ciStatus: resolvedCIStatus
         )
         if existing != state {
             panelPullRequests[panelId] = state

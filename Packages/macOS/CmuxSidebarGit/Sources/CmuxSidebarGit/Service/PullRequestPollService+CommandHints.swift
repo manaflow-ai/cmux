@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Settings toggles, command-hint reconciliation, and test seams.
 
@@ -8,18 +8,47 @@ extension PullRequestPollService {
 
     public func sidebarPullRequestPollingSettingsDidChange() {
         let isEnabled = sidebarPullRequestPollingEnabled
-        guard isEnabled != lastSidebarPullRequestPollingEnabled else {
+        let isCIStatusEnabled = sidebarPullRequestCIStatusEnabled
+        let pollingChanged = isEnabled != lastSidebarPullRequestPollingEnabled
+        let ciStatusChanged = isCIStatusEnabled != lastSidebarPullRequestCIStatusEnabled
+        guard pollingChanged || ciStatusChanged else {
             return
         }
         lastSidebarPullRequestPollingEnabled = isEnabled
+        lastSidebarPullRequestCIStatusEnabled = isCIStatusEnabled
+        if ciStatusChanged {
+            workspacePullRequestRepoCacheBySlug.removeAll()
+        }
 
         guard isEnabled else {
             resetWorkspacePullRequestRefreshState()
             host?.clearAllSidebarPullRequestMetadata()
             return
         }
+        if ciStatusChanged {
+            forceTrackedWorkspacePullRequestPanelsDue()
+        }
 
-        refreshTrackedWorkspacePullRequestsIfNeeded(reason: "pullRequestVisibilityEnabled")
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: pollingChanged ? "pullRequestVisibilityEnabled" : "pullRequestCIStatusVisibilityChanged",
+            allowCachedResultsOverride: ciStatusChanged ? false : nil
+        )
+    }
+
+    func forceTrackedWorkspacePullRequestPanelsDue() {
+        guard let host else { return }
+        for workspaceId in host.orderedWorkspaceIds() {
+            let panelIds = host.panelGitBranchPanelIds(in: workspaceId)
+                .union(host.panelPullRequestPanelIds(in: workspaceId))
+            for panelId in panelIds {
+                let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+                if case .inFlight = workspacePullRequestProbeStateByKey[key] {
+                    markWorkspacePullRequestProbeRerunPending(for: key, bypassRepoCache: true)
+                } else {
+                    workspacePullRequestNextPollAtByKey[key] = .distantPast
+                }
+            }
+        }
     }
 
     // MARK: Command hints
@@ -89,7 +118,8 @@ extension PullRequestPollService {
                 url: currentPullRequest.url,
                 status: nextStatus,
                 branch: currentPullRequest.branch,
-                isStale: false
+                isStale: false,
+                ciStatus: nextStatus == .open ? currentPullRequest.ciStatus : .neutral
             )
         )
     }

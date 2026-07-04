@@ -57,6 +57,7 @@ public final class PullRequestPollService: PullRequestProbing {
     var workspacePullRequestRefreshTask: Task<Void, Never>?
     var workspacePullRequestFollowUpShouldBypassRepoCache = false
     var lastSidebarPullRequestPollingEnabled = false
+    var lastSidebarPullRequestCIStatusEnabled = false
 
     /// Creates the poll service.
     ///
@@ -91,11 +92,16 @@ public final class PullRequestPollService: PullRequestProbing {
     public func attach(host: any SidebarGitHosting) {
         self.host = host
         lastSidebarPullRequestPollingEnabled = host.isPullRequestPollingEnabled
+        lastSidebarPullRequestCIStatusEnabled = host.isPullRequestCIStatusEnabled
         updateWorkspacePullRequestPollTimer()
     }
 
     var sidebarPullRequestPollingEnabled: Bool {
         host?.isPullRequestPollingEnabled ?? false
+    }
+
+    var sidebarPullRequestCIStatusEnabled: Bool {
+        host?.isPullRequestCIStatusEnabled ?? false
     }
 
     // MARK: Poll timer
@@ -248,6 +254,7 @@ public final class PullRequestPollService: PullRequestProbing {
         let probeService = probeService
         let seeds = candidateSeeds
         let keys = requestedKeys
+        let includeCIStatus = sidebarPullRequestCIStatusEnabled
         workspacePullRequestRefreshTask = Task.detached(priority: .utility) { [weak self] in
             let candidateResolution = await probeService.resolveCandidateSeeds(
                 seeds,
@@ -259,7 +266,8 @@ public final class PullRequestPollService: PullRequestProbing {
                 candidateBranchesByRepo: candidateResolution.candidateBranchesByRepo,
                 cacheBySlug: cacheBySlug,
                 now: now,
-                allowCachedResults: allowCachedResults
+                allowCachedResults: allowCachedResults,
+                includeCIStatus: includeCIStatus
             )
             let results = PullRequestProbeService.resolveRefreshResults(
                 candidates: candidateResolution.candidates,

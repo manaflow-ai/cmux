@@ -62,6 +62,13 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowPullRequest"
     )
 
+    /// Whether sidebar pull-request badges include the latest CI/check rollup state.
+    public let showPullRequestCIStatus = DefaultsKey<Bool>(
+        id: "sidebar.showPullRequestCIStatus",
+        defaultValue: false,
+        userDefaultsKey: "sidebarShowPullRequestCIStatus"
+    )
+
     public let watchGitStatus = DefaultsKey<Bool>(
         id: "sidebar.watchGitStatus",
         defaultValue: true,

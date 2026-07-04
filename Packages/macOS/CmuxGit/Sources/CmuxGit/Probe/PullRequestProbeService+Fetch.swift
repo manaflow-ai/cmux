@@ -17,13 +17,15 @@ extension PullRequestProbeService {
     ///   - cacheBySlug: The caller-owned repo cache.
     ///   - now: The refresh timestamp used for cache-freshness checks.
     ///   - allowCachedResults: Whether fresh cache entries may satisfy the fetch.
+    ///   - includeCIStatus: Whether to fetch token-gated GraphQL CI rollups.
     /// - Returns: One ``WorkspacePullRequestRepoFetchResult`` per repository slug.
     public nonisolated func fetchRepoResults(
         repoDirectoriesBySlug: [String: String],
         candidateBranchesByRepo: [String: Set<String>],
         cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
         now: Date,
-        allowCachedResults: Bool
+        allowCachedResults: Bool,
+        includeCIStatus: Bool
     ) async -> [String: WorkspacePullRequestRepoFetchResult] {
         guard !repoDirectoriesBySlug.isEmpty else { return [:] }
 
@@ -44,12 +46,12 @@ extension PullRequestProbeService {
                         repoSlug: repoSlug,
                         candidateBranches: candidateBranchesByRepo[repoSlug] ?? [],
                         cachedEntry: cacheBySlug[repoSlug],
-                        useCachedRecentWindow: allowCachedResults
-                            && (cacheBySlug[repoSlug].map {
-                                now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
-                            } ?? false),
+                        useCachedRecentWindow: allowCachedResults && (cacheBySlug[repoSlug].map {
+                            now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
+                        } ?? false),
                         session: session,
-                        authHeader: authHeader
+                        authHeader: authHeader,
+                        includeCIStatus: includeCIStatus
                     )
                     return (repoSlug, result)
                 }
@@ -76,7 +78,8 @@ extension PullRequestProbeService {
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
         useCachedRecentWindow: Bool,
         session: URLSession,
-        authHeader: String?
+        authHeader: String?,
+        includeCIStatus: Bool
     ) async -> WorkspacePullRequestRepoFetchResult {
         let normalizedCandidateBranches = Set(
             candidateBranches.compactMap(GitMetadataService.normalizedBranchName)
@@ -89,11 +92,23 @@ extension PullRequestProbeService {
                 in: cachedEntry
             )
             if unresolvedBranches.isEmpty {
+                let cacheEntry = await repoCacheEntry(
+                    cachedEntry,
+                    repoSlug: repoSlug,
+                    fetchTimestamp: cachedEntry.fetchedAt,
+                    session: session,
+                    authHeader: authHeader,
+                    includeCIStatus: includeCIStatus,
+                    pullRequestNumbers: openPullRequestNumbers(
+                        in: cachedEntry,
+                        candidateBranches: normalizedCandidateBranches
+                    )
+                )
                 debugLog(
                     "workspace.prRefresh.repo.cache repo=\(repoSlug) " +
-                    "branches=\(cachedEntry.pullRequestsByBranch.count)"
+                    "branches=\(cacheEntry.pullRequestsByBranch.count)"
                 )
-                return .success(cachedEntry, usedCache: true, transientBranches: [])
+                return .success(cacheEntry, usedCache: true, transientBranches: [])
             }
 
             let lookupOutcome = await branchLookupOutcome(
@@ -104,12 +119,24 @@ extension PullRequestProbeService {
                 session: session,
                 authHeader: authHeader
             )
+            let cacheEntry = await repoCacheEntry(
+                lookupOutcome.cacheEntry,
+                repoSlug: repoSlug,
+                fetchTimestamp: lookupOutcome.cacheEntry.fetchedAt,
+                session: session,
+                authHeader: authHeader,
+                includeCIStatus: includeCIStatus,
+                pullRequestNumbers: openPullRequestNumbers(
+                    in: lookupOutcome.cacheEntry,
+                    candidateBranches: normalizedCandidateBranches
+                )
+            )
             debugLog(
                 "workspace.prRefresh.repo.cache.miss repo=\(repoSlug) " +
                 "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
             )
             return .success(
-                lookupOutcome.cacheEntry,
+                cacheEntry,
                 usedCache: false,
                 transientBranches: lookupOutcome.transientBranches
             )
@@ -169,13 +196,25 @@ extension PullRequestProbeService {
                 authHeader: authHeader
             )
         }
+        let cacheEntry = await repoCacheEntry(
+            lookupOutcome.cacheEntry,
+            repoSlug: repoSlug,
+            fetchTimestamp: fetchTimestamp,
+            session: session,
+            authHeader: authHeader,
+            includeCIStatus: includeCIStatus,
+            pullRequestNumbers: openPullRequestNumbers(
+                in: lookupOutcome.cacheEntry,
+                candidateBranches: normalizedCandidateBranches
+            )
+        )
         debugLog(
             "workspace.prRefresh.repo.success repo=\(repoSlug) pages=\(fetchedPageCount) " +
-            "branches=\(lookupOutcome.cacheEntry.pullRequestsByBranch.count) " +
+            "branches=\(cacheEntry.pullRequestsByBranch.count) " +
             "branchLookups=\(unresolvedBranches.count) transient=\(lookupOutcome.transientBranches.count)"
         )
         return .success(
-            lookupOutcome.cacheEntry,
+            cacheEntry,
             usedCache: false,
             transientBranches: lookupOutcome.transientBranches
         )
@@ -241,7 +280,9 @@ extension PullRequestProbeService {
         for (branch, result) in branchResults {
             switch result {
             case .found(let pullRequest):
-                pullRequestsByBranch[branch] = pullRequest
+                pullRequestsByBranch[branch] = baseEntry.includesCIStatus
+                    ? pullRequest.withCIStatus(baseEntry.ciStatusByPullRequestNumber[pullRequest.number] ?? .neutral)
+                    : pullRequest
                 knownAbsentBranches.remove(branch)
             case .notFound:
                 knownAbsentBranches.insert(branch)
@@ -254,7 +295,9 @@ extension PullRequestProbeService {
             cacheEntry: WorkspacePullRequestRepoCacheEntry(
                 fetchedAt: refreshedAt,
                 pullRequestsByBranch: pullRequestsByBranch,
-                knownAbsentBranches: knownAbsentBranches
+                knownAbsentBranches: knownAbsentBranches,
+                includesCIStatus: baseEntry.includesCIStatus,
+                ciStatusByPullRequestNumber: baseEntry.ciStatusByPullRequestNumber
             ),
             transientBranches: transientBranches
         )

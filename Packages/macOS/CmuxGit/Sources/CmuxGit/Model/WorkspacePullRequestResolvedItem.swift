@@ -12,12 +12,21 @@ public struct WorkspacePullRequestResolvedItem: Sendable {
     public let statusRawValue: String
     /// The branch the PR was matched for.
     public let branch: String
+    /// Rollup CI/check state for the matched open PR.
+    public let ciStatus: PullRequestCIStatus
 
     /// Creates a resolved item.
-    public init(number: Int, urlString: String, statusRawValue: String, branch: String) {
+    public init(
+        number: Int,
+        urlString: String,
+        statusRawValue: String,
+        branch: String,
+        ciStatus: PullRequestCIStatus = .neutral
+    ) {
         self.number = number
         self.urlString = urlString
         self.statusRawValue = statusRawValue
         self.branch = branch
+        self.ciStatus = ciStatus
     }
 }

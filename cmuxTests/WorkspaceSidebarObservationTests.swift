@@ -35,6 +35,43 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func pullRequestUpdateWithoutCIStatusPreservesExistingOpenPRCIStatus() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let pullRequestURL = try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/42"))
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open,
+            ciStatus: .success
+        )
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open
+        )
+
+        #expect(workspace.panelPullRequests[panelId]?.ciStatus == .success)
+        #expect(workspace.pullRequest?.ciStatus == .success)
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open,
+            ciStatus: .neutral
+        )
+
+        #expect(workspace.panelPullRequests[panelId]?.ciStatus == .neutral)
+        #expect(workspace.pullRequest?.ciStatus == .neutral)
+    }
+
     @Test func agentRuntimeObservationChangesWhenAgentPIDMakesExistingStatusVisible() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

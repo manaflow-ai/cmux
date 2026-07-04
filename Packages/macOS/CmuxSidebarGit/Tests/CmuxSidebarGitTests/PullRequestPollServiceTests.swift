@@ -21,13 +21,19 @@ import CmuxGit
         return service
     }
 
-    private func badge(number: Int, status: PullRequestStatus, branch: String? = "feature/x") -> SidebarPullRequestBadge {
+    private func badge(
+        number: Int,
+        status: PullRequestStatus,
+        branch: String? = "feature/x",
+        ciStatus: PullRequestCIStatus = .neutral
+    ) -> SidebarPullRequestBadge {
         SidebarPullRequestBadge(
             number: number,
             label: "PR",
             url: URL(string: "https://github.com/o/r/pull/\(number)")!,
             status: status,
-            branch: branch
+            branch: branch,
+            ciStatus: ciStatus
         )
     }
 
@@ -75,7 +81,7 @@ import CmuxGit
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
-        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 42, status: .open)
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 42, status: .open, ciStatus: .success)
         let service = makeService(host: host, clock: ManualGitPollClock())
 
         service.handleWorkspacePullRequestCommandHint(
@@ -87,6 +93,7 @@ import CmuxGit
 
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.status == .merged)
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.isStale == false)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.ciStatus == .neutral)
     }
 
     /// A hint whose target names a different PR number does not reconcile.
@@ -178,5 +185,59 @@ import CmuxGit
         #expect(host.events.contains(.clearAllPullRequestMetadata))
         #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+    }
+
+    /// Toggling only the CI-status setting invalidates the repo cache and
+    /// forces tracked PR rows due without treating PR visibility as disabled.
+    @Test func changingCIStatusSettingClearsRepoCacheAndForcesTrackedRowsDue() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        host.mobileHostActive = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 9, status: .open)
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        service.workspacePullRequestNextPollAtByKey[key] = Date().addingTimeInterval(60)
+        service.workspacePullRequestRepoCacheBySlug["o/r"] = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: Date(),
+            pullRequestsByBranch: [:]
+        )
+
+        host.ciStatusEnabled = true
+        service.sidebarPullRequestPollingSettingsDidChange()
+
+        #expect(service.workspacePullRequestRepoCacheBySlug.isEmpty)
+        #expect(service.workspacePullRequestNextPollAtByKey[key] == .distantPast)
+        #expect(!host.events.contains(.clearAllPullRequestMetadata))
+    }
+
+    @Test func cachedRepoResultPersistsSupplementalCIStatusCoverage() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let fetchedAt = Date(timeIntervalSince1970: 1_000)
+        let baseEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: fetchedAt,
+            pullRequestsByBranch: [:]
+        )
+        let ciEntry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: fetchedAt,
+            pullRequestsByBranch: [:],
+            includesCIStatus: true,
+            ciStatusByPullRequestNumber: [42: .success]
+        )
+        service.workspacePullRequestRepoCacheBySlug["o/r"] = baseEntry
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [],
+            repoResults: ["o/r": .success(ciEntry, usedCache: true, transientBranches: [])],
+            requestedKeys: [],
+            now: fetchedAt,
+            reason: "test"
+        )
+
+        let stored = service.workspacePullRequestRepoCacheBySlug["o/r"]
+        #expect(stored?.includesCIStatus == true)
+        #expect(stored?.ciStatusByPullRequestNumber == [42: .success])
     }
 }

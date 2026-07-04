@@ -9508,6 +9508,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let usesLastSegmentPath: Bool
     let showsGitBranchIcon: Bool
     let showsSSH: Bool
+    let showsPullRequestCIStatus: Bool
     let makesPullRequestsClickable: Bool
     let openPullRequestLinksInCmuxBrowser: Bool
     let openPortLinksInCmuxBrowser: Bool
@@ -9534,6 +9535,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
         showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
+        showsPullRequestCIStatus = settings.value(for: catalog.sidebar.showPullRequestCIStatus)
         makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
@@ -13143,16 +13145,14 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsWorkspaceDescription: Bool
         let usesVerticalBranchLayout: Bool
         let showsGitBranch: Bool
+        let showsPullRequestCIStatus: Bool
         let usesViewportAwarePath: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
         let branch: String?
-        // Ordered longest → shortest. Empty means no directory to show.
-        // First element is the canonical display string when only one is needed.
         let directoryCandidates: [String]
-
         var directory: String? { directoryCandidates.first }
     }
 
@@ -13163,6 +13163,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let url: URL
         let status: SidebarPullRequestStatus
         let isStale: Bool
+        let ciStatus: SidebarPullRequestCIStatus?
     }
 
     struct Snapshot: Equatable {
@@ -13610,15 +13611,14 @@ struct TabItemView: View, Equatable {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
     }
 
-    private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
-        settings.visibleAuxiliaryDetails
-    }
+    private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility { settings.visibleAuxiliaryDetails }
 
     private var workspaceSnapshotPresentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
+            showsPullRequestCIStatus: settings.showsPullRequestCIStatus,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
@@ -13926,7 +13926,6 @@ struct TabItemView: View, Equatable {
                 }
             }
 
-            // Pull request rows
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
@@ -13940,6 +13939,13 @@ struct TabItemView: View, Equatable {
                             )
                             Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
                             Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                            if let ciStatus = pullRequest.ciStatus {
+                                CmuxSystemSymbolImage(magnified: ciStatus.systemImageName, pointSize: scaledFontSize(8), weight: .semibold)
+                                    .foregroundColor(pullRequestCIStatusColor(ciStatus))
+                                    .frame(width: scaledFontSize(12), height: scaledFontSize(12))
+                                    .safeHelp(ciStatus.localizedHelp)
+                                    .accessibilityLabel(ciStatus.localizedHelp)
+                            }
                             Spacer(minLength: 0)
                         }
                         .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
@@ -13958,7 +13964,6 @@ struct TabItemView: View, Equatable {
                 }
             }
 
-            // Ports row
             if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
@@ -14850,9 +14855,6 @@ struct TabItemView: View, Equatable {
         syncSelectionAfterMutation()
     }
 
-    // latestNotificationText is now passed as a parameter from the parent view
-    // to avoid subscribing to notificationStore changes in every TabItemView.
-
     // Builds the joined "branch · directory" candidates list for inline mode.
     // Each entry pairs the (fixed) git summary with one entry from the
     // directory candidates list, so ViewThatFits can choose how aggressively to
@@ -14967,7 +14969,8 @@ struct TabItemView: View, Equatable {
                 label: pullRequest.label,
                 url: pullRequest.url,
                 status: pullRequest.status,
-                isStale: pullRequest.isStale
+                isStale: pullRequest.isStale,
+                ciStatus: settings.showsPullRequestCIStatus && pullRequest.status == .open ? pullRequest.ciStatus : nil
             )
         }
     }
@@ -15017,6 +15020,14 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private func pullRequestCIStatusColor(_ status: SidebarPullRequestCIStatus) -> Color {
+        switch status {
+        case .neutral: return pullRequestForegroundColor.opacity(0.75)
+        case .success: return .green
+        case .failure: return .red
+        }
+    }
+
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
         switch level {
         case .info: return "circle.fill"
@@ -15049,18 +15060,6 @@ struct TabItemView: View, Equatable {
         case .warning: return .orange
         case .error: return .red
         }
-    }
-
-    private func shortenPath(_ path: String, home: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return path }
-        if trimmed == home {
-            return "~"
-        }
-        if trimmed.hasPrefix(home + "/") {
-            return "~" + trimmed.dropFirst(home.count)
-        }
-        return trimmed
     }
 
     private struct PullRequestStatusIcon: View {

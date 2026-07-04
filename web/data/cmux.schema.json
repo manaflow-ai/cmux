@@ -847,6 +847,11 @@
           "default": true,
           "description": "Show pull request metadata in the sidebar."
         },
+        "showPullRequestCIStatus": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show CI check status indicators next to open pull request rows in the sidebar."
+        },
         "watchGitStatus": {
           "type": "boolean",
           "default": true,

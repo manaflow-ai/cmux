@@ -64,7 +64,7 @@ Subcommands:
 
 - Appearance: `app.appearance` = `"system" | "light" | "dark"`, `app.appIcon`, `app.menuBarOnly`, `app.minimalMode`.
 - Sidebar tint: `sidebarAppearance.matchTerminalBackground`, `sidebarAppearance.tintColor`, `sidebarAppearance.tintOpacity` (0..1).
-- Sidebar details: `sidebar.hideAllDetails`, `sidebar.showBranchDirectory`, `sidebar.showPullRequests`, `sidebar.showPorts`, `sidebar.showLog`.
+- Sidebar details: `sidebar.hideAllDetails`, `sidebar.showBranchDirectory`, `sidebar.showPullRequests`, `sidebar.showPullRequestCIStatus`, `sidebar.showPorts`, `sidebar.showLog`.
 - Notifications: `notifications.dockBadge`, `notifications.sound` (enum incl. `"none"`, `"custom_file"`), `notifications.customSoundFilePath`, `notifications.hooks` (array).
 - Browser: `browser.defaultSearchEngine`, `browser.theme`, `browser.openTerminalLinksInCmuxBrowser`, `browser.hostsToOpenInEmbeddedBrowser`.
 - Automation: `automation.socketControlMode` (`off | cmuxOnly | automation | password | allowAll`), `automation.portBase`, `automation.portRange`.

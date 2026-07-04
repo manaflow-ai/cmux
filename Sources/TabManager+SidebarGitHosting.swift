@@ -108,7 +108,8 @@ extension TabManager: SidebarGitHosting {
             // Raw values are shared between the app and package status enums.
             status: SidebarPullRequestStatus(rawValue: badge.status.rawValue) ?? .open,
             branch: badge.branch,
-            isStale: badge.isStale
+            isStale: badge.isStale,
+            ciStatus: SidebarPullRequestCIStatus(badge.ciStatus)
         )
     }
 
@@ -138,6 +139,11 @@ extension TabManager: SidebarGitHosting {
         SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
     }
 
+    var isPullRequestCIStatusEnabled: Bool {
+        isPullRequestPollingEnabled
+            && SidebarWorkspaceDetailDefaults.showPullRequestCIStatusValue(defaults: .standard)
+    }
+
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {
         MobileHostRequestActivity.hasRecentActivity(within: interval)
     }
@@ -157,7 +163,34 @@ extension SidebarPullRequestState {
             url: url,
             status: PullRequestStatus(rawValue: status.rawValue) ?? .open,
             branch: branch,
-            isStale: isStale
+            isStale: isStale,
+            ciStatus: PullRequestCIStatus(ciStatus)
         )
+    }
+}
+
+private extension SidebarPullRequestCIStatus {
+    init(_ status: PullRequestCIStatus) {
+        switch status {
+        case .neutral:
+            self = .neutral
+        case .success:
+            self = .success
+        case .failure:
+            self = .failure
+        }
+    }
+}
+
+private extension PullRequestCIStatus {
+    init(_ status: SidebarPullRequestCIStatus) {
+        switch status {
+        case .neutral:
+            self = .neutral
+        case .success:
+            self = .success
+        case .failure:
+            self = .failure
+        }
     }
 }

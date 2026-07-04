@@ -82,6 +82,8 @@ public protocol SidebarGitHosting: AnyObject {
     var isGitMetadataWatchEnabled: Bool { get }
     /// Whether sidebar pull-request polling is enabled.
     var isPullRequestPollingEnabled: Bool { get }
+    /// Whether sidebar pull-request CI rollups should be fetched and shown.
+    var isPullRequestCIStatusEnabled: Bool { get }
     /// Whether the paired mobile host served a request within `interval`
     /// seconds (background git/PR work defers while true).
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool

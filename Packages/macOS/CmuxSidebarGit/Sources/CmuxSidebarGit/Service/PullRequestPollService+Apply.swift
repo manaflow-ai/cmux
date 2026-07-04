@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -30,8 +30,11 @@ extension PullRequestPollService {
         }
 
         for (repoSlug, repoResult) in repoResults {
-            guard case .success(let cacheEntry, let usedCache, _) = repoResult,
-                  !usedCache else {
+            guard case .success(let cacheEntry, let usedCache, _) = repoResult else {
+                continue
+            }
+            if usedCache,
+               !shouldPersistCachedPullRequestRepoEntry(cacheEntry, for: repoSlug) {
                 continue
             }
             workspacePullRequestRepoCacheBySlug[repoSlug] = cacheEntry
@@ -102,7 +105,8 @@ extension PullRequestPollService {
                         url: url,
                         status: status,
                         branch: resolvedPullRequest.branch,
-                        isStale: false
+                        isStale: false,
+                        ciStatus: status == .open ? resolvedPullRequest.ciStatus : .neutral
                     )
                 )
             case .notFound:
@@ -134,7 +138,8 @@ extension PullRequestPollService {
                             url: currentPullRequest.url,
                             status: currentPullRequest.status,
                             branch: currentPullRequest.branch,
-                            isStale: true
+                            isStale: true,
+                            ciStatus: currentPullRequest.status == .open ? currentPullRequest.ciStatus : .neutral
                         )
                     )
                 }
@@ -173,6 +178,17 @@ extension PullRequestPollService {
         }
 
         updateWorkspacePullRequestPollTimer()
+    }
+
+    private func shouldPersistCachedPullRequestRepoEntry(
+        _ cacheEntry: WorkspacePullRequestRepoCacheEntry,
+        for repoSlug: String
+    ) -> Bool {
+        guard let existing = workspacePullRequestRepoCacheBySlug[repoSlug] else {
+            return true
+        }
+        return existing.includesCIStatus != cacheEntry.includesCIStatus
+            || existing.ciStatusByPullRequestNumber != cacheEntry.ciStatusByPullRequestNumber
     }
 
     func scheduleNextWorkspacePullRequestPoll(
