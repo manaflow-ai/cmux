@@ -10,12 +10,12 @@ enum AutoNamingSanitizationOutcome: Equatable, Sendable {
 }
 
 extension AutoNamingSanitizationOutcome {
-    var sanitizedAction: (title: String, shouldApply: Bool, confirmNoOpSuccess: Bool)? {
+    var sanitizedAction: (title: String, shouldApply: Bool)? {
         switch self {
         case .title(let title):
-            return (title, true, false)
+            return (title, true)
         case .unchanged(let title):
-            return (title, true, true)
+            return (title, true)
         case .unusable:
             return nil
         }

@@ -337,14 +337,13 @@ import Testing
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
     }
 
-    @Test func unchangedTitleActionAllowsIdempotentApplyAndNoOpConfirmation() throws {
+    @Test func unchangedTitleActionAllowsIdempotentApply() throws {
         let action = try #require(
             engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug").sanitizedAction
         )
 
         #expect(action.title == "Fix auth bug")
         #expect(action.shouldApply)
-        #expect(action.confirmNoOpSuccess)
     }
 
     // MARK: - Environment policy

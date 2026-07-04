@@ -105,6 +105,27 @@ import Testing
         #expect(output == "")
     }
 
+    @Test func continuousDiscardedStdoutHonorsRunnerDeadline() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-output-discard-timeout")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        while :; do
+          printf 'xxxxxxxxxxxxxxxx'
+        done
+        """)
+
+        let output = AutoNamingSubprocessRunner(maxOutputBytes: 8).run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 0.2,
+            failOnOutputOverflow: false
+        )
+
+        #expect(output == nil)
+    }
+
     @Test func blockedStdinIsBoundedByRunnerDeadline() throws {
         let root = try temporaryDirectory(named: "autoname-runner-stdin")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -252,7 +252,7 @@ struct AutoNamingSubprocessRunner: Sendable {
             let readCount = Darwin.read(fd, &chunk, chunk.count)
             if readCount > 0 {
                 if overflowed {
-                    continue
+                    return true
                 }
                 guard output.count + readCount <= maxOutputBytes else {
                     output.removeAll(keepingCapacity: false)
