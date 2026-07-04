@@ -389,6 +389,44 @@ func TestSendPositional(t *testing.T) {
 	})
 }
 
+func TestReadScreenLinesImpliesScrollback(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "lines only",
+			args: []string{"read-screen", "--lines", "4"},
+		},
+		{
+			name: "lines overrides explicit false",
+			args: []string{"read-screen", "--scrollback", "false", "--lines", "4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sockPath, requests := startMockV2SocketWithRequestCapture(t)
+			args := append([]string{"--socket", sockPath}, tt.args...)
+			code := runCLI(args)
+			if code != 0 {
+				t.Fatalf("%s: exit %d", tt.name, code)
+			}
+			req := receiveRequest(t, requests)
+			if req["method"] != "surface.read_text" {
+				t.Fatalf("expected surface.read_text, got %v", req["method"])
+			}
+			p := params(req)
+			if p["lines"] != "4" {
+				t.Fatalf("expected lines=4, got %T(%v)", p["lines"], p["lines"])
+			}
+			if p["scrollback"] != true {
+				t.Fatalf("expected scrollback=true, got %T(%v)", p["scrollback"], p["scrollback"])
+			}
+		})
+	}
+}
+
 // TestPositionalRejectedOnFlagOnlyCommands verifies that commands without positionalKey
 // reject unexpected positional arguments instead of silently ignoring them.
 func TestPositionalRejectedOnFlagOnlyCommands(t *testing.T) {

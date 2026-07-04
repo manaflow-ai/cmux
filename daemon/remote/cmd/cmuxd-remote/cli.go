@@ -304,6 +304,17 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 			}
 		}
 
+		if ov, ok := commandOverrides[spec.name]; ok {
+			for flag, impliedParams := range ov.paramsWhenFlagPresent {
+				if _, present := parsed.flags[flag]; !present {
+					continue
+				}
+				for key, value := range impliedParams {
+					params[key] = value
+				}
+			}
+		}
+
 		if specUsesParam(spec, "workspace_id") {
 			applyWorkspaceEnvFallback(params)
 		}

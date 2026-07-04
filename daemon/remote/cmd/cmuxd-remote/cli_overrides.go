@@ -17,6 +17,12 @@ type commandOverride struct {
 	// corresponding flag is absent.
 	defaultParams map[string]any
 
+	// paramsWhenFlagPresent are params included when the named flag appears.
+	// They are applied after parsed flags, so the compatibility implication can
+	// intentionally override a directly parsed flag when matching legacy CLI
+	// behavior requires it.
+	paramsWhenFlagPresent map[string]map[string]any
+
 	// specialDispatch marks the command as having a custom runXxxRelay function
 	// in cli.go. runCLI dispatches to it instead of the generic relay path.
 	specialDispatch bool
@@ -60,6 +66,15 @@ var commandOverrides = map[string]commandOverride{
 	},
 	"new-split": {
 		paramKeyOverrides: map[string]string{"panel": "surface_id"},
+	},
+
+	// Match the Mac CLI contract: --lines returns a bounded scrollback tail.
+	// Raw surface.read_text RPC callers remain free to pass lines without
+	// scrollback by using the rpc passthrough.
+	"read-screen": {
+		paramsWhenFlagPresent: map[string]map[string]any{
+			"lines": {"scrollback": true},
+		},
 	},
 
 	// --target-pane maps to the server param target_pane_id.
