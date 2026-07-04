@@ -2108,13 +2108,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func enqueueScrollToBottom() {
         guard let surface, !scrollToBottomInFlight else { return }
         scrollToBottomInFlight = true
+        let generation = surfaceGeneration
         let action = "scroll_to_bottom"
         outputQueue.async { [weak self] in
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
             DispatchQueue.main.async {
-                self?.scrollToBottomInFlight = false
+                // Generation-guarded like the `processOutput` completion: a
+                // stale pre-recovery completion must not clear the flag a
+                // new-generation snap has since set.
+                guard let self, self.surfaceGeneration == generation else { return }
+                self.scrollToBottomInFlight = false
             }
         }
     }
