@@ -295,12 +295,9 @@ actor RemoteTmuxSSHTransport {
     /// returns as soon as the kills land (well under `timeout`). Kills to the SAME host
     /// serialize on that host's transport actor; different hosts run in parallel.
     ///
-    /// CAVEAT: `runProcess` is not cancellation-aware, so on a HUNG connection the
-    /// abandoned kill child can outlive `timeout` (the structured group still awaits
-    /// it). The hard bound on the user-visible app-quit is therefore the CALLER's
-    /// watchdog (``AppDelegate``'s deferred-terminate reply fires regardless), not this
-    /// `timeout`. The orphaned `ssh` is reaped by the OS on app exit; the kill is
-    /// best-effort (it can't land on a dead connection anyway).
+    /// The underlying process runner observes cancellation across both process
+    /// termination and pipe draining, so the timeout is a hard bound even when an
+    /// unresponsive tmux/ssh descendant keeps stdout or stderr open.
     nonisolated static func killSessions(
         _ jobs: [(transport: RemoteTmuxSSHTransport, target: String)],
         timeout: Duration
@@ -397,7 +394,12 @@ actor RemoteTmuxSSHTransport {
     /// We capture only the raw fds (`Int32`, `Sendable`) across the task
     /// boundary — never the non-`Sendable` `FileHandle` — and the `Pipe`s stay
     /// alive because `process` retains them until this function returns.
-    private static func runProcess(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private static func runProcess(
         executable: String,
         arguments: [String]
     ) async throws -> RemoteTmuxCommandResult {
@@ -421,62 +423,79 @@ actor RemoteTmuxSSHTransport {
             stderr: errPipe.fileHandleForReading
         )
 
-        // Install the termination handler BEFORE launching, then launch inside the
-        // continuation. If `run()` and the handler assignment were separate steps, a
-        // process that exits in the window between them would terminate before the
-        // handler is installed — and Foundation does not invoke a terminationHandler
-        // assigned after the process has already ended, so the continuation would
-        // never resume and the caller would hang until its timeout. This matters for
-        // the fast auth-failure exits the `cmux ssh-tmux` flow classifies.
-        let exitCode: Int32
         do {
-            exitCode = try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { continuation in
-                    process.terminationHandler = { proc in
-                        continuation.resume(returning: proc.terminationStatus)
-                    }
-                    do {
-                        try process.run()
-                    } catch {
-                        // The process never started, so the handler will not fire; resume
-                        // exactly once here with the launch failure.
-                        process.terminationHandler = nil
-                        continuation.resume(throwing: RemoteTmuxError.launchFailed(error.localizedDescription))
-                    }
-                }
+            return try await withTaskCancellationHandler {
+                // The coordinator installs the termination handler before launching.
+                // If those were separate steps, a process that exits in the window
+                // between them would terminate before the handler is installed, and
+                // Foundation does not invoke a terminationHandler assigned after exit.
+                // That would hang fast auth-failure exits until the caller timeout.
+                let exitCode = try await cancellation.launch()
+                try Task.checkCancellation()
+                let outData = await outRead.value
+                try Task.checkCancellation()
+                let errData = await errRead.value
+                try Task.checkCancellation()
+                return RemoteTmuxCommandResult(
+                    exitCode: exitCode,
+                    stdout: String(decoding: outData, as: UTF8.self),
+                    stderr: String(decoding: errData, as: UTF8.self)
+                )
             } onCancel: {
-                cancellation.cancel()
+                // `onCancel` is synchronous; bridge into the actor and do not wait
+                // for the throwing path below to close pipes before the child sees
+                // termination.
+                Task.detached { await cancellation.cancel() }
+                outRead.cancel()
+                errRead.cancel()
             }
-            try Task.checkCancellation()
         } catch {
-            cancellation.cancel()
+            await cancellation.cancel()
             outRead.cancel()
             errRead.cancel()
+            // The drains poll for readability on a fixed tick and observe cancellation
+            // within one tick, so awaiting them here is bounded even when a surviving
+            // descendant holds the pipe write end open. Awaiting proves both detached
+            // readers have exited before we return — the earlier CancellationError fast
+            // path threw immediately and abandoned them, which could leak two blocked
+            // read tasks per timed-out kill over the app's lifetime.
             _ = await outRead.value
             _ = await errRead.value
             throw error
         }
-
-        let outData = await outRead.value
-        let errData = await errRead.value
-        return RemoteTmuxCommandResult(
-            exitCode: exitCode,
-            stdout: String(decoding: outData, as: UTF8.self),
-            stderr: String(decoding: errData, as: UTF8.self)
-        )
     }
 
     /// Reads a file descriptor to EOF, returning at most `maxBytes`.
     ///
-    /// Uses the raw `read(2)` so nothing non-`Sendable` crosses the task
-    /// boundary; the owning `Pipe` keeps `fd` open for the duration.
+    /// Waits for readability with `poll(2)` on a fixed tick, then reads. Polling
+    /// (rather than a bare blocking `read(2)`) keeps the detached drain task
+    /// cancellable even when a surviving descendant keeps the pipe's write end open
+    /// and no EOF or data ever arrives: `Task.cancel()` does not interrupt a blocking
+    /// read, and closing our read end is not a reliable wakeup. The tick bounds how
+    /// long a pending cancellation takes to observe. `O_NONBLOCK` is intentionally
+    /// not toggled — it lives on the shared open file description — so readiness is
+    /// gated by `poll` alone. Nothing non-`Sendable` crosses the task boundary; the
+    /// owning `Pipe` keeps `fd` open for the duration.
     private static func drain(fd: Int32, maxBytes: Int) -> Data {
         var data = Data()
         var remaining = max(0, maxBytes)
         let bufferSize = 65_536
         var buffer = [UInt8](repeating: 0, count: bufferSize)
+
         while true {
             if Task.isCancelled { break }
+
+            var descriptor = pollfd(fd: fd, events: Int16(POLLIN | POLLHUP | POLLERR), revents: 0)
+            let ready = poll(&descriptor, 1, 100)
+            if ready == 0 { continue } // tick elapsed with no event; re-check cancellation
+            if ready < 0 {
+                if errno == EINTR { continue }
+                break // poll error; return what we have
+            }
+            if (descriptor.revents & Int16(POLLNVAL)) != 0 {
+                break // fd was closed out from under us (e.g. by cancellation)
+            }
+
             let count = buffer.withUnsafeMutableBytes { ptr -> Int in
                 read(fd, ptr.baseAddress, bufferSize)
             }
@@ -487,11 +506,11 @@ actor RemoteTmuxSSHTransport {
                     remaining -= kept
                 }
             } else if count == 0 {
-                break // EOF
+                break // EOF: every write end is closed
             } else if errno == EINTR {
                 continue // interrupted, retry
             } else {
-                break // read error; return what we have
+                break // read error (e.g. our fd was closed); return what we have
             }
         }
         return data
