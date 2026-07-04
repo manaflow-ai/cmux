@@ -77,22 +77,12 @@ enum AppshotCapturer {
 
     // MARK: Frontmost window
 
-    private struct FrontmostWindow: Sendable {
-        let windowID: CGWindowID
-        let title: String
-        /// Window frame in top-left-origin global screen coordinates (the same
-        /// space AX `kAXPosition`/`kAXSize` report), used to bind the AX read to
-        /// the exact window the screenshot captured. `nil` when CGWindowList did
-        /// not report bounds.
-        let bounds: CGRect?
-    }
-
     /// Finds the frontmost on-screen, normal-layer window owned by `ownerPID`.
     /// `CGWindowListCopyWindowInfo` returns windows front-to-back; window number
     /// and bounds are readable without Screen Recording (only the title is
     /// privacy-gated), so this works for resolving the AX target even when only
     /// Accessibility was granted.
-    private static func frontmostWindow(ownerPID: pid_t) -> FrontmostWindow? {
+    private static func frontmostWindow(ownerPID: pid_t) -> AppshotFrontmostWindow? {
         let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
         guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
             return nil
@@ -112,7 +102,7 @@ enum AppshotCapturer {
                 windowBounds = bounds
             }
             let title = info[kCGWindowName as String] as? String ?? ""
-            return FrontmostWindow(windowID: number, title: title, bounds: windowBounds)
+            return AppshotFrontmostWindow(windowID: number, title: title, bounds: windowBounds)
         }
         return nil
     }

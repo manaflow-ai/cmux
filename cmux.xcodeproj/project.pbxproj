@@ -92,10 +92,13 @@
 		A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAA000000000000000001 /* AppearanceSettingsTests.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
+		A99507000000000000000018 /* AppshotAgentRef.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000008 /* AppshotAgentRef.swift */; };
 		A99507000000000000000016 /* AppshotCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000006 /* AppshotCapturer.swift */; };
 		A99507000000000000000012 /* AppshotController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000002 /* AppshotController.swift */; };
+		A9950700000000000000001A /* AppshotFrontmostWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9950700000000000000000A /* AppshotFrontmostWindow.swift */; };
 		A99507000000000000000011 /* AppshotModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000001 /* AppshotModel.swift */; };
 		A99507000000000000000015 /* AppshotPermissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000005 /* AppshotPermissions.swift */; };
+		A99507000000000000000019 /* AppshotRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000009 /* AppshotRoute.swift */; };
 		A99507000000000000000017 /* AppshotRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000007 /* AppshotRouting.swift */; };
 		A99507000000000000000014 /* AppshotRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A99507000000000000000004 /* AppshotRoutingTests.swift */; };
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
@@ -1447,10 +1450,13 @@
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
+		A99507000000000000000008 /* AppshotAgentRef.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotAgentRef.swift; sourceTree = "<group>"; };
 		A99507000000000000000006 /* AppshotCapturer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotCapturer.swift; sourceTree = "<group>"; };
 		A99507000000000000000002 /* AppshotController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotController.swift; sourceTree = "<group>"; };
+		A9950700000000000000000A /* AppshotFrontmostWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotFrontmostWindow.swift; sourceTree = "<group>"; };
 		A99507000000000000000001 /* AppshotModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotModel.swift; sourceTree = "<group>"; };
 		A99507000000000000000005 /* AppshotPermissions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotPermissions.swift; sourceTree = "<group>"; };
+		A99507000000000000000009 /* AppshotRoute.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotRoute.swift; sourceTree = "<group>"; };
 		A99507000000000000000007 /* AppshotRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppshotRouting.swift; sourceTree = "<group>"; };
 		A99507000000000000000004 /* AppshotRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppshotRoutingTests.swift; sourceTree = "<group>"; };
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
@@ -4000,10 +4006,13 @@
 		A99507000000000000000003 /* Appshot */ = {
 			isa = PBXGroup;
 			children = (
+				A99507000000000000000008 /* AppshotAgentRef.swift */,
 				A99507000000000000000001 /* AppshotModel.swift */,
 				A99507000000000000000002 /* AppshotController.swift */,
 				A99507000000000000000005 /* AppshotPermissions.swift */,
+				A9950700000000000000000A /* AppshotFrontmostWindow.swift */,
 				A99507000000000000000006 /* AppshotCapturer.swift */,
+				A99507000000000000000009 /* AppshotRoute.swift */,
 				A99507000000000000000007 /* AppshotRouting.swift */,
 			);
 			name = Appshot;
@@ -4485,10 +4494,13 @@
 				A5001093 /* AppDelegate.swift in Sources */,
 				A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
+				A99507000000000000000018 /* AppshotAgentRef.swift in Sources */,
 				A99507000000000000000016 /* AppshotCapturer.swift in Sources */,
 				A99507000000000000000012 /* AppshotController.swift in Sources */,
+				A9950700000000000000001A /* AppshotFrontmostWindow.swift in Sources */,
 				A99507000000000000000011 /* AppshotModel.swift in Sources */,
 				A99507000000000000000015 /* AppshotPermissions.swift in Sources */,
+				A99507000000000000000019 /* AppshotRoute.swift in Sources */,
 				A99507000000000000000017 /* AppshotRouting.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,

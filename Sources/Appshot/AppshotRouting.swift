@@ -1,13 +1,5 @@
 import Foundation
 
-/// Identifies an agent surface (terminal panel) the appshot can be routed to,
-/// stamped with the time of the interaction it represents.
-struct AppshotAgentRef: Equatable {
-    let workspaceId: UUID
-    let panelId: UUID
-    let at: Date
-}
-
 /// Recency state used to decide where an appshot is delivered.
 struct AppshotRoutingState: Equatable {
     /// Default recency window, in seconds, matching the Codex Appshots behavior.
@@ -59,16 +51,4 @@ struct AppshotRoutingState: Equatable {
         }
         return .noRecentTarget
     }
-}
-
-/// Where an appshot should be delivered.
-enum AppshotRoute: Equatable {
-    /// Append to (and stage into) an existing agent surface.
-    case append(workspaceId: UUID, panelId: UUID)
-    /// No recent appshot route or interacted-with agent qualifies within the
-    /// recency window. This is a "no recent target" signal, not an instruction
-    /// to open a new workspace: `AppshotController` still prefers the active
-    /// agent (the front window's focused terminal) and only opens a fresh
-    /// workspace when no terminal surface exists.
-    case noRecentTarget
 }
