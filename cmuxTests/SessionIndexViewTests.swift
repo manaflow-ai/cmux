@@ -247,9 +247,7 @@ final class SessionIndexViewTests: XCTestCase {
 
     /// Reverses `CodexResumeRetryShell.wrappedCommand`, recovering the inner
     /// launched command from the `/bin/zsh -c '<retry script>'` wrapper. The
-    /// retry script runs the wrapped command as a single
-    /// `{ <command>; } 2>"$_cmux_codex_retry_pipe"` launch line, so we strip the
-    /// outer zsh quoting and then extract `<command>` from that line.
+    /// retry script uses `script(1)` so Codex keeps TTY fds while startup output is captured.
     static func unwrapRetryWrappedShellCommand(_ command: String) -> String {
         let prefix = "/bin/zsh -c "
         guard command.hasPrefix(prefix) else { return command }
@@ -257,13 +255,15 @@ final class SessionIndexViewTests: XCTestCase {
         guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
         quoted = String(quoted.dropFirst().dropLast())
         let script = quoted.replacingOccurrences(of: "'\\''", with: "'")
-        let launchSuffix = "; } 2>\"$_cmux_codex_retry_pipe\""
-        guard let suffixRange = script.range(of: launchSuffix) else { return script }
-        let beforeSuffix = script[..<suffixRange.lowerBound]
-        guard let braceRange = beforeSuffix.range(of: "{ ", options: .backwards) else {
-            return script
-        }
-        return String(beforeSuffix[braceRange.upperBound...])
+        let launchPrefix = "/usr/bin/script -q \"$_cmux_codex_retry_pipe\" /bin/zsh -c "
+        guard let launchRange = script.range(of: launchPrefix) else { return script }
+        let afterLaunchPrefix = script[launchRange.upperBound...]
+        let statusMarker = "; _cmux_codex_retry_status=$?"
+        guard let statusRange = afterLaunchPrefix.range(of: statusMarker) else { return script }
+        var inner = String(afterLaunchPrefix[..<statusRange.lowerBound])
+        guard inner.hasPrefix("'"), inner.hasSuffix("'") else { return inner }
+        inner = String(inner.dropFirst().dropLast())
+        return inner.replacingOccurrences(of: "'\\''", with: "'")
     }
 
     /// Reverses `AgentResumeArgv.portableCodexResumeShellCommand`, recovering the

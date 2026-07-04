@@ -2,9 +2,9 @@ import Foundation
 
 /// Renders a shell wrapper that retries transient Codex state database locks.
 ///
-/// Use this around already-rendered `codex resume` or `codex fork` shell commands. The wrapper keeps
-/// stdin/stdout connected to the terminal and mirrors stderr while capturing it, then retries only
-/// when Codex exits non-zero with the shared `state_5.sqlite` lock diagnostics.
+/// Use this around already-rendered `codex resume` or `codex fork` shell commands. The wrapper runs
+/// Codex under a pseudo-terminal, captures bounded startup output, and retries only when Codex exits
+/// non-zero with the shared `state_5.sqlite` lock diagnostics.
 public struct CodexResumeRetryShell: Sendable, Equatable {
     /// The default number of total launch attempts, including the first attempt.
     public static let defaultMaxAttempts = 4
@@ -31,7 +31,7 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard maxAttempts > 1, !trimmed.isEmpty else { return command }
         guard !trimmed.contains("_cmux_codex_retry_limit") else { return trimmed }
-        return "/bin/zsh -c \(quote(retryScript(command: trimmed)))"
+        return "/bin/zsh -c \(quote(retryScript(command: trimmed, quote: quote)))"
     }
 
     /// Renders the retry loop as a **single-line** POSIX script.
@@ -42,25 +42,25 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
     /// contains literal newlines ("Unmatched '") before `/bin/zsh` ever starts, so the statements are
     /// joined with `;` rather than newlines and must stay on one line. Do not reformat this into a
     /// multi-line `"""` heredoc.
-    private func retryScript(command: String) -> String {
-        // Each attempt captures stderr through a FIFO to detect the lock diagnostics. `tee /dev/stderr`
-        // still mirrors every byte to the terminal; only the first 64 KiB is retained for detection so a
-        // verbose session cannot grow the temp file (or the exit-time read) without bound, and
-        // `cat >/dev/null` drains the tail so the mirror never receives SIGPIPE after `head` stops.
+    private func retryScript(command: String, quote: (String) -> String) -> String {
+        // Each attempt runs under `script(1)`, so Codex still sees a TTY for stdin/stdout/stderr while
+        // the wrapper captures startup output for lock detection. Only the first 64 KiB is retained so a
+        // verbose session cannot grow the temp file (or the exit-time read) without bound, and the tail
+        // is drained so `script` can keep proxying the pseudo-terminal until the child exits.
         // If Codex lives long enough to plausibly be interactive, the wrapper returns the status instead
         // of relaunching even when stderr happens to contain a lock-looking string.
         let retryAttempt = [
-            "_cmux_codex_retry_stderr=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-resume.XXXXXX\")\" || exit 1",
-            "_cmux_codex_retry_pipe=\"${_cmux_codex_retry_stderr}.pipe\"",
+            "_cmux_codex_retry_capture=\"$(mktemp \"${TMPDIR:-/tmp}/cmux-codex-resume.XXXXXX\")\" || exit 1",
+            "_cmux_codex_retry_pipe=\"${_cmux_codex_retry_capture}.pipe\"",
             "mkfifo \"$_cmux_codex_retry_pipe\" || exit 1",
-            "tee /dev/stderr <\"$_cmux_codex_retry_pipe\" | { head -c 65536 >\"$_cmux_codex_retry_stderr\" 2>/dev/null; cat >/dev/null; } & _cmux_codex_retry_tee_pid=$!",
+            "cat <\"$_cmux_codex_retry_pipe\" | { head -c 65536 >\"$_cmux_codex_retry_capture\" 2>/dev/null; cat >/dev/null; } & _cmux_codex_retry_reader_pid=$!",
             "_cmux_codex_retry_started=$SECONDS",
-            "{ \(command); } 2>\"$_cmux_codex_retry_pipe\"",
+            "/usr/bin/script -q \"$_cmux_codex_retry_pipe\" /bin/zsh -c \(quote(command))",
             "_cmux_codex_retry_status=$?",
-            "wait \"$_cmux_codex_retry_tee_pid\" 2>/dev/null || true",
-            "_cmux_codex_retry_output=\"$(cat \"$_cmux_codex_retry_stderr\" 2>/dev/null)\"",
-            "rm -f \"$_cmux_codex_retry_stderr\" \"$_cmux_codex_retry_pipe\" 2>/dev/null || true",
-            "_cmux_codex_retry_stderr=\"\"",
+            "wait \"$_cmux_codex_retry_reader_pid\" 2>/dev/null || true",
+            "_cmux_codex_retry_output=\"$(cat \"$_cmux_codex_retry_capture\" 2>/dev/null)\"",
+            "rm -f \"$_cmux_codex_retry_capture\" \"$_cmux_codex_retry_pipe\" 2>/dev/null || true",
+            "_cmux_codex_retry_capture=\"\"",
             "_cmux_codex_retry_pipe=\"\"",
             "[ \"$_cmux_codex_retry_status\" -eq 0 ] && exit 0",
             "[ \"$((SECONDS - _cmux_codex_retry_started))\" -ge 3 ] && exit \"$_cmux_codex_retry_status\"",
@@ -71,9 +71,9 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
             "_cmux_codex_retry_attempt=$((_cmux_codex_retry_attempt + 1))",
         ].joined(separator: "; ")
         let loopBody = "\(retryAttempt); \(afterAttempt)"
-        let cleanup = "_cmux_codex_retry_cleanup() { if [ -n \"$_cmux_codex_retry_pipe\" ]; then rm -f \"$_cmux_codex_retry_pipe\" 2>/dev/null || true; fi; if [ -n \"$_cmux_codex_retry_stderr\" ]; then rm -f \"$_cmux_codex_retry_stderr\" 2>/dev/null || true; fi; }"
+        let cleanup = "_cmux_codex_retry_cleanup() { if [ -n \"$_cmux_codex_retry_pipe\" ]; then rm -f \"$_cmux_codex_retry_pipe\" 2>/dev/null || true; fi; if [ -n \"$_cmux_codex_retry_capture\" ]; then rm -f \"$_cmux_codex_retry_capture\" 2>/dev/null || true; fi; }"
         return [
-            "_cmux_codex_retry_stderr=\"\"",
+            "_cmux_codex_retry_capture=\"\"",
             "_cmux_codex_retry_pipe=\"\"",
             cleanup,
             "trap '_cmux_codex_retry_cleanup; exit 130' INT TERM",

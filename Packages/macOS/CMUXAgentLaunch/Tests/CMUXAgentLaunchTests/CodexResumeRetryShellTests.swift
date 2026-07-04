@@ -114,6 +114,45 @@ struct CodexResumeRetryShellTests {
         )
     }
 
+    @Test("Preserves TTY file descriptors for child")
+    func preservesTTYFileDescriptorsForChild() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-retry-shell-\(UUID().uuidString)", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let recordURL = root.appendingPathComponent("record.txt", isDirectory: false)
+        let fakeCodexURL = binDirectory.appendingPathComponent("codex fake", isDirectory: false)
+        try """
+        #!/bin/zsh
+        [[ -t 0 && -t 1 && -t 2 ]]
+        tty_status=$?
+        print -r -- "tty=$tty_status" > \(Self.shellSingleQuoted(recordURL.path))
+        exit "$tty_status"
+        """.write(to: fakeCodexURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCodexURL.path)
+
+        let wrapped = CodexResumeRetryShell(maxAttempts: 4).wrappedCommand(
+            Self.shellSingleQuoted(fakeCodexURL.path),
+            quote: Self.shellSingleQuoted
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", wrapped]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderr = Pipe()
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+
+        let stderrText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        #expect(process.terminationStatus == 0, "stderr: \(stderrText)")
+        #expect(try String(contentsOf: recordURL, encoding: .utf8) == "tty=0\n")
+    }
+
     @Test("Does not retry lock text after startup window")
     func doesNotRetryLockTextAfterStartupWindow() throws {
         let root = FileManager.default.temporaryDirectory
