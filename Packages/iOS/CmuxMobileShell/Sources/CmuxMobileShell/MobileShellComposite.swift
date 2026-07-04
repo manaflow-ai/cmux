@@ -6761,26 +6761,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let targetSeq = max(remoteSeq, pendingTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0)
             if let previousPendingSeq {
                 guard targetSeq > previousPendingSeq else {
-                    if localSeq < previousPendingSeq {
-                        MobileDebugLog.anchormux("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(previousPendingSeq) remote=\(remoteSeq)")
-                        diagnosticLog?.record(DiagnosticEvent(
-                            .inputSeqBehind,
-                            surface: Self.diagnosticSurfaceHandle(surfaceID),
-                            a: Int(clamping: localSeq),
-                            b: Int(clamping: remoteSeq),
-                            c: Int(clamping: previousPendingSeq)
-                        ))
-                        mobileShellLog.info("terminal render-grid still behind after input surface=\(surfaceID, privacy: .public) localSeq=\(localSeq, privacy: .public) pendingSeq=\(previousPendingSeq, privacy: .public) remoteSeq=\(remoteSeq, privacy: .public)")
-                        resyncTerminalOutput(
-                            reason: "input_seq_still_behind",
-                            restartEventStream: true,
-                            surfaceIDs: [surfaceID]
-                        )
-                    } else if pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(surfaceID) {
+                    if pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(surfaceID) {
                         MobileDebugLog.anchormux(
                             "sync.input_seq_replay_after_drop surface=\(surfaceID) local=\(localSeq) pending=\(targetSeq) remote=\(remoteSeq)"
                         )
                         requestTerminalReplayAfterDroppedRenderGrid(surfaceID: surfaceID, source: "input_ack")
+                    } else if localSeq < previousPendingSeq {
+                        MobileDebugLog.anchormux("sync.input_seq_waiting surface=\(surfaceID) local=\(localSeq) pending=\(previousPendingSeq) remote=\(remoteSeq)")
                     }
                     return
                 }
