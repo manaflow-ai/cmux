@@ -237,8 +237,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
         workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "remote-main", isDirty: false)
+        workspace.updatePanelPullRequest(panelId: remotePanelId, number: 7, label: "#7", url: try #require(URL(string: "https://example.com/pr/7")), status: .open)
         #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == remoteDirectory)
-
         workspace.disconnectRemoteConnection()
 
         #expect(workspace.isRemoteWorkspace)
@@ -246,7 +246,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.panelDirectories[remotePanelId] == remoteDirectory)
         #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == nil)
         #expect(workspace.presentedCurrentDirectory == nil)
-        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [] && workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [remotePanelId]).isEmpty)
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [] && workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [remotePanelId]).isEmpty && workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [remotePanelId]).isEmpty)
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         #expect(try #require(snapshot.panels.first { $0.id == remotePanelId }).directoryRequiresRemoteTrust == true)
         let restored = Workspace()
