@@ -282,7 +282,7 @@ extension TerminalController {
     func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
             guard let self,
-                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
+                  let (_, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
