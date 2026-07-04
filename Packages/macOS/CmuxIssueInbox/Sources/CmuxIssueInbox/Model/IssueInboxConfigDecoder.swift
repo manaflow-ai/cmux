@@ -24,7 +24,7 @@ public struct IssueInboxConfigDecoder: Sendable {
             warnings.append(warning(index: index, message: "Issue source entry could not be decoded."))
         }
         for entry in raw.sources {
-            switch sourceConfig(from: entry.source, index: entry.index) {
+            switch sourceConfig(from: entry.source, index: entry.index, warnings: &warnings) {
             case .success(let source):
                 sources.append(source)
             case .failure(let warning):
@@ -48,14 +48,15 @@ public struct IssueInboxConfigDecoder: Sendable {
 
     private func sourceConfig(
         from entry: RawIssueInboxSource,
-        index: Int
+        index: Int,
+        warnings: inout [IssueInboxConfigWarning]
     ) -> SourceConfigDecodeResult {
         guard let type = IssueProviderKind(rawValue: entry.type.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return .failure(warning(index: index, message: "Unsupported issue source type '\(entry.type)'."))
         }
 
         let projectRoot = entry.projectRoot.flatMap { expandedProjectRoot($0) }
-        let spawn = spawnConfig(from: entry.spawn)
+        let spawn = spawnConfig(from: entry.spawn, index: index, warnings: &warnings)
         switch type {
         case .github:
             guard let repo = nonEmpty(entry.repo) else {
@@ -81,9 +82,19 @@ public struct IssueInboxConfigDecoder: Sendable {
         }
     }
 
-    private func spawnConfig(from raw: RawIssueInboxSpawnConfig?) -> IssueInboxSpawnConfig? {
+    private func spawnConfig(
+        from raw: RawIssueInboxSpawnConfig?,
+        index: Int,
+        warnings: inout [IssueInboxConfigWarning]
+    ) -> IssueInboxSpawnConfig? {
         guard let raw else { return nil }
-        let defaultAgent = nonEmpty(raw.defaultAgent).flatMap(IssueSpawnAgent.init(rawValue:))
+        var defaultAgent: IssueSpawnAgent?
+        if let rawAgent = nonEmpty(raw.defaultAgent) {
+            defaultAgent = IssueSpawnAgent(rawValue: rawAgent)
+            if defaultAgent == nil {
+                warnings.append(warning(index: index, message: "Unsupported spawn.defaultAgent '\(rawAgent)'."))
+            }
+        }
         let config = IssueInboxSpawnConfig(
             devServerCommand: nonEmpty(raw.devServerCommand),
             webURL: nonEmpty(raw.webURL),

@@ -38,10 +38,9 @@ export function mountIssueInboxSurface(rootElement: HTMLElement): void {
 function IssueInboxApp() {
   const { snapshot, loading, refreshing, error } = useIssueInboxStore();
   const labels = createIssueInboxLabelResolver(snapshot?.labels);
-  const [query, setQuery] = useStateText("");
-  const [status, setStatus] = useStateText<StatusFilter>("open");
-  const [provider, setProvider] = useStateText<ProviderFilter>("all");
-  const [agent, setAgent] = useAgentChoice();
+  const [query, setQuery] = React.useState("");
+  const [status, setStatus] = React.useState<StatusFilter>("open");
+  const [provider, setProvider] = React.useState<ProviderFilter>("all");
 
   if (loading && !snapshot) {
     return (
@@ -105,13 +104,7 @@ function IssueInboxApp() {
       ) : (
         <section className="issue-list" aria-label={labels("title")}>
           {visible.map((item) => (
-            <IssueRow
-              key={item.id}
-              item={item}
-              snapshot={snapshot}
-              agent={agent}
-              onAgentChange={setAgent}
-            />
+            <IssueRow key={item.id} item={item} snapshot={snapshot} />
           ))}
           <footer className="issue-footer">
             {labels("showing")
@@ -127,18 +120,18 @@ function IssueInboxApp() {
 function IssueRow({
   item,
   snapshot,
-  agent,
-  onAgentChange,
 }: {
   item: IssueInboxItem;
   snapshot: IssueInboxSnapshot | null;
-  agent: IssueSpawnAgent | null;
-  onAgentChange: (agent: IssueSpawnAgent) => void;
 }) {
   const labels = createIssueInboxLabelResolver(snapshot?.labels);
-  const [busy, setBusy] = useStateText(false);
+  const [busy, setBusy] = React.useState(false);
   const source = snapshot?.config.sources.find((entry) => entry.id === sourceID(item));
-  const selectedAgent = agent ?? source?.spawn?.default_agent ?? "none";
+  // Agent selection is row-scoped: the source-configured default wins over the
+  // persisted last choice, and changing one row never rewrites other rows.
+  const [selectedAgent, setSelectedAgent] = React.useState<IssueSpawnAgent>(
+    () => source?.spawn?.default_agent ?? readAgentChoice() ?? "none",
+  );
 
   async function spawn(event: React.MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
@@ -188,7 +181,11 @@ function IssueRow({
         <select
           className="issue-agent-select"
           value={selectedAgent}
-          onChange={(event) => onAgentChange(event.currentTarget.value as IssueSpawnAgent)}
+          onChange={(event) => {
+            const next = event.currentTarget.value as IssueSpawnAgent;
+            setSelectedAgent(next);
+            writeAgentChoice(next);
+          }}
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
           aria-label={labels("spawn")}
@@ -290,6 +287,7 @@ function SegmentedFilter<T extends string>({
           className={option === value ? "selected" : ""}
           type="button"
           key={option}
+          aria-pressed={option === value}
           onClick={() => onChange(option)}
         >
           {label}
@@ -325,21 +323,6 @@ function filterItems(
     ].join(" ").toLowerCase();
     return searchable.includes(normalizedQuery);
   });
-}
-
-function useStateText<T>(initialValue: T): [T, (value: T) => void] {
-  return React.useState(initialValue);
-}
-
-function useAgentChoice(): [IssueSpawnAgent | null, (agent: IssueSpawnAgent) => void] {
-  const [agent, setAgentState] = React.useState<IssueSpawnAgent | null>(readAgentChoice);
-  return [
-    agent,
-    (next) => {
-      setAgentState(next);
-      writeAgentChoice(next);
-    },
-  ];
 }
 
 function readAgentChoice(): IssueSpawnAgent | null {

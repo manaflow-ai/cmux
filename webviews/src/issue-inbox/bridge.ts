@@ -82,15 +82,28 @@ export async function refreshIssues(): Promise<void> {
 }
 
 export async function spawnWorkspace(issueId: string, agent: IssueSpawnAgent): Promise<void> {
-  await callNative<unknown>("spawn", { issueId, agent });
+  await callNativeSurfacingError("spawn", { issueId, agent });
 }
 
 export async function openExternal(url: string): Promise<void> {
-  await callNative<unknown>("openExternal", { url });
+  await callNativeSurfacingError("openExternal", { url });
 }
 
 export async function openConfig(): Promise<void> {
-  await callNative<unknown>("openConfig");
+  await callNativeSurfacingError("openConfig");
+}
+
+async function callNativeSurfacingError(
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await callNative<unknown>(method, params);
+  } catch (error) {
+    updateState({
+      error: error instanceof Error ? error.message : "Issue Inbox request failed.",
+    });
+  }
 }
 
 async function loadInitialSnapshot(): Promise<void> {
