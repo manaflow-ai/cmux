@@ -41,6 +41,21 @@ enum AutoNamingAgentDisplay {
                 localized: "settings.automation.autoNamingAgent.status.notInstalled",
                 defaultValue: "\(name) isn't installed, so naming used each session's own agent."
             )
+        case .probeFailed:
+            return String(
+                localized: "settings.automation.autoNamingAgent.status.probeFailed",
+                defaultValue: "cmux couldn't read the live auto-naming settings from the app. Existing names are left unchanged."
+            )
+        case .extractionFailed:
+            return String(
+                localized: "settings.automation.autoNamingAgent.status.extractionFailed",
+                defaultValue: "cmux couldn't read enough conversation text to generate a name. Existing names are left unchanged."
+            )
+        case .applyFailed:
+            return String(
+                localized: "settings.automation.autoNamingAgent.status.applyFailed",
+                defaultValue: "\(name) generated a name, but cmux couldn't apply it. Existing names are left unchanged."
+            )
         }
     }
 }

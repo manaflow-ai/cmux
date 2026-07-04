@@ -180,11 +180,14 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastLineCount: Int?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
+    var autoNameInFlightPassId: String?
     /// Wall-clock of the last summarization attempt (success OR failure), so a
     /// persistently failing summarizer (rate-limited, signed out, timing out)
     /// gets the same minInterval cooldown instead of respawning every turn.
     var autoNameLastAttemptAt: TimeInterval?
+    var autoNameFailureCount: Int?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
+    var autoNameRecentMessageBatchKeys: [String]?
     var autoNameMessageSequence: Int?
     /// Whether the most recent Stop reported unfinished background work
     /// (a running `background_tasks` entry or a pending `session_crons`).
@@ -322,6 +325,7 @@ final class ClaudeHookSessionStore {
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
+        var passId: String?
     }
 
     /// Atomically evaluates the auto-naming throttle for a session and, when
@@ -340,7 +344,7 @@ final class ClaudeHookSessionStore {
     ) throws -> AutoNamingBeginOutcome {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
-            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
+            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil, passId: nil)
         }
         return try withLockedState { state in
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
@@ -355,16 +359,20 @@ final class ClaudeHookSessionStore {
                 lastLineCount: record.autoNameLastLineCount,
                 lastNamedAt: record.autoNameLastNamedAt,
                 inFlightAt: record.autoNameInFlightAt,
-                lastAttemptAt: record.autoNameLastAttemptAt
+                lastAttemptAt: record.autoNameLastAttemptAt,
+                failureCount: record.autoNameFailureCount ?? 0
             )
             let decision = engine.throttleDecision(
                 snapshot: snapshot,
                 transcriptLineCount: transcriptLineCount,
                 now: now
             )
+            var passId: String?
             switch decision {
             case .proceed:
+                passId = UUID().uuidString
                 record.autoNameInFlightAt = now.timeIntervalSince1970
+                record.autoNameInFlightPassId = passId
             case .reseedBaseline(let to):
                 record.autoNameLastLineCount = to
             case .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
@@ -372,34 +380,52 @@ final class ClaudeHookSessionStore {
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
-            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
+            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle, passId: passId)
         }
     }
 
     /// Records a completed naming pass. On a confirmed apply, the durable
-    /// baseline (title, line count, timestamp) advances; on failure only the
-    /// in-flight marker clears, so the next qualifying Stop retries.
+    /// baseline (title, line count, timestamp) advances; on counted failure,
+    /// retry cooldown/backoff advances. Extraction-only misses clear the
+    /// in-flight marker without stamping cooldown, so the next valid transcript
+    /// can retry immediately.
     func finishAutoNaming(
         sessionId: String,
+        passId: String?,
         appliedTitle: String?,
         baselineLineCount: Int?,
-        now: Date
-    ) throws {
+        now: Date,
+        countFailure: Bool = true
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return }
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return false }
+            guard passId != nil, record.autoNameInFlightPassId == passId else { return false }
             record.autoNameInFlightAt = nil
-            // Stamp every completed pass (success or failure) so the throttle
-            // enforces a cooldown before retrying a failing summarizer.
-            record.autoNameLastAttemptAt = now.timeIntervalSince1970
+            record.autoNameInFlightPassId = nil
+            if (appliedTitle != nil && baselineLineCount != nil) || countFailure {
+                record.autoNameLastAttemptAt = now.timeIntervalSince1970
+            }
             if let appliedTitle, let baselineLineCount {
                 record.autoNameLastTitle = appliedTitle
                 record.autoNameLastLineCount = baselineLineCount
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
+                record.autoNameFailureCount = 0
+            } else if countFailure {
+                record.autoNameFailureCount = min((record.autoNameFailureCount ?? 0) + 1, 32)
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
+            return true
+        }
+    }
+
+    func isCurrentAutoNamingPass(sessionId: String, passId: String?) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty, let passId else { return false }
+        return try withLockedState { state in
+            state.sessions[normalized]?.autoNameInFlightPassId == passId
         }
     }
 
@@ -434,6 +460,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
+        autoNameMessageBatchKey: String? = nil,
         rejectTerminalTurn: Bool = false
     ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
         let normalized = normalizeSessionId(sessionId)
@@ -471,7 +498,7 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            appendAutoNameMessages(autoNameMessages, to: &record)
+            appendAutoNameMessages(autoNameMessages, batchKey: autoNameMessageBatchKey, to: &record)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
@@ -543,7 +570,8 @@ final class ClaudeHookSessionStore {
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
-        autoNameMessages: [AutoNamingTranscriptMessage] = []
+        autoNameMessages: [AutoNamingTranscriptMessage] = [],
+        autoNameMessageBatchKey: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
@@ -576,7 +604,7 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            appendAutoNameMessages(autoNameMessages, to: &record)
+            appendAutoNameMessages(autoNameMessages, batchKey: autoNameMessageBatchKey, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
@@ -1052,46 +1080,25 @@ final class ClaudeHookSessionStore {
 
     private func appendAutoNameMessages(
         _ messages: [AutoNamingTranscriptMessage],
+        batchKey: String?,
         to record: inout ClaudeHookSessionRecord
     ) {
         guard !messages.isEmpty else { return }
-        var recent = record.autoNameRecentMessages ?? []
-        var appendedCount = 0
-        for message in messages {
-            guard let normalized = normalizedAutoNameMessage(message) else { continue }
-            if recent.last == normalized { continue }
-            recent.append(normalized)
-            appendedCount += 1
-        }
-        if recent.count > Self.maxAutoNameRecentMessages {
-            recent.removeFirst(recent.count - Self.maxAutoNameRecentMessages)
-        }
-        record.autoNameRecentMessages = recent.isEmpty ? nil : recent
-        if appendedCount > 0 {
-            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + appendedCount
-        }
-    }
-
-    private func normalizedAutoNameMessage(_ message: AutoNamingTranscriptMessage) -> AutoNamingTranscriptMessage? {
-        let role = message.role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard role == "user" || role == "assistant" else { return nil }
-        let text = autoNameNormalizedSingleLine(message.text)
-        guard !text.isEmpty else { return nil }
-        return AutoNamingTranscriptMessage(
-            role: role,
-            text: autoNameTruncate(text, maxLength: Self.maxAutoNameMessageCharacters)
+        let cache = AutoNamingRecentMessageCache(
+            maxMessages: Self.maxAutoNameRecentMessages,
+            maxMessageCharacters: Self.maxAutoNameMessageCharacters
         )
-    }
-
-    private func autoNameNormalizedSingleLine(_ value: String) -> String {
-        let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func autoNameTruncate(_ value: String, maxLength: Int) -> String {
-        guard value.count > maxLength else { return value }
-        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 1))
-        return String(value[..<index]) + "…"
+        let updated = cache.appending(
+            messages,
+            batchKey: batchKey,
+            to: record.autoNameRecentMessages ?? [],
+            recentBatchKeys: record.autoNameRecentMessageBatchKeys ?? []
+        )
+        record.autoNameRecentMessages = updated.messages.isEmpty ? nil : updated.messages
+        record.autoNameRecentMessageBatchKeys = updated.batchKeys.isEmpty ? nil : updated.batchKeys
+        if updated.progressCount > 0 {
+            record.autoNameMessageSequence = (record.autoNameMessageSequence ?? 0) + updated.progressCount
+        }
     }
 
     private func update(
@@ -30085,15 +30092,16 @@ export default CMUXSessionRestore;
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
                         launchCommand: launchCommand,
-                        agentLifecycle: .running,
-                        autoNameMessages: autoNamingMessages(
-                            for: def,
-                            parsedInput: input,
-                            client: client,
-                            workspaceId: workspaceId
-                        ),
-                        rejectTerminalTurn: def.name == "codex"
-                    )) ?? (staleTerminalTurn: false, nested: false)
+	                        agentLifecycle: .running,
+	                        autoNameMessages: autoNamingMessages(
+	                            for: def,
+	                            parsedInput: input,
+	                            client: client,
+	                            workspaceId: workspaceId, surfaceId: surfaceId
+	                        ),
+	                        autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input),
+	                        rejectTerminalTurn: def.name == "codex"
+	                    )) ?? (staleTerminalTurn: false, nested: false)
                     if recordResult.staleTerminalTurn {
                         stopStaleCodexPromptSubmit()
                         return
@@ -30405,14 +30413,15 @@ export default CMUXSessionRestore;
                     launchCommand: launchCommand,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
-                    lastBody: nil,
-                    autoNameMessages: autoNamingMessages(
-                        for: def,
-                        parsedInput: input,
-                        client: client,
-                        workspaceId: workspaceId
-                    )
-                )) ?? false
+	                    lastBody: nil,
+	                    autoNameMessages: autoNamingMessages(
+	                        for: def,
+	                        parsedInput: input,
+	                        client: client,
+	                        workspaceId: workspaceId, surfaceId: surfaceId
+	                    ),
+	                    autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input)
+	                )) ?? false
             } else {
                 nestedPromptStop = false
             }
@@ -30587,10 +30596,9 @@ export default CMUXSessionRestore;
             if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
-                   params: ["probe": true, "workspace_id": workspaceId]
+                   params: autoNamingProbeParams(workspaceId: workspaceId, surfaceId: surfaceId)
                ),
-               autoNameProbe["enabled"] as? Bool == true,
-               autoNameProbe["workspace_user_owned"] as? Bool != true {
+               autoNamingProbeHasWritableTarget(autoNameProbe) {
                 spawnDetachedAgentAutoName(
                     def: def,
                     sessionId: sessionId,
@@ -30836,8 +30844,9 @@ export default CMUXSessionRestore;
                             for: def,
                             parsedInput: input,
                             client: client,
-                            workspaceId: workspaceId
-                        )
+                            workspaceId: workspaceId, surfaceId: surfaceId
+                        ),
+                        autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input)
                     )
                 } else {
                     try? store.upsert(
@@ -30984,14 +30993,15 @@ export default CMUXSessionRestore;
                         pid: mapped.pid,
                         launchCommand: mapped.launchCommand,
                         lastSubtitle: nil,
-                        lastBody: nil,
-                        autoNameMessages: autoNamingMessages(
-                            for: def,
-                            parsedInput: input,
-                            client: client,
-                            workspaceId: mapped.workspaceId
-                        )
-                    )
+	                        lastBody: nil,
+	                        autoNameMessages: autoNamingMessages(
+	                            for: def,
+	                            parsedInput: input,
+	                            client: client,
+	                            workspaceId: mapped.workspaceId, surfaceId: mapped.surfaceId
+	                        ),
+	                        autoNameMessageBatchKey: autoNamingMessageBatchKey(for: def, parsedInput: input)
+	                    )
                 }
 #if DEBUG
                 agentHookDebugLog(

@@ -46,6 +46,15 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "autoNamingAgent"
     )
 
+    /// Language for generated workspace/tab titles. The default `auto`
+    /// follows the user's system language; explicit BCP-47 tags force the
+    /// summarizer prompt to use that language.
+    public let autoNamingLanguage = DefaultsKey<String>(
+        id: "automation.autoNamingLanguage",
+        defaultValue: AutoNamingLanguageCatalog.autoSlug,
+        userDefaultsKey: "autoNamingLanguage"
+    )
+
     public let ripgrepBinaryPath = DefaultsKey<String>(
         id: "automation.ripgrepBinaryPath",
         defaultValue: "",

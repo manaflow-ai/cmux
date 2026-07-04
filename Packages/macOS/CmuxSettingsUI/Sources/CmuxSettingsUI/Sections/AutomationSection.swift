@@ -19,6 +19,7 @@ public struct AutomationSection: View {
     @State private var claudePathModel: DefaultsValueModel<String>
     @State private var autoNamingModel: DefaultsValueModel<Bool>
     @State private var autoNamingAgentModel: DefaultsValueModel<String>
+    @State private var autoNamingLanguageModel: DefaultsValueModel<String>
     @State private var autoNamingStatusModel: DefaultsValueModel<String>
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
@@ -59,6 +60,7 @@ public struct AutomationSection: View {
         _claudePathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.claudeCodeCustomClaudePath))
         _autoNamingModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.workspaceAutoNaming))
         _autoNamingAgentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingAgent))
+        _autoNamingLanguageModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.autoNamingLanguage))
         // Internal status (not a user setting), observed reactively via an
         // inline key so a failure reported mid-session updates the line live.
         _autoNamingStatusModel = State(initialValue: DefaultsValueModel(
@@ -126,7 +128,7 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
+        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingLanguageModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
     }
 
     @ViewBuilder
@@ -324,6 +326,30 @@ public struct AutomationSection: View {
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("SettingsAutoNamingAgentPicker")
                 }
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .json("automation.autoNamingLanguage"),
+                    String(localized: "settings.automation.autoNamingLanguage", defaultValue: "Naming Language"),
+                    subtitle: autoNamingLanguageSubtitle(forSlug: autoNamingLanguageModel.current),
+                    controlWidth: Self.columnWidth
+                ) {
+                    Picker("", selection: Binding(get: { autoNamingLanguageModel.current }, set: { autoNamingLanguageModel.set($0) })) {
+                        Text(String(localized: "settings.automation.autoNamingLanguage.auto", defaultValue: "Follow System"))
+                            .tag(AutoNamingLanguageCatalog.autoSlug)
+                        Section(String(localized: "settings.automation.autoNamingLanguage.section.languages", defaultValue: "Languages")) {
+                            ForEach(AutoNamingLanguageCatalog().explicitOptions, id: \.slug) { option in
+                                Text(autoNamingLanguageDisplayName(for: option.slug)).tag(option.slug)
+                            }
+                            if shouldShowCustomAutoNamingLanguage(autoNamingLanguageModel.current) {
+                                Text(autoNamingLanguageDisplayName(for: autoNamingLanguageModel.current))
+                                    .tag(autoNamingLanguageModel.current)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .accessibilityIdentifier("SettingsAutoNamingLanguagePicker")
+                }
             }
             SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."))
@@ -352,6 +378,40 @@ public struct AutomationSection: View {
         guard !autoNamingStatusModel.current.isEmpty,
               let data = autoNamingStatusModel.current.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(AutoNamingStatus.self, from: data)
+    }
+
+    private func autoNamingLanguageDisplayName(for slug: String) -> String {
+        let trimmed = slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch trimmed {
+        case "en":
+            return String(localized: "settings.automation.autoNamingLanguage.english", defaultValue: "English")
+        case "ja":
+            return String(localized: "settings.automation.autoNamingLanguage.japanese", defaultValue: "Japanese")
+        default:
+            return trimmed.isEmpty ? slug : trimmed
+        }
+    }
+
+    private func shouldShowCustomAutoNamingLanguage(_ slug: String) -> Bool {
+        let trimmed = slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
+            && trimmed != AutoNamingLanguageCatalog.autoSlug
+            && AutoNamingLanguageCatalog().option(forSlug: trimmed) == nil
+    }
+
+    private func autoNamingLanguageSubtitle(forSlug slug: String) -> String {
+        let trimmed = slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == AutoNamingLanguageCatalog.autoSlug {
+            return String(
+                localized: "settings.automation.autoNamingLanguage.requirement.auto",
+                defaultValue: "Uses your Mac's first preferred language."
+            )
+        }
+        let name = autoNamingLanguageDisplayName(for: trimmed)
+        return String(
+            localized: "settings.automation.autoNamingLanguage.requirement.explicit",
+            defaultValue: "Titles are always generated in \(name)."
+        )
     }
 
     @ViewBuilder

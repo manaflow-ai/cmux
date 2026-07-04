@@ -3,6 +3,103 @@ import Foundation
 import CmuxSettings
 
 extension CMUXCLI {
+    /// Reads live auto-naming settings from the app. Returns nil when naming is
+    /// disabled or no workspace/panel title target is writable.
+    func probeAutoNaming(
+        workspaceId: String,
+        surfaceId: String,
+        agent: String,
+        client: SocketClient,
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> [String: Any]? {
+        let probe: [String: Any]
+        do {
+            probe = try client.sendV2(
+                method: "workspace.set_auto_title",
+                params: autoNamingProbeParams(workspaceId: workspaceId, surfaceId: surfaceId)
+            )
+        } catch {
+            telemetry.breadcrumb("\(telemetryKey).probe-failed")
+            return nil
+        }
+        guard probe["enabled"] as? Bool == true else {
+            telemetry.breadcrumb("\(telemetryKey).disabled")
+            return nil
+        }
+        guard autoNamingProbeHasWritableTarget(probe) else {
+            telemetry.breadcrumb("\(telemetryKey).user-owned")
+            return nil
+        }
+        return probe
+    }
+
+    func autoNamingProbeParams(workspaceId: String, surfaceId: String?) -> [String: Any] {
+        var params: [String: Any] = [
+            "probe": true,
+            "workspace_id": workspaceId
+        ]
+        if let surfaceId = normalizedHookValue(surfaceId) {
+            params["panel_id"] = surfaceId
+            params["panel_only_if_multiple"] = true
+        }
+        return params
+    }
+
+    func autoNamingProbeHasWritableTarget(_ probe: [String: Any]) -> Bool {
+        guard probe["enabled"] as? Bool == true else { return false }
+        if let titleTarget = normalizedHookValue(probe["auto_naming_title_target"] as? String) {
+            if titleTarget == "panel" {
+                return probe["auto_naming_panel_writable"] as? Bool == true
+            }
+            return probe["workspace_user_owned"] as? Bool != true
+        }
+        if probe["workspace_user_owned"] as? Bool == true {
+            return probe["auto_naming_panel_writable"] as? Bool == true
+        }
+        return true
+    }
+
+    /// Converts the app probe's resolved language fields into the engine's
+    /// prompt language. Missing fields fall back to English so old apps and
+    /// malformed probes never make the prompt language implicit again.
+    func autoNamingPromptLanguage(
+        probe: [String: Any],
+        env: [String: String],
+        telemetryKey: String,
+        telemetry: CLISocketSentryTelemetry
+    ) -> AutoNamingPromptLanguage {
+        let probeName = normalizedHookValue(probe["auto_naming_language_name"] as? String)
+        let probeTag = normalizedHookValue(probe["auto_naming_language_tag"] as? String)
+        let envName = normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_NAME"])
+        let envTag = normalizedHookValue(env["CMUX_AUTO_NAMING_LANGUAGE_TAG"])
+        let language: AutoNamingPromptLanguage
+        if let probeName, let probeTag {
+            language = AutoNamingPromptLanguage(name: probeName, tag: probeTag)
+        } else if let envName, let envTag {
+            language = AutoNamingPromptLanguage(name: envName, tag: envTag)
+        } else {
+            let resolved = AutoNamingLanguageResolver().resolve(rawSetting: "en")
+            language = AutoNamingPromptLanguage(name: resolved.promptName, tag: resolved.bcp47Tag)
+            telemetry.breadcrumb("\(telemetryKey).language-fallback.\(language.tag)")
+        }
+        return language
+    }
+
+    /// The live auto-owned workspace title reported by the app probe. This is
+    /// the authoritative no-op comparison target; the session store's last title
+    /// can be stale when another session renamed the same workspace.
+    func autoNamingCurrentTitle(probe: [String: Any]) -> String? {
+        normalizedHookValue(probe["auto_naming_current_title"] as? String)
+    }
+
+    func autoNamingTargetsPanel(probe: [String: Any]) -> Bool {
+        if let titleTarget = normalizedHookValue(probe["auto_naming_title_target"] as? String) {
+            return titleTarget == "panel"
+        }
+        return probe["auto_naming_panel_writable"] as? Bool == true
+    }
+
     /// Resolves which agent should actually run the summarization for one
     /// naming pass, honoring the user's `automation.autoNamingAgent` override
     /// (carried on the socket probe response as `summarizer_agent`).
@@ -177,7 +274,9 @@ extension CMUXCLI {
             ],
             prompt: prompt,
             environment: summarizerEnv,
-            timeout: timeout
+            timeout: timeout,
+            failOnOutputOverflow: false,
+            requireStdoutEOF: false
         ) != nil else {
             return nil
         }

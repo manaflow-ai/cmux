@@ -40,6 +40,9 @@ struct SettingsSearchIndexTests {
         assertSearch("naming agent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("automation.autoNamingAgent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("autoNamingAgent", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("naming language", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("automation.autoNamingLanguage", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
+        assertSearch("Japanese auto naming", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "workspace-auto-naming"))
         assertSearch("option as alt", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config"))
         assertSearch("option", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config"))
         assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
@@ -75,6 +78,7 @@ struct SettingsSearchIndexTests {
 
     @Test func conditionalAutoNamingAgentDoesNotReuseWorkspaceAutoNamingAnchor() {
         #expect(SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
+        #expect(SettingsSearchIndex.anchorID(forSettingsPath: "automation.autoNamingLanguage") == nil)
     }
 
     @Test func settingsPathAnchorIncludesTextBoxMaxLines() {

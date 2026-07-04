@@ -17,14 +17,16 @@ import Testing
         lastLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
-        lastAttemptAt: TimeInterval? = nil
+        lastAttemptAt: TimeInterval? = nil,
+        failureCount: Int = 0
     ) -> AutoNamingSessionSnapshot {
         AutoNamingSessionSnapshot(
             lastTitle: lastTitle,
             lastLineCount: lastLineCount,
             lastNamedAt: lastNamedAt,
             inFlightAt: inFlightAt,
-            lastAttemptAt: lastAttemptAt
+            lastAttemptAt: lastAttemptAt,
+            failureCount: failureCount
         )
     }
 
@@ -119,6 +121,25 @@ import Testing
         #expect(decision == .skipTooSoon)
     }
 
+    @Test func repeatedFailuresUseExponentialBackoff() {
+        let base = TimeInterval(1_000_000)
+        let failedTwice = snapshot(lastAttemptAt: base, failureCount: 2)
+
+        let tooSoon = engine.throttleDecision(
+            snapshot: failedTwice,
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval * 2 - 1)
+        )
+        #expect(tooSoon == .skipTooSoon)
+
+        let afterBackoff = engine.throttleDecision(
+            snapshot: failedTwice,
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval * 2 + 1)
+        )
+        #expect(afterBackoff == .proceed(baseline: 100))
+    }
+
     @Test func compactionReseedsInsteadOfSkippingForever() {
         let base = TimeInterval(1_000_000)
         let now = Date(timeIntervalSince1970: base + config.minInterval + 1)
@@ -181,6 +202,80 @@ import Testing
         #expect(engine.extractMessages(fromTranscriptLines: ["", "garbage", "{}"]).isEmpty)
     }
 
+    @Test func hookMessageCacheSuppressesReplayButCountsRepeatedNewBatches() {
+        let cache = AutoNamingRecentMessageCache(maxMessages: 24, maxMessageCharacters: 1_000)
+        let first = cache.appending([
+            AutoNamingTranscriptMessage(role: "user", text: "Fix auth")
+        ], batchKey: "batch-1", to: [], recentBatchKeys: [])
+        let replay = cache.appending([
+            AutoNamingTranscriptMessage(role: "USER", text: " Fix   auth "),
+            AutoNamingTranscriptMessage(role: "assistant", text: " "),
+            AutoNamingTranscriptMessage(role: "tool", text: "ignored")
+        ], batchKey: "batch-1", to: first.messages, recentBatchKeys: first.batchKeys)
+        let next = cache.appending([
+            AutoNamingTranscriptMessage(role: "user", text: "Fix auth")
+        ], batchKey: "batch-2", to: replay.messages, recentBatchKeys: replay.batchKeys)
+
+        #expect(first.progressCount == 1)
+        #expect(replay.progressCount == 0)
+        #expect(replay.messages == first.messages)
+        #expect(next.progressCount == 1)
+        #expect(next.messages == first.messages)
+    }
+
+    @Test func hookMessageCacheCountsRepeatedUnbatchedEventsAsProgress() {
+        let cache = AutoNamingRecentMessageCache(maxMessages: 24, maxMessageCharacters: 1_000)
+        let first = cache.appending([
+            AutoNamingTranscriptMessage(role: "user", text: "continue")
+        ], batchKey: nil, to: [], recentBatchKeys: [])
+        let repeated = cache.appending([
+            AutoNamingTranscriptMessage(role: "USER", text: " continue ")
+        ], batchKey: nil, to: first.messages, recentBatchKeys: first.batchKeys)
+
+        #expect(first.progressCount == 1)
+        #expect(repeated.progressCount == 1)
+        #expect(repeated.messages == first.messages)
+    }
+
+    @Test func hookMessageBatchKeyRequiresStableTurnOrEventIdentity() throws {
+        let cli = CMUXCLI(args: [])
+        let def = try #require(CMUXCLI.agentDefs.first { $0.name == "opencode" })
+        let base = ClaudeHookParsedInput(
+            rawObject: ["hook_event_name": "stop", "prompt": "continue"],
+            object: nil,
+            rawFallback: nil,
+            sessionId: "session-1",
+            turnId: nil,
+            cwd: nil,
+            transcriptPath: nil
+        )
+        #expect(cli.autoNamingMessageBatchKey(for: def, parsedInput: base) == nil)
+
+        let withEventID = ClaudeHookParsedInput(
+            rawObject: ["hook_event_name": "stop", "request_id": "request-1", "prompt": "continue"],
+            object: nil,
+            rawFallback: nil,
+            sessionId: "session-1",
+            turnId: nil,
+            cwd: nil,
+            transcriptPath: nil
+        )
+        #expect(cli.autoNamingMessageBatchKey(for: def, parsedInput: withEventID) != nil)
+    }
+
+    @Test func extractionDiagnosticsExposeMalformedOrUnknownFormats() throws {
+        let extraction = engine.extractClaudeTranscript(fromTranscriptLines: [
+            "not json",
+            #"{"type":"unknown","message":{"content":"ignored"}}"#,
+        ])
+        #expect(extraction.messages.isEmpty)
+        #expect(extraction.malformedRecordCount == 1)
+        #expect(extraction.skippedRecordCount == 1)
+        let diagnostic = try #require(extraction.diagnosticSummary)
+        #expect(diagnostic.contains("claudeTranscript"))
+        #expect(diagnostic.contains("malformed=1"))
+    }
+
     @Test func contextCombinesHeadUserMessagesAndTailWithTruncation() throws {
         let longText = String(repeating: "x", count: config.contextMessageMaxChars + 100)
         var messages: [AutoNamingTranscriptMessage] = [
@@ -210,9 +305,21 @@ import Testing
         #expect(prompt.contains("The current title is: Fix auth bug"))
         #expect(prompt.contains("EXACTLY"))
         #expect(prompt.contains("user: hello"))
+        #expect(prompt.contains("Write the title in English (en) only."))
+        #expect(!prompt.contains("same language as the conversation"))
 
         let untitled = engine.buildPrompt(currentTitle: nil, context: "user: hello")
         #expect(!untitled.contains("current title"))
+    }
+
+    @Test func promptUsesExplicitJapaneseLanguageInstruction() {
+        let prompt = engine.buildPrompt(
+            currentTitle: nil,
+            context: "user: ログインの不具合を直して",
+            language: AutoNamingPromptLanguage(name: "Japanese", tag: "ja")
+        )
+        #expect(prompt.contains("Write the title in Japanese (ja) only."))
+        #expect(prompt.contains("ログインの不具合"))
     }
 
     // MARK: - Sanitization
@@ -251,7 +358,19 @@ import Testing
 
     @Test func identicalTitleIsNoOp() {
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Fix auth bug") == nil)
+        #expect(engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug") == .unchanged("Fix auth bug"))
+        #expect(engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: nil) == .title("Fix auth bug"))
         #expect(engine.sanitizeResponse("Fix auth bug", currentTitle: "Other title") == "Fix auth bug")
+    }
+
+    @Test func unchangedTitleActionAllowsIdempotentApplyAndVerifiedNoOpFallback() throws {
+        let action = try #require(
+            engine.sanitizeResponseOutcome("Fix auth bug", currentTitle: "Fix auth bug").sanitizedAction
+        )
+
+        #expect(action.title == "Fix auth bug")
+        #expect(action.shouldApply)
+        #expect(action.verifyNoOpOnRejectedApply)
     }
 
     // MARK: - Environment policy
@@ -327,4 +446,5 @@ import Testing
         #expect(policy.claudeModel(from: ["ANTHROPIC_SMALL_FAST_MODEL": "  "]) == "haiku")
         #expect(policy.claudeModel(from: ["ANTHROPIC_SMALL_FAST_MODEL": "vertex-haiku-id"]) == "vertex-haiku-id")
     }
+
 }

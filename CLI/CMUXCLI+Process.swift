@@ -287,7 +287,8 @@ enum CLIProcessRunner {
         arguments: [String],
         stdinText: String? = nil,
         currentDirectoryPath: String? = nil,
-        timeout: TimeInterval? = nil
+        timeout: TimeInterval? = nil,
+        terminationGrace: TimeInterval = 0.5
     ) -> CLIProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
@@ -354,7 +355,7 @@ enum CLIProcessRunner {
                 timedOut = false
             case .timedOut:
                 timedOut = true
-                terminate(process: process, finished: finished)
+                terminate(process: process, waitForExit: { finished.wait(timeout: .now() + $0) == .success }, grace: terminationGrace)
             }
         } else {
             finished.wait()
@@ -387,11 +388,16 @@ enum CLIProcessRunner {
         executablePath: String,
         arguments: [String],
         stdinText: String? = nil,
-        timeout: TimeInterval? = nil
+        environment: [String: String]? = nil,
+        timeout: TimeInterval? = nil,
+        terminationGrace: TimeInterval = 0.5
     ) -> CLIProcessDataResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -451,7 +457,7 @@ enum CLIProcessRunner {
                 timedOut = false
             case .timedOut:
                 timedOut = true
-                terminate(process: process, finished: finished)
+                terminate(process: process, waitForExit: { finished.wait(timeout: .now() + $0) == .success }, grace: terminationGrace)
             }
         } else {
             finished.wait()
@@ -479,15 +485,13 @@ enum CLIProcessRunner {
         )
     }
 
-    private static func terminate(process: Process, finished: DispatchSemaphore) {
+    private static func terminate(process: Process, waitForExit: (TimeInterval) -> Bool, grace: TimeInterval) {
         guard process.isRunning else { return }
         process.terminate()
-        if finished.wait(timeout: .now() + 0.5) == .success {
-            return
-        }
+        if waitForExit(grace) { return }
         if process.isRunning {
             kill(process.processIdentifier, SIGKILL)
         }
-        _ = finished.wait(timeout: .now() + 0.5)
+        _ = waitForExit(0.5)
     }
 }

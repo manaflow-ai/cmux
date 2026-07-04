@@ -48,12 +48,40 @@ import Testing
         let lines = [
             messageLine(role: "user", content: "<environment_context>cwd: /tmp</environment_context>"),
             messageLine(role: "user", content: "<user_instructions>be terse</user_instructions>"),
+            messageLine(role: "user", content: "<permissions instructions>allow edits</permissions instructions>"),
+            messageLine(role: "user", content: "<turn_aborted>stale turn</turn_aborted>"),
             messageLine(role: "user", content: "<subagent_notification>done</subagent_notification>"),
+            messageLine(role: "user", content: "# AGENTS.md instructions for /repo\n<INSTRUCTIONS>ignore</INSTRUCTIONS>"),
             messageLine(role: "user", content: "Actual user question about flaky tests")
         ]
         let messages = engine.extractCodexMessages(fromRolloutLines: lines)
         #expect(messages.count == 1)
         #expect(messages[0].text == "Actual user question about flaky tests")
+    }
+
+    @Test func prefixLikeUserPromptsAreKept() {
+        let lines = [
+            messageLine(role: "user", content: "<permissions denied for user> please fix"),
+            messageLine(role: "user", content: "<turn_aborted during deploy> needs rollback"),
+        ]
+        let messages = engine.extractCodexMessages(fromRolloutLines: lines)
+        #expect(messages == [
+            AutoNamingTranscriptMessage(role: "user", text: "<permissions denied for user> please fix"),
+            AutoNamingTranscriptMessage(role: "user", text: "<turn_aborted during deploy> needs rollback"),
+        ])
+    }
+
+    @Test func xmlLikeUserPromptsAreKept() {
+        let lines = [
+            messageLine(role: "user", content: "<person>John</person> parse this XML"),
+            messageLine(role: "user", content: "<Button disabled>Fix this JSX prop</Button>"),
+            messageLine(role: "user", content: "<environment_context>cwd: /tmp</environment_context>"),
+        ]
+        let messages = engine.extractCodexMessages(fromRolloutLines: lines)
+        #expect(messages == [
+            AutoNamingTranscriptMessage(role: "user", text: "<person>John</person> parse this XML"),
+            AutoNamingTranscriptMessage(role: "user", text: "<Button disabled>Fix this JSX prop</Button>"),
+        ])
     }
 
     @Test func missingOrEmptyRolloutYieldsNoContext() {

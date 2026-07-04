@@ -1,0 +1,233 @@
+import Darwin
+import Foundation
+import Testing
+
+@Suite struct AutoNamingSubprocessRunnerTests {
+    @Test func waitsBrieflyForDescendantStdoutBeforeReturningOutput() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-stdout")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( sleep 0.1; printf ' title\\n' ) &
+        printf 'Good'
+        exit 0
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 2
+        )
+
+        #expect(output == "Good title\n")
+    }
+
+    @Test func waitsUntilOriginalDeadlineForDescendantStdout() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-stdout-deadline")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( sleep 0.6; printf ' title\\n' ) &
+        printf 'Good'
+        exit 0
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 2
+        )
+
+        #expect(output == "Good title\n")
+    }
+
+    @Test func leaderExitWithOpenDescendantStdoutFailsAndCleansProcessGroup() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-stdout-timeout")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appendingPathComponent("descendant-survived", isDirectory: false)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( trap '' TERM; sleep 1; printf survived > "$MARKER" ) &
+        printf 'Good title\\n'
+        exit 0
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(marker: marker),
+            timeout: 0.2
+        )
+
+        #expect(output == nil)
+        waitBriefly(for: 1.5)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func oversizedStdoutFailsWithoutReturningPartialOutput() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-output-cap")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let chunk = String(repeating: "x", count: 16)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        printf '\(chunk)'
+        """)
+
+        let output = AutoNamingSubprocessRunner(maxOutputBytes: 8).run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 2
+        )
+
+        #expect(output == nil)
+    }
+
+    @Test func oversizedStdoutCanBeDiscardedForFileBackedCallers() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-output-discard")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let chunk = String(repeating: "x", count: 16)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        printf '\(chunk)'
+        """)
+
+        let output = AutoNamingSubprocessRunner(maxOutputBytes: 8).run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 2,
+            failOnOutputOverflow: false
+        )
+
+        #expect(output == "")
+    }
+
+    @Test func fileBackedCallerPreservesLeaderStatusWithOpenDescendantStdout() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-file-backed-status")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appendingPathComponent("descendant-survived", isDirectory: false)
+        let outputFile = root.appendingPathComponent("last-message.txt", isDirectory: false)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( trap '' TERM; sleep 1; printf survived > "$MARKER" ) &
+        printf 'progress'
+        printf 'File title\\n' > "$OUTPUT_FILE"
+        exit 0
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(marker: marker, outputFile: outputFile),
+            timeout: 0.2,
+            failOnOutputOverflow: false,
+            requireStdoutEOF: false
+        )
+
+        #expect(output != nil)
+        #expect(try String(contentsOf: outputFile, encoding: .utf8) == "File title\n")
+        waitBriefly(for: 1.5)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func continuousDiscardedStdoutHonorsRunnerDeadline() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-output-discard-timeout")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        while :; do
+          printf 'xxxxxxxxxxxxxxxx'
+        done
+        """)
+
+        let output = AutoNamingSubprocessRunner(maxOutputBytes: 8).run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 0.2,
+            failOnOutputOverflow: false
+        )
+
+        #expect(output == nil)
+    }
+
+    @Test func blockedStdinIsBoundedByRunnerDeadline() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-stdin")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appendingPathComponent("child-finished", isDirectory: false)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        sleep 1
+        printf late > "$MARKER"
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: String(repeating: "x", count: 1024 * 1024),
+            environment: processEnvironment(marker: marker),
+            timeout: 0.2
+        )
+
+        #expect(output == nil)
+        waitBriefly(for: 1.5)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test func timeoutTerminatesDescendantsInProcessGroup() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-group")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appendingPathComponent("descendant-survived", isDirectory: false)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( trap '' TERM; sleep 1; printf survived > "$MARKER" ) &
+        while :; do sleep 1; done
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(marker: marker),
+            timeout: 0.2
+        )
+
+        #expect(output == nil)
+        waitBriefly(for: 1.5)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    private func temporaryDirectory(named name: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(name)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func executableScript(in root: URL, named name: String, body: String) throws -> String {
+        let url = root.appendingPathComponent(name, isDirectory: false)
+        try "#!/bin/sh\n\(body)\n".write(to: url, atomically: true, encoding: .utf8)
+        #expect(chmod(url.path, 0o700) == 0)
+        return url.path
+    }
+
+    private func processEnvironment(marker: URL? = nil, outputFile: URL? = nil) -> [String: String] {
+        var environment = [
+            "HOME": FileManager.default.temporaryDirectory.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": FileManager.default.temporaryDirectory.path,
+        ]
+        if let marker {
+            environment["MARKER"] = marker.path
+        }
+        if let outputFile {
+            environment["OUTPUT_FILE"] = outputFile.path
+        }
+        return environment
+    }
+
+    private func waitBriefly(for seconds: TimeInterval) {
+        _ = DispatchSemaphore(value: 0).wait(timeout: .now() + seconds)
+    }
+}

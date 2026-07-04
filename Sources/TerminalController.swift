@@ -3267,22 +3267,37 @@ class TerminalController {
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
         let enabled = AutomationCatalogSection().workspaceAutoNaming.value(in: .standard)
         if v2Bool(params, "probe") == true {
-            let agentSlug = AutomationCatalogSection().autoNamingAgent.value(in: .standard)
+            let automation = AutomationCatalogSection()
+            let agentSlug = automation.autoNamingAgent.value(in: .standard)
+            let language = AutoNamingLanguageResolver()
+                .resolve(rawSetting: automation.autoNamingLanguage.value(in: .standard))
             var result: [String: Any] = [
                 "enabled": enabled,
-                "summarizer_agent": v2OrNull(agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug)
+                "summarizer_agent": v2OrNull(agentSlug == AutoNamingAgentCatalog.autoSlug ? nil : agentSlug),
+                "auto_naming_language_name": language.promptName,
+                "auto_naming_language_tag": language.bcp47Tag
             ]
-            // With a workspace_id the probe also reports user ownership, so
-            // naming engines can skip the LLM call entirely for workspaces
-            // the user renamed.
+            // With a workspace_id the probe also reports writable title targets,
+            // so naming engines can skip LLM calls that cannot apply anywhere.
             if let workspaceId = v2UUID(params, "workspace_id"),
                let tabManager = v2ResolveTabManager(params: params) {
-                var userOwned: Bool?
+                var userOwned: Bool?, panelWritable: Bool?
+                var currentAutoTitle: String?
+                let requestedPanelId = v2UUID(params, "panel_id")
+                let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
                 v2MainSync {
                     guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                     userOwned = workspace.effectiveCustomTitleSource == .user
+                    if workspace.effectiveCustomTitleSource == .auto { currentAutoTitle = workspace.customTitle }
+                    if let requestedPanelId {
+                        panelWritable = workspace.canAutoNamePanel(requestedPanelId: requestedPanelId, onlyIfMultiple: panelOnlyIfMultiple)
+                        if userOwned == true && panelWritable == true { currentAutoTitle = workspace.currentAutoNamingPanelTitle(requestedPanelId: requestedPanelId, onlyIfMultiple: panelOnlyIfMultiple) }
+                    }
                 }
                 result["workspace_user_owned"] = v2OrNull(userOwned)
+                result["auto_naming_current_title"] = v2OrNull(currentAutoTitle)
+                if requestedPanelId != nil { result["auto_naming_panel_writable"] = v2OrNull(panelWritable) }
+                result["auto_naming_title_target"] = userOwned == true && panelWritable == true ? "panel" : "workspace"
             }
             return .ok(result)
         }
@@ -3300,6 +3315,10 @@ class TerminalController {
             )
             return .ok(["recorded": true, "enabled": true])
         }
+        if v2Bool(params, "success") == true {
+            AutoNamingStatusStore.clear()
+            return .ok(["confirmed": true, "status_cleared": true, "enabled": true])
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -3314,23 +3333,18 @@ class TerminalController {
 
         let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
+        let panelTitleTarget = v2Bool(params, "panel_title_target") ?? false
         var found = false
         var workspaceApplied = false
         var panelApplied: Bool?
         v2MainSync {
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
             found = true
-            workspaceApplied = tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
-            if let panelId {
-                // Hook payloads carry surface ids; accept either a panel id
-                // or a surface id for the tab target.
-                let resolvedPanelId = workspace.panels[panelId] != nil
-                    ? panelId
-                    : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
-                if let resolvedPanelId,
-                   !(panelOnlyIfMultiple && workspace.panels.count < 2) {
-                    panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
-                }
+            workspaceApplied = panelTitleTarget ? false : tabManager.setCustomTitle(tabId: workspaceId, title: title, source: .auto)
+            if let panelId,
+               let resolvedPanelId = workspace.autoNamingResolvedPanelId(for: panelId),
+               !(panelOnlyIfMultiple && workspace.panels.count < 2) {
+                panelApplied = workspace.setPanelCustomTitle(panelId: resolvedPanelId, title: title, source: .auto)
             }
         }
 
@@ -3343,7 +3357,7 @@ class TerminalController {
 
         // A title landed, so the naming agent is working again: clear any stale
         // failure the Settings status line may be showing.
-        if workspaceApplied {
+        if workspaceApplied || panelApplied == true {
             AutoNamingStatusStore.clear()
         }
 
@@ -3356,26 +3370,6 @@ class TerminalController {
             "enabled": true
         ])
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     private nonisolated func v2RequestedRemotePTYWorkspaceID(params: [String: Any]) -> (
         workspaceId: UUID?,
@@ -4007,11 +4001,6 @@ class TerminalController {
         }
     }
 
-
-
-
-
-
     @MainActor
 
     func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
@@ -4241,21 +4230,7 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
-
-
-
-
-
-
-
-
-
-
-
     @MainActor
-
-
-
 
     private func v2AgentSessionOptions(params: [String: Any]) -> (
         providerID: AgentSessionProviderID,
@@ -4313,10 +4288,6 @@ class TerminalController {
 
         return (providerID, rendererKind, nil)
     }
-
-
-
-
 
     // `internal` (not `private`): the Pane domain's app conformance forwards
     // `pane.join` to this body. The Surface domain extraction will relocate it.
@@ -4468,8 +4439,6 @@ class TerminalController {
 
         return result
     }
-
-
 
     func v2DebugTerminals(params _: [String: Any]) -> V2CallResult {
         var payload: [String: Any]?
@@ -4731,10 +4700,6 @@ class TerminalController {
         }
         return .ok(payload)
     }
-
-
-
-
 
     struct TerminalTextRawSnapshot {
         var viewport: String?
