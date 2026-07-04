@@ -150,6 +150,7 @@ extension Workspace {
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredPromptMarkKeysByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
@@ -525,7 +526,12 @@ extension Workspace {
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: agentWasRunning,
+                lastPromptMarkKey: sessionPromptMarkKeyForSnapshot(
+                    panelId: panelId,
+                    includeScrollback: includeScrollback,
+                    resolvedScrollback: resolvedScrollback
+                )
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1007,6 +1013,41 @@ extension Workspace {
         return resolved
     }
 
+    private func sessionPromptMarkKeyForSnapshot(
+        panelId: UUID,
+        includeScrollback: Bool,
+        resolvedScrollback: String?
+    ) -> String? {
+        guard includeScrollback else { return nil }
+
+        let key: String?
+        if latestSubmittedPanelId == panelId {
+            // Persist only the bounded prompt match KEY, and only into the
+            // snapshot of the terminal that owned the submitted prompt and whose
+            // saved scrollback actually contains that prompt row. The owner gate
+            // keeps a workspace-scoped prompt out of unrelated panels that happen
+            // to contain the same text.
+            key = SessionScrollbackReplayStore.persistablePromptMatchKey(
+                forScrollback: resolvedScrollback,
+                lastUserMessage: latestSubmittedMessage
+            )
+        } else if let restoredPromptMarkKey = restoredPromptMarkKeysByPanelId[panelId] {
+            key = SessionScrollbackReplayStore.persistablePromptMatchKey(
+                forScrollback: resolvedScrollback,
+                lastUserMessage: restoredPromptMarkKey
+            )
+        } else {
+            key = nil
+        }
+
+        if let key {
+            restoredPromptMarkKeysByPanelId[panelId] = key
+        } else {
+            restoredPromptMarkKeysByPanelId.removeValue(forKey: panelId)
+        }
+        return key
+    }
+
 #if DEBUG
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> (terminals: Int, characters: Int) {
         for panelId in debugSessionSnapshotScrollbackFallbackPanelIds {
@@ -1372,7 +1413,11 @@ extension Workspace {
 #endif
             let shouldReplayLocalScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
             let restoredScrollback = shouldReplayLocalScrollback ? snapshot.terminal?.scrollback : nil
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
+            let restoredPromptMarkKey = shouldReplayLocalScrollback ? snapshot.terminal?.lastPromptMarkKey : nil
+            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+                for: restoredScrollback,
+                lastUserMessage: restoredPromptMarkKey
+            )
             // Reuse the persisted surface id so the restored terminal keeps
             // the same identity (the panel/surface id IS the ghostty surface
             // id), which keeps agent-session terminal bindings valid across
@@ -1472,8 +1517,19 @@ extension Workspace {
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
+                if let restoredPromptMarkKey = restoredPromptMarkKey.flatMap({
+                    SessionScrollbackReplayStore.persistablePromptMatchKey(
+                        forScrollback: fallbackScrollback,
+                        lastUserMessage: $0
+                    )
+                }) {
+                    restoredPromptMarkKeysByPanelId[terminalPanel.id] = restoredPromptMarkKey
+                } else {
+                    restoredPromptMarkKeysByPanelId.removeValue(forKey: terminalPanel.id)
+                }
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
+                restoredPromptMarkKeysByPanelId.removeValue(forKey: terminalPanel.id)
             }
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
@@ -2537,6 +2593,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var latestConversationMessage: String?
     @Published private(set) var latestSubmittedMessage: String?
     @Published private(set) var latestSubmittedAt: Date?
+    private(set) var latestSubmittedPanelId: UUID?
     var logEntries: [SidebarLogEntry] {
         get { sidebarMetadata.logEntries }
         set { sidebarMetadata.logEntries = newValue }
@@ -2634,6 +2691,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private var restoredPromptMarkKeysByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
@@ -5120,6 +5178,7 @@ final class Workspace: Identifiable, ObservableObject {
         latestConversationMessage = nil
         latestSubmittedMessage = nil
         latestSubmittedAt = nil
+        latestSubmittedPanelId = nil
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -5277,6 +5336,9 @@ final class Workspace: Identifiable, ObservableObject {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredPromptMarkKeysByPanelId = restoredPromptMarkKeysByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredResumeSessionWorkingDirectoriesByPanelId = restoredResumeSessionWorkingDirectoriesByPanelId.filter {
@@ -5540,12 +5602,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func recordSubmittedMessage(_ message: String?) -> Bool {
+    func recordSubmittedMessage(_ message: String?, panelId: UUID? = nil) -> Bool {
         guard let preview = Self.conversationMessagePreview(from: message) else { return false }
         _ = recordConversationMessage(preview)
         latestSubmittedMessage = preview
         latestSubmittedAt = Date()
+        latestSubmittedPanelId = submittedPromptOwnerPanelId(panelId)
         return true
+    }
+
+    private func submittedPromptOwnerPanelId(_ panelId: UUID?) -> UUID? {
+        let candidate = panelId ?? focusedPanelId
+        guard let candidate, panels[candidate] is TerminalPanel else { return nil }
+        return candidate
     }
 
     var isRemoteWorkspace: Bool {
@@ -8906,6 +8975,7 @@ final class Workspace: Identifiable, ObservableObject {
         recomputeListeningPorts()
         clearRemoteConfigurationIfWorkspaceBecameLocal()
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredPromptMarkKeysByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)

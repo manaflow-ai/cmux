@@ -145,11 +145,13 @@ extension TabManager {
     @discardableResult
     func handlePromptSubmit(
         workspaceId: UUID,
+        surfaceId: UUID? = nil,
         message: String?,
         iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled()
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         handleConversationMessage(
             workspaceId: workspaceId,
+            surfaceId: surfaceId,
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .promptSubmission,
@@ -165,6 +167,7 @@ extension TabManager {
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         handleConversationMessage(
             workspaceId: workspaceId,
+            surfaceId: nil,
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .assistantFinal,
@@ -174,6 +177,7 @@ extension TabManager {
 
     private func handleConversationMessage(
         workspaceId: UUID,
+        surfaceId: UUID?,
         message: String?,
         iMessageModeEnabled: Bool,
         kind: ConversationMessageKind,
@@ -188,7 +192,7 @@ extension TabManager {
         let messageRecorded: Bool
         switch kind {
         case .promptSubmission:
-            messageRecorded = workspace.recordSubmittedMessage(message)
+            messageRecorded = workspace.recordSubmittedMessage(message, panelId: surfaceId)
             if messageRecorded {
                 CmuxEventBus.shared.publishWorkspacePromptSubmitted(
                     workspaceId: workspaceId,

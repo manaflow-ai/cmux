@@ -270,6 +270,55 @@ struct WorkspacePromptSubmitTests {
         #expect(workspace.latestSubmittedAt != nil)
     }
 
+    @Test func testPromptMarkKeyPersistsOnlyForSubmittedPromptPanel() throws {
+        let workspace = Workspace()
+        let submittedPanelId = try #require(workspace.focusedPanelId)
+        let unrelatedPanel = workspace.createReplacementTerminalPanel()
+        workspace.focusPanel(submittedPanelId)
+
+        let esc = "\u{001B}"
+        let message = "deploy the release"
+        workspace.restoredTerminalScrollbackByPanelId[submittedPanelId] = "\(esc)[2m> \(esc)[0m\(message)\nowner output\n"
+        workspace.restoredTerminalScrollbackByPanelId[unrelatedPanel.id] = "$ \(message)\nunrelated output\n"
+
+        #expect(workspace.recordSubmittedMessage(message))
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: true)
+        let submittedSnapshot = try #require(snapshot.panels.first { $0.id == submittedPanelId }?.terminal)
+        let unrelatedSnapshot = try #require(snapshot.panels.first { $0.id == unrelatedPanel.id }?.terminal)
+
+        #expect(submittedSnapshot.lastPromptMarkKey == message)
+        #expect(unrelatedSnapshot.lastPromptMarkKey == nil)
+    }
+
+    @Test func testRestoredPromptMarkKeySurvivesResnapshotWithoutNewSubmit() throws {
+        let source = Workspace()
+        let sourcePanelId = try #require(source.focusedPanelId)
+
+        let esc = "\u{001B}"
+        let message = "deploy the release"
+        source.restoredTerminalScrollbackByPanelId[sourcePanelId] = "\(esc)[2m> \(esc)[0m\(message)\nowner output\n"
+
+        #expect(source.recordSubmittedMessage(message, panelId: sourcePanelId))
+        let sourceSnapshot = source.sessionSnapshot(includeScrollback: true)
+        let sourceTerminalSnapshot = try #require(sourceSnapshot.panels.first { $0.id == sourcePanelId }?.terminal)
+        #expect(sourceTerminalSnapshot.lastPromptMarkKey == message)
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(sourceSnapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+
+        let metadataOnlySnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let metadataOnlyTerminalSnapshot = try #require(
+            metadataOnlySnapshot.panels.first { $0.id == restoredPanelId }?.terminal
+        )
+        #expect(metadataOnlyTerminalSnapshot.lastPromptMarkKey == nil)
+
+        let resnapshot = restored.sessionSnapshot(includeScrollback: true)
+        let restoredTerminalSnapshot = try #require(resnapshot.panels.first { $0.id == restoredPanelId }?.terminal)
+        #expect(restoredTerminalSnapshot.lastPromptMarkKey == message)
+    }
+
     @Test func testIMessageModeUsesManagedSettingsKey() throws {
         let suiteName = "cmux.iMessageMode.test.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

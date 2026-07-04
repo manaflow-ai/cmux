@@ -1398,6 +1398,15 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     /// Whether the agent process was actively running when this snapshot was captured.
     /// Nil means unknown (legacy snapshots); treated as true for backwards compatibility.
     var wasAgentRunning: Bool?
+    /// The collapsed, ≤48-character match prefix of the workspace's most recent
+    /// submitted prompt, used to re-inject an OSC 133 semantic prompt mark into
+    /// replayed scrollback on restore (Ghostty's VT export drops OSC 133). Only
+    /// the bounded match key is stored — and only when the saved scrollback
+    /// already contains the matching prompt row — so no prompt text beyond what
+    /// the scrollback already carries is persisted. Nil for terminals that did
+    /// not own the submitted prompt and for legacy snapshots. See
+    /// https://github.com/manaflow-ai/cmux/issues/6691.
+    var lastPromptMarkKey: String?
 
     init(
         workingDirectory: String? = nil,
@@ -1409,7 +1418,8 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil,
         isRemoteTerminal: Bool? = nil,
         remotePTYSessionID: String? = nil,
-        wasAgentRunning: Bool? = nil
+        wasAgentRunning: Bool? = nil,
+        lastPromptMarkKey: String? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.scrollback = scrollback
@@ -1421,6 +1431,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         self.isRemoteTerminal = isRemoteTerminal
         self.remotePTYSessionID = remotePTYSessionID
         self.wasAgentRunning = wasAgentRunning
+        self.lastPromptMarkKey = lastPromptMarkKey
     }
 }
 
@@ -1924,13 +1935,32 @@ enum SessionScrollbackReplayStore {
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
 
+    /// OSC 133 ; A semantic prompt-start marker (matching cmux's shell
+    /// integration emission `\e]133;A;cl=line\a`) that we re-inject into
+    /// replayed scrollback so a rebuilt screen regains the per-row
+    /// semantic-prompt metadata that Ghostty's `write_screen_file:copy,vt`
+    /// export drops. See https://github.com/manaflow-ai/cmux/issues/6691.
+    static let semanticPromptStartMark = "\u{001B}]133;A;cl=line\u{0007}"
+
+    /// Characters a prompt row may lead with before the message text — shell and
+    /// agent prompt sigils only. Deliberately EXCLUDES Markdown list/heading
+    /// markers (`-`, `*`, `+`, `#`) and blockquote-only prose, so an agent plan
+    /// bullet ("- refactor the login flow") restating the user's request does not
+    /// get mistaken for the prompt row.
+    private static let promptSigilCharacters: Set<Character> = [">", "❯", "›", "»", "▶", "│", "┃", "$", "%"]
+
     static func replayEnvironment(
         for scrollback: String?,
+        lastUserMessage: String? = nil,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
         guard let replayText = normalizedScrollback(scrollback) else { return [:] }
+        // Ghostty's VT export drops OSC 133 semantic-prompt marks, so re-inject
+        // one before the restored last user message to keep prompt navigation
+        // working after a rebuild (#6691).
+        let markedText = reinjectingLastPromptMark(into: replayText, lastUserMessage: lastUserMessage)
         guard let replayFileURL = writeReplayFile(
-            contents: replayText,
+            contents: markedText,
             tempDirectory: tempDirectory
         ) else {
             return [:]
@@ -2054,6 +2084,216 @@ enum SessionScrollbackReplayStore {
         case 110...119: return true      // dynamic color resets
         default: return false
         }
+    }
+
+    /// Re-injects an OSC 133 ; A semantic prompt-start marker before the most
+    /// recent row in the replayed scrollback that *begins* with `lastUserMessage`
+    /// (modulo a short prompt sigil), so the rebuilt screen regains a
+    /// semantic-prompt row at the user's most recent prompt.
+    ///
+    /// Ghostty's `write_screen_file:copy,vt` export (used to capture session
+    /// scrollback) drops OSC 133 markers, and agents such as Claude Code emit
+    /// the prompt-start mark only once at process startup — so after an
+    /// auto-resume rebuild the marker never returns and prompt-navigation
+    /// affordances (jump-to-prompt, click-to-move) stay broken. See
+    /// https://github.com/manaflow-ai/cmux/issues/6691.
+    static func reinjectingLastPromptMark(into scrollback: String, lastUserMessage: String?) -> String {
+        var lines = scrollback.components(separatedBy: "\n")
+        guard let targetIndex = promptRowIndex(in: lines, lastUserMessage: lastUserMessage) else { return scrollback }
+
+        // Don't double-mark a row that already carries a prompt-start marker
+        // (e.g. a shell whose live OSC 133 survived for some other reason).
+        guard !lines[targetIndex].contains("\u{001B}]133;A") else { return scrollback }
+
+        lines[targetIndex] = semanticPromptStartMark + lines[targetIndex]
+        return lines.joined(separator: "\n")
+    }
+
+    /// The bounded prompt match key to persist for `lastUserMessage` — the exact
+    /// collapsed, ≤48-character needle used for re-injection — but ONLY when the
+    /// saved scrollback already contains the matching prompt row; otherwise nil.
+    ///
+    /// Used at capture so the workspace-scoped last prompt is persisted only into
+    /// the snapshot of the terminal whose scrollback actually carries it (never an
+    /// unrelated panel's snapshot), and so we never write any prompt text the
+    /// saved scrollback does not already contain — the persisted key is exactly
+    /// the substring proven present, not the full (up to 240-char) message.
+    static func persistablePromptMatchKey(forScrollback scrollback: String?, lastUserMessage: String?) -> String? {
+        guard let scrollback, let needle = promptMatchNeedle(lastUserMessage) else { return nil }
+        guard promptRowIndex(in: scrollback.components(separatedBy: "\n"), lastUserMessage: lastUserMessage) != nil else {
+            return nil
+        }
+        return needle
+    }
+
+    /// Index of the row to mark: the UNIQUE row whose text, after a known prompt
+    /// sigil, *begins* with `lastUserMessage`, or nil when there is no match or
+    /// the match is ambiguous.
+    ///
+    /// Two requirements, both needed for correctness:
+    ///  1. Require a known leading prompt sigil (`>`, `❯`, `│`, `$`, …) followed by
+    ///     the message. Anchoring to a real sigil — not an unconstrained substring
+    ///     scan, not arbitrary punctuation, and NOT a bare line — excludes agent
+    ///     output that echoes the user's words mid-sentence ("I'll refactor the
+    ///     login flow"), Markdown list/heading echoes ("- refactor…", "# Refactor…"),
+    ///     and bare output lines that merely open with the same words ("refactor the
+    ///     login flow is done…"). A plain `>` is also Markdown blockquote syntax,
+    ///     so angle prompts require the styled agent-prompt prefix shape; unstyled
+    ///     single blockquotes fail closed when the real prompt row is absent.
+    ///  2. Mark ONLY when exactly one sigil-prefixed row matches. If two or more
+    ///     match — because the user repeated the prompt or because two prompt-shaped
+    ///     rows carry the same request — we cannot reliably tell the real prompt
+    ///     from the echo/duplicate, so we no-op rather than risk marking
+    ///     the wrong row (agent output or a stale turn). Best-effort and safe: when
+    ///     it acts there is a single unambiguous candidate.
+    /// The match is whitespace-stripped (robust to soft and hard wraps) and may
+    /// continue into following rows for wrapped prompts.
+    private static func promptRowIndex(in lines: [String], lastUserMessage: String?) -> Int? {
+        guard let needle = promptMatchNeedle(lastUserMessage) else { return nil }
+        let needleChars = Array(needle.filter { !$0.isWhitespace })
+        guard needleChars.count >= 3 else { return nil }
+
+        let compactRows: [[Character]] = lines.map { Array(visiblePlainText(of: $0).filter { !$0.isWhitespace }) }
+        var match: Int?
+        for index in compactRows.indices where !compactRows[index].isEmpty {
+            // Leading run of up to 4 known prompt-sigil characters.
+            var sigil = 0
+            let row = compactRows[index]
+            while sigil < row.count, sigil < 4, promptSigilCharacters.contains(row[sigil]) {
+                sigil += 1
+            }
+            // Require at least one prompt sigil; never match a bare line.
+            guard sigil >= 1 else { continue }
+            let rowMatches = (1...sigil).contains { offset in
+                guard promptSigilOffsetCanStartPrompt(row: row, rawLine: lines[index], offset: offset) else {
+                    return false
+                }
+                compactPrefixMatches(needleChars, rows: compactRows, startRow: index, startOffset: offset)
+            }
+            guard rowMatches else { continue }
+            if match != nil { return nil } // ambiguous (repeat or echo) → don't guess
+            match = index
+        }
+        return match
+    }
+
+    private static func promptSigilOffsetCanStartPrompt(row: [Character], rawLine: String, offset: Int) -> Bool {
+        let sigils = row.prefix(offset)
+        guard sigils.contains(">") else { return true }
+        guard sigils.allSatisfy({ $0 == ">" }) else { return true }
+        return rawLineHasStyledAnglePromptSigil(rawLine)
+    }
+
+    private static func rawLineHasStyledAnglePromptSigil(_ line: String) -> Bool {
+        guard line.contains("\u{001B}"),
+              let promptIndex = line.firstIndex(of: ">") else {
+            return false
+        }
+        guard line[..<promptIndex].contains("\u{001B}") else { return false }
+        let afterPrompt = line[line.index(after: promptIndex)...]
+        let textStart = afterPrompt.firstIndex { !$0.isWhitespace } ?? afterPrompt.endIndex
+        return afterPrompt[textStart...].hasPrefix("\u{001B}[0m")
+    }
+
+    /// Whether `needle` matches the compacted row text starting at
+    /// `rows[startRow][startOffset]`, continuing into following rows (so a
+    /// wrapped prompt spanning multiple captured rows still matches). Bounded
+    /// one-shot work on a restore path.
+    private static func compactPrefixMatches(
+        _ needle: [Character],
+        rows: [[Character]],
+        startRow: Int,
+        startOffset: Int
+    ) -> Bool {
+        var needleIndex = 0
+        var rowIndex = startRow
+        var charIndex = startOffset
+        while needleIndex < needle.count {
+            if rowIndex >= rows.count { return false }
+            if charIndex >= rows[rowIndex].count {
+                rowIndex += 1
+                charIndex = 0
+                continue
+            }
+            if rows[rowIndex][charIndex] != needle[needleIndex] { return false }
+            needleIndex += 1
+            charIndex += 1
+        }
+        return true
+    }
+
+    /// Distinctive leading slice of the last user message used to anchor it to a
+    /// prompt row in captured scrollback. Whitespace (including newlines) is
+    /// collapsed here and stripped entirely by the caller, so a long or multiline
+    /// prompt that wrapped across several captured rows still matches. Returns nil
+    /// for empty/too-short messages so re-injection no-ops.
+    private static func promptMatchNeedle(_ message: String?) -> String? {
+        guard let message else { return nil }
+        let collapsed = message
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard collapsed.count >= 3 else { return nil }
+        return String(collapsed.prefix(48))
+    }
+
+    /// The visible text of a captured scrollback row with ANSI/OSC escape
+    /// sequences removed and whitespace collapsed, so message matching is
+    /// robust to the SGR colors and OSC markers Ghostty interleaves through the
+    /// exported text. Used only to compute a match key, never as replay output.
+    private static func visiblePlainText(of line: String) -> String {
+        strippingEscapeSequences(line)
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Removes CSI (`ESC [ … final`), OSC (`ESC ] … BEL`/`ST`), and two-byte
+    /// escape sequences from a single line. Best-effort and used only for
+    /// match-key computation, so unterminated sequences simply drop the rest.
+    private static func strippingEscapeSequences(_ line: String) -> String {
+        guard line.contains("\u{001B}") else { return line }
+        let chars = Array(line)
+        let count = chars.count
+        var output = String()
+        output.reserveCapacity(count)
+        var index = 0
+        while index < count {
+            let char = chars[index]
+            guard char == "\u{001B}", index + 1 < count else {
+                if char != "\u{001B}" { output.append(char) }
+                index += 1
+                continue
+            }
+            let introducer = chars[index + 1]
+            switch introducer {
+            case "[":
+                // CSI: consume params/intermediates through a final byte 0x40–0x7E.
+                index += 2
+                while index < count {
+                    let scalar = chars[index].unicodeScalars.first?.value ?? 0
+                    index += 1
+                    if (0x40...0x7E).contains(scalar) { break }
+                }
+            case "]", "P", "X", "^", "_":
+                // String sequences — OSC, DCS, SOS, PM, APC (e.g. Kitty graphics
+                // payloads) — terminate on BEL or ST (`ESC \`). Consume the whole
+                // sequence so its payload can't pollute the match key.
+                index += 2
+                while index < count {
+                    if chars[index] == "\u{0007}" { index += 1; break }
+                    if chars[index] == "\u{001B}" {
+                        if index + 1 < count, chars[index + 1] == "\\" { index += 2 } else { index += 1 }
+                        break
+                    }
+                    index += 1
+                }
+            default:
+                // Two-byte escape (charset designation, `ESC =`, …): drop both.
+                index += 2
+            }
+        }
+        return output
     }
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
