@@ -5,7 +5,7 @@ import Testing
 /// Pure pull-request probe logic. The selection/policy cases are migrated from
 /// the app target's `TabManagerPullRequestProbeTests`, where they tested the
 /// same logic as TabManager statics before the extraction.
-@Suite struct PullRequestProbeServiceTests {
+@Suite(.serialized) struct PullRequestProbeServiceTests {
     private func item(
         number: Int,
         state: String,
@@ -308,6 +308,54 @@ import Testing
         #expect(cacheEntry.ciStatusByPullRequestNumber[7] == .neutral)
         #expect(cacheEntry.pullRequestsByBranch["feat/x"]?.ciStatus == .neutral)
         #expect(service.cachedEntrySatisfiesRequest(cacheEntry, now: now, includeCIStatus: true))
+    }
+
+    @Test func transientCIStatusFetchFailureLeavesMissingNumbersUncached() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PullRequestCIMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        PullRequestCIMockURLProtocol.handler = { request in
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+            guard let response = HTTPURLResponse(
+                url: url,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, Data())
+        }
+        defer { PullRequestCIMockURLProtocol.handler = nil }
+
+        let now = Date(timeIntervalSince1970: 1_000)
+        let entry = WorkspacePullRequestRepoCacheEntry(
+            fetchedAt: now,
+            pullRequestsByBranch: [
+                "feat/x": item(number: 7, state: "OPEN", updatedAt: nil),
+            ]
+        )
+        let service = PullRequestProbeService()
+        let cacheEntry = await service.repoCacheEntry(
+            entry,
+            repoSlug: "manaflow-ai/cmux",
+            fetchTimestamp: now,
+            session: session,
+            authHeader: "Bearer test-token",
+            includeCIStatus: true,
+            pullRequestNumbers: [7]
+        )
+
+        #expect(!cacheEntry.includesCIStatus)
+        #expect(cacheEntry.ciStatusByPullRequestNumber[7] == nil)
+        #expect(!service.cachedEntrySatisfiesRequest(
+            cacheEntry,
+            now: now,
+            includeCIStatus: true,
+            pullRequestNumbers: [7]
+        ))
     }
 
     @Test func ciCacheEntryKeepsExistingStatusesAndFillsNewMissingNumbersNeutral() async {

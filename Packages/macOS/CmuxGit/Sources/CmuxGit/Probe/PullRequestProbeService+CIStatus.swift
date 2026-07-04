@@ -98,12 +98,21 @@ extension PullRequestProbeService {
             : [:]
         let missingNumbers = requestedNumbers.subtracting(ciStatusesByNumber.keys)
         if !missingNumbers.isEmpty {
-            let fetchedStatuses = await pullRequestCIStatusesByNumber(
+            guard let fetchedStatuses = await pullRequestCIStatusesByNumber(
                 repoSlug: repoSlug,
                 pullRequestNumbers: missingNumbers,
                 session: session,
                 authHeader: authHeader
-            ) ?? [:]
+            ) else {
+                guard cacheEntry.includesCIStatus else {
+                    return cacheEntry
+                }
+                return repoCacheEntry(
+                    cacheEntry,
+                    applyingCIStatuses: ciStatusesByNumber,
+                    fetchedAt: fetchTimestamp
+                )
+            }
             for number in missingNumbers {
                 ciStatusesByNumber[number] = fetchedStatuses[number] ?? .neutral
             }
