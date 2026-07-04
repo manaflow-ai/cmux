@@ -529,6 +529,7 @@ extension Workspace {
                 wasAgentRunning: agentWasRunning,
                 lastPromptMarkKey: sessionPromptMarkKeyForSnapshot(
                     panelId: panelId,
+                    includeScrollback: includeScrollback,
                     resolvedScrollback: resolvedScrollback
                 )
             )
@@ -1014,8 +1015,11 @@ extension Workspace {
 
     private func sessionPromptMarkKeyForSnapshot(
         panelId: UUID,
+        includeScrollback: Bool,
         resolvedScrollback: String?
     ) -> String? {
+        guard includeScrollback else { return nil }
+
         let key: String?
         if latestSubmittedPanelId == panelId {
             // Persist only the bounded prompt match KEY, and only into the

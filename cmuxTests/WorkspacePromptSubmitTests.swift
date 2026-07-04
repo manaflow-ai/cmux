@@ -308,6 +308,12 @@ struct WorkspacePromptSubmitTests {
         let restoredPanelIds = restored.restoreSessionSnapshot(sourceSnapshot)
         let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
 
+        let metadataOnlySnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let metadataOnlyTerminalSnapshot = try #require(
+            metadataOnlySnapshot.panels.first { $0.id == restoredPanelId }?.terminal
+        )
+        #expect(metadataOnlyTerminalSnapshot.lastPromptMarkKey == nil)
+
         let resnapshot = restored.sessionSnapshot(includeScrollback: true)
         let restoredTerminalSnapshot = try #require(resnapshot.panels.first { $0.id == restoredPanelId }?.terminal)
         #expect(restoredTerminalSnapshot.lastPromptMarkKey == message)
