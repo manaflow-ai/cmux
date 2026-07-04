@@ -196,7 +196,7 @@
 586	Sources/JSONCParser.swift
 585	Sources/App/WorkspaceRuntimeSettings.swift
 585	Sources/Cloud/VMClient.swift
-583	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
+754	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
