@@ -100,11 +100,20 @@ import CmuxMobileShellModel
 
     @Test func everyCatalogLogoHasABundledAsset() {
         // Guards the wire contract: each identifier the macOS picker can emit
-        // must map to a known bundled logo so the phone never shows the neutral
-        // fallback for a shipped agent.
+        // must map to a bundled image that actually LOADS from the
+        // CmuxMobileShellUI resource bundle, so the phone renders the real logo
+        // and never falls back to the neutral monogram badge for a shipped agent.
+        // Asserting only that the asset NAME is non-empty would pass even if the
+        // imageset were renamed or dropped from AgentLogos.xcassets. Probing the
+        // module bundle via the runtime's own accessor also exercises the exact
+        // lookup WorkspaceAgentLogoImage uses at render time.
         for logo in WorkspaceAgentLogo.allCases {
             #expect(!logo.assetName.isEmpty)
             #expect(!logo.monogram.isEmpty)
+            #expect(
+                WorkspaceAgentLogoImage.assetIsLoadable(logo.assetName),
+                "missing bundled asset \(logo.assetName) for logo \(logo.rawValue)"
+            )
         }
     }
 }
