@@ -1,10 +1,11 @@
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
+import { remoteTmuxDocsLocales } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Callout } from "../../components/callout";
 import { CodeBlock } from "../../components/code-block";
 import { DocsHeading } from "../../components/docs-heading";
-import { remoteTmuxDocsLocales } from "../../components/docs-nav-items";
 
 function assertSupportedLocale(locale: string) {
   if (
@@ -38,6 +39,7 @@ export default async function RemoteTmuxPage({
 
   return (
     <>
+      <DocsSchema namespace="docs.remoteTmux" path="/docs/remote-tmux" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 

@@ -1,6 +1,7 @@
-import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { hasFeatureWorkflowContent } from "../../../../i18n/locale-availability";
 import { buildAlternates } from "../../../../i18n/seo";
+import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -19,6 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-03-30T00:00:00Z",
+      modifiedTime: "2026-07-03T00:00:00Z",
     },
     twitter: {
       card: "summary_large_image",
@@ -29,12 +31,19 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default function CmuxSshPage() {
-  const t = useTranslations("blog.posts.cmuxSsh");
-  const tc = useTranslations("common");
+export default async function CmuxSshPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  const showFeatureWorkflow = hasFeatureWorkflowContent(locale);
+  const t = await getTranslations({ locale, namespace: "blog.posts.cmuxSsh" });
+  const tc = await getTranslations({ locale, namespace: "common" });
 
   return (
     <>
+      <BlogSchema postKey="cmuxSsh" path="/blog/cmux-ssh" datePublished="2026-03-30T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"
@@ -66,6 +75,18 @@ export default function CmuxSshPage() {
         className="my-6 rounded-lg w-full h-auto"
       />
 
+      {showFeatureWorkflow ? (
+        <>
+          <h2>{t("workflowTitle")}</h2>
+          <ol>
+            <li>{t("workflowConnect")}</li>
+            <li>{t("workflowPreview")}</li>
+            <li>{t("workflowNotify")}</li>
+            <li>{t("workflowUpload")}</li>
+          </ol>
+        </>
+      ) : null}
+
       <ul className="mt-4 space-y-1">
         <li>Browser panes route through the remote machine, so <code>localhost:3000</code> reaches the remote dev server without port forwarding</li>
         <li>Drag an image into a remote terminal to upload via scp</li>
@@ -81,6 +102,16 @@ export default function CmuxSshPage() {
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
       />
+
+      {showFeatureWorkflow ? (
+        <>
+          <h2>{t("faqTitle")}</h2>
+          <h3>{t("faqPortTitle")}</h3>
+          <p>{t("faqPortBody")}</p>
+          <h3>{t("faqConfigTitle")}</h3>
+          <p>{t("faqConfigBody")}</p>
+        </>
+      ) : null}
 
       <p className="mt-4">
         <Link href="/docs/ssh">Read the SSH docs &rarr;</Link>

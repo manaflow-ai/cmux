@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 /// DEBUG-only workspace list fixture for simulator layout screenshots.
@@ -9,12 +10,17 @@ import SwiftUI
 /// It exercises the production `WorkspaceListView` and row components with a
 /// static unread row, avoiding auth and Mac pairing while keeping layout code
 /// identical to the real shell.
-struct WorkspaceListLayoutPreviewView: View {
+public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
+    @State private var macSelection: WorkspaceMacSelection = .all
+
+    public init() {}
 
     private let workspaces: [MobileWorkspacePreview] = [
         MobileWorkspacePreview(
             id: "workspace-main",
+            macDeviceID: "preview-macbook-pro",
+            macDisplayName: "MacBook Pro",
             name: "cmux",
             terminals: [
                 MobileTerminalPreview(id: "terminal-build", name: "Build"),
@@ -23,6 +29,8 @@ struct WorkspaceListLayoutPreviewView: View {
         ),
         MobileWorkspacePreview(
             id: "workspace-ios",
+            macDeviceID: "preview-macbook-pro",
+            macDisplayName: "MacBook Pro",
             name: "iOS avatar tuning",
             hasUnread: true,
             terminals: [
@@ -31,6 +39,8 @@ struct WorkspaceListLayoutPreviewView: View {
         ),
         MobileWorkspacePreview(
             id: "workspace-docs",
+            macDeviceID: "preview-studio",
+            macDisplayName: "Studio Display Bench With A Very Long Name",
             name: "Docs",
             terminals: [
                 MobileTerminalPreview(id: "terminal-notes", name: "Notes"),
@@ -38,22 +48,29 @@ struct WorkspaceListLayoutPreviewView: View {
         ),
     ]
 
-    var body: some View {
-        NavigationStack {
-            WorkspaceListView(
-                workspaces: workspaces,
-                selectedWorkspaceID: selectedWorkspaceID,
-                host: "Visual Mock Mac",
-                connectionStatus: .connected,
-                navigationStyle: .push,
-                wrapWorkspaceTitles: false,
-                previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
-                unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
-                selectWorkspace: { selectedWorkspaceID = $0 },
-                createWorkspace: {}
-            )
+    public var body: some View {
+        if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+            WorkspaceDetailCreateDelayedTerminalPreviewView()
+        } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
+            WorkspaceDetailDelayedTerminalPreviewView()
+        } else {
+            NavigationStack {
+                WorkspaceListView(
+                    workspaces: workspaces,
+                    selectedWorkspaceID: selectedWorkspaceID,
+                    host: "Visual Mock Mac",
+                    connectionStatus: .connected,
+                    navigationStyle: .push,
+                    wrapWorkspaceTitles: false,
+                    previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
+                    unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+                    profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
+                    profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
+                    selectWorkspace: { selectedWorkspaceID = $0 },
+                    createWorkspace: {},
+                    macSelection: $macSelection
+                )
+            }
         }
     }
 }

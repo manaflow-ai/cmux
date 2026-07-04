@@ -21,6 +21,9 @@ struct PanelContentView: View {
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
+    /// Explicit browser pane-ownership signal for hosts whose panels live outside
+    /// the main `Workspace` tree (the Dock). `nil` keeps the main-area behavior.
+    var paneOwnershipOverride: Bool? = nil
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -63,6 +66,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    paneOwnershipOverride: paneOwnershipOverride,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -173,7 +177,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: iconSystemName)
+            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(filePath)
@@ -213,8 +217,7 @@ struct PanelHeaderIconGlyph: View {
     let systemName: String
 
     var body: some View {
-        Image(systemName: systemName)
-            .cmuxSymbolRasterSize(13)
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
             .frame(width: 20, height: 20, alignment: .center)
             .contentShape(Rectangle())
     }

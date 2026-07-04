@@ -40,6 +40,9 @@ final class CanvasPaneView: NSView {
     private var dragStartDocumentPoint: CGPoint = .zero
     /// Tab/close hit rects in tab-bar coordinates, reported by SwiftUI.
     private var tabHitRegions = CanvasTabHitRegions()
+    private var tabOrder: [UUID] = []
+    private var hoveredTabId: UUID?
+    private var titleBarTrackingArea: NSTrackingArea?
     /// Pending click target resolved at mouse-down, fired at mouse-up when
     /// no drag started.
     private var pendingTabClick: (panelId: UUID, isClose: Bool)?
@@ -69,6 +72,7 @@ final class CanvasPaneView: NSView {
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
             chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
             barBackground: .windowBackgroundColor,
+            hoveredTabId: nil,
             scrollOffset: 0,
             onHitRegionsChanged: { _ in },
             onContentWidthChanged: { _ in }
@@ -109,6 +113,11 @@ final class CanvasPaneView: NSView {
     func updateChrome(_ chrome: CanvasPaneChrome) {
         guard chrome != self.chrome else { return }
         self.chrome = chrome
+        tabOrder = chrome.tabs.map(\.id)
+        if let currentHoveredTabId = hoveredTabId,
+           !tabOrder.contains(currentHoveredTabId) {
+            hoveredTabId = nil
+        }
         // Fewer tabs may make the current offset invalid; clamp on next render.
         clampTabScrollOffset()
         rebuildTitleBar()
@@ -118,6 +127,7 @@ final class CanvasPaneView: NSView {
         titleBarHost.rootView = CanvasPaneTitleBarView(
             chrome: chrome,
             barBackground: paneBackground,
+            hoveredTabId: hoveredTabId,
             scrollOffset: tabScrollOffset,
             onHitRegionsChanged: { [weak self] regions in
                 self?.tabHitRegions = regions
@@ -129,6 +139,13 @@ final class CanvasPaneView: NSView {
             }
         )
         applyChromeColors()
+    }
+
+    private var tabHitTester: CanvasTabHitTester {
+        CanvasTabHitTester(
+            tabOrder: tabOrder,
+            hitRegions: tabHitRegions
+        )
     }
 
     /// Maximum horizontal scroll so the last tab can't be pulled past the bar.
@@ -170,6 +187,59 @@ final class CanvasPaneView: NSView {
             : NSColor.separatorColor.cgColor
         layer?.borderWidth = chrome.isFocused ? 2 : 1
         layer?.backgroundColor = paneBackground.cgColor
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let titleBarTrackingArea {
+            removeTrackingArea(titleBarTrackingArea)
+        }
+        let rect = CGRect(
+            x: 0,
+            y: 0,
+            width: bounds.width,
+            height: min(bounds.height, CanvasPaneTitleBarView.height)
+        )
+        guard !rect.isEmpty else {
+            titleBarTrackingArea = nil
+            return
+        }
+        let trackingArea = NSTrackingArea(
+            rect: rect,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        titleBarTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateHoveredTab(from: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHoveredTab(from: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoveredTab(nil)
+    }
+
+    private func updateHoveredTab(from event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        guard local.y <= CanvasPaneTitleBarView.height else {
+            setHoveredTab(nil)
+            return
+        }
+        let barPoint = titleBarHost.convert(event.locationInWindow, from: nil)
+        setHoveredTab(tabHitTester.tab(at: barPoint))
+    }
+
+    private func setHoveredTab(_ tabId: UUID?) {
+        guard hoveredTabId != tabId else { return }
+        hoveredTabId = tabId
+        rebuildTitleBar()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -233,9 +303,13 @@ final class CanvasPaneView: NSView {
         pendingTabClick = nil
         if case .titleBar = region {
             let barPoint = titleBarHost.convert(event.locationInWindow, from: nil)
-            if let (panelId, _) = tabHitRegions.closeFrames.first(where: { $0.value.contains(barPoint) }) {
+            let hitTester = tabHitTester
+            let tabUnderPointer = hitTester.tab(at: barPoint)
+            let visibleHoveredTabId = hoveredTabId
+            setHoveredTab(tabUnderPointer)
+            if let panelId = hitTester.closeTab(at: barPoint, hoveredTabId: visibleHoveredTabId) {
                 pendingTabClick = (panelId, true)
-            } else if let (panelId, _) = tabHitRegions.tabFrames.first(where: { $0.value.contains(barPoint) }) {
+            } else if let panelId = tabUnderPointer {
                 pendingTabClick = (panelId, false)
             }
         }

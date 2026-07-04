@@ -2,16 +2,16 @@
 import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
-/// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes the
-/// matching surface's PTY bytes (received via `terminal.bytes` events)
-/// into `ghostty_surface_process_output`. The result is that the iPhone
-/// runs the same libghostty terminal core + Metal renderer as the Mac,
-/// fed by the Mac's own read thread byte-for-byte. No Swift VT parser,
-/// no snapshot rehydration, no cell-by-cell SwiftUI tree.
+/// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes terminal output
+/// chunks into `ghostty_surface_process_output`. Primary-screen output can stay
+/// at the phone's natural height, while alternate-screen render-grid replay can
+/// pin the surface to the Mac's authoritative grid.
 ///
 /// The bottom dock (terminal grid / composer band / accessory toolbar / keyboard)
 /// is owned entirely by the `GhosttySurfaceView` in one coordinate system. The
@@ -50,7 +50,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fallback.numberOfLines = 0
             fallback.textColor = .white
             fallback.backgroundColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
-            fallback.text = "Ghostty runtime failed to initialise:\n\(error.localizedDescription)"
+            fallback.text = L10n.string(
+                "mobile.terminal.rendererFailed",
+                defaultValue: "Terminal renderer failed to start."
+            )
             return fallback
         }
         let view = GhosttySurfaceView(
@@ -107,11 +110,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
+        private var liveFontTask: Task<Void, Never>?
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
+        private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        /// Serializes the natural-grid viewport reports and their echoes. One
+        /// detached Task per report (the previous shape) let Task scheduling
+        /// scramble the send order AND let the echo of an old keyboard-up
+        /// report resolve after the newer keyboard-down echo, permanently
+        /// re-pinning the phone to the stale smaller grid (empty space above
+        /// the terminal). Built on attach, torn down on detach.
+        private var viewportReportScheduler: TerminalViewportReportScheduler?
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -129,19 +141,106 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             guard let store else { return }
             let surfaceID = surfaceID
+            viewportReportScheduler = TerminalViewportReportScheduler(
+                send: { [weak self] report in
+                    guard let self, let store = self.store else { return nil }
+                    return await store.updateTerminalViewport(
+                        surfaceID: self.surfaceID,
+                        columns: report.columns,
+                        rows: report.rows
+                    )
+                },
+                apply: { [weak self, weak surfaceView] report, effectiveGrid in
+                    guard let self, let surfaceView else { return }
+                    guard let effectiveGrid else {
+                        // No effective grid came back (RPC timed out or
+                        // returned nil). Left unhandled, the render stays
+                        // pinned to the prior effective grid and looks like a
+                        // frozen / letterboxed terminal even though the main
+                        // thread is fine. Re-arm the report so a transient
+                        // drop self-heals (bounded inside the surface).
+                        MobileDebugLog.anchormux(
+                            "zoom.viewport.noEffective grid=\(report.columns)x\(report.rows)"
+                        )
+                        surfaceView.retryViewportReport()
+                        return
+                    }
+                    surfaceView.markViewportReportConfirmed()
+                    if case .remoteGrid = self.activeViewportPolicy {
+                        surfaceView.applyConfirmedViewSize(
+                            cols: effectiveGrid.columns,
+                            rows: effectiveGrid.rows,
+                            reportID: report.id
+                        )
+                    }
+                }
+            )
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
-            outputTask = Task { @MainActor [weak surfaceView, weak store] in
+            outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
+                    guard let self else { return }
                     guard let surfaceView else { return }
-                    await surfaceView.processOutputAndWait(chunk.data)
+                    switch chunk.viewportPolicy {
+                    case .natural:
+                        self.activeViewportPolicy = .natural
+                        if chunk.data.isEmpty {
+                            surfaceView.useNaturalViewSize()
+                        } else {
+                            let applied = await surfaceView.useNaturalViewSizeAndWait()
+                            guard applied else {
+                                store.terminalOutputDidReset(
+                                    surfaceID: surfaceID,
+                                    streamToken: chunk.streamToken
+                                )
+                                continue
+                            }
+                        }
+                    case .remoteGrid(let columns, let rows):
+                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                        if chunk.data.isEmpty {
+                            surfaceView.applyViewSize(cols: columns, rows: rows)
+                        } else {
+                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                            guard applied else {
+                                store.terminalOutputDidReset(
+                                    surfaceID: surfaceID,
+                                    streamToken: chunk.streamToken
+                                )
+                                continue
+                            }
+                        }
+                    case nil:
+                        break
+                    }
+                    if !chunk.data.isEmpty {
+                        let applied = await surfaceView.processOutputAndWait(chunk.data)
+                        guard applied else {
+                            store.terminalOutputDidReset(
+                                surfaceID: surfaceID,
+                                streamToken: chunk.streamToken
+                            )
+                            continue
+                        }
+                    }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
                     )
+                }
+            }
+            // Drive Mac-pushed live font-size changes (`terminal.set_font`) into
+            // the surface's shared zoom apply path. Runs for the surface's whole
+            // mount, ending when the representable is dismantled.
+            liveFontTask = Task { @MainActor [weak surfaceView, weak store] in
+                guard let store else { return }
+                for await points in store.terminalLiveFontStream(surfaceID: surfaceID) {
+                    guard !Task.isCancelled else { return }
+                    guard let surfaceView else { return }
+                    surfaceView.setLiveFontSize(points)
                 }
             }
         }
@@ -149,6 +248,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func detach() {
             outputTask?.cancel()
             outputTask = nil
+            liveFontTask?.cancel()
+            liveFontTask = nil
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
         }
 
         // MARK: - Composer band hosting
@@ -216,9 +319,29 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// The proposed width is the surface width and the proposed height is unbounded
         /// so a multi-line field measures its full desired height (capped to 14 lines by
         /// the field's own `lineLimit`).
+        ///
+        /// `requestHeightRemeasure` fires the instant the field's content changes — a
+        /// `.onChange(of:)` action, or the post-send clear — which is BEFORE SwiftUI has
+        /// committed that change into the hosted controller's view graph. Measuring a
+        /// `UIHostingController` synchronously at that point captures the PRE-change
+        /// (tall) ideal height, so after a send the band stays reserved tall and the
+        /// empty field renders as a tall box that never collapses. It is worst for an
+        /// image-only send: clearing the text fires no `.onChange(of: terminalInputText)`
+        /// (it was already empty), so the stale measurement is never corrected by a
+        /// follow-up. Flush the host's pending SwiftUI update into a concrete layout pass
+        /// BEFORE calling `sizeThatFits` — mirroring the `setNeedsLayout()`/
+        /// `layoutIfNeeded()` the GUI chat composer relies on to keep its hosted-field
+        /// measurement current — so the measurement reflects the new (e.g. collapsed
+        /// one-line) content. `sizeThatFits` re-proposes the surface width itself, so the
+        /// flush only needs to apply the pending content change, not fix the width.
         @MainActor
         private func reportComposerHeight(animated: Bool) {
             guard let controller = composerController, let surfaceView else { return }
+            // The hosting controller is mounted before any remeasure, so its view is
+            // loaded; annotate to force-unwrap the `UIView!` rather than infer `UIView?`.
+            let hostView: UIView = controller.view
+            hostView.setNeedsLayout()
+            hostView.layoutIfNeeded()
             let width = max(1, surfaceView.bounds.width)
             let target = CGSize(width: width, height: .greatestFiniteMagnitude)
             let fitting = controller.sizeThatFits(in: target)
@@ -264,33 +387,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
-            // Report our natural grid to the Mac and pin our render to the
-            // effective grid it returns (the smallest across every attached
-            // device, capped to the Mac pane). This is the tmux-style shared
-            // resize: the smallest viewport wins and each device letterboxes
-            // its render to match, drawing a border around the live area.
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
+            // Report our natural grid to the Mac. The output stream decides
+            // whether the phone should keep that natural grid (primary screen)
+            // or pin to the Mac grid (alternate-screen render-grid replay).
+            // The scheduler serializes the RPCs (send order = report order,
+            // so the PTY settles on the NEWEST grid) and drops echoes whose
+            // report was superseded while in flight; the surface additionally
+            // rejects any echo whose reportID is no longer the newest.
             guard size.columns > 0, size.rows > 0 else { return }
-            Task { @MainActor [weak self, weak surfaceView] in
-                guard let self, let store = self.store else { return }
-                guard let effective = await store.updateTerminalViewport(
-                    surfaceID: self.surfaceID,
-                    columns: size.columns,
-                    rows: size.rows
-                ) else {
-                    // No effective grid came back (RPC timed out or returned
-                    // nil). Left unhandled, the render stays pinned to the prior
-                    // effective grid and looks like a frozen / letterboxed
-                    // terminal even though the main thread is fine. Re-arm the
-                    // report so a transient drop self-heals (bounded inside the
-                    // surface). Logged so the dogfood log still distinguishes
-                    // this from a true main-thread wedge.
-                    MobileDebugLog.anchormux("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
-                    surfaceView?.retryViewportReport()
-                    return
-                }
-                surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
-            }
+            viewportReportScheduler?.submit(
+                .init(id: reportID, columns: size.columns, rows: size.rows)
+            )
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {
@@ -340,6 +448,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // composer view observes, so the draft and its focus return together.
             Task { @MainActor [weak store, surfaceID] in
                 store?.presentAndFocusComposer(forTerminalID: surfaceID)
+            }
+        }
+
+        func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
+            Task { @MainActor [weak self, weak store, surfaceID] in
+                guard let self, self.surfaceView === surfaceView else { return }
+                store?.terminalOutputNeedsReplay(surfaceID: surfaceID)
             }
         }
 

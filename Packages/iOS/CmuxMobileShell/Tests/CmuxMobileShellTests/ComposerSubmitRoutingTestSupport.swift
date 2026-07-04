@@ -40,9 +40,9 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
-
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
@@ -89,6 +89,7 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
@@ -98,6 +99,8 @@ actor RoutingHostRouter {
         var surfaceID: String?
         var imageFormat: String?
         var text: String?
+        var notificationIDs: [String]?
+        var clientID: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -162,6 +165,12 @@ actor RoutingHostRouter {
             let surfaceID = info.surfaceID ?? ""
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
+            return try? Self.resultFrame(id: id, result: [:])
+        case "notification.dismiss":
+            dismisses.append((
+                notificationIDs: info.notificationIDs ?? [],
+                clientID: info.clientID
+            ))
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
@@ -234,7 +243,9 @@ private actor RoutingTransport: CmxByteTransport {
                 id: parsed?["id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
-                text: params?["text"] as? String
+                text: params?["text"] as? String,
+                notificationIDs: params?["notification_ids"] as? [String],
+                clientID: params?["client_id"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
@@ -275,7 +286,12 @@ private actor RoutingTransport: CmxByteTransport {
 /// deterministic end-to-end exercise of submitComposer's routing over the real
 /// terminal.paste / terminal.paste_image RPC frames.
 @MainActor
-func makeRoutingConnectedStore(router: RoutingHostRouter) async throws -> MobileShellComposite {
+func makeRoutingConnectedStore(
+    router: RoutingHostRouter,
+    pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(
+        defaults: UserDefaults(suiteName: "routing-dismiss-\(UUID().uuidString)")!
+    )
+) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
     )
@@ -292,7 +308,8 @@ func makeRoutingConnectedStore(router: RoutingHostRouter) async throws -> Mobile
                 name: "Routing Workspace",
                 terminals: terminals
             ),
-        ]
+        ],
+        pendingDismissQueue: pendingDismissQueue
     )
     // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
     // Stack token and do not throw insecureManualRoute before reaching the
@@ -316,6 +333,7 @@ func makeRoutingConnectedStore(router: RoutingHostRouter) async throws -> Mobile
         ticket: ticket,
         allowsStackAuthFallback: true
     )
+    store.foregroundMacDeviceID = "test-mac"
     return store
 }
 
@@ -346,5 +364,45 @@ func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHos
         route: route,
         ticket: ticket,
         allowsStackAuthFallback: true
+    )
+    store.foregroundMacDeviceID = "test-mac-2"
+}
+
+/// Install a live read-only secondary client on `store`, backed by `router`.
+@MainActor
+func installSecondaryClient(
+    on store: MobileShellComposite,
+    macDeviceID: String,
+    router: RoutingHostRouter
+) throws {
+    let runtime = RoutingTestRuntime(
+        transportFactory: RoutingTransportFactory(router: router)
+    )
+    let route = try CmxAttachRoute(
+        id: "debug_loopback_\(macDeviceID)",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56587)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: RoutingHostRouter.workspaceID,
+        terminalID: RoutingHostRouter.terminalA,
+        macDeviceID: macDeviceID,
+        macDisplayName: macDeviceID,
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(3600)
+    )
+    let client = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
+    store.secondaryMacSubscriptions[macDeviceID] = SecondaryMacSubscription(
+        macDeviceID: macDeviceID,
+        client: client,
+        route: route,
+        ticket: ticket,
+        supportedHostCapabilities: [],
+        actionCapabilities: .none
     )
 }

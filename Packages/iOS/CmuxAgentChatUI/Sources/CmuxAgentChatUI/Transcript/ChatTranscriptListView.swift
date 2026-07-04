@@ -24,6 +24,9 @@ public struct ChatTranscriptListView: View {
     private let onRetryInitialLoad: () -> Void
 
     @Environment(\.chatTheme) private var theme
+    #if os(iOS)
+    @Environment(\.chatTranscriptOverlayGeometry) private var overlayGeometry
+    #endif
 
     #if os(iOS)
     @State private var isAtBottom = true
@@ -84,6 +87,7 @@ public struct ChatTranscriptListView: View {
             isAtBottom: $isAtBottom,
             scrollToBottomRequest: scrollToBottomRequest
         )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .bottomTrailing) {
             Group {
                 if !isAtBottom {
@@ -92,7 +96,7 @@ public struct ChatTranscriptListView: View {
                         scrollToBottomRequest += 1
                     }
                     .padding(.trailing, 12)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, scrollToBottomButtonBottomPadding)
                     .excludedFromKeyboardDismiss()
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
@@ -112,6 +116,12 @@ public struct ChatTranscriptListView: View {
     }
 
     private static let bottomAnchorID = "chat.bottom.anchor"
+
+    #if os(iOS)
+    private var scrollToBottomButtonBottomPadding: CGFloat {
+        max(8, ceil(overlayGeometry?.composerBottomInset ?? 0) + 8)
+    }
+    #endif
 
     private var isWorking: Bool {
         if case .working = agentState { return true }

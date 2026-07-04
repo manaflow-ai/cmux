@@ -10,6 +10,8 @@ private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
+    private typealias DividerRegion = PortalSplitDividerRegion
+
     private enum DividerCursorKind: Equatable {
         case vertical
         case horizontal
@@ -27,62 +29,62 @@ final class WindowTerminalHostView: NSView {
     private static let minimumVisibleLeadingContentWidth: CGFloat = 24
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
+    private var cachedSplitDividerRegions: [DividerRegion]?
+    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
+    private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
+    private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
-    private var dividerRegionInvalidationObservers: [NSObjectProtocol] = []
-    private weak var dividerRegionObservedWindow: NSWindow?
-    private let dividerRegionCache = WindowSplitDividerRegionCache()
-    var dividerRegionBuildCount: Int { dividerRegionCache.buildCount }
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
 
     deinit {
+        if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
-        removeDividerRegionInvalidationObservers()
         clearActiveDividerCursor(restoreArrow: false)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        refreshDividerRegionInvalidationObservers()
-        invalidateDividerRegionCache()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
         }
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        invalidateDividerRegionCache()
+        updateSplitDividerResizeObserver()
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        invalidateDividerRegionCache()
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
-        invalidateDividerRegionCache()
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
     }
 
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
-        invalidateDividerRegionCache()
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
     }
 
     override func willRemoveSubview(_ subview: NSView) {
-        invalidateDividerRegionCache()
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
         super.willRemoveSubview(subview)
     }
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard let window, let rootView = window.contentView else { return }
-        let regions = dividerRegions(in: rootView)
+        invalidateSplitDividerRegionCache()
+        let regions = splitDividerRegions()
         let expansion: CGFloat = 4
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
@@ -118,54 +120,6 @@ final class WindowTerminalHostView: NSView {
     override func cursorUpdate(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         updateDividerCursor(at: point)
-    }
-
-    private func invalidateDividerRegionCache() {
-        dividerRegionCache.invalidate()
-        window?.invalidateCursorRects(for: self)
-    }
-
-    private func refreshDividerRegionInvalidationObservers() {
-        guard dividerRegionObservedWindow !== window else { return }
-        removeDividerRegionInvalidationObservers()
-        dividerRegionObservedWindow = window
-        guard let window else { return }
-
-        let center = NotificationCenter.default
-        dividerRegionInvalidationObservers.append(center.addObserver(
-            forName: NSWindow.didResizeNotification,
-            object: window,
-            queue: nil
-        ) { [weak self] _ in
-            self?.invalidateDividerRegionCache()
-        })
-        dividerRegionInvalidationObservers.append(center.addObserver(
-            forName: NSWindow.didEndLiveResizeNotification,
-            object: window,
-            queue: nil
-        ) { [weak self] _ in
-            self?.invalidateDividerRegionCache()
-        })
-        dividerRegionInvalidationObservers.append(center.addObserver(
-            forName: NSSplitView.didResizeSubviewsNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self, weak window] notification in
-            guard let self,
-                  let window,
-                  self.window === window,
-                  let splitView = notification.object as? NSSplitView,
-                  splitView.window === window else { return }
-            self.invalidateDividerRegionCache()
-        })
-    }
-
-    private func removeDividerRegionInvalidationObservers() {
-        for observer in dividerRegionInvalidationObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        dividerRegionInvalidationObservers.removeAll()
-        dividerRegionObservedWindow = nil
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -410,32 +364,63 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func splitDividerCursorKind(at point: NSPoint) -> DividerCursorKind? {
-        guard let window else { return nil }
+        guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
-        guard let rootView = window.contentView else { return nil }
-        return Self.dividerCursorKind(at: windowPoint, in: dividerRegions(in: rootView))
+        return Self.dividerCursorKind(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
     }
 
-    func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
-        guard self.window === window else { return false }
+    static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
         guard let rootView = window.contentView else { return false }
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        return Self.dividerCursorKind(at: windowPoint, in: dividerRegions(in: rootView)) != nil
+        let regions = PortalSplitDividerRegion.collect(in: rootView).regions
+        return dividerCursorKind(at: windowPoint, in: regions) != nil
     }
 
-    private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
-        splitDividerCursorKind(at: point) != nil
+    private func splitDividerRegions() -> [DividerRegion] {
+        guard let window, let rootView = window.contentView else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
+        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
+        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        let collected = PortalSplitDividerRegion.collect(in: rootView)
+        cachedSplitDividerRegions = collected.regions
+        cachedSplitDividerRootSubviewIds = rootSubviewIds
+        splitDividerCacheInvalidator.observe(
+            geometryViews: collected.geometryObservedViews,
+            structureViews: collected.structureObservedViews
+        ) { [weak self] in
+            guard let self else { return }
+            self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+        return collected.regions
     }
 
-    private func dividerRegions(in rootView: NSView) -> [WindowSplitDividerRegion] {
-        dividerRegionCache.regions(in: rootView, window: window)
+    private func invalidateSplitDividerRegionCache() {
+        cachedSplitDividerRegions = nil
+        cachedSplitDividerRootSubviewIds = nil
+        splitDividerCacheInvalidator.invalidate()
     }
 
-    private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [WindowSplitDividerRegion]) -> DividerCursorKind? {
-        let expansion: CGFloat = 5
-        for region in regions {
-            if region.splitBoundsInWindow.contains(windowPoint),
-               region.rectInWindow.insetBy(dx: -expansion, dy: -expansion).contains(windowPoint) {
+    private func updateSplitDividerResizeObserver() {
+        if let splitDividerResizeObserver {
+            NotificationCenter.default.removeObserver(splitDividerResizeObserver)
+            self.splitDividerResizeObserver = nil
+        }
+        guard let window else { return }
+        splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
+            guard let self,
+                  let window,
+                  let splitView = notification.object as? NSSplitView,
+                  splitView.window === window else { return }
+            self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerCursorKind? {
+        for region in regions.reversed() {
+            if checkLiveness, !region.isLive { continue }
+            let hitRect = region.hitRectInWindow
+            if !hitRect.isNull, hitRect.contains(windowPoint) {
                 return region.isVertical ? .vertical : .horizontal
             }
         }
@@ -1100,9 +1085,7 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    /// Hide a portal entry without detaching it. Updates visibleInUI to false and
-    /// sets isHidden = true so subsequent synchronizeHostedView calls keep it hidden.
-    /// Used when a workspace is permanently unmounted (vs. transient bonsplit dismantles).
+    /// Hide a portal entry for permanent workspace unmounts without detaching it.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
@@ -1117,19 +1100,24 @@ final class WindowTerminalPortal: NSObject {
     /// Update the visibleInUI flag on an existing entry without rebinding.
     /// Used when a deferred bind is pending — this ensures synchronizeHostedView
     /// won't hide a view that updateNSView has already marked as visible.
-    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
-        guard var entry = entriesByHostedId[hostedId] else { return }
+    @discardableResult
+    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
+        let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
+        guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
         entry.visibleInUI = visibleInUI
-        if !visibleInUI {
-            entry.transientRecoveryRetriesRemaining = 0
-        }
+        if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
+        return needsReattach
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
-        guard let entry = entriesByHostedId[hostedId],
-              let boundAnchor = entry.anchorView else { return false }
+        guard let entry = entriesByHostedId[hostedId], let boundAnchor = entry.anchorView else { return false }
         return boundAnchor === anchorView
+    }
+
+    func hostedViewNeedsPortalReattachForVisiblePresentation(withId hostedId: ObjectIdentifier) -> Bool {
+        guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView, let anchor = entry.anchorView else { return true }
+        return !entry.visibleInUI || anchor.window !== window || anchor.superview == nil || (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false) || hostedView.superview !== hostView || hostedView.window !== window
     }
 
     func bind(
@@ -1808,11 +1796,6 @@ final class WindowTerminalPortal: NSObject {
         guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
         return hit.view.paneDropTargetForDrop(at: hit.point)
     }
-
-    func hasSplitDivider(atScreenPoint screenPoint: NSPoint) -> Bool {
-        guard let window else { return false }
-        return hostView.hasSplitDivider(atScreenPoint: screenPoint, in: window)
-    }
 }
 
 @MainActor
@@ -1872,8 +1855,7 @@ enum TerminalWindowPortalRegistry {
         let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
         let mouseLocation = NSEvent.mouseLocation
         for window in candidateWindows {
-            guard let portal = portalsByWindowId[ObjectIdentifier(window)] else { continue }
-            if portal.hasSplitDivider(atScreenPoint: mouseLocation) {
+            if WindowTerminalHostView.hasSplitDivider(atScreenPoint: mouseLocation, in: window) {
                 activeSplitDividerDragWindowId = ObjectIdentifier(window)
                 activeSplitDividerDragEventNumber = event.eventNumber
                 return true
@@ -2127,35 +2109,30 @@ enum TerminalWindowPortalRegistry {
 
     static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
-        guard let windowId = hostedToWindowId[hostedId],
-              let portal = portalsByWindowId[windowId] else { return }
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
         portal.hideEntry(forHostedId: hostedId)
     }
 
     /// Permanently detach a hosted terminal view from the window-level portal.
-    /// Use this when a terminal panel is actually closing (not transient SwiftUI dismantle).
     static func detach(hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId.removeValue(forKey: hostedId) else { return }
         portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
     }
 
-    /// Update the visibleInUI flag on an existing portal entry without rebinding.
-    /// Called when a bind is deferred (host not yet in window) to prevent stale
-    /// portal syncs from hiding a view that is about to become visible.
-    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) {
+    /// Update visibleInUI on an existing portal entry without rebinding.
+    @discardableResult
+    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
-        guard let windowId = hostedToWindowId[hostedId],
-              let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return visibleInUI }
+        return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
         guard let window = anchorView.window else { return false }
         let windowId = ObjectIdentifier(window)
-        guard hostedToWindowId[hostedId] == windowId,
-              let portal = portalsByWindowId[windowId] else { return false }
+        guard hostedToWindowId[hostedId] == windowId, let portal = portalsByWindowId[windowId] else { return false }
         return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
 

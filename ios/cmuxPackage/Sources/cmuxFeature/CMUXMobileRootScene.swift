@@ -1,9 +1,11 @@
+import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
 import CmuxMobileTransport
 import Foundation
@@ -163,7 +165,12 @@ public struct CMUXMobileRootScene: View {
     /// the current session and selected team.
     @MainActor
     private func makePresenceClient() -> PresenceClient? {
-        guard let baseURL = PresenceClient.resolvedServiceBaseURL() else { return nil }
+        // Presence follows the resolved auth channel (not the build config):
+        // a --prod-auth dev build must subscribe to the production worker its
+        // production Macs heartbeat to (issue 7145).
+        guard let baseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ) else { return nil }
         let coordinator = auth.coordinator
         return PresenceClient(
             serviceBaseURL: baseURL,
@@ -171,6 +178,51 @@ public struct CMUXMobileRootScene: View {
                 accessToken: { try? await coordinator.accessToken() }
             ),
             teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+    }
+
+    /// Wrap the local paired-Mac store with selected-team scoping, and then add
+    /// the DO-backup decorator when `mobilePairedMacBackup` is on and a presence
+    /// service URL resolves. Team scoping is unconditional: selected-team
+    /// boundaries must hold even when backup is off.
+    @MainActor
+    private func makeBackedUpPairedMacStore(
+        restoreBoundary: PairedMacRestoreBoundary
+    ) -> (any MobilePairedMacStoring)? {
+        guard let store = pairedMacStore else { return nil }
+        let coordinator = auth.coordinator
+        let buildScope = MobileIOSBuildScope.current()
+        let buildScopedStore: any MobilePairedMacStoring
+        if let buildScope {
+            buildScopedStore = IOSBuildScopedPairedMacStore(inner: store, scope: buildScope)
+        } else {
+            buildScopedStore = store
+        }
+        let scopedStore = TeamScopedPairedMacStore(
+            inner: buildScopedStore,
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+        guard MobilePairedMacBackup.resolved().isEnabled,
+              let baseURL = PresenceClient.resolvedServiceBaseURL(
+                  isDevelopmentAuthChannel: auth.authEnvironment == .development
+              ) else {
+            return scopedStore
+        }
+        let client = PairedMacBackupClient(
+            serviceBaseURL: baseURL,
+            tokenSource: PresenceTokenSource(
+                accessToken: { try? await coordinator.accessToken() },
+                currentUserID: { await coordinator.currentUser?.id }
+            ),
+            teamIDProvider: { await coordinator.resolvedTeamID },
+            clientScopeProvider: { buildScope?.serializedScope }
+        )
+        return BackingUpPairedMacStore(
+            inner: scopedStore,
+            backup: client,
+            teamIDProvider: { await coordinator.resolvedTeamID },
+            restoreBoundary: restoreBoundary,
+            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore()
         )
     }
 
@@ -189,8 +241,12 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
+        if UITestConfig.workspaceListLayoutPreviewEnabled {
+            WorkspaceListLayoutPreviewView()
+        } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
+        } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
+            MobileBottomScrollStressView()
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
         }
@@ -204,8 +260,15 @@ public struct CMUXMobileRootScene: View {
 
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
-        let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
+        let coordinator = auth.coordinator
+        let identityProvider = AuthCoordinatorIdentityProvider(
+            coordinator: auth.coordinator,
+            isDevelopmentAuthEnvironment: auth.authEnvironment == .development
+        )
         let deviceRegistry = makeDeviceRegistry()
+        let restoreBoundary = PairedMacRestoreBoundary()
+        let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
+        let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -213,11 +276,14 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
+            pairedMacStore: backedUpPairedMacStore,
+            pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
+            teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
+            forgottenMacStore: forgottenMacStore,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
@@ -227,11 +293,14 @@ public struct CMUXMobileRootScene: View {
         #else
         return CMUXMobileShellStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
+            pairedMacStore: backedUpPairedMacStore,
+            pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
+            teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
+            forgottenMacStore: forgottenMacStore,
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,

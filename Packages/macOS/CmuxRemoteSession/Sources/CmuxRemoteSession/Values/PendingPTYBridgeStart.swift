@@ -9,5 +9,5 @@ struct PendingPTYBridgeStart {
     let command: String?
     let requireExisting: Bool
     let isCancelled: () -> Bool
-    let completion: (Result<RemotePTYBridgeServer.Endpoint, Error>) -> Void
+    let completion: (Result<RemotePTYBridgeServer.Endpoint, any Error>) -> Void
 }
