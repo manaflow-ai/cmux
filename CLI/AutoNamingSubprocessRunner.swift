@@ -25,6 +25,12 @@ struct AutoNamingSubprocessRunner: Sendable {
               pipe(&stdoutFDs) == 0 else {
             return nil
         }
+        guard Self.moveFDAboveStdio(&stdinFDs[0]),
+              Self.moveFDAboveStdio(&stdinFDs[1]),
+              Self.moveFDAboveStdio(&stdoutFDs[0]),
+              Self.moveFDAboveStdio(&stdoutFDs[1]) else {
+            return nil
+        }
 
         var fileActions: posix_spawn_file_actions_t?
         guard posix_spawn_file_actions_init(&fileActions) == 0 else { return nil }
@@ -200,6 +206,16 @@ struct AutoNamingSubprocessRunner: Sendable {
                 )
             }
         }
+    }
+
+    private static func moveFDAboveStdio(_ fd: inout Int32) -> Bool {
+        guard fd >= 0 else { return false }
+        guard fd <= STDERR_FILENO else { return true }
+        let moved = fcntl(fd, F_DUPFD_CLOEXEC, STDERR_FILENO + 1)
+        guard moved >= 0 else { return false }
+        close(fd)
+        fd = moved
+        return true
     }
 
     private func closeFD(_ fd: inout Int32) {
