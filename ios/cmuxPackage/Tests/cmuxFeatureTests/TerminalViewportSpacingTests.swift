@@ -42,8 +42,13 @@ private final class ViewportSpacingDelegate: NSObject, GhosttySurfaceViewDelegat
     /// daemon behavior, used by the auto-fit tests where convergence needs a
     /// live negotiation loop rather than hand-scripted echoes.
     var autoEchoMacGrid: (cols: Int, rows: Int)?
+    private(set) var renderPipelineResetCount = 0
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
+
+    func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {
+        renderPipelineResetCount += 1
+    }
 
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
         reports.append(size)
@@ -437,6 +442,30 @@ struct TerminalViewportSpacingTests {
                 && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
         }
         #expect(recovered, "after mac grow: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)")
+    }
+
+    /// A stalled old surface free must not make recovery terminal-wide fatal.
+    /// The old implementation paused the active surface when one prior free was
+    /// still draining, then rejected every output and geometry operation. That
+    /// looked like a black/frozen terminal, and switching workspaces kept asking
+    /// the store for replays that the paused surface immediately rejected.
+    @Test("render recovery accepts output even when a prior surface free is stuck")
+    func recoveryWithStuckPriorFreeKeepsSurfaceUsable() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+        harness.echo(initial)
+        #expect(await harness.waitForFill())
+
+        #expect(harness.view.simulateRenderRecoveryWithStuckPriorFreeForTesting())
+        #expect(harness.delegate.renderPipelineResetCount == 1)
+
+        let geometryApplied = await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: initial.rows)
+        #expect(geometryApplied, "recovered surface must still accept geometry")
+
+        let outputApplied = await harness.view.processOutputAndWait(Data("post-recovery-output\r\n".utf8))
+        #expect(outputApplied, "recovered surface must still accept terminal output")
     }
 
     /// Whether the render rect currently reflects the effective pin (used to

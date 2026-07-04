@@ -781,6 +781,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
+    @discardableResult
+    func simulateRenderRecoveryWithStuckPriorFreeForTesting() -> Bool {
+        pendingSurfaceFreeCount = max(pendingSurfaceFreeCount, Self.maxPendingSurfaceFrees)
+        return recoverRenderPipeline(
+            reason: "test_stuck_prior_free",
+            stalledMs: Int(Self.renderPipelineStallDeadline * 1000),
+            replay: .delegateWhenNoCaller
+        )
+    }
+
     #endif
 
     /// Suppresses render dispatch while keeping the display link, geometry,
