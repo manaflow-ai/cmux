@@ -199,6 +199,24 @@ import Testing
         #expect(store.connectionError?.isEmpty == false)
     }
 
+    @Test func failedManualHostApprovalReportsFailureWhileKeepingExistingConnection() async throws {
+        let clock = TestClock()
+        let oldRouter = LivenessHostRouter()
+        let oldBox = TransportBox()
+        let runtime = PairingDeadlineRuntime(supportedRouteKinds: [.manualHost])
+        let store = makeStore(runtime: runtime, connectionState: .connected)
+        try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
+        let originalClient = try #require(store.remoteClient)
+
+        await store.connectManualHost(name: "Bad LAN", host: "192.168.1.77", port: 58_465)
+        let result = await store.acceptManualHostTrustWarning()
+
+        #expect(result == .failed)
+        #expect(store.connectionState == .connected)
+        #expect(store.remoteClient === originalClient)
+        #expect(store.connectionError?.isEmpty == false)
+    }
+
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
 
     private func makeStore(

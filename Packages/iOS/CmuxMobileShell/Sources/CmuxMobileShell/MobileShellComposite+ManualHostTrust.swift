@@ -99,7 +99,7 @@ extension MobileShellComposite {
         await manualHostTrustStore.trust(warning.scope)
         switch pending {
         case let .manual(name, host, port, pairedMacDeviceID, recordsPairingAttempt, ifStillCurrent):
-            await connectManualHost(
+            return await connectManualHost(
                 name: name,
                 host: host,
                 port: port,
@@ -107,7 +107,6 @@ extension MobileShellComposite {
                 recordsPairingAttempt: recordsPairingAttempt,
                 ifStillCurrent: ifStillCurrent
             )
-            return connectionState == .connected ? .connected : .failed
         case let .pairingURL(rawURL, acceptedVersionWarning):
             return await connectPairingURLResult(
                 rawURL,

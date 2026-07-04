@@ -1559,6 +1559,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
     ///   passing the real id keys the foreground aggregate state under it instead of
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
+    @discardableResult
     func connectManualHost(
         name: String,
         host: String,
@@ -1566,7 +1567,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         recordsPairingAttempt: Bool,
         ifStillCurrent: (() -> Bool)? = nil
-    ) async {
+    ) async -> MobilePairingURLConnectionResult {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let preservesActiveConnection = hasActiveMacConnection
         guard let normalizedHost = MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) else {
@@ -1579,7 +1580,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "failure_phase": .string("validation"),
                 "is_first_pair": .bool(!hasKnownPairedMac),
             ])
-            return
+            return .failed
         }
         guard (1...65535).contains(port) else {
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
@@ -1591,7 +1592,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 "failure_phase": .string("validation"),
                 "is_first_pair": .bool(!hasKnownPairedMac),
             ])
-            return
+            return .failed
         }
 
         let directRoute = try? routeSelection.manualHostRoute(host: normalizedHost, port: port)
@@ -1609,7 +1610,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ifStillCurrent: ifStillCurrent
                 )
             )
-            return
+            return .needsUserApproval
         }
         if !preservesActiveConnection {
             activeRoute = directRoute
@@ -1617,13 +1618,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
-        let manualRoutes = directRoute.map { [$0] } ?? []
-        guard await failPairingIfOffline(
+        switch await failPairingIfOffline(
             attemptID: attemptID,
             phase: "preflight",
-            routes: manualRoutes,
+            routes: directRoute.map { [$0] } ?? [],
             preservesActiveConnection: preservesActiveConnection
-        ) == .proceed else { return }
+        ) {
+        case .failedOffline: return .failed
+        case .superseded: return .superseded
+        case .proceed: break
+        }
         do {
             let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
             let ticket = try await manualHostTicket(
@@ -1633,7 +1637,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 attemptStartedAt: pairingAttemptStartedAt,
                 manualHostTrusted: manualHostTrusted
             )
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             let noThrowFailure = try await connect(
                 ticket: ticket,
                 allowsStackAuthFallback: directRoute.map {
@@ -1645,29 +1649,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 pairedMacDeviceID: pairedMacDeviceID,
                 ifStillCurrent: ifStillCurrent
             )
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             if noThrowFailure == nil, connectionState == .connected {
                 recordPairingSucceeded()
-            } else {
-                // `connect()` returned without connecting and already set a
-                // specific error; record without overwriting that message.
-                recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
+                return .connected
             }
+            // `connect()` returned without connecting and already set a
+            // specific error; record without overwriting that message.
+            recordFailureForCurrentConnectionError(phase: "connect", category: noThrowFailure)
+            return .failed
         } catch is CancellationError {
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
+            return .failed
         } catch {
-            guard isCurrentPairingAttempt(attemptID) else { return }
+            guard isCurrentPairingAttempt(attemptID) else { return .superseded }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
-            if disconnectForAuthorizationFailureIfNeeded(error) {
-                return
-            }
+            if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: error, route: directRoute ?? activeRoute)
             applyPairingFailure(category, phase: "connect")
             clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
+            return .failed
         }
     }
 
