@@ -34,7 +34,7 @@ public final class MobilePushCoordinator {
     @ObservationIgnored private let pendingDismissQueue: PendingNotificationDismissQueue
     // UserDefaults is Apple-documented thread-safe; a synchronous read mirrors
     // the opt-in flag for the menu UI without awaiting the actor service.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    nonisolated(unsafe) let defaults: UserDefaults
 
     /// APNs `aps.category` the web sets on every cmux terminal push (see
     /// `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The matching
@@ -66,8 +66,7 @@ public final class MobilePushCoordinator {
     /// launch plus sign-in plus a slow attach.
     private static let pendingDeeplinkLifetime: TimeInterval = 120
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private var notificationSettingsSyncGeneration: UInt64 = 0
-    private static let forwardingSyncPendingKey = "forwardNotificationsToPhoneSyncPending"
+    @ObservationIgnored var notificationSettingsSyncGeneration: UInt64 = 0
 
     /// Creates a push coordinator.
     /// - Parameters:
@@ -226,7 +225,7 @@ public final class MobilePushCoordinator {
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
         _ = claimNotificationSettingsSyncGeneration()
-        defaults.removeObject(forKey: Self.forwardingSyncPendingKey)
+        clearNotificationSettingsSyncPending()
         await registration.setEnabled(false)
         var preferences = notificationPreferences
         preferences.isEnabled = false
@@ -289,13 +288,28 @@ public final class MobilePushCoordinator {
             localPreferences.persist(to: defaults)
             return localPreferences
         }
-        let hasAuthoritativeForwardingMode = storedForwardingModePreference != nil
-        let hasAuthoritativeHidesContent = storedHideContentPreference != nil
+        let pendingForwardingSync = hasPendingForwardingSync
+        let hasAuthoritativeForwardingMode = pendingForwardingSync
+            ? pendingForwardingSyncHasAuthoritativeForwardingMode
+            : storedForwardingModePreference != nil
+        let hasAuthoritativeHidesContent = pendingForwardingSync
+            ? pendingForwardingSyncHasAuthoritativeHidesContent
+            : storedHideContentPreference != nil
         var localPreferences = notificationPreferences
         localPreferences.isEnabled = localOptIn
-        if hasPendingForwardingSync, localPreferences.isEnabled {
-            if !hasAuthoritativeForwardingMode {
+        if pendingForwardingSync, localPreferences.isEnabled {
+            guard pendingForwardingSyncMatches(currentMacDeviceID: store?.connectedMacDeviceID) else {
+                clearNotificationSettingsSyncPending()
+                localPreferences.isForwardingEnabled = macPreferences.isForwardingEnabled
                 localPreferences.forwardingMode = macPreferences.forwardingMode
+                localPreferences.hidesContent = macPreferences.hidesContent
+                localPreferences.persist(to: defaults)
+                return localPreferences
+            }
+            if !hasAuthoritativeForwardingMode {
+                localPreferences.forwardingMode = pendingForwardingSyncUsesPhoneOptInForwardingDefault
+                    ? macPreferences.forwardingModeForPhoneOptIn
+                    : macPreferences.forwardingMode
             }
             if !hasAuthoritativeHidesContent {
                 localPreferences.hidesContent = macPreferences.hidesContent
@@ -471,32 +485,6 @@ public final class MobilePushCoordinator {
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 
-    private var storedNotificationOptIn: Bool? {
-        defaults.object(forKey: MobileNotificationPreferences.enabledKey) as? Bool
-    }
-
-    private var storedForwardingModePreference: MobileNotificationForwardingMode? {
-        defaults.string(forKey: MobileNotificationPreferences.forwardingModeKey)
-            .flatMap(MobileNotificationForwardingMode.init(rawValue:))
-    }
-
-    private var storedHideContentPreference: Bool? {
-        defaults.object(forKey: MobileNotificationPreferences.hideContentKey) as? Bool
-    }
-
-    private var hasPendingForwardingSync: Bool {
-        defaults.bool(forKey: Self.forwardingSyncPendingKey)
-    }
-
-    private func claimNotificationSettingsSyncGeneration() -> UInt64 {
-        notificationSettingsSyncGeneration &+= 1
-        return notificationSettingsSyncGeneration
-    }
-
-    private func isCurrentNotificationSettingsSync(_ generation: UInt64) -> Bool {
-        generation == notificationSettingsSyncGeneration
-    }
-
     @discardableResult
     private func syncExplicitNotificationPreferencesToMac(
         _ preferences: MobileNotificationPreferences,
@@ -505,7 +493,12 @@ public final class MobilePushCoordinator {
         hasAuthoritativeHidesContent: Bool = true,
         usePhoneOptInForwardingDefault: Bool = false
     ) async -> MobileNotificationPreferences? {
-        defaults.set(true, forKey: Self.forwardingSyncPendingKey)
+        markNotificationSettingsSyncPending(
+            hasAuthoritativeForwardingMode: hasAuthoritativeForwardingMode,
+            hasAuthoritativeHidesContent: hasAuthoritativeHidesContent,
+            usePhoneOptInForwardingDefault: usePhoneOptInForwardingDefault,
+            currentMacDeviceID: store?.connectedMacDeviceID
+        )
         var preferencesForMac = preferences
         if !hasAuthoritativeForwardingMode || !hasAuthoritativeHidesContent {
             guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
@@ -522,6 +515,7 @@ public final class MobilePushCoordinator {
             if !hasAuthoritativeHidesContent {
                 preferencesForMac.hidesContent = macPreferences.hidesContent
             }
+            preferencesForMac.persist(to: defaults)
         }
         return await syncNotificationPreferencesToMac(preferencesForMac, generation: generation)
     }
@@ -537,7 +531,7 @@ public final class MobilePushCoordinator {
         guard isCurrentNotificationSettingsSync(generation) else {
             return nil
         }
-        defaults.removeObject(forKey: Self.forwardingSyncPendingKey)
+        clearNotificationSettingsSyncPending()
         macPreferences.persist(to: defaults)
         return macPreferences
     }

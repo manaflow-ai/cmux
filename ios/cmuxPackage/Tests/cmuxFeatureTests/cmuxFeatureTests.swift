@@ -4573,6 +4573,142 @@ private struct InertPushRegistration: PushRegistering {
     #expect(defaults.object(forKey: MobileNotificationPreferences.hideContentKey) as? Bool == true)
 }
 
+@Test @MainActor func pendingNotificationModeRetryPreservesFetchedMacPrivacySetting() async throws {
+    let suite = "MobilePushCoordinatorPendingCurrentMacPrivacy.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
+    defaults.set(true, forKey: MobileNotificationPreferences.forwardingEnabledKey)
+    defaults.set(MobileNotificationForwardingMode.onlyWhenAway.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
+    defaults.set(false, forKey: MobileNotificationPreferences.hideContentKey)
+
+    let route = try hostPortRoute(
+        kind: .debugLoopback,
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac-b",
+        macDisplayName: "Test Mac B",
+        routes: [route],
+        expiresAt: Date.now.addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let currentMacPrivacy: [String: Any] = [
+        "enabled": true,
+        "mode": MobileNotificationForwardingMode.onlyWhenAway.rawValue,
+        "hide_content": true,
+    ]
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(result: currentMacPrivacy),
+        try rpcErrorFrame(message: "temporary failure"),
+        try rpcResultFrame(result: currentMacPrivacy),
+        try rpcResultFrame(result: [
+            "enabled": true,
+            "mode": MobileNotificationForwardingMode.always.rawValue,
+            "hide_content": true,
+        ]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration(), defaults: defaults)
+    coordinator.bind(store: store)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
+    store.remoteClient = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
+
+    _ = await coordinator.setForwardingMode(.always)
+    coordinator.macConnectionDidBecomeAvailable()
+    for _ in 0..<200 {
+        if try await responses.sentRequests().filter({ $0.method == "notification.settings.set" }).count >= 2 {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    let setRequests = try await responses.sentRequests().filter { $0.method == "notification.settings.set" }
+
+    #expect(setRequests.count == 2)
+    #expect(setRequests.allSatisfy { $0.notificationMode == MobileNotificationForwardingMode.always.rawValue })
+    #expect(setRequests.allSatisfy { $0.hideNotificationContent == true })
+    #expect(defaults.object(forKey: MobileNotificationPreferences.hideContentKey) as? Bool == true)
+}
+
+@Test @MainActor func pendingNotificationSettingsSyncDoesNotReplayForMismatchedMac() async throws {
+    let suite = "MobilePushCoordinatorMismatchedMacPending.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
+    defaults.set(true, forKey: MobileNotificationPreferences.forwardingEnabledKey)
+    defaults.set(MobileNotificationForwardingMode.always.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
+    defaults.set(false, forKey: MobileNotificationPreferences.hideContentKey)
+
+    let route = try hostPortRoute(
+        kind: .debugLoopback,
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac-b",
+        macDisplayName: "Test Mac B",
+        routes: [route],
+        expiresAt: Date.now.addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(result: [
+            "enabled": true,
+            "mode": MobileNotificationForwardingMode.onlyWhenAway.rawValue,
+            "hide_content": true,
+        ]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration(), defaults: defaults)
+    coordinator.bind(store: store)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
+    store.remoteClient = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
+    coordinator.markNotificationSettingsSyncPending(
+        hasAuthoritativeForwardingMode: true,
+        hasAuthoritativeHidesContent: false,
+        usePhoneOptInForwardingDefault: false,
+        currentMacDeviceID: "test-mac-a"
+    )
+
+    coordinator.macConnectionDidBecomeAvailable()
+    for _ in 0..<200 {
+        if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.get" }) {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    let requests = try await responses.sentRequests()
+
+    #expect(requests.contains { $0.method == "notification.settings.get" })
+    #expect(!requests.contains { $0.method == "notification.settings.set" })
+    #expect(!coordinator.hasPendingForwardingSync)
+    #expect(coordinator.notificationPreferences.forwardingMode == .onlyWhenAway)
+    #expect(coordinator.notificationPreferences.hidesContent)
+}
+
 @Test @MainActor func localNotificationOptOutDoesNotDisableMacForwardingGate() async throws {
     let suite = "MobilePushCoordinatorLocalNotificationOptOut.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
