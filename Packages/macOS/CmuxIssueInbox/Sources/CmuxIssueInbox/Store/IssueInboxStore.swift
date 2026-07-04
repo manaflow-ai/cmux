@@ -1,27 +1,26 @@
-public import Combine
 public import Foundation
 
 /// Main-actor state store for Issue Inbox.
 @MainActor
-public final class IssueInboxStore: ObservableObject {
+public final class IssueInboxStore {
     /// Current sorted issue rows.
-    @Published public private(set) var items: [IssueInboxItem] = []
+    public private(set) var items: [IssueInboxItem] = []
     /// Per-source error text from the last refresh.
-    @Published public private(set) var sourceErrors: [String: String] = [:]
+    public private(set) var sourceErrors: [String: String] = [:]
     /// Last successful fetch timestamp per source ID.
-    @Published public private(set) var fetchedAt: [String: Date] = [:]
+    public private(set) var fetchedAt: [String: Date] = [:]
     /// Source IDs currently refreshing.
-    @Published public private(set) var refreshing: Set<String> = []
+    public private(set) var refreshing: Set<String> = []
     /// Non-fatal config warnings.
-    @Published public private(set) var configWarnings: [IssueInboxConfigWarning] = []
+    public private(set) var configWarnings: [IssueInboxConfigWarning] = []
     /// Whether the config file exists.
-    @Published public private(set) var configFileExists: Bool = false
+    public private(set) var configFileExists: Bool = false
     /// Config file URL.
-    @Published public private(set) var configURL: URL
+    public private(set) var configURL: URL
     /// Configured source metadata.
-    @Published public private(set) var sourceConfigs: [IssueInboxSourceConfig] = []
+    public private(set) var sourceConfigs: [IssueInboxSourceConfig] = []
     /// Issue ID to workspace ID mapping.
-    @Published public private(set) var spawnedWorkspaces: [String: UUID] = [:]
+    public private(set) var spawnedWorkspaces: [String: UUID] = [:]
 
     private let cache: IssueInboxCache
     private let configLoader: any IssueInboxConfigLoading
