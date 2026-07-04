@@ -132,6 +132,123 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func forkAvailabilitySnapshotRefreshesWhenProcessScopeChanges() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-live-agent-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let agentId = "forkable-cache-agent"
+        let sessionId = "live-session"
+        let staleWorkspaceId = UUID()
+        let stalePanelId = UUID()
+        let liveWorkspaceId = UUID()
+        let livePanelId = UUID()
+        let processId = 7_287
+        let executable = "/usr/local/bin/\(agentId)"
+        let registry = CmuxVaultAgentRegistry(registrations: [
+            CmuxVaultAgentRegistration(
+                id: agentId,
+                name: "Forkable Cache Agent",
+                detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "{{executable}} --session {{sessionId}}",
+                forkCommand: "{{executable}} --session {{sessionId}} --fork"
+            ),
+        ])
+        try writeCustomAgentHookStore(
+            root: root,
+            agentId: agentId,
+            sessions: [
+                sessionId: customAgentHookRecord(
+                    agentId: agentId,
+                    sessionId: sessionId,
+                    workspaceId: staleWorkspaceId,
+                    panelId: stalePanelId,
+                    cwd: cwd.path,
+                    executable: executable,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        var processSnapshot = CmuxTopProcessSnapshot(
+            processes: [],
+            sampledAt: Date(timeIntervalSince1970: 42),
+            includesProcessDetails: true
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            processSnapshotProvider: { processSnapshot },
+            synchronousIndexLoader: { snapshot in
+                SharedLiveAgentIndexLoader(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: registry,
+                    processSnapshotProvider: { snapshot },
+                    capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
+                    processArgumentsProvider: { pid in
+                        guard pid == processId else { return nil }
+                        return CmuxTopProcessArguments(
+                            arguments: [executable, "--session", sessionId],
+                            environment: ["PWD": cwd.path]
+                        )
+                    }
+                )
+                .loadSynchronously()
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+
+        #expect(
+            sharedIndex.snapshotForForkAvailability(
+                workspaceId: staleWorkspaceId,
+                panelId: stalePanelId
+            )?.sessionId == sessionId
+        )
+
+        processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: processId,
+                    parentPID: 1,
+                    name: agentId,
+                    path: executable,
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: liveWorkspaceId,
+                    cmuxSurfaceID: livePanelId,
+                    cmuxAttributionReason: "cmux-test",
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                ),
+            ],
+            sampledAt: Date(timeIntervalSince1970: 43),
+            includesProcessDetails: true
+        )
+
+        #expect(
+            sharedIndex.snapshotForForkAvailability(
+                workspaceId: staleWorkspaceId,
+                panelId: stalePanelId
+            ) == nil
+        )
+        #expect(
+            sharedIndex.snapshotForForkAvailability(
+                workspaceId: liveWorkspaceId,
+                panelId: livePanelId
+            )?.sessionId == sessionId
+        )
+    }
+
+    @Test
     func contextMenuAvailabilityReportsHiddenReasons() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
