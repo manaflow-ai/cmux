@@ -27,6 +27,7 @@ use mux_core::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
 
+use crate::config::{Action, Config};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
 
@@ -162,11 +163,31 @@ pub enum PromptTarget {
     Pane(PaneId),
 }
 
-/// Status-line text input (rename).
+/// Centered rename dialog: a text input with OK/Cancel buttons. The
+/// renderer writes the final geometry back so mouse hit-testing (buttons,
+/// dismiss-outside) matches what is drawn.
 pub struct Prompt {
     pub label: &'static str,
     pub buffer: String,
     pub target: PromptTarget,
+    /// Dialog rect (set by the renderer each frame).
+    pub rect: Rect,
+    /// OK / Cancel button rects (set by the renderer each frame).
+    pub ok: Rect,
+    pub cancel: Rect,
+}
+
+impl Prompt {
+    fn new(label: &'static str, buffer: String, target: PromptTarget) -> Self {
+        Prompt {
+            label,
+            buffer,
+            target,
+            rect: Rect::default(),
+            ok: Rect::default(),
+            cancel: Rect::default(),
+        }
+    }
 }
 
 /// A text selection in one surface, in viewport cell coordinates
@@ -221,6 +242,7 @@ enum Drag {
 
 pub struct App {
     pub session: Session,
+    pub config: Config,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub pane_areas: Vec<PaneArea>,
@@ -242,30 +264,38 @@ pub struct App {
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
     pub selection: Option<Selection>,
+    /// Whether the terminal pointer is currently the hand shape (over a
+    /// clickable element); tracked to avoid re-emitting OSC 22.
+    pointer_shape: bool,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
 }
 
-/// Sidebar width for a terminal width: fixed, but it hides on narrow
-/// terminals where panes need every column.
-fn sidebar_width_for(visible: bool, width: u16) -> u16 {
-    if !visible || width < 70 {
+/// Sidebar width for a terminal width: the configured width, hidden on
+/// terminals too narrow to give panes room next to it.
+fn sidebar_width_for(config: &Config, visible: bool, width: u16) -> u16 {
+    let w = config.sidebar.width;
+    if !visible || width < w.saturating_add(48) {
         0
     } else {
-        22
+        w
     }
 }
 
 pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
+    let config = crate::config::load();
     // First workspace before the terminal switches modes, so a spawn
     // failure prints a normal error. Spawn at the size the first pane
     // will actually render at (a post-spawn resize makes shells like zsh
-    // repaint their prompt, leaving a reverse-video % artifact).
+    // repaint their prompt, leaving a reverse-video % artifact). The
+    // pane's border box eats one cell on every side.
     let initial_size = crossterm::terminal::size().ok().map(|(w, h)| {
-        let sidebar = sidebar_width_for(true, w);
-        (w.saturating_sub(sidebar).max(1), h.saturating_sub(1).max(1))
+        let sidebar = sidebar_width_for(&config, true, w);
+        let pane_w = w.saturating_sub(sidebar);
+        let pane_h = h.saturating_sub(1); // status bar
+        (pane_w.saturating_sub(2).max(1), pane_h.saturating_sub(2).max(1))
     });
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
@@ -326,6 +356,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
 
     let mut app = App {
         session,
+        config,
         tree: TreeView::default(),
         render_states: HashMap::new(),
         pane_areas: Vec::new(),
@@ -340,6 +371,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         menu: None,
         prompt: None,
         selection: None,
+        pointer_shape: false,
         drag: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
@@ -354,6 +386,8 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
 
 fn restore_terminal() -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
+    // Reset the mouse pointer shape in case we left it as a hand.
+    let _ = write!(stdout, "\x1b]22;default\x07");
     let _ = stdout.execute(DisableBracketedPaste);
     let _ = stdout.execute(DisableMouseCapture);
     let _ = stdout.execute(LeaveAlternateScreen);
@@ -407,7 +441,7 @@ impl App {
     /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
-        self.sidebar_width = sidebar_width_for(self.sidebar_visible, width);
+        self.sidebar_width = sidebar_width_for(&self.config, self.sidebar_visible, width);
         let area = Rect {
             x: self.sidebar_width,
             y: 0,
@@ -555,7 +589,7 @@ impl App {
             self.prefix_armed = false;
             return self.handle_prefixed(key);
         }
-        if key.code == KeyCode::Char('b') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if self.config.keys.prefix.matches(&key) {
             self.prefix_armed = true;
             return Ok(true);
         }
@@ -565,25 +599,28 @@ impl App {
         Ok(false)
     }
 
+    /// Commit the open rename dialog (Enter or the OK button).
+    fn commit_prompt(&mut self) {
+        let Some(prompt) = self.prompt.take() else { return };
+        match prompt.target {
+            PromptTarget::Workspace(id) => {
+                if !prompt.buffer.is_empty() {
+                    self.session.rename_workspace(id, prompt.buffer);
+                }
+            }
+            // Empty screen/pane names clear back to the default.
+            PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
+            PromptTarget::Pane(id) => self.session.rename_pane(id, prompt.buffer),
+        }
+    }
+
     fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
         let Some(prompt) = self.prompt.as_mut() else { return Ok(false) };
         match key.code {
             KeyCode::Esc => {
                 self.prompt = None;
             }
-            KeyCode::Enter => {
-                let prompt = self.prompt.take().expect("prompt checked above");
-                match prompt.target {
-                    PromptTarget::Workspace(id) => {
-                        if !prompt.buffer.is_empty() {
-                            self.session.rename_workspace(id, prompt.buffer);
-                        }
-                    }
-                    // Empty screen/pane names clear back to the default.
-                    PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
-                    PromptTarget::Pane(id) => self.session.rename_pane(id, prompt.buffer),
-                }
-            }
+            KeyCode::Enter => self.commit_prompt(),
             KeyCode::Backspace => {
                 prompt.buffer.pop();
             }
@@ -591,6 +628,18 @@ impl App {
                 prompt.buffer.push(c);
             }
             _ => {}
+        }
+        Ok(true)
+    }
+
+    /// Clicks while the rename dialog is open: OK commits, Cancel (or a
+    /// click outside the dialog) dismisses; clicks inside are swallowed.
+    fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        let Some(prompt) = self.prompt.as_ref() else { return Ok(false) };
+        if prompt.ok.contains(x, y) {
+            self.commit_prompt();
+        } else if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
+            self.prompt = None;
         }
         Ok(true)
     }
@@ -621,126 +670,84 @@ impl App {
     }
 
     fn handle_prefixed(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+        // Prefix twice forwards the prefix chord literally.
+        if self.config.keys.prefix.matches(&key) {
+            self.forward_key(&key);
+            return Ok(true);
+        }
+        // 1-9 select a tab by number (fixed: they mirror the tab labels).
+        if let KeyCode::Char(c @ '1'..='9') = key.code {
+            let pane = self.active_pane();
+            self.session.select_tab(pane, Some(c as usize - '1' as usize), None);
+            return Ok(true);
+        }
+        let Some(action) = self.config.keys.action_for(&key) else {
+            return Ok(true); // unknown prefix command: swallow, redraw indicator
+        };
+        self.run_action(action)
+    }
+
+    /// Execute one bound action. Shared by the (configurable) prefix keys
+    /// and any future command surface.
+    fn run_action(&mut self, action: Action) -> anyhow::Result<bool> {
         let pane = self.active_pane();
-        match (key.code, key.modifiers) {
-            // Prefix-Ctrl-b: forward a literal Ctrl-b.
-            (KeyCode::Char('b'), m) if m.contains(KeyModifiers::CONTROL) => {
-                self.forward_key(&key);
-                Ok(true)
-            }
-            (KeyCode::Char('c'), _) => {
+        match action {
+            Action::NewTab => {
                 self.session.new_tab(pane, None)?;
-                Ok(true)
             }
-            (KeyCode::Char('%'), _) => {
+            Action::NextTab => self.session.select_tab(pane, None, Some(1)),
+            Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
+            Action::SplitRight => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Right)?;
                 }
-                Ok(true)
             }
-            (KeyCode::Char('"'), _) => {
+            Action::SplitDown => {
                 if let Some(pane) = pane {
                     self.split_pane(pane, SplitDir::Down)?;
                 }
-                Ok(true)
             }
-            (KeyCode::Char('x'), _) => {
+            Action::CloseTab => {
                 // Close the active tab; the pane collapses with its last
                 // tab, so this is also "close pane" for single-tab panes.
                 if let Some(surface) = self.active_surface() {
                     self.render_states.remove(&surface);
                     self.session.close_surface(surface);
                 }
-                Ok(true)
             }
-            (KeyCode::Char('n'), _) => {
-                self.session.select_tab(pane, None, Some(1));
-                Ok(true)
-            }
-            (KeyCode::Char('p'), _) => {
-                self.session.select_tab(pane, None, Some(-1));
-                Ok(true)
-            }
-            (KeyCode::Char(c @ '1'..='9'), _) => {
-                self.session.select_tab(pane, Some(c as usize - '1' as usize), None);
-                Ok(true)
-            }
-            (KeyCode::Char(','), _) => {
-                self.open_rename_pane_prompt(pane);
-                Ok(true)
-            }
-            (KeyCode::Char('$'), _) => {
-                self.open_rename_workspace_prompt();
-                Ok(true)
-            }
-            (KeyCode::Char('s'), _) => {
-                self.sidebar_visible = !self.sidebar_visible;
-                Ok(true)
-            }
-            (KeyCode::Char('w'), m) if !m.contains(KeyModifiers::SHIFT) => {
-                self.session.select_workspace(None, Some(1));
-                Ok(true)
-            }
-            (KeyCode::Char('W'), _) => {
-                self.new_workspace()?;
-                Ok(true)
-            }
-            (KeyCode::Tab, _) => {
-                self.session.select_screen(None, Some(1));
-                Ok(true)
-            }
-            (KeyCode::Char('S'), _) => {
-                self.new_screen()?;
-                Ok(true)
-            }
-            (KeyCode::Char('d'), _) => {
+            Action::RenamePane => self.open_rename_pane_prompt(pane),
+            Action::RenameWorkspace => self.open_rename_workspace_prompt(),
+            Action::NextScreen => self.session.select_screen(None, Some(1)),
+            Action::NewScreen => self.new_screen()?,
+            Action::NextWorkspace => self.session.select_workspace(None, Some(1)),
+            Action::NewWorkspace => self.new_workspace()?,
+            Action::ToggleSidebar => self.sidebar_visible = !self.sidebar_visible,
+            Action::FocusLeft => self.move_focus(-1, 0),
+            Action::FocusRight => self.move_focus(1, 0),
+            Action::FocusUp => self.move_focus(0, -1),
+            Action::FocusDown => self.move_focus(0, 1),
+            Action::ScrollUp => self.scroll_active(-10),
+            Action::ScrollDown => self.scroll_active(10),
+            Action::Detach => {
                 // Local sessions end with the TUI; remote sessions keep
                 // running server-side (detach).
                 self.quit = true;
-                Ok(false)
+                return Ok(false);
             }
-            (KeyCode::Char('h'), _) | (KeyCode::Left, _) => {
-                self.move_focus(-1, 0);
-                Ok(true)
-            }
-            (KeyCode::Char('l'), _) | (KeyCode::Right, _) => {
-                self.move_focus(1, 0);
-                Ok(true)
-            }
-            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-                self.move_focus(0, -1);
-                Ok(true)
-            }
-            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                self.move_focus(0, 1);
-                Ok(true)
-            }
-            (KeyCode::PageUp, _) => {
-                self.scroll_active(-10);
-                Ok(true)
-            }
-            (KeyCode::PageDown, _) => {
-                self.scroll_active(10);
-                Ok(true)
-            }
-            _ => Ok(true), // unknown prefix command: swallow, redraw indicator
         }
+        Ok(true)
     }
 
     fn open_rename_pane_prompt(&mut self, pane: Option<PaneId>) {
         let Some(pane) = pane else { return };
         let buffer = self.tree.pane(pane).and_then(|p| p.name.clone()).unwrap_or_default();
-        self.prompt =
-            Some(Prompt { label: "Rename pane", buffer, target: PromptTarget::Pane(pane) });
+        self.prompt = Some(Prompt::new("Rename pane", buffer, PromptTarget::Pane(pane)));
     }
 
     fn open_rename_workspace_prompt(&mut self) {
         let Some(ws) = self.tree.active_workspace() else { return };
-        self.prompt = Some(Prompt {
-            label: "Rename workspace",
-            buffer: ws.name.clone(),
-            target: PromptTarget::Workspace(ws.id),
-        });
+        self.prompt =
+            Some(Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id)));
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
@@ -753,11 +760,8 @@ impl App {
                     .find(|ws| ws.id == id)
                     .map(|ws| ws.name.clone())
                     .unwrap_or_default();
-                self.prompt = Some(Prompt {
-                    label: "Rename workspace",
-                    buffer,
-                    target: PromptTarget::Workspace(id),
-                });
+                self.prompt =
+                    Some(Prompt::new("Rename workspace", buffer, PromptTarget::Workspace(id)));
             }
             MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
             MenuAction::RenameScreen(id) => {
@@ -769,11 +773,7 @@ impl App {
                     .find(|s| s.id == id)
                     .and_then(|s| s.name.clone())
                     .unwrap_or_default();
-                self.prompt = Some(Prompt {
-                    label: "Rename screen",
-                    buffer,
-                    target: PromptTarget::Screen(id),
-                });
+                self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::RenamePane(id) => self.open_rename_pane_prompt(Some(id)),
@@ -866,10 +866,41 @@ impl App {
         }
     }
 
-    /// Mouse-move: highlight the hovered menu item, and track the mouse
-    /// position so tab-bar controls (+, ‹, ›) render a hover state. Only
-    /// redraws when the hovered control actually changes.
+    /// Whether the cell is over something clickable (any hit, a menu row,
+    /// or a dialog button): these render the hand pointer.
+    fn is_clickable(&self, x: u16, y: u16) -> bool {
+        if let Some(prompt) = &self.prompt {
+            return prompt.ok.contains(x, y) || prompt.cancel.contains(x, y);
+        }
+        if let Some(menu) = &self.menu {
+            if menu.item_at(x, y).is_some() {
+                return true;
+            }
+        }
+        self.hit_at(x, y).is_some()
+    }
+
+    /// Keep the terminal's mouse pointer shape in sync: a hand over
+    /// clickable UI, the default elsewhere (OSC 22; terminals without
+    /// support ignore it).
+    fn sync_pointer_shape(&mut self, x: u16, y: u16) {
+        let want_pointer = self.is_clickable(x, y);
+        if want_pointer == self.pointer_shape {
+            return;
+        }
+        self.pointer_shape = want_pointer;
+        let shape = if want_pointer { "pointer" } else { "default" };
+        let mut stdout = std::io::stdout();
+        let _ = write!(stdout, "\x1b]22;{shape}\x07");
+        let _ = stdout.flush();
+    }
+
+    /// Mouse-move: sync the pointer shape, highlight the hovered menu
+    /// item, and track the mouse position so tab-bar controls (+, ‹, ›)
+    /// and the scrollbar render a hover state. Only redraws when the
+    /// hovered element actually changes.
     fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        self.sync_pointer_shape(x, y);
         if let Some(menu) = self.menu.as_mut() {
             if let Some(item) = menu.item_at(x, y) {
                 if item != menu.selected {
@@ -880,8 +911,9 @@ impl App {
             }
         }
         let hoverable = |pos: Option<(u16, u16)>| {
-            pos.and_then(|(px, py)| self.hit_at(px, py))
-                .filter(|hit| matches!(hit, Hit::NewTab { .. } | Hit::TabScroll { .. }))
+            pos.and_then(|(px, py)| self.hit_at(px, py)).filter(|hit| {
+                matches!(hit, Hit::NewTab { .. } | Hit::TabScroll { .. } | Hit::Scrollbar { .. })
+            })
         };
         let before = hoverable(self.hover);
         let after = hoverable(Some((x, y)));
@@ -892,6 +924,11 @@ impl App {
     fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
         self.selection = None;
         self.drag = None;
+
+        // An open rename dialog captures the click.
+        if self.prompt.is_some() {
+            return self.handle_prompt_click(x, y);
+        }
 
         // An open menu captures the click: activate or dismiss. Clicks on
         // the padding border dismiss without activating.

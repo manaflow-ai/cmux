@@ -109,18 +109,6 @@ impl PaneView {
     }
 }
 
-impl TabView {
-    /// Tab-bar label: tabs are numbered by position; the process title
-    /// (when reported) follows as context.
-    pub fn display_title(&self, index: usize) -> String {
-        if self.title.is_empty() {
-            format!("{}", index + 1)
-        } else {
-            format!("{} {}", index + 1, self.title)
-        }
-    }
-}
-
 /// Snapshot a local mux state into a TreeView.
 pub fn tree_from_state(state: &State) -> TreeView {
     let pane_view = |id: &PaneId| {

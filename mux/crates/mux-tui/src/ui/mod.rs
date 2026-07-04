@@ -29,11 +29,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     draw_status_bar(app, frame);
     overlay::draw_menu(app, frame);
 
-    // The prompt owns the terminal cursor while it is open.
-    if app.prompt.is_none() {
-        if let Some((x, y)) = cursor {
-            frame.set_cursor_position(Position::new(x, y));
-        }
+    // The dialog owns the terminal cursor while it is open (draw_prompt
+    // sets it on the input row).
+    if app.prompt.is_some() {
+        overlay::draw_prompt(app, frame);
+    } else if let Some((x, y)) = cursor {
+        frame.set_cursor_position(Position::new(x, y));
     }
 }
 
@@ -47,21 +48,6 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(250));
     for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
-    }
-
-    if let Some(prompt) = &app.prompt {
-        let text = format!(" {}: {}", prompt.label, prompt.buffer);
-        let prompt_style = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(255));
-        frame.buffer_mut().set_stringn(
-            bar_x,
-            status_y,
-            &text,
-            area.width.saturating_sub(bar_x) as usize,
-            prompt_style,
-        );
-        let cursor_x = (bar_x + text.chars().count() as u16).min(area.width.saturating_sub(1));
-        frame.set_cursor_position(Position::new(cursor_x, status_y));
-        return;
     }
 
     let active_style = Style::default()

@@ -7,6 +7,7 @@
 //! headless) session over that socket, which is how detach/reattach works.
 
 mod app;
+mod config;
 mod keys;
 mod session;
 mod ui;

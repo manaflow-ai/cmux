@@ -13,16 +13,17 @@ use ratatui::Frame;
 
 use super::truncate;
 use crate::app::{App, Hit, PaneArea, Selection};
+use crate::config::{tab_label, Theme};
 
 /// Border style for a pane box: active gets the accent color, idle
 /// stays dim. Notification flashing will slot in here as another state
 /// later. (No hover state: mousing across terminals should not light up
 /// their borders.)
-fn border_style(focused: bool) -> Style {
+fn border_style(theme: &Theme, focused: bool) -> Style {
     if focused {
-        Style::default().fg(Color::Indexed(110))
+        Style::default().fg(theme.border_active)
     } else {
-        Style::default().fg(Color::Indexed(238))
+        Style::default().fg(theme.border_inactive)
     }
 }
 
@@ -48,14 +49,15 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
 
 /// The pane's border box. The top row is left to the tab bar; here we
 /// draw the left/right/bottom edges and the corners.
-fn draw_box(_app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
+fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let rect = area.rect;
     if area.bar.is_none() || rect.width < 2 || rect.height < 2 {
         return;
     }
     let screen = frame.area();
+    let theme = app.config.theme;
     let buf = frame.buffer_mut();
-    let style = border_style(focused);
+    let style = border_style(&theme, focused);
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     if x1 >= screen.width || y1 >= screen.height {
@@ -81,7 +83,9 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let Some(bar) = area.bar else { return };
     let Some(screen_view) = app.tree.active_screen() else { return };
     let Some(pane) = screen_view.pane(area.pane) else { return };
-    let tabs: Vec<String> = pane.tabs.iter().enumerate().map(|(i, t)| t.display_title(i)).collect();
+    let tab_cfg = app.config.tabs.clone();
+    let tabs: Vec<String> =
+        pane.tabs.iter().enumerate().map(|(i, t)| tab_label(&tab_cfg, i, &t.title)).collect();
     let active_tab = pane.active_tab;
     let pane_id = area.pane;
     let hover = app.hover;
@@ -90,12 +94,30 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     if bar.width < 2 || bar.y >= screen.height {
         return;
     }
-    let style = border_style(focused);
-    let base = Style::default().fg(Color::Indexed(246));
-    let active_style = if focused {
-        Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
+    let theme = app.config.theme;
+    let style = border_style(&theme, focused);
+    let (base, active_style) = if tab_cfg.solid_background {
+        // Solid tab chips on the border line.
+        (
+            Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(248)),
+            if focused {
+                Style::default()
+                    .bg(Color::Indexed(240))
+                    .fg(Color::Indexed(255))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().bg(Color::Indexed(238)).fg(Color::Indexed(252))
+            },
+        )
     } else {
-        Style::default().fg(Color::Indexed(250))
+        (
+            Style::default().fg(Color::Indexed(246)),
+            if focused {
+                Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Indexed(250))
+            },
+        )
     };
     // Hover highlight for the bar's controls (+, ‹, ›).
     let hovered_ctrl = |rect: Rect| hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
@@ -118,7 +140,16 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
 
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
     // starting at tab_scroll fits; the active tab is always kept visible.
-    let labels: Vec<String> = tabs.iter().map(|t| format!(" {} ", truncate(t, 16))).collect();
+    let min_w = tab_cfg.min_width as usize;
+    let labels: Vec<String> = tabs
+        .iter()
+        .map(|t| {
+            let label = format!(" {} ", truncate(t, 16));
+            // Pad to the configured minimum width, keeping the text centered-ish.
+            let short = min_w.saturating_sub(label.chars().count());
+            format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
+        })
+        .collect();
     let widths: Vec<u16> = labels.iter().map(|l| l.chars().count() as u16).collect();
     let inner_w = bar.width.saturating_sub(2); // between the corners
     let plus_w: u16 = 3; // " + "
@@ -208,6 +239,7 @@ fn draw_content(
 
     let selection: Option<Selection> =
         app.selection.filter(|s| s.surface == area.surface && s.anchor != s.head);
+    let theme = app.config.theme;
 
     let screen = frame.area();
     let buf = frame.buffer_mut();
@@ -225,7 +257,7 @@ fn draw_content(
             }
             let x = rect.x + col as u16;
             let selected = selection.is_some_and(|s| s.contains(col as u16, row as u16));
-            apply_cell(&mut buf[(x, y)], cell, selected);
+            apply_cell(&mut buf[(x, y)], cell, selected.then_some(&theme));
         }
         // Pane narrower than the rect (during resize races): blank the rest.
         for col in cells.len()..max_cols {
@@ -272,9 +304,13 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
 
     let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
 
+    // Hovering the track grows the thumb glyph for a bigger target.
+    let hovered = app.hover.is_some_and(|(hx, hy)| track.contains(hx, hy));
+    let glyph = if hovered { "█" } else { "┃" };
+
     let screen = frame.area();
     let buf = frame.buffer_mut();
-    let thumb_style = if focused {
+    let thumb_style = if hovered || focused {
         Style::default().fg(Color::Indexed(252))
     } else {
         Style::default().fg(Color::Indexed(246))
@@ -287,7 +323,7 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
         // The track stays the border line (drawn by draw_box); only the
         // thumb overlays it with a solid bar.
         if dy >= thumb_y && dy < thumb_y + thumb_len {
-            buf[(track.x, y)].set_symbol("┃").set_style(thumb_style);
+            buf[(track.x, y)].set_symbol(glyph).set_style(thumb_style);
         }
     }
     app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
@@ -303,7 +339,7 @@ fn thumb_geometry(sb: &Scrollbar, track_height: u16) -> (u16, u16) {
     (y, len)
 }
 
-fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: bool) {
+fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: Option<&Theme>) {
     if cell.text.is_empty() {
         target.set_symbol(" ");
     } else {
@@ -344,11 +380,16 @@ fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: bool)
     if cell.invisible {
         modifier |= Modifier::HIDDEN;
     }
-    // Selection renders as reverse video on top of the cell's own style
-    // (double-reverse cancels out, which still reads correctly).
-    if selected {
-        modifier ^= Modifier::REVERSED;
-    }
     style = style.add_modifier(modifier);
+    // Selection paints the themed background over the cell (the color
+    // comes from mux.json, else the user's Ghostty selection-background,
+    // else a dark grey default).
+    if let Some(theme) = selected {
+        style = style.bg(theme.selection_bg);
+        if let Some(fg) = theme.selection_fg {
+            style = style.fg(fg);
+        }
+        style = style.remove_modifier(Modifier::REVERSED);
+    }
     target.set_style(style);
 }

@@ -29,6 +29,43 @@ Every pane draws a border box; the active pane's border is highlighted, the pane
 
 Drag to select text; on release the selection is copied to the host clipboard via OSC 52 (works over SSH). The highlight is viewport-anchored and clears on scroll or typing. Wheel scrolls (arrow keys on the alternate screen). The right border doubles as the scrollbar: a `┃` thumb appears whenever the surface has any scrollback (hidden only when no scrolling is possible at all), and the track can be clicked or dragged to jump.
 
+## Configuration
+
+`~/.config/cmux/mux.json` (override with `CMUX_MUX_CONFIG`); every key is optional:
+
+```json
+{
+  "theme": {
+    "selection_background": "#3a3a3a",
+    "selection_foreground": null,
+    "sidebar_rail": "#87afd7",
+    "border_active": "#87afd7",
+    "border_inactive": "#444444"
+  },
+  "tabs": {
+    "min_width": 5,
+    "solid_background": true,
+    "show_titles": false,
+    "agents": ["claude", "codex", "opencode", "pi"]
+  },
+  "sidebar": { "width": 22 },
+  "keys": {
+    "prefix": "ctrl+b",
+    "new-tab": "c", "next-tab": "n", "prev-tab": "p",
+    "split-right": "%", "split-down": "\"", "close-tab": "x",
+    "rename-pane": ",", "rename-workspace": "$",
+    "next-screen": "tab", "new-screen": "S",
+    "next-workspace": "w", "new-workspace": "W",
+    "toggle-sidebar": "s",
+    "focus-left": "h", "focus-right": "l", "focus-up": "k", "focus-down": "j",
+    "scroll-up": "pageup", "scroll-down": "pagedown",
+    "detach": "d"
+  }
+}
+```
+
+Colors are `#rrggbb`, `#rgb`, or an xterm-256 index. The selection colors default to the user's Ghostty config (`selection-background`/`selection-foreground` from `~/.config/ghostty/config`), falling back to a dark grey. Tabs are numbered `1 2 3…` by default; recognized agent programs (the `agents` list) surface after the number, and `show_titles` restores full process titles. Every prefix binding is remappable via `keys` (formats: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"pageup"`); `1`-`9` stay fixed to tab selection.
+
 ## Control socket
 
 Every instance serves a JSON-lines protocol on a unix socket (default `$TMPDIR/cmux-mux-<uid>/<session>.sock`, also exported to children as `CMUX_MUX_SOCKET`). One request per line:

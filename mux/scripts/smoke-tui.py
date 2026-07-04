@@ -206,6 +206,9 @@ text = output.decode("utf-8", "replace")
 assert "Rename pane" in text, text[-800:]
 os.write(fd, b"\x1b[<0;82;6M\x1b[<0;82;6m")
 drain(0.8)
+# A centered rename dialog opens (title + OK/Cancel buttons).
+text = output.decode("utf-8", "replace")
+assert "[ OK ]" in text and "[ Cancel ]" in text, text[-800:]
 os.write(fd, b"clicked-name\r")
 drain(1.0)
 names = [
