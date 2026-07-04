@@ -186,36 +186,29 @@ export function PricingCompareTable({
   };
   stickyTopClassName?: string;
 }) {
+  const gridTemplateColumns = "minmax(12rem,2fr) repeat(4,minmax(8rem,1fr))";
+
   return (
-    <table className="w-full border-separate border-spacing-0 text-[15px]">
-      <thead>
-        <tr>
-          <th
-            className={`sticky ${stickyTopClassName} z-20 border-b border-border py-3 pr-4 text-left align-bottom font-medium min-w-[12rem] [background:var(--pricing-sticky-bg,var(--background))]`}
-          />
-          <ColumnHead
-            name={names.free}
-            price={prices.free}
-            stickyTopClassName={stickyTopClassName}
-          />
-          <ColumnHead
-            name={names.pro}
-            price={prices.pro}
-            stickyTopClassName={stickyTopClassName}
-          />
-          <ColumnHead
-            name={names.team}
-            price={prices.team}
-            stickyTopClassName={stickyTopClassName}
-          />
-          <ColumnHead
-            name={names.enterprise}
-            price={prices.enterprise}
-            stickyTopClassName={stickyTopClassName}
-          />
-        </tr>
-      </thead>
-      <tbody>
+    <div>
+      <div
+        className={`sticky ${stickyTopClassName} z-30 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
+        style={{ gridTemplateColumns }}
+      >
+        <div className="pr-4" />
+        <ColumnHead name={names.free} price={prices.free} />
+        <ColumnHead name={names.pro} price={prices.pro} />
+        <ColumnHead name={names.team} price={prices.team} />
+        <ColumnHead name={names.enterprise} price={prices.enterprise} />
+      </div>
+      <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
+        <colgroup>
+          <col className="w-[33.333%]" />
+          <col className="w-[16.667%]" />
+          <col className="w-[16.667%]" />
+          <col className="w-[16.667%]" />
+          <col className="w-[16.667%]" />
+        </colgroup>
+        <tbody>
         {rows.map((row, i) => (
           <tr key={i}>
             <th
@@ -230,8 +223,9 @@ export function PricingCompareTable({
             <CompareCell value={row.enterprise} />
           </tr>
         ))}
-      </tbody>
-    </table>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -298,19 +292,15 @@ export function PricingSizeTable({
 function ColumnHead({
   name,
   price,
-  stickyTopClassName,
 }: {
   name: string;
   price: string;
-  stickyTopClassName: string;
 }) {
   return (
-    <th
-      className={`sticky ${stickyTopClassName} z-20 border-b border-border px-4 py-3 text-left align-bottom font-medium [background:var(--pricing-sticky-bg,var(--background))]`}
-    >
+    <div className="px-4 text-left align-bottom font-medium">
       {name}
       <span className="block text-xs font-normal text-muted">{price}</span>
-    </th>
+    </div>
   );
 }
 

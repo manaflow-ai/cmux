@@ -48,19 +48,14 @@ export default async function AppPricingPage({
 
   return (
     <main
-      className="min-h-screen w-full overflow-x-hidden px-6 py-10 text-foreground sm:py-12"
+      className="min-h-screen w-full px-6 py-10 text-foreground sm:py-12"
       data-app-pricing-appearance={appearance}
       style={appPricingStyle(appearance, stickyBackground)}
     >
       <div className="mx-auto w-full max-w-6xl">
         {banner ? <BillingBanner banner={banner} /> : null}
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <h1 className="text-2xl font-medium tracking-tight">
-            {pricing.title}
-          </h1>
-          <CurrentPlanStatus snapshot={snapshot} />
-        </div>
+        <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
 
         <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
           <PlanCard
@@ -203,25 +198,6 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
     isPro: status.isPro,
     email: user.primaryEmail,
   };
-}
-
-function CurrentPlanStatus({ snapshot }: { snapshot: AppPlanSnapshot }) {
-  const label = snapshot.isPro ? "Pro" : "Free";
-  const detail = snapshot.authenticated
-    ? snapshot.email ?? "Signed in"
-    : "Signed out";
-
-  return (
-    <div className="flex max-w-full flex-wrap items-center gap-2 text-sm sm:justify-end">
-      <span className="inline-flex items-center gap-2 border border-border bg-code-bg px-3 py-1.5">
-        <span className="text-muted">Current</span>
-        <span className="font-medium">{label}</span>
-      </span>
-      <span className="min-w-0 max-w-full break-all border border-border bg-code-bg px-3 py-1.5 text-muted">
-        {detail}
-      </span>
-    </div>
-  );
 }
 
 type BillingBannerModel = {
