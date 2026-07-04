@@ -11,6 +11,12 @@ enum AppshotCapturer {
     private static let maxAccessibilityNodes = 6000
     /// Maximum characters of extracted text retained.
     private static let maxAccessibilityChars = 40000
+    /// Maximum characters accepted from a direct AX control metadata string.
+    private static let maxDirectAccessibilityStringChars = 512
+    /// Maximum direct AX string reads per capture, after which ranged reads only.
+    private static let maxDirectAccessibilityStringReads = 256
+    /// Maximum characters expected in an AX role string.
+    private static let maxAccessibilityRoleChars = 64
     /// Maximum width or height requested from ScreenCaptureKit for one appshot.
     private static let maxScreenshotDimension = 4096
     /// Maximum total pixels requested from ScreenCaptureKit for one appshot.
@@ -36,6 +42,14 @@ enum AppshotCapturer {
     /// the cache is bounded — older captures are evicted rather than left to
     /// pile up until the OS happens to clear the temp directory. ~12 appshots.
     private static let maxRetainedArtifacts = 24
+    /// Roles whose ordinary AX string attributes are short control metadata.
+    private static let directStringRoles: Set<String> = [
+        "AXButton", "AXCell", "AXCheckBox", "AXComboBox", "AXGroup", "AXHeading",
+        "AXImage", "AXLink", "AXMenuButton", "AXMenuItem", "AXPopUpButton", "AXRadioButton",
+        "AXRow", "AXSlider", "AXStaticText", "AXTextField", "AXValueIndicator",
+    ]
+    /// AX string attributes that are useful as small control metadata.
+    private static let directStringAttributes: Set<String> = [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute]
     static func capture(frontPID: pid_t, appName: String, scale: CGFloat) async -> AppshotCapture? {
         guard frontPID > 0, let window = frontmostWindow(ownerPID: frontPID) else { return nil }
 
@@ -51,10 +65,10 @@ enum AppshotCapturer {
         // round-trips — and PNG encoding plus the file writes are CPU/disk work,
         // so run all of it off the bounded cooperative thread pool rather than
         // blocking a pool thread. The window title uses the CGWindowList title
-        // captured above; AX title/description strings are not ranged and are
-        // skipped on this untrusted hotkey path. `image` is an immutable,
-        // Sendable `CGImage?`, so it crosses into the queue closure like the
-        // other Sendable value captures.
+        // captured above; AX title/description strings are accepted only as
+        // small control metadata, while document-like text stays on ranged reads.
+        // `image` is an immutable, Sendable `CGImage?`, so it crosses into the
+        // queue closure like the other Sendable value captures.
         return await withCheckedContinuation { (continuation: CheckedContinuation<AppshotCapture?, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 let imagePath = image.flatMap { writePNG($0) }
@@ -173,7 +187,16 @@ enum AppshotCapturer {
         var seen = Set<String>()
         var nodesVisited = 0
         var charCount = 0
-        collectText(root, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
+        var directStringReads = 0
+        collectText(
+            root,
+            into: &pieces,
+            seen: &seen,
+            nodesVisited: &nodesVisited,
+            charCount: &charCount,
+            directStringReads: &directStringReads,
+            deadline: deadline
+        )
         return pieces.joined(separator: "\n")
     }
 
@@ -272,22 +295,28 @@ enum AppshotCapturer {
         seen: inout Set<String>,
         nodesVisited: inout Int,
         charCount: inout Int,
+        directStringReads: inout Int,
         deadline: Date
     ) {
         guard nodesVisited < maxAccessibilityNodes, charCount < maxAccessibilityChars, Date() < deadline else { return }
         nodesVisited += 1
 
+        let allowsDirectStringFallback = hasDirectStringRole(element, directStringReads: &directStringReads)
         for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
             // Re-check the deadline before each AX read, not just once per node,
             // so a node's several IPC calls can't overshoot the budget together.
             guard charCount < maxAccessibilityChars, Date() < deadline else { return }
-            // Only ranged value reads are allowed on this hotkey path. Title and
-            // description strings do not have a counted AX API, so they are
-            // intentionally skipped instead of copied and clamped after the fact.
+            // Prefer ranged value reads. Controls and labels that expose visible
+            // text only through AXTitle/AXDescription/plain AXValue get a small,
+            // role-gated direct-read fallback; oversized strings are rejected
+            // before bridging to Swift, and the capture has a total direct-read
+            // budget so a large tree cannot issue thousands of direct string IPCs.
             guard let bounded = boundedString(
                 element,
                 attribute,
-                limit: maxAccessibilityChars - charCount
+                limit: maxAccessibilityChars - charCount,
+                allowsDirectFallback: allowsDirectStringFallback,
+                directStringReads: &directStringReads
             ) else { continue }
             let trimmed = bounded.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count > 1, seen.insert(trimmed).inserted else { continue }
@@ -301,16 +330,27 @@ enum AppshotCapturer {
         guard Date() < deadline,
               let children = copyChildren(element, max: maxAccessibilityNodes - nodesVisited) else { return }
         for child in children {
-            collectText(child, into: &pieces, seen: &seen, nodesVisited: &nodesVisited, charCount: &charCount, deadline: deadline)
+            collectText(
+                child,
+                into: &pieces,
+                seen: &seen,
+                nodesVisited: &nodesVisited,
+                charCount: &charCount,
+                directStringReads: &directStringReads,
+                deadline: deadline
+            )
             if nodesVisited >= maxAccessibilityNodes || charCount >= maxAccessibilityChars || Date() >= deadline { return }
         }
     }
 
-    /// Reads a string attribute only through a ranged value read.
+    /// Reads a string attribute through a ranged value read, with a narrow
+    /// fallback for small role-gated control metadata.
     private static func boundedString(
         _ element: AXUIElement,
         _ attribute: String,
-        limit: Int
+        limit: Int,
+        allowsDirectFallback: Bool,
+        directStringReads: inout Int
     ) -> String? {
         guard limit > 0 else { return nil }
         if attribute == kAXValueAttribute,
@@ -319,7 +359,40 @@ enum AppshotCapturer {
             // `limit`; clamp so the bounded-read guarantee holds after bridging.
             return ranged.count > limit ? String(ranged.prefix(limit)) : ranged
         }
-        return nil
+        guard allowsDirectFallback,
+              directStringAttributes.contains(attribute),
+              claimDirectStringRead(&directStringReads) else { return nil }
+        return copySmallDirectString(
+            element,
+            attribute,
+            limit: min(limit, maxDirectAccessibilityStringChars)
+        )
+    }
+
+    private static func hasDirectStringRole(_ element: AXUIElement, directStringReads: inout Int) -> Bool {
+        guard claimDirectStringRead(&directStringReads),
+              let role = copySmallDirectString(element, kAXRoleAttribute, limit: maxAccessibilityRoleChars)
+        else { return false }
+        return directStringRoles.contains(role)
+    }
+
+    private static func claimDirectStringRead(_ directStringReads: inout Int) -> Bool {
+        guard directStringReads < maxDirectAccessibilityStringReads else { return false }
+        directStringReads += 1
+        return true
+    }
+
+    /// Copies small AX strings only for role-gated control metadata. Oversized
+    /// values are dropped before bridging to Swift instead of being truncated
+    /// after a large Swift allocation.
+    private static func copySmallDirectString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
+        guard limit > 0 else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
+        let cfString = value as! CFString
+        guard CFStringGetLength(cfString) <= limit else { return nil }
+        return cfString as String
     }
 
     /// Fetches up to `max` children of `element` via the counted AX array API,
