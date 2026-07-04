@@ -36,6 +36,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
+    /// The store's terminal-theme generation. The shell writes the synced theme
+    /// into `TerminalThemeStore` directly (it does not link GhosttyKit), so this
+    /// representable — which does — drives the live recolor: when the generation
+    /// advances, it rebuilds the runtime config and refreshes the mounted
+    /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
+    var themeGeneration: UInt64 = 0
     @Environment(MobileTerminalKeyboardCorrectionPreference.self)
     private var keyboardCorrectionPreference
 
@@ -82,6 +88,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
+        // The shared runtime is a process singleton; its config can carry a stale
+        // theme from before this connect. A freshly built surface reads its local
+        // background from the (current) theme store, but the renderer's default
+        // colors come from the runtime config, so rebuild it to the current theme
+        // when a theme has been applied. Records the generation so updateUIView
+        // does not re-apply the same one.
+        if themeGeneration > 0 {
+            GhosttyRuntime.applyLiveThemeIfRunning()
+        }
+        context.coordinator.lastAppliedThemeGeneration = themeGeneration
         return view
     }
 
@@ -96,6 +112,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
+        // Live theme change: the shell bumped the generation after writing the new
+        // theme into TerminalThemeStore. Rebuild the runtime config and recolor
+        // the mounted surface(s) in place so the background follows the new theme
+        // even when the `.id()` remount reused this same view.
+        if themeGeneration != context.coordinator.lastAppliedThemeGeneration {
+            context.coordinator.lastAppliedThemeGeneration = themeGeneration
+            GhosttyRuntime.applyLiveThemeIfRunning()
+        }
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
         // width's wrapping. No-op when closed or when the height is unchanged.
@@ -119,6 +143,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
+        /// The theme generation already pushed to the live runtime, so a repeated
+        /// `updateUIView` for the same generation does not rebuild the config again.
+        var lastAppliedThemeGeneration: UInt64 = 0
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Serializes the natural-grid viewport reports and their echoes. One
         /// detached Task per report (the previous shape) let Task scheduling

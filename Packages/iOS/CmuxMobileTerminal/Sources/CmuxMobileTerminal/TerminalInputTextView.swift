@@ -225,7 +225,19 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         inputDelegate?.textDidChange(self)
     }
 
-    private static let monokaiBarColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
+    /// The input accessory bar fill, taken from the active terminal theme's
+    /// background so the bar blends with the live terminal under any theme.
+    private static var themeBarColor: UIColor {
+        guard let rgb = TerminalTheme.rgbComponents(TerminalThemeStore.current.background) else {
+            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+        }
+        return UIColor(
+            red: CGFloat(rgb.red) / 255.0,
+            green: CGFloat(rgb.green) / 255.0,
+            blue: CGFloat(rgb.blue) / 255.0,
+            alpha: 1
+        )
+    }
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
@@ -290,6 +302,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
     private var accessoryDismissLeadingConstraint: NSLayoutConstraint?
     private var accessoryScrollTrailingConstraint: NSLayoutConstraint?
+    /// The fill behind the input accessory bar, kept so a live theme change can
+    /// recolor it from the new theme's background.
+    private weak var accessoryBarBackgroundView: UIView?
+
+    /// Re-applies the active theme's background to the input accessory bar fill.
+    /// Called on a live theme change so the bar blends with the recolored
+    /// terminal instead of keeping the old theme's color.
+    func refreshThemeColors() {
+        accessoryBarBackgroundView?.backgroundColor = Self.themeBarColor
+    }
 
     private lazy var terminalAccessoryToolbar: UIView = {
         let container = UIView()
@@ -300,8 +322,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = Self.monokaiBarColor
+        backgroundView.backgroundColor = Self.themeBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        self.accessoryBarBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)

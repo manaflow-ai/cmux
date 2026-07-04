@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Foundation
 import OSLog
 
@@ -13,14 +14,19 @@ struct TerminalInputDebugLog {
         self.logger = logger
     }
 
-    func log(_ message: @autoclosure @escaping () -> String) {
+    /// Logs an input-trace line in DEBUG builds when `CMUX_INPUT_DEBUG=1`.
+    /// The message is an autoclosure so the interpolation (including
+    /// `dataSummary`'s per-byte hex formatting) never runs on the typing hot
+    /// path unless the trace is actually enabled. Release builds compile to a
+    /// no-op, so typed user content can never reach the unified log there.
+    func log(_ message: @autoclosure () -> String) {
         #if DEBUG
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
             return
         }
-        #endif
         guard isEnabled else { return }
         logger.debug("input: \(message(), privacy: .private)")
+        #endif
     }
 
     func textSummary(_ text: String) -> String {
@@ -38,3 +44,4 @@ struct TerminalInputDebugLog {
         return "len=\(data.count) hex=\(hex)\(suffix) utf8=\(textSummary(utf8))"
     }
 }
+#endif
