@@ -10405,7 +10405,6 @@ struct VerticalTabsSidebar: View {
             workspacesById: workspaceById,
             liveWorkspaceIds: Set(tabIds)
         )
-        let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         let workspaceGroups = tabManager.workspaceGroups
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
@@ -10426,6 +10425,7 @@ struct VerticalTabsSidebar: View {
             tabs: visibleTabs,
             groupsById: workspaceGroupById
         )
+        let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.workspaceGroupIdsByWorkspaceId(workspaceRenderItems)
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) && visibleTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
@@ -11922,9 +11922,10 @@ struct VerticalTabsSidebar: View {
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets, showModifierHoldHints: showModifierHoldHints
                     )
-                case .workspace(let tab):
+                case .workspace(let tab, let renderGroupId):
                     workspaceRow(
                         tab,
+                        renderGroupId: renderGroupId,
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
@@ -12302,6 +12303,7 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func workspaceRow(
         _ tab: Workspace,
+        renderGroupId: UUID?,
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
@@ -12442,7 +12444,7 @@ struct VerticalTabsSidebar: View {
 
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            .padding(.leading, renderGroupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
     }

@@ -5,13 +5,13 @@ import Foundation
 @MainActor
 enum SidebarWorkspaceRenderItem {
     case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID])
-    case workspace(Workspace)
+    case workspace(Workspace, renderGroupId: UUID?)
 
     var id: SidebarWorkspaceRenderItemID {
         switch self {
         case .groupHeader(let group, _):
             return .group(group.id)
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return .workspace(workspace.id)
         }
     }
@@ -20,9 +20,28 @@ enum SidebarWorkspaceRenderItem {
         switch self {
         case .groupHeader(let group, _):
             return group.anchorWorkspaceId
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return workspace.id
         }
+    }
+
+    static func workspaceGroupIdsByWorkspaceId(_ items: [SidebarWorkspaceRenderItem]) -> [UUID: UUID?] {
+        var idsByWorkspaceId: [UUID: UUID?] = [:]
+        for item in items {
+            switch item {
+            case .groupHeader(let group, let memberWorkspaceIds):
+                for memberId in memberWorkspaceIds {
+                    idsByWorkspaceId[memberId] = group.id
+                }
+            case .workspace(let workspace, let renderGroupId):
+                if let renderGroupId {
+                    idsByWorkspaceId[workspace.id] = renderGroupId
+                } else {
+                    idsByWorkspaceId.removeValue(forKey: workspace.id)
+                }
+            }
+        }
+        return idsByWorkspaceId
     }
 
     static func renderItems(
@@ -66,7 +85,8 @@ enum SidebarWorkspaceRenderItem {
                 continue
             }
             if groupId == nil || !skipChildrenUntilNextGroup {
-                items.append(.workspace(tab))
+                let renderGroupId = groupId.flatMap { renderableGroupsById[$0] == nil ? nil : $0 }
+                items.append(.workspace(tab, renderGroupId: renderGroupId))
             }
         }
         return items

@@ -2101,14 +2101,9 @@ class TabManager: ObservableObject {
         // anchor dissolves the group; non-anchor members stay in tabs as
         // ungrouped workspaces.
         workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
-        // Clear the detached workspace's own group membership so the
-        // destination window — which has no matching WorkspaceGroup — doesn't
-        // render it as an orphaned indented row with stale grouping state.
+        // Clear detached membership; the destination owns these containers and
+        // may reassign workstream membership when attaching into drill-in.
         removed.groupId = nil
-        // Same reasoning for workstream membership: the destination window has
-        // no matching Workstream, so a stale workstreamId would hide the moved
-        // workspace from the destination sidebar (its drill-in filter shows a
-        // top-level row only when workstreamId == drilledInWorkstreamId == nil).
         removed.workstreamId = nil
         unwireClosedBrowserTracking(for: removed)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
@@ -2132,6 +2127,9 @@ class TabManager: ObservableObject {
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
         workspace.owningTabManager = self
+        if let drilledInWorkstreamId, workstreams.contains(where: { $0.id == drilledInWorkstreamId }) {
+            workspace.workstreamId = drilledInWorkstreamId
+        }
         wireClosedBrowserTracking(for: workspace)
         let insertIndex: Int = {
             guard let index else { return tabs.count }
