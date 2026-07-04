@@ -975,22 +975,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairingAttemptID = UUID()
     }
 
-    isolated deinit {
-        presenceTask?.cancel()
-        networkPathObservationTask?.cancel()
-        terminalEventListenerTask?.cancel()
-        terminalSubscriptionStartTask?.cancel()
-        renderGridLivenessTimer?.cancel()
-        renderGridLivenessProbeTask?.cancel()
-        terminalSubscriptionRefreshTask?.cancel()
-        createWorkspaceTask?.cancel()
-        createTerminalTask?.cancel()
-        workspaceListRefreshTask?.cancel()
-        pullToRefreshTask?.cancel()
-        cancelAllTerminalReplayTasks()
-        teardownSecondaryMacSubscriptions()
-        if let remoteClient {
-            Task { await remoteClient.disconnect() }
+    deinit {
+        // MobileShellComposite is main-actor-owned; keep deinit cleanup synchronous.
+        MainActor.assumeIsolated {
+            presenceTask?.cancel()
+            networkPathObservationTask?.cancel()
+            terminalEventListenerTask?.cancel()
+            terminalSubscriptionStartTask?.cancel()
+            renderGridLivenessTimer?.cancel()
+            renderGridLivenessProbeTask?.cancel()
+            cancelRemoteOperationTasks()
+            teardownSecondaryMacSubscriptions()
+            if let remoteClient {
+                Task { await remoteClient.disconnect() }
+            }
         }
     }
 
