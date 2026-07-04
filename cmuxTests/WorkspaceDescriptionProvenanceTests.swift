@@ -123,7 +123,7 @@ import Testing
         #expect(workspace.customDescription == "human note")
     }
 
-    @Test func workspaceActionSetDescriptionDefaultsToAgentSource() throws {
+    @Test func workspaceActionSetDescriptionDefaultsToUserSource() throws {
         let controller = TerminalController.shared
         let originalTabManager = controller.tabManager
         let manager = TabManager()
@@ -137,10 +137,10 @@ import Testing
         ])
 
         #expect(workspace.customDescription == "CLI note")
-        #expect(workspace.effectiveCustomDescriptionSource == .agent)
+        #expect(workspace.effectiveCustomDescriptionSource == .user)
 
         workspace.resetSidebarContext(reason: "test")
-        #expect(workspace.customDescription == nil)
+        #expect(workspace.customDescription == "CLI note")
     }
 
     @Test func workspaceActionSetDescriptionCanMarkUserSource() throws {

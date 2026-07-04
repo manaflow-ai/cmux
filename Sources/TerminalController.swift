@@ -4108,9 +4108,9 @@ class TerminalController {
                         ?? v2String(params, "descriptionSource")
                 )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 let source: Workspace.CustomDescriptionSource = switch sourceRaw {
-                case "user":
+                case "user", nil:
                     .user
-                case "agent", nil:
+                case "agent":
                     .agent
                 default:
                     .agent
