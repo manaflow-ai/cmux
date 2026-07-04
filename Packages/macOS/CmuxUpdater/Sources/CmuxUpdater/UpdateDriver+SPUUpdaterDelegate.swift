@@ -70,9 +70,6 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: any Error) {
         log.append("update download failed for \(item.displayVersionString): \(formatErrorForLog(error))")
-        if !hasUserInitiatedSession {
-            onBackgroundSessionError?(error)
-        }
     }
 
     /// Sparkle's session-teardown signal: fires when an update cycle finishes, whether it

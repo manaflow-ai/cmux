@@ -223,7 +223,11 @@ public struct InstallUpdateMenuItem: View {
     }
 
     public var body: some View {
-        if model.state.isInstallable {
+        if case .installing(let installing) = model.state {
+            Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
+                installing.retryTerminatingApplication()
+            }
+        } else if model.state.isInstallable {
             Button(String(localized: "update.installAndRelaunch", defaultValue: "Install Update and Relaunch")) {
                 // Re-resolve to the latest available version before installing rather than
                 // installing the version that was current when this menu item appeared (#6366).
