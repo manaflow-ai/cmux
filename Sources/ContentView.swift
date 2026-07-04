@@ -10224,7 +10224,12 @@ struct VerticalTabsSidebar: View {
         case .group(let groupId):
             guard workspaceGroups.contains(where: { $0.id == groupId }) else { return [] }
             let visibleIds = Set(visibleWorkspaceRowIds)
-            return tabs.filter { $0.groupId == groupId && visibleIds.contains($0.id) }.map(\.id)
+            let childAnchorIds = Set(workspaceGroups.compactMap {
+                $0.parentGroupId == groupId ? $0.anchorWorkspaceId : nil
+            })
+            return tabs.filter {
+                visibleIds.contains($0.id) && ($0.groupId == groupId || childAnchorIds.contains($0.id))
+            }.map(\.id)
         }
     }
 

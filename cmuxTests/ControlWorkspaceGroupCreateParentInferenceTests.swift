@@ -52,4 +52,54 @@ struct ControlWorkspaceGroupCreateParentInferenceTests {
         let createdGroupId = try #require(UUID(uuidString: createdGroupIdString))
         #expect(manager.workspaceGroups.first { $0.id == createdGroupId }?.parentGroupId == parentId)
     }
+
+    @Test func socketMoveGroupRejectsNonSiblingRelativeTargets() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        for _ in 0..<4 {
+            manager.addWorkspace(autoWelcomeIfNeeded: false)
+        }
+        let workspaceIds = manager.tabs.map(\.id)
+        let parentId = try #require(manager.createWorkspaceGroup(
+            name: "Parent",
+            childWorkspaceIds: [workspaceIds[0]],
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Child",
+            childWorkspaceIds: [workspaceIds[1]],
+            parentGroupId: parentId,
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ))
+        let rootPeerId = try #require(manager.createWorkspaceGroup(
+            name: "Root",
+            childWorkspaceIds: [workspaceIds[2]],
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ))
+        let originalOrder = manager.workspaceGroups.map(\.id)
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let beforeEnvelope = try call(method: "workspace.group.move", params: [
+            "group_id": childId.uuidString,
+            "before_group_id": rootPeerId.uuidString,
+        ])
+        #expect(beforeEnvelope["ok"] as? Bool == false)
+        #expect((beforeEnvelope["error"] as? [String: Any])?["code"] as? String == "invalid_params")
+        #expect(manager.workspaceGroups.map(\.id) == originalOrder)
+        #expect(manager.workspaceGroups.first { $0.id == childId }?.parentGroupId == parentId)
+
+        let afterEnvelope = try call(method: "workspace.group.move", params: [
+            "group_id": childId.uuidString,
+            "after_group_id": rootPeerId.uuidString,
+        ])
+        #expect(afterEnvelope["ok"] as? Bool == false)
+        #expect((afterEnvelope["error"] as? [String: Any])?["code"] as? String == "invalid_params")
+        #expect(manager.workspaceGroups.map(\.id) == originalOrder)
+        #expect(manager.workspaceGroups.first { $0.id == childId }?.parentGroupId == parentId)
+    }
 }

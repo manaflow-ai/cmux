@@ -134,12 +134,16 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
         groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
     ) -> UUID? {
-        guard !groupByAnchorId.keys.contains(draggedWorkspace.id) else { return nil }
         guard let candidate = groupScopeCandidate(
             context: context,
             draggedWorkspace: draggedWorkspace,
-            groupsById: groupsById
+            groupsById: groupsById,
+            groupByAnchorId: groupByAnchorId
         ) else {
+            return nil
+        }
+        if let draggedGroup = groupByAnchorId[draggedWorkspace.id],
+           candidate.groupId != draggedGroup.parentGroupId {
             return nil
         }
         guard candidate.isAmbiguous else { return candidate.groupId }
@@ -163,14 +167,16 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     private func groupScopeCandidate(
         context: SidebarWorkspaceReorderHitContext,
         draggedWorkspace: SidebarWorkspaceReorderWorkspaceSnapshot,
-        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
     ) -> (groupId: UUID, isAmbiguous: Bool)? {
+        let draggedGroupParentId = groupByAnchorId[draggedWorkspace.id]?.parentGroupId
         if let target = context.target {
             if target.isGroupHeader,
                let groupId = target.groupId,
                let parentGroupId = groupsById[groupId]?.parentGroupId,
-               draggedWorkspace.groupId == parentGroupId,
-               groupsById[parentGroupId] != nil {
+               groupsById[parentGroupId] != nil,
+               draggedWorkspace.groupId == parentGroupId || draggedGroupParentId == parentGroupId {
                 return (parentGroupId, false)
             }
             if let groupId = target.groupId,

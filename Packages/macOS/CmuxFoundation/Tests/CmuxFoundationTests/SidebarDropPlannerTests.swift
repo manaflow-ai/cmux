@@ -238,6 +238,113 @@ import Testing
         #expect(explicitGroupId == parentGroupId)
     }
 
+    @Test func nestedFolderAnchorEdgesTargetParentGroupSiblingScope() throws {
+        let parentGroupId = UUID()
+        let draggedGroupId = UUID()
+        let siblingGroupId = UUID()
+        let parentAnchor = UUID()
+        let draggedAnchor = UUID()
+        let draggedMember = UUID()
+        let siblingAnchor = UUID()
+        let siblingMember = UUID()
+        let outside = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: draggedAnchor,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: parentAnchor, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: draggedAnchor, isPinned: false, groupId: draggedGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: draggedMember, isPinned: false, groupId: draggedGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: siblingAnchor, isPinned: false, groupId: siblingGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: siblingMember, isPinned: false, groupId: siblingGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: outside, isPinned: false, groupId: nil),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: parentGroupId, anchorWorkspaceId: parentAnchor, isPinned: false),
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: draggedGroupId,
+                        anchorWorkspaceId: draggedAnchor,
+                        isPinned: false,
+                        parentGroupId: parentGroupId
+                    ),
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: siblingGroupId,
+                        anchorWorkspaceId: siblingAnchor,
+                        isPinned: false,
+                        parentGroupId: parentGroupId
+                    ),
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: parentAnchor,
+                        groupId: parentGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: draggedAnchor,
+                        groupId: draggedGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 12, y: 40, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: draggedMember,
+                        groupId: draggedGroupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 24, y: 80, width: 156, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: siblingAnchor,
+                        groupId: siblingGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 12, y: 120, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: siblingMember,
+                        groupId: siblingGroupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 24, y: 160, width: 156, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: outside,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 200, width: 180, height: 32)
+                    ),
+                ]
+            )
+        }
+
+        let topPlan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: request(point: CGPoint(x: 20, y: 124))
+        ))
+        #expect(topPlan.indicator == SidebarDropIndicator(tabId: siblingAnchor, edge: .top))
+        assertParentGroupPlan(topPlan, parentGroupId: parentGroupId, targetIndex: 2)
+
+        let bottomPlan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: request(point: CGPoint(x: 20, y: 148))
+        ))
+        #expect(bottomPlan.indicator == SidebarDropIndicator(tabId: siblingAnchor, edge: .bottom))
+        assertParentGroupPlan(bottomPlan, parentGroupId: parentGroupId, targetIndex: 3)
+    }
+
+    private func assertParentGroupPlan(
+        _ plan: SidebarWorkspaceReorderDropPlan,
+        parentGroupId: UUID,
+        targetIndex: Int
+    ) {
+        #expect(plan.indicatorScope == .group(parentGroupId))
+        guard case .reorder(let resolvedTargetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected parent-group reorder plan")
+            return
+        }
+        #expect(resolvedTargetIndex == targetIndex)
+        #expect(!usesTopLevelRows)
+        #expect(explicitGroupId == parentGroupId)
+    }
+
     private func nestedFolderRequest(
         point: CGPoint,
         parentGroupId: UUID,
