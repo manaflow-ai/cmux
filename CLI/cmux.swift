@@ -19947,6 +19947,10 @@ struct CMUXCLI {
                     } else if !openedThreadIds.contains(thread.id) {
                         try openObservedSubagent(thread, spawn: spawn)
                     }
+                    if knownThreadIds.contains(spawn.parentThreadId),
+                       depthByThreadId[spawn.parentThreadId] != nil {
+                        try drainPendingChildren(parentThreadId: thread.id)
+                    }
                 }
                 return
             }
