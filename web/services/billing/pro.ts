@@ -12,6 +12,7 @@
 
 export const PRO_PRODUCT_ID = "pro";
 export const PRO_PLAN_ID = "pro";
+export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 
 const PRODUCTS_PAGE_LIMIT = 50;
@@ -111,6 +112,14 @@ export async function syncProPlanMetadata(
 
 export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer;
 
+export type ProPlanStatus = {
+  readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
+  readonly isPro: boolean;
+  readonly metadataPlanId: string | null;
+  readonly hasManualVmPlanOverride: boolean;
+  readonly metadataChanged: boolean;
+};
+
 /**
  * Read-time reconciliation: compares the `cmuxPlan` metadata against the
  * actual Pro subscription state and syncs it in either direction (upgrade
@@ -134,4 +143,43 @@ export async function reconcileProPlanMetadata(
   if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
   await syncProPlanMetadata(user, isPro);
   return true;
+}
+
+export async function resolveProPlanStatus(
+  user: ProReconcileUser,
+): Promise<ProPlanStatus> {
+  const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
+  const hasManualVmPlanOverride = hasManualVmOverride(metadata);
+  const metadataPlanId = planIdFromMetadata(metadata);
+  const isPro = await hasActiveProSubscription(user);
+  let metadataChanged = false;
+
+  if (!hasManualVmPlanOverride && isPro !== (metadataPlanId === PRO_PLAN_ID)) {
+    await syncProPlanMetadata(user, isPro);
+    metadataChanged = true;
+  }
+
+  return {
+    planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+    isPro,
+    metadataPlanId,
+    hasManualVmPlanOverride,
+    metadataChanged,
+  };
+}
+
+function proMetadataRecord(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+}
+
+function hasManualVmOverride(metadata: Record<string, unknown>): boolean {
+  const override = metadata.cmuxVmPlan;
+  return typeof override === "string" && override.trim().length > 0;
+}
+
+function planIdFromMetadata(metadata: Record<string, unknown>): string | null {
+  const value = metadata.cmuxPlan;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

@@ -37,6 +37,10 @@ export default function middleware(request: NextRequest) {
     });
   }
 
+  if (pathname === "/app-pricing" || pathname === "/app-pricing/") {
+    return NextResponse.next();
+  }
+
   if (pathname.includes(".")) {
     return NextResponse.next();
   }

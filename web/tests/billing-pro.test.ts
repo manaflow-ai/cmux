@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   PRO_PLAN_ID,
   PRO_PRODUCT_ID,
+  FREE_PLAN_ID,
   hasActiveProSubscription,
   reconcileProPlanMetadata,
+  resolveProPlanStatus,
   syncProPlanMetadata,
 } from "../services/billing/pro";
 import type { ProMetadataJson } from "../services/billing/pro";
@@ -234,6 +236,55 @@ describe("reconcileProPlanMetadata", () => {
   test("skips when manual cmuxVmPlan override is set", async () => {
     const user = reconcileUser({ cmuxVmPlan: "enterprise" }, []);
     expect(await reconcileProPlanMetadata(user)).toBe(false);
+    expect(user.updates).toEqual([]);
+  });
+});
+
+describe("resolveProPlanStatus", () => {
+  function statusUser(metadata: unknown, products: ProductInput[]) {
+    const base = metadataUser(metadata);
+    const pages = customerWithPages([productsPage(products)]);
+    return { ...base, listProducts: pages.listProducts };
+  }
+
+  const activePro: ProductInput = {
+    id: PRO_PRODUCT_ID,
+    subscription: { cancelAtPeriodEnd: false, currentPeriodEnd: null },
+  };
+
+  test("returns pro and syncs metadata for an active subscription", async () => {
+    const user = statusUser({}, [activePro]);
+    await expect(resolveProPlanStatus(user)).resolves.toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      metadataPlanId: null,
+      hasManualVmPlanOverride: false,
+      metadataChanged: true,
+    });
+    expect(user.updates).toEqual([{ cmuxPlan: PRO_PLAN_ID }]);
+  });
+
+  test("returns free and clears stale pro metadata after lapse", async () => {
+    const user = statusUser({ cmuxPlan: PRO_PLAN_ID }, []);
+    await expect(resolveProPlanStatus(user)).resolves.toEqual({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      metadataPlanId: PRO_PLAN_ID,
+      hasManualVmPlanOverride: false,
+      metadataChanged: true,
+    });
+    expect(user.updates).toEqual([{}]);
+  });
+
+  test("does not mutate metadata when a manual VM plan override exists", async () => {
+    const user = statusUser({ cmuxVmPlan: "enterprise" }, [activePro]);
+    await expect(resolveProPlanStatus(user)).resolves.toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      metadataPlanId: null,
+      hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
     expect(user.updates).toEqual([]);
   });
 });

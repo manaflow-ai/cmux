@@ -103,6 +103,24 @@ enum AuthEnvironment {
         return websiteOrigin.appendingPathComponent("pricing")
     }
 
+    static var appPricingURL: URL {
+        if ProcessInfo.processInfo.environment["CMUX_WWW_ORIGIN"] == nil,
+           let override = devOverride(key: "CMUX_WWW_ORIGIN"),
+           let url = URL(string: override) {
+            return url.appendingPathComponent("app-pricing")
+        }
+        return websiteOrigin.appendingPathComponent("app-pricing")
+    }
+
+    static var billingCheckoutURL: URL {
+        if ProcessInfo.processInfo.environment["CMUX_WWW_ORIGIN"] == nil,
+           let override = devOverride(key: "CMUX_WWW_ORIGIN"),
+           let url = URL(string: override) {
+            return url.appendingPathComponent("api/billing/checkout")
+        }
+        return websiteOrigin.appendingPathComponent("api/billing/checkout")
+    }
+
     static var signInWebsiteOrigin: URL {
         canonicalizedLoopbackURL(
             resolvedURL(

@@ -27,6 +27,9 @@ extension cmuxApp {
                 Button(String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")) {
                     ProUpgradePresenter.present()
                 }
+                Button(String(localized: "menu.help.previewNativePricing", defaultValue: "Preview Native Pro Pricing…")) {
+                    ProUpgradePresenter.presentNativePricingPreview()
+                }
             }
 
             Divider()
