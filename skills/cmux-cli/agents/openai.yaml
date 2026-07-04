@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux CLI"
+  short_description: "Keep cmux command behavior, output, and compatibility contracts sharp."
+  default_prompt: "Use this skill when changing cmux CLI commands, flags, help, text or JSON output, prompts, errors, docs, or command tests."

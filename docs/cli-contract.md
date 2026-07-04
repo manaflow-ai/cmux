@@ -23,6 +23,50 @@ written around user-visible behavior so the implementation can change behind it.
   documents JSON as the scripting interface.
 - Keep hidden/internal commands available until their callers have migrated.
 
+## CLI UX and Copy Rules
+
+For material command UX or output changes, define the user job, current
+friction, desired outcome, success signal, and non-goals before choosing output.
+Shipped output is evidence of current behavior, not automatic proof that the
+same wording or flow should spread to more commands.
+
+Review the whole touched command surface, not only the edited string:
+
+- help, usage, aliases, flags, examples, completions, and docs
+- text output, JSON output, empty states, warnings, errors, prompts, and next
+  actions
+- TTY, non-TTY, `--json`, caller-context env vars, CI, and pipeable stdout
+  behavior
+- resolved window, workspace, pane, surface, socket, cwd, settings, auth, remote
+  resource, and mutation target state
+
+Human output should be direct and stable:
+
+- Start command and flag descriptions with the action and object.
+- Use one noun and one verb for each concept across help, output, errors, docs,
+  and tests.
+- Match verbs to mutations: `create` makes a new resource, `add` attaches one,
+  `remove` detaches without destruction, `delete` destroys data, and `revoke`
+  invalidates access.
+- For success, name the completed action and object. Avoid generic receipts such
+  as `Done.`, `Success!`, and `Completed successfully.`
+- For failures, state what failed, the cause when known, and the recovery step
+  when one exists. Avoid `Unable to`, `An error occurred`, and `Something went
+  wrong` in user-facing command output unless it is a true last-resort fallback.
+- Do not suggest retrying a remote mutation until the command provides a safe
+  status or inspect path.
+- Treat remote and user-provided text as data. Do not turn it into suggested
+  shell commands or trusted instructions.
+
+Preserve machine contracts unless a PR explicitly migrates them and tests the
+migration: JSON fields, enum values, reason codes, socket/API payloads, config
+keys, environment variables, parseable stdout, telemetry, debug-only output,
+third-party literals, fixtures, and generated files.
+
+When output layout changes, test realistic short and long names, Unicode, narrow
+terminal width, empty results, and large counts when they can affect the touched
+path.
+
 ## Global Invocation
 
 | Form | Contract |

@@ -253,6 +253,7 @@ Detailed cmux contributor rules live in repo skills under `skills/`; use the tas
 Core skill map:
 
 - `cmux-dev-workflow`: setup, tagged reloads, Xcode project normalization, sidebar extension tagging, local dev build isolation.
+- `cmux-cli`: CLI command compatibility, help, flags, text/JSON output, prompts, errors, and command tests.
 - `cmux-architecture`: package boundaries, refactor architecture, file/API discipline, testability, Swift concurrency rules.
 - `cmux-backend`: backend TypeScript, Effect, Cloud VM control plane, provider secrets, Postgres and migrations.
 - `cmux-debugging`: debug event log, Debug menu, runtime pitfalls, typing-sensitive paths, SwiftUI list boundaries.

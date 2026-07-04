@@ -74,6 +74,7 @@ cmux settings shortcuts
 
 | Reference | When to Use |
 |-----------|-------------|
+| [../cmux-cli/SKILL.md](../cmux-cli/SKILL.md) | CLI commands, help, flags, text/JSON output, prompts, errors, and command tests |
 | [references/handles-and-identify.md](references/handles-and-identify.md) | Handle syntax, self-identify, caller targeting |
 | [references/windows-workspaces.md](references/windows-workspaces.md) | Window/workspace lifecycle and reorder/move |
 | [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, surfaces, move/reorder, focus routing |
