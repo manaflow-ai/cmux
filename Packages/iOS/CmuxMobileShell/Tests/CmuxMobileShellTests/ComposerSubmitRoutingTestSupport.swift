@@ -56,6 +56,8 @@ actor RoutingHostRouter {
     static let createdTerminal = "term-route-created"
     private var createdTerminalExists = false
     private var terminalCreateWaiters: [CheckedContinuation<Void, Never>] = []
+    private var holdTerminalCreateResponse = false
+    private var terminalCreateContinuation: CheckedContinuation<Void, Never>?
 
     /// Reject every terminal.paste_image with an error frame, modeling a host
     /// that cannot accept the image (the composer must keep the attachment).
@@ -99,6 +101,17 @@ actor RoutingHostRouter {
         await withCheckedContinuation { terminalCreateWaiters.append($0) }
     }
 
+    func setHoldTerminalCreateResponse(_ hold: Bool) {
+        holdTerminalCreateResponse = hold
+    }
+
+    func releaseTerminalCreateResponse() {
+        holdTerminalCreateResponse = false
+        let continuation = terminalCreateContinuation
+        terminalCreateContinuation = nil
+        continuation?.resume()
+    }
+
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
     struct RequestInfo: Sendable {
@@ -122,6 +135,9 @@ actor RoutingHostRouter {
             let waiters = terminalCreateWaiters
             terminalCreateWaiters = []
             for waiter in waiters { waiter.resume() }
+            if holdTerminalCreateResponse {
+                await withCheckedContinuation { terminalCreateContinuation = $0 }
+            }
             return try? workspaceListFrame(id: id, createdTerminalID: Self.createdTerminal)
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
