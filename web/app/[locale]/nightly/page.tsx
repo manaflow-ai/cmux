@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
+import { LINK_CLASS as linkClass } from "@/app/lib/link";
 
 export async function generateMetadata({
   params,
@@ -17,8 +18,6 @@ export async function generateMetadata({
   };
 }
 
-const linkClass =
-  "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
 
 export default function NightlyPage() {
   const t = useTranslations("nightly");

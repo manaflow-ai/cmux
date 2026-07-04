@@ -7,6 +7,7 @@ import { SiteHeader } from "../components/site-header";
 import { BrandLogoLink } from "../components/brand-logo-link";
 import { GitHubButton } from "../components/github-button";
 import { AppleMark } from "../components/apple-mark";
+import { LINK_CLASS as linkClass } from "@/app/lib/link";
 import {
   ctaButtonBase,
   ctaButtonDefaultSize,
@@ -39,8 +40,6 @@ export async function generateMetadata({
 export default function IosLanding() {
   const t = useTranslations("ios");
 
-  const linkClass =
-    "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
 
   const features = [
     ["realtimeSync", "realtimeSyncDesc"],
