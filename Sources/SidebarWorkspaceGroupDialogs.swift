@@ -31,10 +31,8 @@ func presentSidebarWorkspaceGroupRenamePrompt(
 
     let alertWindow = alert.window
     alertWindow.initialFirstResponder = input
-    DispatchQueue.main.async {
-        alertWindow.makeFirstResponder(input)
-        input.selectText(nil)
-    }
+    alertWindow.makeFirstResponder(input)
+    input.selectText(nil)
 
     let response = runCmuxModalAlert(alert)
     guard response == .alertFirstButtonReturn else { return }
@@ -75,10 +73,8 @@ func presentSidebarWorkspaceGroupColorPrompt(
 
     let alertWindow = alert.window
     alertWindow.initialFirstResponder = input
-    DispatchQueue.main.async {
-        alertWindow.makeFirstResponder(input)
-        input.selectText(nil)
-    }
+    alertWindow.makeFirstResponder(input)
+    input.selectText(nil)
 
     let response = runCmuxModalAlert(alert)
     guard response == .alertFirstButtonReturn else { return }
