@@ -1,0 +1,55 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite(.serialized)
+struct ControlWorkspaceGroupCreateParentInferenceTests {
+    private func call(method: String, params: [String: Any]) throws -> [String: Any] {
+        let request: [String: Any] = ["id": method, "method": method, "params": params]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let responseData = try #require(TerminalController.shared.handleSocketLine(requestLine).data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+    }
+
+    @Test func socketCreateGroupInfersParentFromExplicitChildrenInsideOneGroup() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let workspaceIds = manager.tabs.map(\.id)
+        let parentId = try #require(manager.createWorkspaceGroup(
+            name: "Parent",
+            childWorkspaceIds: [
+                workspaceIds[0],
+                workspaceIds[1],
+            ],
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ))
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let envelope = try call(method: "workspace.group.create", params: [
+            "name": "Sub",
+            "child_workspace_ids": [
+                workspaceIds[1].uuidString,
+            ],
+        ])
+
+        #expect(envelope["ok"] as? Bool == true)
+        let result = try #require(envelope["result"] as? [String: Any])
+        let group = try #require(result["group"] as? [String: Any])
+        #expect(group["parent_group_id"] as? String == parentId.uuidString)
+        let createdGroupIdString = try #require(group["id"] as? String)
+        let createdGroupId = try #require(UUID(uuidString: createdGroupIdString))
+        #expect(manager.workspaceGroups.first { $0.id == createdGroupId }?.parentGroupId == parentId)
+    }
+}

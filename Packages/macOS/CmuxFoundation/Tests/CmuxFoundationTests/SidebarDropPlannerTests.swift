@@ -106,4 +106,55 @@ import Testing
         #expect(usesTopLevelRows)
         #expect(explicitGroupId == nil)
     }
+
+    @Test func draggingNestedGroupAnchorToRootEndProducesPromotionPlan() throws {
+        let parentGroupId = UUID()
+        let childGroupId = UUID()
+        let parentAnchor = UUID()
+        let childAnchor = UUID()
+
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: SidebarWorkspaceReorderDropRequest(
+                point: CGPoint(x: 0, y: 96),
+                draggedWorkspaceId: childAnchor,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: parentAnchor, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childAnchor, isPinned: false, groupId: childGroupId),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: parentGroupId, anchorWorkspaceId: parentAnchor, isPinned: false),
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: childGroupId,
+                        anchorWorkspaceId: childAnchor,
+                        isPinned: false,
+                        parentGroupId: parentGroupId
+                    ),
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: parentAnchor,
+                        groupId: parentGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: childAnchor,
+                        groupId: childGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 12, y: 40, width: 168, height: 32)
+                    ),
+                ]
+            )
+        ))
+
+        #expect(plan.indicator == SidebarDropIndicator(tabId: nil, edge: .bottom))
+        #expect(plan.indicatorScope == .topLevel)
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected top-level reorder plan")
+            return
+        }
+        #expect(targetIndex == 1)
+        #expect(usesTopLevelRows)
+        #expect(explicitGroupId == nil)
+    }
 }
