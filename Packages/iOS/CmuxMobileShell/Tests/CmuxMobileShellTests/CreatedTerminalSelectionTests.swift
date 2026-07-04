@@ -100,6 +100,73 @@ import Testing
         #expect(store.selectedTerminalID != created)
     }
 
+    @Test func createdTerminalPinSurvivesWorkspaceRowIDRemap() throws {
+        let store = MobileShellComposite.preview()
+        let aggregation = MobileWorkspaceAggregation()
+        let macID = "mac-main"
+        let otherMacID = "mac-other"
+        let remoteWorkspaceID = MobileWorkspacePreview.ID(rawValue: "shared-workspace")
+        let fallback = MobileTerminalPreview.ID(rawValue: "terminal-build")
+
+        store.setWorkspaceStatesForTesting([
+            macID: MacWorkspaceState(
+                macDeviceID: macID,
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: remoteWorkspaceID,
+                        macDeviceID: macID,
+                        name: "Main",
+                        terminals: [
+                            MobileTerminalPreview(id: fallback, name: "Build", isReady: true),
+                        ]
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: macID)
+        store.selectedWorkspaceID = remoteWorkspaceID
+
+        store.createTerminal(in: remoteWorkspaceID)
+        let created = try #require(store.selectedTerminalID)
+        let remappedRowID = aggregation.rowID(macDeviceID: macID, workspaceID: remoteWorkspaceID)
+
+        store.setWorkspaceStatesForTesting([
+            macID: MacWorkspaceState(
+                macDeviceID: macID,
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: remoteWorkspaceID,
+                        macDeviceID: macID,
+                        name: "Main",
+                        terminals: [
+                            MobileTerminalPreview(id: fallback, name: "Build", isReady: true),
+                            MobileTerminalPreview(id: created, name: "Terminal 2", isReady: false),
+                        ]
+                    ),
+                ],
+                status: .connected
+            ),
+            otherMacID: MacWorkspaceState(
+                macDeviceID: otherMacID,
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: remoteWorkspaceID,
+                        macDeviceID: otherMacID,
+                        name: "Other",
+                        terminals: [
+                            MobileTerminalPreview(id: "terminal-other", name: "Other", isReady: true),
+                        ]
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: macID)
+
+        #expect(store.selectedWorkspaceID == remappedRowID)
+        #expect(store.selectedTerminalID == created)
+        #expect(store.selectedTerminalID != fallback)
+    }
+
     @Test func remoteCreatedTerminalSelectionSurvivesNotReadyWorkspaceRefresh() async throws {
         let router = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: router)
