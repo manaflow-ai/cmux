@@ -59,11 +59,18 @@ public struct CmuxGhosttyConfigSettingEditor {
         parsedFontSize(in: contents, key: Self.terminalFontSizeKey, clamp: clampedTerminalFontSize)
     }
 
-    /// The last configured terminal font family in a Ghostty config body, or
+    /// The effective primary terminal font family in a Ghostty config body, or
     /// `nil` when absent.
     public func parsedTerminalFontFamily(in contents: String) -> String? {
-        parsedValue(for: Self.terminalFontFamilyKey, in: contents)?
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        let lines = configLines(from: contents)
+        if let primaryIndex = primaryTerminalFontFamilyIndex(in: lines),
+           let value = parsedSetting(in: lines[primaryIndex])?.value {
+            return value.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        }
+        if hasTerminalFontFamilyReset(in: lines) {
+            return ""
+        }
+        return nil
     }
 
     /// Clamps a sidebar font size to its allowed range, substituting the default
@@ -270,6 +277,16 @@ public struct CmuxGhosttyConfigSettingEditor {
             return index
         }
         return nil
+    }
+
+    private func hasTerminalFontFamilyReset(in lines: [String]) -> Bool {
+        lines.contains { line in
+            guard let setting = parsedSetting(in: line),
+                  setting.key == Self.terminalFontFamilyKey else {
+                return false
+            }
+            return setting.value.isEmpty
+        }
     }
 
     private func parsedSetting(in line: String) -> (key: String, value: String)? {

@@ -1,5 +1,5 @@
-import CmuxTerminalCore
 import Testing
+import CmuxTerminalCore
 
 @Suite
 struct GhosttyConfigFontFamilyTests {

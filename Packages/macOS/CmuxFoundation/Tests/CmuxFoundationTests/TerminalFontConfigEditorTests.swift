@@ -13,7 +13,7 @@ struct TerminalFontConfigEditorTests {
 
         let editor = CmuxGhosttyConfigSettingEditor()
 
-        #expect(editor.parsedTerminalFontFamily(in: contents) == "SF Mono")
+        #expect(editor.parsedTerminalFontFamily(in: contents) == "Menlo")
         #expect(editor.parsedTerminalFontSize(in: contents) == 13)
     }
 
