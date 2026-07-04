@@ -98,6 +98,8 @@ const highlightLanguages = [
 ] as const;
 
 let highlightLanguagesRegistered = false;
+const maxHighlightCodeBytes = 32 * 1024;
+const maxHighlightCodeLines = 500;
 
 export function renderMarkdownHTML(source: string): string {
   const parser = typeof window === "undefined" ? undefined : window.marked;
@@ -293,6 +295,9 @@ export function normalizeHighlightLanguage(language: string | null | undefined):
 }
 
 export function highlightCodeHTML(code: string, language: string | null | undefined): string | null {
+  if (!isHighlightCodeWithinBudget(code)) {
+    return null;
+  }
   ensureHighlightLanguagesRegistered();
   const highlightLanguage = highlightLanguageFor(language);
   if (!highlightLanguage) {
@@ -334,6 +339,25 @@ function ensureHighlightLanguagesRegistered(): void {
     }
   }
   highlightLanguagesRegistered = true;
+}
+
+function isHighlightCodeWithinBudget(code: string): boolean {
+  let bytes = 0;
+  let lines = 1;
+  for (let index = 0; index < code.length; index += 1) {
+    const codeUnit = code.charCodeAt(index);
+    bytes += codeUnit <= 0x7f ? 1 : codeUnit <= 0x7ff ? 2 : 3;
+    if (bytes > maxHighlightCodeBytes) {
+      return false;
+    }
+    if (codeUnit === 10) {
+      lines += 1;
+      if (lines > maxHighlightCodeLines) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 function highlightLanguageFor(language: string | null | undefined): string | null {

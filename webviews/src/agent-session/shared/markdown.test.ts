@@ -45,6 +45,11 @@ test("markdown code highlighting leaves unknown languages plain", () => {
   expect(highlightCodeHTML("graph TD;", "mermaid")).toBeNull();
 });
 
+test("markdown code highlighting skips oversized blocks", () => {
+  expect(highlightCodeHTML(`const ${"x".repeat(33 * 1024)} = 1;`, "typescript")).toBeNull();
+  expect(highlightCodeHTML("const value = 1;\n".repeat(501), "typescript")).toBeNull();
+});
+
 test("markdown code highlighting only allows span class markup", () => {
   expect(isSafeHighlightHTML('<span class="hljs-keyword">const</span>')).toBe(true);
   expect(isSafeHighlightHTML('<span class="hljs-title function_">main</span>')).toBe(true);
