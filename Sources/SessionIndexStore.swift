@@ -290,14 +290,14 @@ final class SessionIndexStore: ObservableObject {
     /// of their section. Keyed by `SessionEntry.id`, which is derived from the
     /// transcript file path / native session id and stable across reloads and
     /// app restarts, so the persisted set keeps matching on the next launch.
-    @Published private(set) var pinnedSessionIds: Set<String> = []
+    private(set) var pinnedSessionIds: Set<String> = []
     /// Stable IDs of sessions the user archived. Archived sessions are hidden
     /// from the active list (and the directory browse popover) unless
     /// `showArchived` is on; their history is never deleted.
-    @Published private(set) var archivedSessionIds: Set<String> = []
+    private(set) var archivedSessionIds: Set<String> = []
     /// When true, archived sessions are shown (dimmed, sorted last) instead of
     /// hidden. Persisted so the choice survives relaunch.
-    @Published var showArchived: Bool = false {
+    var showArchived: Bool = false {
         didSet {
             guard showArchived != oldValue else { return }
             defaults.set(showArchived, forKey: Self.showArchivedDefaultsKey)

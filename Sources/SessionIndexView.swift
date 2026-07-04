@@ -59,6 +59,10 @@ struct SessionIndexView: View {
     /// Section whose "Show more" popover is currently open.
     @State private var openPopoverSection: SectionKey?
     @State private var previewEntry: SessionEntry?
+    /// Bumped after pin/archive/show-archived mutations. Those store fields are
+    /// plain persisted state (not `@Published`), so this local revision is the
+    /// list refresh signal for the rows that expose those actions.
+    @State private var rowStateRevision: Int = 0
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
@@ -128,6 +132,7 @@ struct SessionIndexView: View {
             if store.hasArchivedSessions || store.showArchived {
                 Button {
                     store.showArchived.toggle()
+                    rowStateRevision &+= 1
                 } label: {
                     Image(systemName: store.showArchived ? "archivebox.fill" : "archivebox")
                         .cmuxFont(size: 10, weight: .medium)
@@ -183,6 +188,7 @@ struct SessionIndexView: View {
     }
 
     private var sessionsList: some View {
+        let _ = rowStateRevision
         let sections = store.sectionsForCurrentGrouping()
         // Read draggedKey once per body eval so every child gets a snapshot
         // of the same value. Children are Equatable value views, so a
@@ -210,8 +216,14 @@ struct SessionIndexView: View {
         let stateActions = SessionRowStateActions(
             isPinned: { id in store.isPinned(id) },
             isArchived: { id in store.isArchived(id) },
-            togglePinned: { entry in store.togglePinned(entry) },
-            toggleArchived: { entry in store.toggleArchived(entry) }
+            togglePinned: { entry in
+                store.togglePinned(entry)
+                rowStateRevision &+= 1
+            },
+            toggleArchived: { entry in
+                store.toggleArchived(entry)
+                rowStateRevision &+= 1
+            }
         )
 
         return ScrollView(.vertical) {
@@ -357,18 +369,6 @@ struct IndexSectionActions {
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
     let stateActions: SessionRowStateActions
-}
-
-/// Read/toggle bundle for a row's persisted pin/archive state. Like the other
-/// closure bundles here, it exists so views below the snapshot boundary can
-/// pin/archive a session without holding a `SessionIndexStore` reference (which
-/// would reintroduce the LazyVStack CPU-spin regression). Constructed once,
-/// above the list boundary, from the store.
-struct SessionRowStateActions {
-    let isPinned: @MainActor (SessionEntry.ID) -> Bool
-    let isArchived: @MainActor (SessionEntry.ID) -> Bool
-    let togglePinned: @MainActor (SessionEntry) -> Void
-    let toggleArchived: @MainActor (SessionEntry) -> Void
 }
 
 /// Callback bundle for `SectionReorderGap` / `SectionGapDropDelegate`.
