@@ -7,9 +7,9 @@ import CmuxWindowing
 /// reachable windows whose body is still clipped or oversized.
 @MainActor
 final class MainWindowVisibleFrameFitRescue: NSObject {
-    private let coalescedFitNotification = Notification.Name("cmux.mainWindowVisibleFrameFitRescue.perform")
     private let fitCore: MainWindowVisibleFrameFitCore
     private var cachedSignature: [MainWindowVisibleFrameTopologySignatureEntry] = []
+    private var pendingFitTask: Task<Void, Never>?
     private var isInstalled = false
 
     /// Owned and installed by `AppDelegate`.
@@ -27,25 +27,24 @@ final class MainWindowVisibleFrameFitRescue: NSObject {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(performFitIfNeeded(_:)),
-            name: coalescedFitNotification,
-            object: self
-        )
         isInstalled = true
     }
 
-    @objc private func screenParametersDidChange(_: Notification) {
-        NotificationQueue.default.enqueue(
-            Notification(name: coalescedFitNotification, object: self),
-            postingStyle: .whenIdle,
-            coalesceMask: [.onName, .onSender],
-            forModes: nil
-        )
+    deinit {
+        pendingFitTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
     }
 
-    @objc private func performFitIfNeeded(_: Notification) {
+    @objc private func screenParametersDidChange(_: Notification) {
+        pendingFitTask?.cancel()
+        pendingFitTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            self?.performFitIfNeeded()
+        }
+    }
+
+    private func performFitIfNeeded() {
         let displays = Self.currentDisplays()
         guard !displays.isEmpty else { return }
 
