@@ -4127,7 +4127,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 list[index].terminals.append(terminal)
             }
         }
-        createdTerminalSelection = CreatedTerminalSelection(workspaceID: workspace.id, terminalID: terminal.id)
+        createdTerminalSelection = CreatedTerminalSelection(workspace: workspace, terminalID: terminal.id)
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
     }
@@ -5653,7 +5653,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if let created = createdTerminalSelection, selectedTerminalID == created.terminalID {
-            if selectedWorkspace.id == created.workspaceID,
+            if created.matches(workspace: selectedWorkspace),
                let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
                 guard selectedTerminal.isReady else { return }
             }
@@ -5863,7 +5863,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    || (selectedRow.rpcWorkspaceID == requestedWorkspaceID
                        && selectedRow.macDeviceID == requestedMacDeviceID) {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
-                createdTerminalSelection = CreatedTerminalSelection(workspaceID: selectedRow.id, terminalID: createdTerminalID)
+                createdTerminalSelection = CreatedTerminalSelection(workspace: selectedRow, terminalID: createdTerminalID)
                 selectedTerminalID = createdTerminalID
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
             }
