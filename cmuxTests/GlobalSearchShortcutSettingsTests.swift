@@ -292,4 +292,55 @@ final class GlobalSearchShortcutSettingsTests: XCTestCase {
 
         XCTAssertNil(store.override(for: .globalSearch))
     }
+
+    func testTabBarHintMirrorReflectsSettingsFileManagedSurfaceShortcut() throws {
+        // The bonsplit surface tab bar renders its Cmd/Ctrl-hold shortcut hint
+        // by reading the surface-number shortcut straight from UserDefaults under
+        // `selectSurfaceByNumber.defaultsKey`. Rebindings made in the in-app
+        // Settings recorder (and in cmux.json) persist to the settings file, not
+        // that key, so the hint kept showing the stale modifier after the user
+        // switched the surface shortcut from ⌥ to ⌘. The mirror keeps that key in
+        // step with cmux's resolved shortcut.
+        let defaults = UserDefaults.standard
+        let key = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultsKey
+
+        // A stale ⌥ value left in the key the tab bar reads (e.g. from an earlier
+        // rebinding written before the surface shortcut became file-managed).
+        let staleOption = StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+        defaults.set(try JSONEncoder().encode(staleOption), forKey: key)
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-hint-mirror-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "selectSurfaceByNumber": "cmd+1"
+            }
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        // Precondition: cmux resolves the surface shortcut to ⌘ via the override.
+        XCTAssertTrue(KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber).command)
+        XCTAssertFalse(KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber).option)
+
+        KeyboardShortcutSettings.syncSurfaceNumberShortcutMirrorForTabBarHint()
+
+        let mirroredData = try XCTUnwrap(defaults.data(forKey: key))
+        let mirrored = try JSONDecoder().decode(StoredShortcut.self, from: mirroredData)
+        XCTAssertTrue(mirrored.command, "Tab-bar hint mirror should reflect the ⌘ surface shortcut")
+        XCTAssertFalse(mirrored.option, "Stale ⌥ modifier must not survive in the tab-bar hint mirror")
+    }
 }

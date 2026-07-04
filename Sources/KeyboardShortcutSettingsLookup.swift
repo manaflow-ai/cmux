@@ -83,4 +83,28 @@ extension KeyboardShortcutSettings {
         return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }
 
+    /// The bonsplit surface tab bar renders its Cmd/Ctrl-hold shortcut hint
+    /// (`⌘1`, `⌃2`, …) by reading the surface-number shortcut straight from
+    /// `UserDefaults.standard` under `selectSurfaceByNumber.defaultsKey` (see
+    /// `TabControlShortcutSettings` in vendor/bonsplit). That raw read bypasses
+    /// cmux's canonical resolution in ``shortcutIfBound(for:)`` — a `cmux.json`
+    /// override or the in-app Settings recorder both persist to the settings
+    /// file, not to that UserDefaults key — so after the user rebinds the
+    /// surface shortcut (e.g. from `⌥` to `⌘`) the tab-bar hint keeps showing
+    /// the stale modifier while the actual keystroke already uses the new one.
+    ///
+    /// Mirror the fully-resolved shortcut into that key so the hint always
+    /// matches the shortcut cmux actually dispatches. Writing the resolved value
+    /// is a no-op for the pure-UserDefaults path (it already holds it) and, for
+    /// the file-managed path, leaves ``shortcutIfBound(for:)`` unchanged because
+    /// the settings-file override still wins at a higher priority.
+    static func syncSurfaceNumberShortcutMirrorForTabBarHint(defaults: UserDefaults = .standard) {
+        let action = Action.selectSurfaceByNumber
+        let resolved = shortcut(for: action)
+        guard let data = try? JSONEncoder().encode(resolved) else { return }
+        if defaults.data(forKey: action.defaultsKey) != data {
+            defaults.set(data, forKey: action.defaultsKey)
+        }
+    }
+
 }
