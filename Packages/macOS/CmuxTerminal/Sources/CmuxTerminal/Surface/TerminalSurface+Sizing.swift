@@ -242,19 +242,7 @@ extension TerminalSurface {
             lastYScale = yScale
         }
 
-        // Remote tmux display surfaces: keep the remote tmux client sized to
-        // the rendered grid, and report only real cell-grid changes while the
-        // surface is on screen.
-        if manualIO, let report = onManualGridResize, attachedView?.window != nil {
-            let grid = ghostty_surface_size(surface)
-            let cols = Int(grid.columns)
-            let rows = Int(grid.rows)
-            if cols > 1, rows > 1,
-               lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows {
-                lastReportedManualGrid = (cols, rows)
-                report(cols, rows)
-            }
-        }
+        reportManualGridResizeIfNeeded(reason: "updateSize")
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
         return true
@@ -424,7 +412,7 @@ extension TerminalSurface {
     }
 
     /// The current monospace cell size in points, or nil if the runtime
-    /// surface is not ready. Used by remote tmux mirror sizing.
+    /// surface is not ready.
     @MainActor
     public func cellSizePoints() -> CGSize? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "cellSize") else { return nil }
@@ -448,6 +436,19 @@ extension TerminalSurface {
         let rows = Int(size.rows)
         guard cols > 1, rows > 1 else { return nil }
         return (cols, rows)
+    }
+
+    @MainActor
+    func reportManualGridResizeIfNeeded(reason: String) {
+        guard manualIO, let report = onManualGridResize, attachedView?.window != nil,
+              let surface = liveSurfaceForGhosttyAccess(reason: "manualGridResize.\(reason)") else { return }
+        let grid = ghostty_surface_size(surface)
+        let cols = Int(grid.columns)
+        let rows = Int(grid.rows)
+        guard cols > 1, rows > 1 else { return }
+        guard lastReportedManualGrid?.columns != cols || lastReportedManualGrid?.rows != rows else { return }
+        lastReportedManualGrid = (cols, rows)
+        report(cols, rows)
     }
 
     @MainActor

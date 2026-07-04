@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import os
 
@@ -1279,7 +1280,7 @@ final class RemoteTmuxControlConnection {
                 let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
                 guard parts.count >= 2,
                       let id = RemoteTmuxControlStreamParser.id(parts[0], sigil: "@"),
-                      let node = RemoteTmuxRawLayoutParser.parse(String(parts[1]))
+                      let node = RemoteTmuxRawLayoutParser().parse(String(parts[1]))
                 else { continue }
                 let name = parts.count >= 3 ? String(parts[2]) : ""
                 next[id] = RemoteTmuxWindow(
@@ -1390,7 +1391,7 @@ final class RemoteTmuxControlConnection {
     }
 
     private func applyLayout(windowId: Int, layout: String) {
-        guard let node = RemoteTmuxRawLayoutParser.parse(layout) else { return }
+        guard let node = RemoteTmuxRawLayoutParser().parse(layout) else { return }
         // Preserve any name tmux already reported (a %layout-change carries no name).
         let existingName = windowsByID[windowId]?.name ?? ""
         windowsByID[windowId] = RemoteTmuxWindow(
