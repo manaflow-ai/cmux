@@ -53,7 +53,7 @@ final class InboxRuntime {
         do {
             let store = try InboxSQLiteStore(databaseURL: .temporaryInboxFallback)
             let runtime = InboxRuntime(hub: IntegrationHub(store: store, connectors: []))
-            runtime.loadState = .failed(String(describing: primaryError))
+            runtime.loadState = .failed(Self.userFacingMessage(for: primaryError))
             return runtime
         } catch {
             let fallbackURL = FileManager.default.temporaryDirectory
@@ -61,7 +61,7 @@ final class InboxRuntime {
             do {
                 let store = try InboxSQLiteStore(databaseURL: fallbackURL)
                 let runtime = InboxRuntime(hub: IntegrationHub(store: store, connectors: []))
-                runtime.loadState = .failed(String(describing: primaryError))
+                runtime.loadState = .failed(Self.userFacingMessage(for: primaryError))
                 return runtime
             } catch {
                 preconditionFailure("Unable to initialize cmux inbox storage: \(primaryError); fallback: \(error)")
@@ -122,7 +122,7 @@ final class InboxRuntime {
             }
             loadState = .idle
         } catch {
-            loadState = .failed(String(describing: error))
+            loadState = .failed(Self.userFacingMessage(for: error))
         }
     }
 
@@ -152,7 +152,11 @@ final class InboxRuntime {
 
     func markRead(itemID: String? = nil, threadID: String? = nil, unread: Bool = false) {
         Task {
-            try? await hub.markRead(itemID: itemID, threadID: threadID, unread: unread)
+            do {
+                try await hub.markRead(itemID: itemID, threadID: threadID, unread: unread)
+            } catch {
+                loadState = .failed(Self.userFacingMessage(for: error))
+            }
             await refresh(seedNotifications: true)
         }
     }
@@ -169,7 +173,7 @@ final class InboxRuntime {
                 currentDraft = try await hub.draftReply(threadID: threadID, instruction: instruction)
                 try await refreshThread(threadID: threadID)
             } catch {
-                loadState = .failed(String(describing: error))
+                loadState = .failed(Self.userFacingMessage(for: error))
             }
         }
     }
@@ -194,14 +198,23 @@ final class InboxRuntime {
                     try await refreshThread(threadID: threadID)
                 }
             } catch {
-                loadState = .failed(String(describing: error))
+                loadState = .failed(Self.userFacingMessage(for: error))
             }
         }
     }
 
+    /// URL schemes inbox deep links may hand to NSWorkspace. externalURL comes
+    /// from connector payloads and socket pushes, so arbitrary schemes (file:,
+    /// app-preference URLs, ...) must not be openable from an inbox row.
+    private static let allowedExternalURLSchemes: Set<String> = [
+        "http", "https", "mailto", "slack", "discord", "imessage", "messages", "sms", "cmux",
+    ]
+
     func openOriginal(row: InboxRowSnapshot? = nil) {
         let raw = row?.externalURL ?? selectedThread?.externalURL
-        guard let raw, let url = URL(string: raw) else { return }
+        guard let raw, let url = URL(string: raw),
+              let scheme = url.scheme?.lowercased(),
+              Self.allowedExternalURLSchemes.contains(scheme) else { return }
         NSWorkspace.shared.open(url)
     }
 
@@ -215,6 +228,13 @@ final class InboxRuntime {
     }
 
     private func refreshThread(threadID: String) async throws {
+        // Drop a draft that belongs to a different thread immediately, before
+        // any await: the detail view enables editing and Send whenever a draft
+        // exists, and a stale draft could send an approved reply to the wrong
+        // conversation.
+        if let draft = currentDraft, draft.threadID != threadID {
+            currentDraft = nil
+        }
         selectedThread = try await hub.thread(id: threadID)
         recentItems = try await hub.recentItems(threadID: threadID, limit: 20)
     }
@@ -233,6 +253,14 @@ final class InboxRuntime {
             guard !mutedAccountIDs.contains("\(item.source.rawValue):\(item.accountID)") else { continue }
             postCmuxNotification(for: item)
         }
+    }
+
+    /// Maps an error to user-facing panel copy. ``InboxError`` descriptions
+    /// are user-shaped; anything else becomes generic localized copy instead
+    /// of a raw Swift error dump.
+    private static func userFacingMessage(for error: Error) -> String {
+        if let error = error as? InboxError { return error.description }
+        return String(localized: "inbox.error.generic", defaultValue: "Inbox operation failed")
     }
 
     private func postCmuxNotification(for item: InboxItem) {
