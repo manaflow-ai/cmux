@@ -4024,13 +4024,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connected Mac as "not connected" (foregroundMacDeviceID never matched) and
     /// secondary aggregation, which excludes `foregroundMacDeviceID`, can open a
     /// DUPLICATE read-only connection to the very Mac that is already foreground.
-    private func adoptForegroundMacIdentity(_ macDeviceID: String) {
+    func adoptForegroundMacIdentity(_ macDeviceID: String) {
         guard !macDeviceID.isEmpty, foregroundMacDeviceID != macDeviceID else { return }
         let oldKey = foregroundMacKey
         foregroundMacDeviceID = macDeviceID
         guard oldKey != macDeviceID else { return }
         if var state = workspacesByMac[oldKey] {
-            workspacesByMac[oldKey] = nil
+            var updatedStates = workspacesByMac
+            updatedStates[oldKey] = nil
             state.macDeviceID = macDeviceID
             state.workspaces = state.workspaces.map { workspace in
                 var copy = workspace
@@ -4039,7 +4040,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             // Don't clobber a (somehow) pre-existing real-id entry; merge by keeping
             // the live foreground rows.
-            workspacesByMac[macDeviceID] = state
+            updatedStates[macDeviceID] = state
+            workspacesByMac = updatedStates
         }
         if let connection = connections[oldKey] {
             connections[oldKey] = nil

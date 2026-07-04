@@ -198,12 +198,11 @@ import Testing
         let remappedRowID = aggregation.rowID(macDeviceID: macID, workspaceID: remoteWorkspaceID)
 
         store.setWorkspaceStatesForTesting([
-            macID: MacWorkspaceState(
-                macDeviceID: macID,
+            foregroundKey: MacWorkspaceState(
+                macDeviceID: foregroundKey,
                 workspaces: [
                     MobileWorkspacePreview(
                         id: remoteWorkspaceID,
-                        macDeviceID: macID,
                         name: "Main",
                         terminals: [
                             MobileTerminalPreview(id: fallback, name: "Build", isReady: true),
@@ -227,7 +226,9 @@ import Testing
                 ],
                 status: .connected
             ),
-        ], foregroundMacDeviceID: macID)
+        ], foregroundMacDeviceID: nil)
+
+        store.adoptForegroundMacIdentity(macID)
 
         #expect(store.selectedWorkspaceID == remappedRowID)
         #expect(store.selectedTerminalID == created)
