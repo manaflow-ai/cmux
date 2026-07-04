@@ -166,19 +166,19 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         var snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        snapshot.panels[0].directory = localDirectory
+        snapshot.panels[0].directory = remoteDirectory
         snapshot.panels[0].directoryIsTrustedRemoteReport = nil
 
         let restored = Workspace()
         let restoredIds = restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restoredIds[remotePanelId])
 
-        #expect(restored.panelDirectories[restoredPanelId] == localDirectory)
+        #expect(restored.panelDirectories[restoredPanelId] == remoteDirectory)
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
         #expect(restored.presentedCurrentDirectory == nil)
         #expect(restored.sidebarFilesystemDirectoriesInDisplayOrder() == [])
 
-        restored.updateRemotePanelDirectory(panelId: restoredPanelId, directory: remoteDirectory)
+        restored.updatePanelDirectory(panelId: restoredPanelId, directory: remoteDirectory)
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == remoteDirectory)
         #expect(restored.presentedCurrentDirectory == remoteDirectory)
     }
@@ -244,6 +244,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == nil)
         #expect(workspace.presentedCurrentDirectory == nil)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+        #expect(workspace.closePanel(remotePanelId, force: true))
+        #expect(!workspace.remoteDirectoryTrustRequiredPanelIds.contains(remotePanelId))
     }
 
     @MainActor

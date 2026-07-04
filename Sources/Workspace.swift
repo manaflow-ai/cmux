@@ -2598,6 +2598,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
     private(set) var remoteDirectoryTrustRequiredPanelIds: Set<UUID> = []
     private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
+    private var remoteDirectorySamePathConfirmationPanelIds: Set<UUID> = []
     private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
@@ -4626,6 +4627,15 @@ final class Workspace: Identifiable, ObservableObject {
                 return false
             }
         }
+
+        var waitsForSamePathRemoteConfirmation: Bool {
+            switch self {
+            case .restoredSnapshotMetadata:
+                return true
+            case .liveReport, .remoteReport, .trustedRestoredRemoteSnapshotMetadata:
+                return false
+            }
+        }
     }
 
     private static func unmountedVolumeRoot(
@@ -4685,6 +4695,10 @@ final class Workspace: Identifiable, ObservableObject {
         if remoteDirectoryReportPanelIds.contains(panelId) {
             return true
         }
+        if remoteDirectorySamePathConfirmationPanelIds.contains(panelId),
+           normalizedDirectoryReport(panelDirectories[panelId]) == reportedDirectory {
+            return true
+        }
         let inheritedCandidates = [
             normalizedDirectoryReport(panelDirectories[panelId]),
             normalizedDirectoryReport(terminalPanel(for: panelId)?.requestedWorkingDirectory),
@@ -4696,6 +4710,11 @@ final class Workspace: Identifiable, ObservableObject {
     private func normalizedDirectoryReport(_ directory: String?) -> String? {
         let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func discardRemoteDirectoryTrustState(panelId: UUID) {
+        remoteDirectoryTrustRequiredPanelIds.remove(panelId)
+        remoteDirectorySamePathConfirmationPanelIds.remove(panelId)
     }
 
     @discardableResult
@@ -4720,6 +4739,11 @@ final class Workspace: Identifiable, ObservableObject {
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
         if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId)
+        }
+        if source.waitsForSamePathRemoteConfirmation && isRemoteTerminalSurface(panelId) {
+            remoteDirectorySamePathConfirmationPanelIds.insert(panelId)
+        } else if establishesRemoteProvenance {
+            remoteDirectorySamePathConfirmationPanelIds.remove(panelId)
         }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged || provenanceChanged { panelDirectories[panelId] = trimmed }
@@ -5326,6 +5350,9 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectoryDisplayLabels = panelDirectoryDisplayLabels.filter { validSurfaceIds.contains($0.key) }
         remoteDirectoryTrustRequiredPanelIds = remoteDirectoryTrustRequiredPanelIds.filter { validSurfaceIds.contains($0) }
         remoteDirectoryReportPanelIds = remoteDirectoryReportPanelIds.filter { validSurfaceIds.contains($0) }
+        remoteDirectorySamePathConfirmationPanelIds = remoteDirectorySamePathConfirmationPanelIds.filter {
+            validSurfaceIds.contains($0)
+        }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
@@ -5752,6 +5779,7 @@ final class Workspace: Identifiable, ObservableObject {
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
         remoteDirectoryTrustRequiredPanelIds = activeRemoteTerminalSurfaceIds
+        remoteDirectorySamePathConfirmationPanelIds.removeAll()
         remoteDirectoryReportPanelIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: clearedRemoteDirectoryTrust)
@@ -5888,6 +5916,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDirectoryReportPanelIds.removeAll()
         if clearConfiguration {
             remoteDirectoryTrustRequiredPanelIds.removeAll()
+            remoteDirectorySamePathConfirmationPanelIds.removeAll()
         }
         endedPersistentRemotePTYAttachSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
