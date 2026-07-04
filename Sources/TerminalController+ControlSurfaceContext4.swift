@@ -341,7 +341,7 @@ extension TerminalController {
             return .surfaceNotFound
         }
 
-        if tab.isRemoteWorkspace {
+        if tab.isRemoteTerminalSurface(surfaceId) {
             if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
                 tabManager.updateRemoteSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
             } else {

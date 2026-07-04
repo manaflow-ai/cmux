@@ -237,7 +237,7 @@ extension TerminalController {
         directory: String,
         displayLabel: String?
     ) {
-        if tab.isRemoteWorkspace {
+        if tab.isRemoteTerminalSurface(surfaceId) {
             if let tabManager {
                 tabManager.updateRemoteSurfaceDirectory(
                     tabId: tab.id,

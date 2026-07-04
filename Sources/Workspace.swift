@@ -5429,10 +5429,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         let validPanelPullRequests = panelPullRequests.filter { panelId, state in
+            if isRemoteWorkspace, reportedPanelDirectory(panelId: panelId) == nil {
+                return false
+            }
             guard let pullRequestBranch = state.branch?.normalizedSidebarBranchName else {
                 return true
             }
-            return panelGitBranches[panelId]?.branch.normalizedSidebarBranchName == pullRequestBranch
+            return reportedPanelGitBranch(panelId: panelId)?.branch.normalizedSidebarBranchName == pullRequestBranch
         }
         return SidebarBranchOrdering().orderedUniquePullRequests(
             orderedPanelIds: orderedPanelIds,
