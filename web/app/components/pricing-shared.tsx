@@ -196,7 +196,7 @@ export function PricingCompareTable({
   return (
     <div>
       <div
-        className={`sticky ${stickyTopClassName} z-30 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
+        className={`sticky ${stickyTopClassName} z-20 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
         style={{ gridTemplateColumns }}
       >
         <div className="pr-4" />
