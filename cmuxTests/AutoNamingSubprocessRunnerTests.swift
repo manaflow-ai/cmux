@@ -105,6 +105,34 @@ import Testing
         #expect(output == "")
     }
 
+    @Test func fileBackedCallerPreservesLeaderStatusWithOpenDescendantStdout() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-file-backed-status")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let marker = root.appendingPathComponent("descendant-survived", isDirectory: false)
+        let outputFile = root.appendingPathComponent("last-message.txt", isDirectory: false)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        ( trap '' TERM; sleep 1; printf survived > "$MARKER" ) &
+        printf 'progress'
+        printf 'File title\\n' > "$OUTPUT_FILE"
+        exit 0
+        """)
+
+        let output = AutoNamingSubprocessRunner().run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(marker: marker, outputFile: outputFile),
+            timeout: 0.2,
+            failOnOutputOverflow: false,
+            requireStdoutEOF: false
+        )
+
+        #expect(output != nil)
+        #expect(try String(contentsOf: outputFile, encoding: .utf8) == "File title\n")
+        waitBriefly(for: 1.5)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test func continuousDiscardedStdoutHonorsRunnerDeadline() throws {
         let root = try temporaryDirectory(named: "autoname-runner-output-discard-timeout")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -184,7 +212,7 @@ import Testing
         return url.path
     }
 
-    private func processEnvironment(marker: URL? = nil) -> [String: String] {
+    private func processEnvironment(marker: URL? = nil, outputFile: URL? = nil) -> [String: String] {
         var environment = [
             "HOME": FileManager.default.temporaryDirectory.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -192,6 +220,9 @@ import Testing
         ]
         if let marker {
             environment["MARKER"] = marker.path
+        }
+        if let outputFile {
+            environment["OUTPUT_FILE"] = outputFile.path
         }
         return environment
     }

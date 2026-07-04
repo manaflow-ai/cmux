@@ -12,7 +12,8 @@ struct AutoNamingSubprocessRunner: Sendable {
         prompt: String,
         environment: [String: String],
         timeout: TimeInterval,
-        failOnOutputOverflow: Bool = true
+        failOnOutputOverflow: Bool = true,
+        requireStdoutEOF: Bool = true
     ) -> String? {
         var stdinFDs = [Int32](repeating: -1, count: 2)
         var stdoutFDs = [Int32](repeating: -1, count: 2)
@@ -98,7 +99,8 @@ struct AutoNamingSubprocessRunner: Sendable {
             stdoutFD: stdoutFD,
             output: &output,
             timeout: timeout,
-            failOnOutputOverflow: failOnOutputOverflow
+            failOnOutputOverflow: failOnOutputOverflow,
+            requireStdoutEOF: requireStdoutEOF
         )
         closeFD(&stdinFDs[1])
         guard firstWait.outputWithinLimit else {
@@ -132,7 +134,8 @@ struct AutoNamingSubprocessRunner: Sendable {
         stdoutFD: Int32,
         output: inout Data,
         timeout: TimeInterval,
-        failOnOutputOverflow: Bool
+        failOnOutputOverflow: Bool,
+        requireStdoutEOF: Bool
     ) -> (rawStatus: Int32?, outputWithinLimit: Bool, promptDelivered: Bool) {
         var stdoutEOF = false
         var stdoutOverflowed = false
@@ -188,6 +191,9 @@ struct AutoNamingSubprocessRunner: Sendable {
                         guard withinLimit else { return (nil, false, true) }
                         if stdoutEOF { break }
                         let remaining = postExitDrainDeadline.timeIntervalSinceNow
+                        if !requireStdoutEOF {
+                            return (rawStatus, true, true)
+                        }
                         guard remaining > 0 else { return (nil, true, true) }
                         Self.waitForPipeChange(stdoutFD: stdoutFD, stdinFD: nil, timeout: min(remaining, 0.05))
                     }

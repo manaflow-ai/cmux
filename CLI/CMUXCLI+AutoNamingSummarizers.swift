@@ -110,15 +110,17 @@ extension CMUXCLI {
     }
 
     /// Runs the summarizer subprocess with the prompt on stdin and a hard
-    /// deadline. By default oversized stdout fails the run; file-backed callers
-    /// can request discard-only stdout so noisy progress output cannot block.
+    /// deadline. By default stdout must stay bounded and close before success;
+    /// file-backed callers can discard stdout and accept the leader's exit status
+    /// so noisy progress output cannot block reading their output file.
     func runAutoNamingSummarizer(
         executable: String,
         arguments: [String],
         prompt: String,
         environment: [String: String],
         timeout: TimeInterval,
-        failOnOutputOverflow: Bool = true
+        failOnOutputOverflow: Bool = true,
+        requireStdoutEOF: Bool = true
     ) -> String? {
         AutoNamingSubprocessRunner().run(
             executable: executable,
@@ -126,7 +128,8 @@ extension CMUXCLI {
             prompt: prompt,
             environment: environment,
             timeout: timeout,
-            failOnOutputOverflow: failOnOutputOverflow
+            failOnOutputOverflow: failOnOutputOverflow,
+            requireStdoutEOF: requireStdoutEOF
         )
     }
 }
