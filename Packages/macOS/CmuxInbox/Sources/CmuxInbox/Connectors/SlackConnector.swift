@@ -67,6 +67,7 @@ public actor SlackConnector: InboxConnector {
 
         var threads: [InboxThread] = []
         var items: [InboxItem] = []
+        var watermark = cursor
         for channelID in channelIDs {
             let response = try await httpClient.data(for: Self.conversationsHistoryRequest(
                 token: token,
@@ -79,6 +80,9 @@ public actor SlackConnector: InboxConnector {
             let parsed = try parseHistory(data: response.data, channelID: channelID)
             threads.append(contentsOf: parsed.threads)
             items.append(contentsOf: parsed.items)
+            if let latestTS = parsed.latestTS, (Double(latestTS) ?? 0) > (Double(watermark ?? "") ?? 0) {
+                watermark = latestTS
+            }
         }
         let status = InboxConnectorStatus(
             source: .slack,
@@ -93,7 +97,7 @@ public actor SlackConnector: InboxConnector {
             accounts: [account(status: .connected, lastSyncAt: Date.now)],
             threads: threads,
             items: items,
-            nextCursor: cursor,
+            nextCursor: watermark,
             status: status
         )
     }
@@ -109,13 +113,22 @@ public actor SlackConnector: InboxConnector {
         if let status = statusOverride(from: response), status.status != .connected {
             throw InboxError.connectorUnavailable(status.message ?? "Slack send failed")
         }
+        // Slack reports most send failures as HTTP 200 with `ok: false`
+        // (channel_not_found, not_in_channel, msg_too_long, ...); success must
+        // be confirmed from the API result, not inferred from the transport.
+        let object = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
+        guard (object?["ok"] as? Bool) == true else {
+            throw InboxError.connectorUnavailable((object?["error"] as? String) ?? "Slack send failed")
+        }
     }
 
-    /// Builds the Web API history request.
+    /// Builds the Web API history request. The cursor is a Slack message
+    /// timestamp high-watermark passed as `oldest` so each sync fetches only
+    /// messages newer than the last one already ingested.
     public static func conversationsHistoryRequest(token: String, channelID: String, cursor: String?) -> URLRequest {
         var components = URLComponents(string: "https://slack.com/api/conversations.history")!
         var query = [URLQueryItem(name: "channel", value: channelID), URLQueryItem(name: "limit", value: "100")]
-        if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+        if let cursor { query.append(URLQueryItem(name: "oldest", value: cursor)) }
         components.queryItems = query
         var request = URLRequest(url: components.url!)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -163,12 +176,13 @@ public actor SlackConnector: InboxConnector {
         )
     }
 
-    private func parseHistory(data: Data, channelID: String) throws -> (threads: [InboxThread], items: [InboxItem]) {
+    private func parseHistory(data: Data, channelID: String) throws -> (threads: [InboxThread], items: [InboxItem], latestTS: String?) {
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard (object["ok"] as? Bool) != false else {
             throw InboxError.connectorUnavailable((object["error"] as? String) ?? "Slack API error")
         }
         let messages = (object["messages"] as? [[String: Any]]) ?? []
+        let latestTS = messages.compactMap { $0["ts"] as? String }.max { (Double($0) ?? 0) < (Double($1) ?? 0) }
         var threadsByID: [String: InboxThread] = [:]
         var items: [InboxItem] = []
         for message in messages {
@@ -202,7 +216,7 @@ public actor SlackConnector: InboxConnector {
                 isUnread: (message["unread"] as? Bool) ?? true
             ))
         }
-        return (Array(threadsByID.values), items)
+        return (Array(threadsByID.values), items, latestTS)
     }
 
     private func statusOverride(from response: InboxHTTPResponse) -> InboxConnectorStatus? {
@@ -217,6 +231,11 @@ public actor SlackConnector: InboxConnector {
            let error = object["error"] as? String,
            ["invalid_auth", "token_revoked", "account_inactive"].contains(error) {
             return InboxConnectorStatus(source: .slack, accountID: accountID, displayName: displayName, status: .tokenExpired, message: error, credentialState: .present, capabilities: capabilities)
+        }
+        // Any other non-2xx must surface as an error; falling through would
+        // parse an error body as an empty message list and report success.
+        if !(200...299).contains(response.statusCode) {
+            return InboxConnectorStatus(source: .slack, accountID: accountID, displayName: displayName, status: .error, message: "Slack request failed (HTTP \(response.statusCode))", credentialState: .present, capabilities: capabilities)
         }
         return nil
     }

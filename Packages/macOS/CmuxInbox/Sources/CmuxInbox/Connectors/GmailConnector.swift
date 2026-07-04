@@ -51,7 +51,7 @@ public actor GmailConnector: InboxConnector {
         let ids: [String]
         let nextCursor: String?
         if let cursor, !cursor.isEmpty {
-            let response = try await httpClient.data(for: Self.historyRequest(token: token, accountID: accountID, startHistoryID: cursor))
+            let response = try await httpClient.data(for: try Self.historyRequest(token: token, accountID: accountID, startHistoryID: cursor))
             if let status = statusOverride(from: response) {
                 return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
             }
@@ -59,7 +59,7 @@ public actor GmailConnector: InboxConnector {
             ids = parsed.messageIDs
             nextCursor = parsed.historyID ?? cursor
         } else {
-            let response = try await httpClient.data(for: Self.listMessagesRequest(token: token, accountID: accountID))
+            let response = try await httpClient.data(for: try Self.listMessagesRequest(token: token, accountID: accountID))
             if let status = statusOverride(from: response) {
                 return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
             }
@@ -71,7 +71,10 @@ public actor GmailConnector: InboxConnector {
         var threads: [InboxThread] = []
         var items: [InboxItem] = []
         for id in ids {
-            let response = try await httpClient.data(for: Self.getMessageRequest(token: token, accountID: accountID, messageID: id))
+            let response = try await httpClient.data(for: try Self.getMessageRequest(token: token, accountID: accountID, messageID: id))
+            if let status = statusOverride(from: response) {
+                return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
+            }
             if let parsed = try parseMessage(data: response.data) {
                 threads.append(parsed.thread)
                 items.append(parsed.item)
@@ -117,39 +120,39 @@ public actor GmailConnector: InboxConnector {
     }
 
     /// Builds a Gmail history request.
-    public static func historyRequest(token: String, accountID: String, startHistoryID: String) -> URLRequest {
-        var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/\(accountID)/history")!
+    public static func historyRequest(token: String, accountID: String, startHistoryID: String) throws -> URLRequest {
+        var components = try urlComponents(forUserPath: "history", accountID: accountID)
         components.queryItems = [
             URLQueryItem(name: "startHistoryId", value: startHistoryID),
             URLQueryItem(name: "historyTypes", value: "messageAdded"),
             URLQueryItem(name: "historyTypes", value: "labelAdded"),
             URLQueryItem(name: "historyTypes", value: "labelRemoved"),
         ]
-        return authorizedRequest(url: components.url!, token: token)
+        return try authorizedRequest(url: requiredURL(components), token: token)
     }
 
     /// Builds a Gmail recent unread messages request.
-    public static func listMessagesRequest(token: String, accountID: String) -> URLRequest {
-        var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/\(accountID)/messages")!
+    public static func listMessagesRequest(token: String, accountID: String) throws -> URLRequest {
+        var components = try urlComponents(forUserPath: "messages", accountID: accountID)
         components.queryItems = [
             URLQueryItem(name: "labelIds", value: "INBOX"),
             URLQueryItem(name: "q", value: "is:unread"),
             URLQueryItem(name: "maxResults", value: "25"),
         ]
-        return authorizedRequest(url: components.url!, token: token)
+        return try authorizedRequest(url: requiredURL(components), token: token)
     }
 
     /// Builds a Gmail message details request.
-    public static func getMessageRequest(token: String, accountID: String, messageID: String) -> URLRequest {
-        var components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/\(accountID)/messages/\(messageID)")!
+    public static func getMessageRequest(token: String, accountID: String, messageID: String) throws -> URLRequest {
+        var components = try urlComponents(forUserPath: "messages/\(try encodedPathSegment(messageID))", accountID: accountID)
         components.queryItems = [URLQueryItem(name: "format", value: "metadata")]
-        return authorizedRequest(url: components.url!, token: token)
+        return try authorizedRequest(url: requiredURL(components), token: token)
     }
 
     /// Builds a Gmail send request for an approved reply.
     public static func sendMessageRequest(token: String, accountID: String, draft: InboxDraft, thread: InboxThread) throws -> URLRequest {
-        var request = authorizedRequest(
-            url: URL(string: "https://gmail.googleapis.com/gmail/v1/users/\(accountID)/messages/send")!,
+        var request = try authorizedRequest(
+            url: requiredURL(urlComponents(forUserPath: "messages/send", accountID: accountID)),
             token: token
         )
         request.httpMethod = "POST"
@@ -235,6 +238,11 @@ public actor GmailConnector: InboxConnector {
         if response.statusCode == 404 {
             return InboxConnectorStatus(source: .gmail, accountID: accountID, displayName: displayName, status: .degraded, message: "Gmail history cursor expired; run a full sync", credentialState: .present, capabilities: capabilities)
         }
+        // Any other non-2xx must surface as an error; falling through would
+        // parse an error body as an empty message list and report success.
+        if !(200...299).contains(response.statusCode) {
+            return InboxConnectorStatus(source: .gmail, accountID: accountID, displayName: displayName, status: .error, message: "Gmail request failed (HTTP \(response.statusCode))", credentialState: .present, capabilities: capabilities)
+        }
         return nil
     }
 
@@ -246,6 +254,30 @@ public actor GmailConnector: InboxConnector {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return request
+    }
+
+    /// Builds `users/<accountID>/<path>` components with the account id
+    /// percent-encoded so configurable ids cannot crash URL construction.
+    private static func urlComponents(forUserPath path: String, accountID: String) throws -> URLComponents {
+        let account = try encodedPathSegment(accountID)
+        guard let components = URLComponents(string: "https://gmail.googleapis.com/gmail/v1/users/\(account)/\(path)") else {
+            throw InboxError.invalidParameters("Invalid Gmail account id")
+        }
+        return components
+    }
+
+    private static func encodedPathSegment(_ value: String) throws -> String {
+        guard let encoded = value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw InboxError.invalidParameters("Invalid Gmail identifier")
+        }
+        return encoded
+    }
+
+    private static func requiredURL(_ components: URLComponents) throws -> URL {
+        guard let url = components.url else {
+            throw InboxError.invalidParameters("Invalid Gmail request")
+        }
+        return url
     }
 
     private static func base64URL(_ data: Data) -> String {

@@ -14,6 +14,17 @@ public actor DiscordConnector: InboxConnector {
     private let httpClient: any InboxHTTPClient
     private let identity = InboxIdentity()
 
+    // Discord REST timestamps carry fractional seconds; a plain
+    // ISO8601DateFormatter never parses them, so keep both cached variants.
+    // Actor-isolated instance state because the formatter is not Sendable.
+    private let fractionalISOFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private let plainISOFormatter = ISO8601DateFormatter()
+
     /// Creates a Discord connector.
     public init(
         accountID: String = "bot",
@@ -66,7 +77,7 @@ public actor DiscordConnector: InboxConnector {
         var threads: [InboxThread] = []
         var items: [InboxItem] = []
         for channelID in channelIDs {
-            let response = try await httpClient.data(for: Self.channelMessagesRequest(token: token, channelID: channelID))
+            let response = try await httpClient.data(for: try Self.channelMessagesRequest(token: token, channelID: channelID))
             if let status = statusOverride(from: response) {
                 return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
             }
@@ -100,10 +111,15 @@ public actor DiscordConnector: InboxConnector {
     }
 
     /// Builds a REST request for recent channel messages.
-    public static func channelMessagesRequest(token: String, channelID: String) -> URLRequest {
-        var components = URLComponents(string: "https://discord.com/api/v10/channels/\(channelID)/messages")!
+    public static func channelMessagesRequest(token: String, channelID: String) throws -> URLRequest {
+        guard var components = URLComponents(string: "https://discord.com/api/v10/channels/\(try encodedChannelID(channelID))/messages") else {
+            throw InboxError.invalidParameters("Invalid Discord channel id")
+        }
         components.queryItems = [URLQueryItem(name: "limit", value: "50")]
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw InboxError.invalidParameters("Invalid Discord channel id")
+        }
+        var request = URLRequest(url: url)
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
         return request
     }
@@ -113,7 +129,10 @@ public actor DiscordConnector: InboxConnector {
         guard let channelID = thread.metadata["channel_id"] else {
             throw InboxError.invalidParameters("Discord thread is missing channel_id")
         }
-        var request = URLRequest(url: URL(string: "https://discord.com/api/v10/channels/\(channelID)/messages")!)
+        guard let url = URL(string: "https://discord.com/api/v10/channels/\(try encodedChannelID(channelID))/messages") else {
+            throw InboxError.invalidParameters("Invalid Discord channel id")
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -169,7 +188,7 @@ public actor DiscordConnector: InboxConnector {
         let threadID = identity.threadID(source: .discord, accountID: accountID, externalThreadID: threadExternalID)
         let author = payload["author"] as? [String: Any]
         let sender = (author?["global_name"] as? String) ?? (author?["username"] as? String) ?? "Discord"
-        let timestamp = Self.isoDate((payload["timestamp"] as? String)) ?? Date.now
+        let timestamp = isoDate(payload["timestamp"] as? String) ?? Date.now
         let content = (payload["content"] as? String) ?? ""
         let mentions = payload["mentions"] as? [[String: Any]] ?? []
         let isMention = !mentions.isEmpty || content.contains("@")
@@ -200,6 +219,11 @@ public actor DiscordConnector: InboxConnector {
         if response.statusCode == 429 {
             return InboxConnectorStatus(source: .discord, accountID: accountID, displayName: displayName, status: .rateLimited, message: "Discord rate limit", credentialState: .present, capabilities: capabilities)
         }
+        // Any other non-2xx must surface as an error; falling through would
+        // parse an error body as an empty message list and report success.
+        if !(200...299).contains(response.statusCode) {
+            return InboxConnectorStatus(source: .discord, accountID: accountID, displayName: displayName, status: .error, message: "Discord request failed (HTTP \(response.statusCode))", credentialState: .present, capabilities: capabilities)
+        }
         return nil
     }
 
@@ -207,8 +231,17 @@ public actor DiscordConnector: InboxConnector {
         InboxAccount(source: .discord, accountID: accountID, displayName: displayName, status: status, statusMessage: message, lastSyncAt: lastSyncAt, capabilities: capabilities)
     }
 
-    private static func isoDate(_ raw: String?) -> Date? {
+    /// Percent-encodes a configurable channel id for URL path use so invalid
+    /// characters cannot crash force-unwrapped URL construction.
+    private static func encodedChannelID(_ channelID: String) throws -> String {
+        guard let encoded = channelID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw InboxError.invalidParameters("Invalid Discord channel id")
+        }
+        return encoded
+    }
+
+    private func isoDate(_ raw: String?) -> Date? {
         guard let raw else { return nil }
-        return ISO8601DateFormatter().date(from: raw)
+        return fractionalISOFormatter.date(from: raw) ?? plainISOFormatter.date(from: raw)
     }
 }

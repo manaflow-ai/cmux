@@ -54,6 +54,16 @@ import CmuxInbox
         #expect(result.items.first?.source == .slack)
         #expect(result.items.first?.bodyPreview == "hello slack")
         #expect(await http.authorizationHeaders() == ["Bearer xoxb-test"])
+        // The cursor is a message-ts high-watermark so the next sync only
+        // fetches newer messages instead of the same first page forever.
+        #expect(result.nextCursor == "1700000000.000100")
+        let watermarkHTTP = StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 200, data: Data(#"{"ok":true,"messages":[]}"#.utf8)),
+        ])
+        let watermarked = SlackConnector(channelIDs: ["C123"], tokenStore: tokens, httpClient: watermarkHTTP)
+        let repeated = try await watermarked.sync(cursor: "1700000000.000100")
+        #expect(repeated.nextCursor == "1700000000.000100")
+        #expect(await watermarkHTTP.requestedURLs().first?.contains("oldest=1700000000.000100") == true)
 
         let mention = try await connector.itemFromEventPayload(Data(#"{"event":{"type":"app_mention","channel":"C123","ts":"1700000001.000200","thread_ts":"1700000000.000100","user":"U123","text":"<@bot> help"}}"#.utf8))
         #expect(mention?.isActionable == true)
@@ -68,6 +78,61 @@ import CmuxInbox
             InboxHTTPResponse(statusCode: 401),
         ]))
         #expect(try await expired.sync(cursor: nil).status.status == .tokenExpired)
+    }
+
+    @Test func unmappedHTTPFailuresSurfaceAsErrorsAcrossConnectors() async throws {
+        let fixtures = InboxFixtures()
+        let errorBody = Data(#"{"message":"boom","code":50001}"#.utf8)
+
+        // Discord 500 with a JSON dict body previously parsed as an empty
+        // message array and reported .connected.
+        let discordTokens = MemoryTokenStore(tokens: ["discord:bot": "bot-token"])
+        let discord = DiscordConnector(channelIDs: ["123"], tokenStore: discordTokens, httpClient: StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 500, data: errorBody),
+        ]))
+        #expect(try await discord.sync(cursor: nil).status.status == .error)
+
+        let discordSend = DiscordConnector(channelIDs: ["123"], tokenStore: discordTokens, httpClient: StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 500, data: errorBody),
+        ]))
+        let discordThread = fixtures.thread(source: .discord, metadata: ["channel_id": "123"])
+        await #expect(throws: InboxError.self) {
+            try await discordSend.sendApprovedReply(
+                draft: fixtures.draft(source: .discord, threadID: discordThread.threadID),
+                thread: discordThread
+            )
+        }
+
+        // Slack reports send failures as HTTP 200 + ok:false.
+        let slackTokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
+        let slack = SlackConnector(channelIDs: ["C123"], tokenStore: slackTokens, httpClient: StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 200, data: Data(#"{"ok":false,"error":"channel_not_found"}"#.utf8)),
+        ]))
+        let slackThread = fixtures.thread(source: .slack, metadata: ["channel_id": "C123"])
+        await #expect(throws: InboxError.connectorUnavailable("channel_not_found")) {
+            try await slack.sendApprovedReply(
+                draft: fixtures.draft(source: .slack, threadID: slackThread.threadID),
+                thread: slackThread
+            )
+        }
+
+        let slackSync = SlackConnector(channelIDs: ["C123"], tokenStore: slackTokens, httpClient: StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 502, data: errorBody),
+        ]))
+        #expect(try await slackSync.sync(cursor: nil).status.status == .error)
+
+        // Gmail send previously returned success for unmapped statuses.
+        let gmailTokens = MemoryTokenStore(tokens: ["gmail:me": "gmail-token"])
+        let gmail = GmailConnector(tokenStore: gmailTokens, httpClient: StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 500, data: errorBody),
+        ]))
+        let gmailThread = fixtures.thread(source: .gmail)
+        await #expect(throws: InboxError.self) {
+            try await gmail.sendApprovedReply(
+                draft: fixtures.draft(source: .gmail, threadID: gmailThread.threadID),
+                thread: gmailThread
+            )
+        }
     }
 
     @Test func gmailPollingHistoryRelayAndExpiredCursorAreModeled() async throws {
