@@ -1016,8 +1016,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         CMUXMobileShellStore(
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
-            manualHostTrustStore: manualHostTrustStore,
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            manualHostTrustStore: manualHostTrustStore
         )
     }
 

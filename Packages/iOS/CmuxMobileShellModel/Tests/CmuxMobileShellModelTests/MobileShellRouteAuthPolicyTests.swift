@@ -145,7 +145,7 @@ import Testing
             stackUserID: "user-a"
         ))
 
-        #expect(!await store.isTrusted(approved))
+        #expect(await store.isTrusted(approved) == false)
         await store.trust(approved)
         await store.trust(normalizedIPv6)
         await store.trust(ipv4MappedIPv6)
@@ -153,15 +153,14 @@ import Testing
         #expect(await store.isTrusted(sameHostDifferentCase))
         #expect(await store.isTrusted(bracketedIPv6))
         #expect(await store.isTrusted(bracketedIPv4MappedIPv6))
-        #expect(!await store.isTrusted(differentPort))
-        #expect(!await store.isTrusted(differentAccount))
+        #expect(await store.isTrusted(differentPort) == false)
+        #expect(await store.isTrusted(differentAccount) == false)
     }
 
     @Test func userDefaultsManualHostTrustExpiresApproval() async throws {
         let suiteName = "cmux-manual-host-trust-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
-            defaults.removePersistentDomain(forName: suiteName)
+            UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
         }
         let scope = try #require(MobileManualHostTrustScope(
             host: "studio-mac.local",
@@ -170,19 +169,19 @@ import Testing
         ))
         let key = "manual-host-trust"
         let writer = UserDefaultsMobileManualHostTrustStore(
-            defaults: defaults,
+            suiteName: suiteName,
             key: key,
             trustDuration: 60,
             now: { Date(timeIntervalSince1970: 1_000) }
         )
         let stillValidReader = UserDefaultsMobileManualHostTrustStore(
-            defaults: defaults,
+            suiteName: suiteName,
             key: key,
             trustDuration: 60,
             now: { Date(timeIntervalSince1970: 1_059) }
         )
         let expiredReader = UserDefaultsMobileManualHostTrustStore(
-            defaults: defaults,
+            suiteName: suiteName,
             key: key,
             trustDuration: 60,
             now: { Date(timeIntervalSince1970: 1_061) }
@@ -191,7 +190,7 @@ import Testing
         await writer.trust(scope)
 
         #expect(await stillValidReader.isTrusted(scope))
-        #expect(!await expiredReader.isTrusted(scope))
+        #expect(await expiredReader.isTrusted(scope) == false)
     }
 
     @Test func manualHostTrustWarningFormatsBracketedIPv6Once() throws {

@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobileShellModel
+public import CmuxMobileShellModel
 
 enum PendingManualHostTrust {
     case manual(

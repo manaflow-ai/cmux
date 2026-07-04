@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import OSLog
 
 nonisolated private let manualHostTrustStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "ManualHostTrust")
@@ -22,7 +22,7 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
     public init(
         defaults: UserDefaults = .standard,
         key: String = "cmux.mobile.manualHostTrust.v2",
-        trustDuration: TimeInterval = Self.defaultTrustDuration,
+        trustDuration: TimeInterval = UserDefaultsMobileManualHostTrustStore.defaultTrustDuration,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.defaults = defaults
@@ -40,7 +40,7 @@ public actor UserDefaultsMobileManualHostTrustStore: MobileManualHostTrustStorin
     public init(
         suiteName: String,
         key: String = "cmux.mobile.manualHostTrust.v2",
-        trustDuration: TimeInterval = Self.defaultTrustDuration,
+        trustDuration: TimeInterval = UserDefaultsMobileManualHostTrustStore.defaultTrustDuration,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         if let suiteDefaults = UserDefaults(suiteName: suiteName) {

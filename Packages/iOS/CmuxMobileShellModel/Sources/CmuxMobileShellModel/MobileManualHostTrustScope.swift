@@ -1,4 +1,4 @@
-import CMUXMobileCore
+public import CMUXMobileCore
 import Foundation
 
 /// A narrowly-scoped manual-host trust decision.
