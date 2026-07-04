@@ -393,7 +393,7 @@ import Testing
         var resolverCalls = 0
         let hosts = parser.hosts(configText: "Include loop\n") { argument in
             resolverCalls += 1
-            argument == "loop" ? [selfInclude] : []
+            return argument == "loop" ? [selfInclude] : []
         }
         // Terminates and collects the concrete host exactly once despite the
         // cycle re-emitting it at every level (seenAliases dedups), so both the
