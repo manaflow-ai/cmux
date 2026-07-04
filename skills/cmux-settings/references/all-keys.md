@@ -69,6 +69,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |
 | `sidebar.openPortLinksInCmuxBrowser` | boolean | `true` | Open sidebar port links in the embedded cmux browser. |
 | `sidebar.showSSH` | boolean | `true` | Show SSH connection details. |
+| `sidebar.showSSHHosts` | boolean | `true` | Show the SSH Hosts section listing Host entries from ~/.ssh/config. |
 | `sidebar.showPorts` | boolean | `true` | Show listening ports. |
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
