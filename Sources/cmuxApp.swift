@@ -920,6 +920,10 @@ struct cmuxApp: App {
                 }
             }
             Divider()
+            Button(String(localized: "menu.view.redrawWindow", defaultValue: "Redraw Window")) {
+                activeTabManager.redrawVisibleSurfaces()
+            }
+            Divider()
             splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: menuShortcut(for: .nextSurface)) {
                 activeTabManager.selectNextSurface()
             }
