@@ -28,7 +28,7 @@ enum VSCodeServeWebRuntimeLocator {
         )
         let userDataDirectoryURL = serverDataDirectoryURL
             .appendingPathComponent("user-data", isDirectory: true)
-        let cliDataDirectoryURL = resolveCLIDataDirectoryURL(
+        let cliDataDirectory = resolveCLIDataDirectory(
             serverDataDirectoryURL: serverDataDirectoryURL,
             environment: environment
         )
@@ -43,7 +43,8 @@ enum VSCodeServeWebRuntimeLocator {
         return VSCodeServeWebRuntimeLocation(
             serverDataDirectoryURL: serverDataDirectoryURL,
             userDataDirectoryURL: userDataDirectoryURL,
-            cliDataDirectoryURL: cliDataDirectoryURL,
+            cliDataDirectoryURL: cliDataDirectory.url,
+            cliDataDirectoryIsExternal: cliDataDirectory.isExternal,
             connectionTokenFileURL: connectionTokenFileURL,
             port: port
         )
@@ -63,15 +64,15 @@ enum VSCodeServeWebRuntimeLocator {
             .appendingPathComponent("vscode-serve-web", isDirectory: true)
     }
 
-    private static func resolveCLIDataDirectoryURL(
+    private static func resolveCLIDataDirectory(
         serverDataDirectoryURL: URL,
         environment: [String: String]
-    ) -> URL {
+    ) -> (url: URL, isExternal: Bool) {
         if let override = environment[cliDataDirectoryEnvironmentKey],
            !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return URL(fileURLWithPath: override, isDirectory: true)
+            return (URL(fileURLWithPath: override, isDirectory: true), true)
         }
-        return serverDataDirectoryURL.appendingPathComponent("cli-data", isDirectory: true)
+        return (serverDataDirectoryURL.appendingPathComponent("cli-data", isDirectory: true), false)
     }
 
     /// Resolves the preferred serve-web port to try first: an explicit env

@@ -11,6 +11,8 @@ struct VSCodeServeWebRuntimeLocation: Equatable {
     let userDataDirectoryURL: URL
     /// `VSCODE_CLI_DATA_DIR` for the wrapper's CLI keyring metadata.
     let cliDataDirectoryURL: URL
+    /// Whether `cliDataDirectoryURL` came from an inherited external environment override.
+    let cliDataDirectoryIsExternal: Bool
     /// `--connection-token-file`: a persisted token so the server URL is stable.
     let connectionTokenFileURL: URL
     /// Stable serve-web port (or `0` for the ephemeral fallback attempt).

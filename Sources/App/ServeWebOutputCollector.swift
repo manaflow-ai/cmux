@@ -1,9 +1,12 @@
 import Foundation
 
 final class ServeWebOutputCollector {
+    private static let portCollisionScanTailLength = 64
+
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var outputBuffer = ""
+    private var portCollisionScanTail = ""
     private var resolvedURL: URL?
     private var portCollisionDetected = false
     private var didSignal = false
@@ -24,14 +27,13 @@ final class ServeWebOutputCollector {
         guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
-        if Self.textIndicatesPortCollision(text) {
+        let portCollisionScanText = portCollisionScanTail + text
+        if Self.textIndicatesPortCollision(portCollisionScanText) {
             portCollisionDetected = true
         }
+        portCollisionScanTail = String(portCollisionScanText.suffix(Self.portCollisionScanTailLength))
         guard resolvedURL == nil else { return }
         outputBuffer.append(text)
-        if !portCollisionDetected, Self.textIndicatesPortCollision(outputBuffer) {
-            portCollisionDetected = true
-        }
         while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
             let line = String(outputBuffer[..<newlineIndex])
             outputBuffer.removeSubrange(...newlineIndex)

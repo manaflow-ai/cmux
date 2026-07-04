@@ -357,6 +357,7 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
         XCTAssertEqual(location.serverDataDirectoryURL.path, serverDataDir)
         XCTAssertEqual(location.userDataDirectoryURL.path, serverDataDir + "/user-data")
         XCTAssertEqual(location.cliDataDirectoryURL.path, serverDataDir + "/cli-data")
+        XCTAssertFalse(location.cliDataDirectoryIsExternal)
         XCTAssertEqual(location.connectionTokenFileURL.path, serverDataDir + "/connection-token")
     }
 
@@ -386,6 +387,7 @@ final class VSCodeServeWebRuntimeLocatorTests: XCTestCase {
         )
 
         XCTAssertEqual(location.cliDataDirectoryURL.path, "/tmp/cli-data")
+        XCTAssertTrue(location.cliDataDirectoryIsExternal)
     }
 
     func testDerivedPortIsStableWhenNoOverrideOrPersistedValue() {
@@ -546,6 +548,7 @@ final class VSCodeServeWebLaunchOptionsBuilderTests: XCTestCase {
             serverDataDirectoryURL: serverDataDir,
             userDataDirectoryURL: serverDataDir.appendingPathComponent("user-data", isDirectory: true),
             cliDataDirectoryURL: serverDataDir.appendingPathComponent("cli-data", isDirectory: true),
+            cliDataDirectoryIsExternal: false,
             connectionTokenFileURL: serverDataDir.appendingPathComponent("connection-token", isDirectory: false),
             port: 50080
         )

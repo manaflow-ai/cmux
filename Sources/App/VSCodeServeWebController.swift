@@ -432,16 +432,19 @@ final class VSCodeServeWebController {
         )
 
         let fileManager = FileManager.default
-        // These directories hold long-lived VS Code Web auth, Settings Sync, and
-        // CLI keyring state, so keep them owner-only (0700) to match the 0600
+        // Cmux-owned directories hold long-lived VS Code Web auth, Settings Sync,
+        // and CLI keyring state, so keep them owner-only (0700) to match the 0600
         // connection-token file. serverDataDirectoryURL is created first since it
         // is the parent of the user-data/cli-data subdirectories.
         let ownerOnly: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
-        for directoryURL in [
+        var cmuxOwnedDirectoryURLs = [
             location.serverDataDirectoryURL,
             location.userDataDirectoryURL,
-            location.cliDataDirectoryURL,
-        ] {
+        ]
+        if !location.cliDataDirectoryIsExternal {
+            cmuxOwnedDirectoryURLs.append(location.cliDataDirectoryURL)
+        }
+        for directoryURL in cmuxOwnedDirectoryURLs {
             try? fileManager.createDirectory(
                 at: directoryURL,
                 withIntermediateDirectories: true,
