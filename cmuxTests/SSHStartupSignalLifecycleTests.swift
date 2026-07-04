@@ -1,7 +1,9 @@
+import Foundation
 import Testing
 import Darwin
 
-extension CLINotifyProcessIntegrationRegressionTests {
+@Suite(.serialized)
+struct SSHStartupSignalLifecycleTests {
     @Test func testSSHPaneCloseSignalDoesNotReportSessionEndToSharedTransport() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1063,4 +1065,5 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         return condition(contents)
     }
+
 }
