@@ -85,15 +85,25 @@ public final class ParakeetComposerDictationRecognitionBackend: ComposerDictatio
             return
         }
         updateTask = Task { @MainActor in
+            var settled = false
             for await update in session.updates {
                 switch update {
                 case .partial(let text):
                     resultHandler(.transcript(text, isFinal: false))
                 case .final(let text):
+                    settled = true
                     resultHandler(.transcript(text, isFinal: true))
                 case .failed:
+                    settled = true
                     resultHandler(.failed)
                 }
+            }
+            // The session can close its update stream without a final transcript
+            // (e.g. a graceful stop with nothing new recognized). Mirror the
+            // Apple backend and settle the controller so a graceful stop does not
+            // hang in `.stopping` until the finalize watchdog fires.
+            if !settled, !Task.isCancelled {
+                resultHandler(.finished)
             }
         }
     }

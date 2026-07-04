@@ -8807,6 +8807,23 @@
         }
       }
     },
+    "mobile.voice.apple.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech recognition isn't available on this device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスでは音声認識を利用できません。"
+          }
+        }
+      }
+    },
     "mobile.voice.engine.apple": {
       "extractionState": "manual",
       "localizations": {
@@ -8854,6 +8871,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "約480 MB"
+          }
+        }
+      }
+    },
+    "mobile.voice.parakeet.downloadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't download the voice model. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声モデルをダウンロードできませんでした。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.voice.transcription.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription failed. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字起こしに失敗しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.voice.transcription.finishFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription didn't finish. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字起こしを完了できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.voice.transcription.startFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start voice transcription. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声の文字起こしを開始できませんでした。もう一度お試しください。"
           }
         }
       }

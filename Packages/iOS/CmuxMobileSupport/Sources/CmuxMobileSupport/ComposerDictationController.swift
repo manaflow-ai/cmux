@@ -36,6 +36,14 @@ public final class ComposerDictationController {
 
     /// Factory consulted for every dictation start. The app composition root
     /// swaps this to Parakeet when the user selected it and its model is installed.
+    ///
+    /// This is a composition-root seam rather than an init dependency because the
+    /// two controllers are constructed where no DI path exists today: inside the
+    /// UIKit-hosted `TerminalComposerView` (built by `GhosttySurfaceRepresentable`,
+    /// outside the SwiftUI environment) and inside `CmuxAgentChatUI`, which has no
+    /// dependency on `CmuxVoice`. `AppCompositionRoot` installs the factory once at
+    /// process start, before any composer view can exist; nothing else may mutate it.
+    /// Fold this into constructor injection when composer hosting is unified.
     public static var backendFactory: @MainActor () -> any ComposerDictationRecognitionBackend = {
         AppleComposerDictationRecognitionBackend()
     }

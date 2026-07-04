@@ -51,7 +51,10 @@ import Testing
             Issue.record("Expected failed state")
             return
         }
-        #expect(message.contains("expected"))
+        #expect(!message.isEmpty)
+        // The user-facing message must be cmux-domain copy, never the raw
+        // underlying error string (which leaks domains/codes into the UI).
+        #expect(!message.contains("expected"))
     }
 
     @Test func cancelResetsToIdleWhenNoModelWasInstalled() async throws {

@@ -1,6 +1,9 @@
 import CmuxMobileSupport
 public import Foundation
 public import Observation
+import OSLog
+
+private let parakeetModelStoreLog = Logger(subsystem: "dev.cmux.ios", category: "parakeet-model-store")
 
 /// Owns the Parakeet CoreML model location and download lifecycle.
 @MainActor
@@ -84,7 +87,14 @@ public final class ParakeetModelStore {
                 if Self.isCancellation(error) {
                     self.state = self.installedDetector(self.modelDirectory) ? .installed : .idle
                 } else {
-                    self.state = .failed(error.localizedDescription)
+                    // The raw error string exposes internal domains/codes
+                    // (NSURLErrorDomain, CoreML compile failures) in the settings
+                    // UI; log the detail and show cmux-domain copy instead.
+                    parakeetModelStoreLog.error("Parakeet model download failed: \(error.localizedDescription, privacy: .public)")
+                    self.state = .failed(L10n.string(
+                        "mobile.voice.parakeet.downloadFailed",
+                        defaultValue: "Couldn't download the voice model. Check your connection and try again."
+                    ))
                 }
             }
             if self.downloadAttemptID == attemptID {

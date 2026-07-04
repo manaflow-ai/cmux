@@ -1,7 +1,11 @@
 #if os(iOS)
 @preconcurrency public import AVFoundation
+import CmuxMobileSupport
 import Foundation
+import OSLog
 @preconcurrency public import Speech
+
+private let appleVoiceSessionLog = Logger(subsystem: "dev.cmux.ios", category: "apple-voice-session")
 
 /// A ``VoiceTranscriptionSession`` backed by Apple's Speech framework.
 public final class AppleVoiceTranscriptionSession: VoiceTranscriptionSession {
@@ -22,7 +26,18 @@ public final class AppleVoiceTranscriptionSession: VoiceTranscriptionSession {
         let (stream, continuation) = AsyncStream<VoiceTranscriptionUpdate>.makeStream()
         self.stream = stream
         self.continuation = continuation
-        self.task = recognizer?.recognitionTask(
+        guard let recognizer else {
+            // No recognizer for this locale/device: without failing here the
+            // stream would stay open with no recognition task behind it, so
+            // Voice Mode would run the mic forever with no transcript and no error.
+            continuation.yield(.failed(L10n.string(
+                "mobile.voice.apple.unavailable",
+                defaultValue: "Speech recognition isn't available on this device."
+            )))
+            continuation.finish()
+            return
+        }
+        self.task = recognizer.recognitionTask(
             with: request,
             resultHandler: Self.makeRecognitionResultHandler(continuation: continuation)
         )
@@ -63,7 +78,13 @@ public final class AppleVoiceTranscriptionSession: VoiceTranscriptionSession {
                 continuation.finish()
             }
             if let error {
-                continuation.yield(.failed(error.localizedDescription))
+                // Raw Speech-framework error strings expose internal domains and
+                // codes; log the detail and surface cmux-domain copy instead.
+                appleVoiceSessionLog.error("Speech recognition failed: \(error.localizedDescription, privacy: .public)")
+                continuation.yield(.failed(L10n.string(
+                    "mobile.voice.transcription.failed",
+                    defaultValue: "Transcription failed. Try again."
+                )))
                 continuation.finish()
             }
         }

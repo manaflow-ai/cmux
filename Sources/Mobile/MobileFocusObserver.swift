@@ -56,10 +56,4 @@ final class MobileFocusObserver {
         mobileFocusObserverLog.debug("emitting focus.updated (hash=\(hash, privacy: .public))")
         MobileHostService.shared.emitEvent(topic: "focus.updated", payload: snapshot.jsonObject())
     }
-
-    #if DEBUG
-    static func summaryHashForTesting(tabManager: TabManager) -> Int {
-        MobileFocusSnapshotPayload.snapshot(tabManager: tabManager).summaryHash
-    }
-    #endif
 }

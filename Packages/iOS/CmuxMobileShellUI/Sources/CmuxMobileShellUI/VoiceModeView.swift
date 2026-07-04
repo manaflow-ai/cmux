@@ -17,6 +17,12 @@ struct VoiceModeView: View {
     @State private var audioEngine = ComposerDictationAudioEngine()
     @State private var session: (any VoiceTranscriptionSession)?
     @State private var updateTask: Task<Void, Never>?
+    /// Monotonic token for the current listening attempt. The audio engine
+    /// reports ready ~100-300ms later on its own queue; a stop, failure, or a
+    /// newer start in that window bumps this so the stale callback is discarded
+    /// instead of flipping `isListening` back on (same pattern as
+    /// `ComposerDictationController.startToken`).
+    @State private var sessionGeneration = 0
     @State private var isListening = false
     @State private var isStarting = false
     @State private var partialTranscript = ""
@@ -167,17 +173,27 @@ struct VoiceModeView: View {
     @MainActor
     private func startListening() async {
         guard canStartListening else { return }
+        // A quick stop-then-start can land while the previous session is still
+        // finalizing gracefully. Hard-cancel it first so two transcription
+        // sessions (and their audio taps) can never be live at once.
+        if session != nil || updateTask != nil {
+            clearListeningSession(cancelSession: true, cancelUpdateTask: true)
+        }
+        sessionGeneration += 1
+        let generation = sessionGeneration
         errorMessage = nil
         sendConfirmation = nil
         isStarting = true
         let engine = voiceSettings.effectiveEngine(modelInstalled: parakeetModelStore.isInstalled)
         let permitted = await VoicePermissionRequester().requestPermissions(for: engine)
+        // A stop (or a newer start) may have superseded this attempt while the
+        // permission prompt was up; it must not spin up a session.
+        guard generation == sessionGeneration, isStarting else { return }
         guard permitted else {
             isStarting = false
             errorMessage = L10n.string("mobile.voiceMode.permissionDenied", defaultValue: "Microphone or speech recognition permission is not available.")
             return
         }
-        guard isStarting else { return }
 
         let session: any VoiceTranscriptionSession
         switch engine {
@@ -199,6 +215,9 @@ struct VoiceModeView: View {
             capturedSession.streamAudio(buffer)
         }) { started in
             Task { @MainActor in
+                // A stop, failure, or newer start superseded this attempt while
+                // the engine spun up off-main; its result must not flip state back.
+                guard generation == sessionGeneration else { return }
                 isStarting = false
                 isListening = started
                 if !started {
@@ -211,6 +230,8 @@ struct VoiceModeView: View {
 
     private func stopListening() {
         guard isListening || isStarting || session != nil else { return }
+        // Invalidate any in-flight engine-ready callback for the stopped attempt.
+        sessionGeneration += 1
         isListening = false
         isStarting = false
         audioEngine.stop()
@@ -237,6 +258,9 @@ struct VoiceModeView: View {
     }
 
     private func clearListeningSession(cancelSession: Bool, cancelUpdateTask: Bool) {
+        // Invalidate any in-flight engine-ready callback so it cannot set
+        // `isListening` after this teardown.
+        sessionGeneration += 1
         isListening = false
         isStarting = false
         partialTranscript = ""
