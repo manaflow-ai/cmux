@@ -110,7 +110,6 @@ extension CmuxSettingsFileStore {
                     "titleUpdates": [
                         "coalescing": [
                             "enabled": PanelTitleUpdateCoalescingSettings.defaultEnabled,
-                            "milliseconds": PanelTitleUpdateCoalescingSettings.defaultMilliseconds,
                         ],
                     ],
                     "textBoxMaxLines": TerminalTextBoxInputSettings.defaultMaxLines,
