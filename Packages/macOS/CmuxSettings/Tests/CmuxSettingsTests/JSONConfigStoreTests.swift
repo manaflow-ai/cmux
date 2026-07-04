@@ -175,6 +175,38 @@ struct JSONConfigStoreTests {
         try await store.reset(catalog.app.devWindowDisplay)
         #expect(store.snapshotValue(for: catalog.app.devWindowDisplay) == "")
     }
+
+    @Test func vaultClaudeSessionRootsReadFromSharedConfig() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        try Data(#"{"vault":{"claudeSessionRoots":["~/mounted-claude","/Volumes/dev/.claude/projects"]}}"#.utf8)
+            .write(to: fileURL)
+
+        #expect(store.snapshotValue(for: catalog.vault.claudeSessionRoots) == [
+            "~/mounted-claude",
+            "/Volumes/dev/.claude/projects",
+        ])
+    }
+
+    @Test func vaultPathMappingsDecodePrimaryAndAliasKeys() async throws {
+        let (store, fileURL, catalog) = makeStore()
+        try Data(
+            """
+            {
+              "vault": {
+                "pathMappings": [
+                  { "remotePrefix": "/workspace", "localPrefix": "/Users/alice" },
+                  { "remote": "/remote/src", "local": "~/src" }
+                ]
+              }
+            }
+            """.utf8
+        ).write(to: fileURL)
+
+        #expect(store.snapshotValue(for: catalog.vault.pathMappings) == [
+            VaultPathMapping(remotePrefix: "/workspace", localPrefix: "/Users/alice"),
+            VaultPathMapping(remotePrefix: "/remote/src", localPrefix: "~/src"),
+        ])
+    }
 }
 
 private func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async -> T) async -> T {
