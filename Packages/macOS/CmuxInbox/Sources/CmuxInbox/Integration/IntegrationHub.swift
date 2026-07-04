@@ -108,9 +108,14 @@ public actor IntegrationHub {
     }
 
     /// Connects or records an account, storing token bytes only in Keychain when supplied.
+    ///
+    /// The UI and CLI use `"default"` as an account-id sentinel. Connectors
+    /// read tokens under their canonical account id (Gmail `"me"`, Discord
+    /// `"bot"`), so the sentinel is resolved to the connector's id before any
+    /// token or account write; otherwise saved tokens would never be read.
     /// - Parameters:
     ///   - source: Source service to connect.
-    ///   - accountID: Source account id.
+    ///   - accountID: Source account id, or `"default"` to use the connector's canonical id.
     ///   - displayName: Optional display name.
     ///   - token: Optional secret token bytes as a string.
     public func connect(
@@ -119,18 +124,19 @@ public actor IntegrationHub {
         displayName: String? = nil,
         token: String? = nil
     ) async throws -> InboxConnectorStatus {
+        let connector = connectors[source]
+        let resolvedAccountID = await Self.resolvedAccountID(requested: accountID, connector: connector)
         if let token, !token.isEmpty {
             guard let tokenStore else { throw InboxError.connectorUnavailable("No token store configured") }
-            try await tokenStore.saveToken(Data(token.utf8), source: source, accountID: accountID)
+            try await tokenStore.saveToken(Data(token.utf8), source: source, accountID: resolvedAccountID)
         }
-        let connector = connectors[source]
         let capabilities = connector?.capabilities ?? []
-        let credentialState = await tokenStore?.credentialState(source: source, accountID: accountID) ?? .missing
+        let credentialState = await tokenStore?.credentialState(source: source, accountID: resolvedAccountID) ?? .missing
         let requiresCredential = source == .gmail || source == .slack || source == .discord
         let status: InboxAccountStatus = requiresCredential && credentialState != .present ? .missingCredentials : .connected
         let account = InboxAccount(
             source: source,
-            accountID: accountID,
+            accountID: resolvedAccountID,
             displayName: displayName ?? source.rawValue,
             status: status,
             statusMessage: status == .connected ? nil : "Credential required",
@@ -140,7 +146,7 @@ public actor IntegrationHub {
         notify(.accounts)
         return InboxConnectorStatus(
             source: source,
-            accountID: accountID,
+            accountID: resolvedAccountID,
             displayName: account.displayName,
             status: status,
             message: account.statusMessage,
@@ -152,13 +158,15 @@ public actor IntegrationHub {
     /// Disconnects an account and removes its token from Keychain when available.
     /// - Parameters:
     ///   - source: Source service to disconnect.
-    ///   - accountID: Source account id.
+    ///   - accountID: Source account id, or `"default"` to use the connector's canonical id.
     public func disconnect(source: InboxSource, accountID: String = "default") async throws -> InboxConnectorStatus {
-        try await tokenStore?.deleteToken(source: source, accountID: accountID)
-        let capabilities = connectors[source]?.capabilities ?? []
+        let connector = connectors[source]
+        let resolvedAccountID = await Self.resolvedAccountID(requested: accountID, connector: connector)
+        try await tokenStore?.deleteToken(source: source, accountID: resolvedAccountID)
+        let capabilities = connector?.capabilities ?? []
         let account = InboxAccount(
             source: source,
-            accountID: accountID,
+            accountID: resolvedAccountID,
             displayName: source.rawValue,
             status: .disconnected,
             statusMessage: nil,
@@ -168,12 +176,22 @@ public actor IntegrationHub {
         notify(.accounts)
         return InboxConnectorStatus(
             source: source,
-            accountID: accountID,
+            accountID: resolvedAccountID,
             displayName: account.displayName,
             status: .disconnected,
             credentialState: .missing,
             capabilities: capabilities
         )
+    }
+
+    /// Maps the `"default"` account-id sentinel to the connector's canonical
+    /// account id so token storage and connector token reads share one slot.
+    private static func resolvedAccountID(
+        requested: String,
+        connector: (any InboxConnector)?
+    ) async -> String {
+        guard requested == "default", let connector else { return requested }
+        return await connector.status().accountID ?? requested
     }
 
     /// Lists local inbox items.

@@ -64,6 +64,32 @@ import CmuxInbox
         #expect(String(data: databaseBytes, encoding: .utf8)?.contains("super-secret-token") != true)
     }
 
+    @Test func connectResolvesDefaultSentinelToConnectorCanonicalAccountID() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let tokens = MemoryTokenStore()
+        let http = StubHTTPClient(responses: [])
+        let gmail = GmailConnector(tokenStore: tokens, httpClient: http)
+        let hub = IntegrationHub(store: store, connectors: [gmail], tokenStore: tokens)
+
+        // Settings and the CLI default to accountID "default"; GmailConnector
+        // reads tokens under its canonical "me". Connect must store the token
+        // where the connector will read it, and disconnect must delete it there.
+        let status = try await hub.connect(source: .gmail, accountID: "default", token: "gmail-oauth-token")
+        #expect(status.accountID == "me")
+        #expect(status.status == .connected)
+        #expect(try await tokens.token(source: .gmail, accountID: "me") == Data("gmail-oauth-token".utf8))
+        #expect(try await tokens.token(source: .gmail, accountID: "default") == nil)
+        #expect(try await hub.accounts().map(\.accountID) == ["me"])
+
+        _ = try await hub.disconnect(source: .gmail, accountID: "default")
+        #expect(try await tokens.token(source: .gmail, accountID: "me") == nil)
+
+        // Explicit non-sentinel account ids are respected untouched.
+        let explicit = try await hub.connect(source: .gmail, accountID: "work@example.com", token: "work-token")
+        #expect(explicit.accountID == "work@example.com")
+        #expect(try await tokens.token(source: .gmail, accountID: "work@example.com") == Data("work-token".utf8))
+    }
+
     @Test func approvedSendDeliversLatestPersistedDraftBody() async throws {
         let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
         let connector = StubConnector(source: .generic, capabilities: [.backfill, .sendReply])
