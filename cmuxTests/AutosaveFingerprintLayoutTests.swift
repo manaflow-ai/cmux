@@ -29,14 +29,16 @@ struct AutosaveFingerprintLayoutTests {
 
         // Sanity: both surfaces live in the same pane in [first, second] order.
         #expect(workspace.sidebarOrderedPanelIds() == [firstPanelId, secondPanelId])
+        #expect(workspace.focusedPanelId == secondPanelId)
 
         let fingerprintBeforeReorder = manager.sessionAutosaveFingerprint()
 
         // Reorder the surfaces so the pane now holds [second, first]. The panel
         // *set* and the selected surface are unchanged — only the order differs,
         // which the old UUID-sorted hash could not see.
-        #expect(workspace.reorderSurface(panelId: secondPanelId, toIndex: 0))
+        #expect(workspace.reorderSurface(panelId: secondPanelId, toIndex: 0, focus: false))
         #expect(workspace.sidebarOrderedPanelIds() == [secondPanelId, firstPanelId])
+        #expect(workspace.focusedPanelId == secondPanelId)
 
         let fingerprintAfterReorder = manager.sessionAutosaveFingerprint()
 
