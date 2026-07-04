@@ -121,6 +121,27 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func waitUntilLoadedTimesOutWhenLoadHangs() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        let hungLoad = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+        defer { hungLoad.cancel() }
+        manager.loadTask = hungLoad
+
+        // Must return via the timeout even though the load task never finishes,
+        // so a hung extension load cannot block panel navigation forever.
+        await manager.waitUntilLoaded(timeout: .milliseconds(50))
+
+        #expect(!manager.isLoaded)
+    }
+
+    @available(macOS 15.4, *)
     @Test func runtimePermissionPromptsGrantOnlyManifestDeclaredSet() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }

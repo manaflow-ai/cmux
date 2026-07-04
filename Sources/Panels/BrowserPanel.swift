@@ -3420,12 +3420,14 @@ final class BrowserPanel: Panel, ObservableObject {
                 refreshNavigationAvailability()
                 return
             }
-            navigateWithoutInsecureHTTPPrompt(
-                to: restoreURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true,
-                cachePolicy: cachePolicy
-            )
+            runWhenWebExtensionsLoaded { [self] in
+                navigateWithoutInsecureHTTPPrompt(
+                    to: restoreURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true,
+                    cachePolicy: cachePolicy
+                )
+            }
         }
     }
 
@@ -4115,30 +4117,31 @@ final class BrowserPanel: Panel, ObservableObject {
                     )
                 }
             }
-            if #available(macOS 15.4, *), let manager = BrowserWebExtensionsManager.shared, !manager.isLoaded {
-                Task { @MainActor in
-                    await manager.waitUntilLoaded()
-                    guard !isClosingWebViewLifecycle else { return }
-                    navigateInitialRequest()
-                }
-            } else {
-                navigateInitialRequest()
-            }
+            runWhenWebExtensionsLoaded(navigateInitialRequest)
         } else if let url = initialURL {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
-            let navigateInitialURL = { [self] in navigate(to: url) }
-            if #available(macOS 15.4, *), let manager = BrowserWebExtensionsManager.shared, !manager.isLoaded {
-                Task { @MainActor in
-                    await manager.waitUntilLoaded()
-                    guard !isClosingWebViewLifecycle else { return }
-                    navigateInitialURL()
-                }
-            } else {
-                navigateInitialURL()
+            runWhenWebExtensionsLoaded { [self] in navigate(to: url) }
+        }
+    }
+
+    /// Runs `navigation` only after the shared web-extension load finishes so
+    /// a webview's first page load never races extension content-script
+    /// injection. Synchronous when extensions are loaded or absent, keeping
+    /// common-case navigation timing unchanged; `waitUntilLoaded`'s timeout
+    /// bounds the deferral when a load is in flight. Shared by initial
+    /// request/URL navigation and discarded-webview session restore.
+    private func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
+        if #available(macOS 15.4, *), let manager = BrowserWebExtensionsManager.shared, !manager.isLoaded {
+            Task { @MainActor [self] in
+                await manager.waitUntilLoaded()
+                guard !isClosingWebViewLifecycle else { return }
+                navigation()
             }
+        } else {
+            navigation()
         }
     }
 

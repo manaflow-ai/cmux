@@ -45,6 +45,7 @@ final class BrowserWebExtensionsManager: NSObject {
     let directory: URL
     var loadTask: Task<Void, Never>?
     private(set) var isLoaded = false
+    private var loadWaiters: [CheckedContinuation<Void, Never>] = []
     private(set) var loadedContexts: [WKWebExtensionContext] = []
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
 
@@ -80,13 +81,36 @@ final class BrowserWebExtensionsManager: NSObject {
         loadTask = Task { await loadExtensions() }
     }
 
-    func waitUntilLoaded() async {
-        guard !isLoaded, let loadTask else { return }
-        await loadTask.value
+    /// Suspends until the in-flight extension load finishes, bounded by
+    /// `timeout` so a hung or pathologically slow load degrades to navigating
+    /// without extensions instead of blocking every panel's first navigation
+    /// forever. Returns immediately when loading already finished or never
+    /// started.
+    func waitUntilLoaded(
+        timeout: Duration = .seconds(5),
+        clock: any Clock<Duration> = ContinuousClock()
+    ) async {
+        guard !isLoaded, loadTask != nil else { return }
+        let timeoutTask = Task { @MainActor in
+            try? await clock.sleep(for: timeout, tolerance: nil)
+            guard !Task.isCancelled else { return }
+            resumeLoadWaiters()
+        }
+        await withCheckedContinuation { loadWaiters.append($0) }
+        timeoutTask.cancel()
+    }
+
+    private func resumeLoadWaiters() {
+        let waiters = loadWaiters
+        loadWaiters = []
+        for waiter in waiters { waiter.resume() }
     }
 
     func loadExtensions() async {
-        defer { isLoaded = true }
+        defer {
+            isLoaded = true
+            resumeLoadWaiters()
+        }
         for url in Self.candidateURLs(in: directory) {
             do {
                 let webExtension = try await WKWebExtension(resourceBaseURL: url)
