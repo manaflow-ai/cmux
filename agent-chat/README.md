@@ -64,6 +64,42 @@ Capability differences are absorbed by the schema, not the UI:
 | gemini    | ACP persistent stdio | deltas    | yes           | ACP session                | `--yolo` or request_permission |
 | pi        | persistent stdio     | deltas    | yes           | persistent proc            | none (always executes) |
 
+Runtime options are declared by adapters as `SessionOption[]` and replayed as
+`options` events. React renders the schema generically; provider-specific logic
+stays in adapters.
+
+| provider | option | mechanism |
+|----------|--------|-----------|
+| claude | model | `control_request` `list_models` / `set_model`; `default` omits model to reset |
+| claude | mode | `set_permission_mode` (`default`, `acceptEdits`, `plan`, `bypassPermissions`, `dontAsk`, `auto`) |
+| claude | thinking | `set_max_thinking_tokens` (`0`, `4096`, `16384`, `32768`) |
+| claude | effort, fast | `apply_flag_settings` with `{effortLevel}` / `{fastMode}`; verified accepted by Claude 2.1.201 |
+| codex | model | `model/list`; stored on the session and applied through `turn/start` / `thread/settings/update` |
+| codex | effort | selected model's `supportedReasoningEfforts` |
+| codex | fast | selected model service tier whose id/name/description advertises fast/priority |
+| codex | approvals, sandbox | `approvalPolicy` and `sandboxPolicy` turn/thread overrides |
+| codex | mode | real `collaborationMode/list` + `collaborationMode` setter; app-server requires `experimentalApi` capability |
+| codex | skills | `skills/list`, emitted as `$` commands |
+| pi | model | RPC `get_available_models` / `set_model {provider, modelId}` |
+| pi | thinking | RPC `set_thinking_level` |
+| pi | commands | RPC `get_commands`, emitted as `/` commands |
+| opencode/gemini ACP | model, mode | `session/new` `configOptions` / ACP `modes`; opencode setter is `session/set_config_option` (`session/set_config` is not supported by 1.17.13) |
+| opencode/gemini ACP | commands | `available_commands_update`, emitted as `/` commands; opencode accepts slash command prompt text and routes it to `session.command` |
+
+Keyboard shortcuts are defined once in `src/keymap.ts` and the toolbar plus
+keyboard handler both call the same `setOption` path:
+
+| shortcut | action |
+|----------|--------|
+| `Shift+Tab` | cycle mode-like option |
+| `Ctrl+P` | cycle model |
+| `Ctrl+Shift+P` | open model select |
+| `Ctrl+T` | cycle thinking/effort |
+| `Ctrl+F` | toggle fast mode |
+| `Ctrl+Shift+M` | toggle plan mode |
+| `Esc` | interrupt running turn, else close popup/overlay |
+| `Ctrl+/` or `?` on an empty input | shortcut help overlay |
+
 Adding a provider is either one registry entry (ACP-speaking: id + cmd) or one small adapter file (bespoke stream-JSON). Nothing in the UI changes.
 
 ### Known env quirks (this machine)

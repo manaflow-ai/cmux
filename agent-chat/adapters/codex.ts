@@ -1,10 +1,10 @@
-import type { Adapter, SessionCtx } from "../types";
+import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 
 // Codex: one shared `codex app-server` process (JSON-RPC over NDJSON stdio,
 // the same interface the codex IDE extension uses) hosts a thread per chat
-// session. Streaming comes from item/agentMessage/delta notifications; turn
-// lifecycle from turn/started / turn/completed / turn/failed.
+// session. Options are thread settings and turn overrides; mid-turn sends use
+// turn/steer with the active turn id.
 
 interface AppServer {
   proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
@@ -13,8 +13,131 @@ interface AppServer {
   sessionsByThread: Map<string, SessionCtx>;
 }
 
+interface ModelInfo {
+  value: string;
+  label: string;
+  description?: string;
+  efforts: OptionChoice[];
+  defaultEffort: string;
+  serviceTiers: { id: string; name: string; description?: string }[];
+  defaultServiceTier: string | null;
+  isDefault?: boolean;
+}
+
+interface CodexState {
+  models: ModelInfo[];
+  modes: OptionChoice[];
+  model: string;
+  effort: string;
+  approvals: string;
+  sandbox: string;
+  fastMode: boolean;
+  mode: string;
+  currentTurnId?: string;
+  turnWaiters: ((id: string | null) => void)[];
+  commands: CommandEntry[];
+}
+
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
+
+const FALLBACK_EFFORTS: OptionChoice[] = ["low", "medium", "high", "xhigh"].map((value) => ({ value, label: value }));
+const APPROVAL_CHOICES: OptionChoice[] = [
+  { value: "untrusted", label: "Untrusted" },
+  { value: "on-request", label: "On request" },
+  { value: "on-failure", label: "On failure" },
+  { value: "never", label: "Never" },
+];
+const SANDBOX_CHOICES: OptionChoice[] = [
+  { value: "read-only", label: "Read only" },
+  { value: "workspace-write", label: "Workspace write" },
+  { value: "danger-full-access", label: "Danger full access" },
+];
+
+export const codexAdapter: Adapter = {
+  capabilities: {
+    triggers: ["$"],
+    options: [
+      { id: "model", label: "Model", kind: "select", value: "", disabled: true, description: "Loads at start" },
+      { id: "effort", label: "Effort", kind: "select", value: "medium", choices: FALLBACK_EFFORTS },
+      { id: "approvals", label: "Approvals", kind: "select", value: "never", choices: APPROVAL_CHOICES },
+      { id: "sandbox", label: "Sandbox", kind: "select", value: "workspace-write", choices: SANDBOX_CHOICES },
+      { id: "mode", label: "Mode", kind: "select", value: "default", choices: [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }] },
+    ],
+  },
+  async send(sess, prompt) {
+    try {
+      const srv = await ensureServer();
+      const st = await ensureCodexState(sess);
+      let threadId = sess.internal.threadId as string | undefined;
+      if (!threadId) {
+        const res = await srv.request("thread/start", { cwd: sess.cwd });
+        threadId = res.thread?.id;
+        if (!threadId) throw new Error("codex thread/start returned no thread id");
+        sess.internal.threadId = threadId;
+        srv.sessionsByThread.set(threadId, sess);
+        sess.emit({ kind: "meta", providerSessionId: threadId });
+        emitOptions(sess);
+        await refreshCommands(sess);
+      }
+      if (sess.status === "running") {
+        const turnId = st.currentTurnId ?? await waitForTurnId(st);
+        if (!turnId) throw new Error("codex turn is still starting");
+        await srv.request("turn/steer", {
+          threadId,
+          expectedTurnId: turnId,
+          input: [{ type: "text", text: prompt }],
+        });
+        return;
+      }
+      sess.setStatus("running");
+      await srv.request("turn/start", {
+        threadId,
+        input: [{ type: "text", text: prompt }],
+        model: st.model || null,
+        effort: st.effort || null,
+        serviceTier: st.fastMode ? fastTier(st)?.id ?? null : null,
+        approvalPolicy: st.approvals,
+        sandboxPolicy: sandboxPolicy(st.sandbox, sess.cwd),
+        collaborationMode: collaborationMode(st),
+      });
+      // Completion arrives via the turn/completed notification.
+    } catch (err) {
+      sess.emit({ kind: "error", message: truncate(String(err), 400) });
+      sess.emit({ kind: "done" });
+      sess.setStatus("idle");
+    }
+  },
+  stop(sess) {
+    const threadId = sess.internal.threadId as string | undefined;
+    if (threadId && shared) shared.request("turn/interrupt", { threadId }).catch(() => {});
+  },
+  dispose(sess) {
+    const threadId = sess.internal.threadId as string | undefined;
+    if (threadId && shared) shared.sessionsByThread.delete(threadId);
+  },
+  async setOption(sess, id, value) {
+    await setCodexOption(sess, id, value);
+  },
+  async refreshOptions(sess) {
+    await ensureCodexState(sess, true);
+    emitOptions(sess);
+    await refreshCommands(sess);
+  },
+  async listOptions() {
+    const models = await listModels();
+    const modes = await listModes();
+    const st = defaultState(true);
+    st.models = models;
+    st.modes = modes;
+    st.model = initialModel(models, "");
+    st.effort = effortForModel(st).value;
+    return buildOptions(st);
+  },
+  async listCommands(cwd) {
+    return [{ trigger: "$", commands: await listSkills(cwd) }];
+  },
+};
 
 async function ensureServer(): Promise<AppServer> {
   if (shared && shared.proc.exitCode === null && !shared.proc.killed) return shared;
@@ -73,7 +196,10 @@ async function startServer(): Promise<AppServer> {
   });
   readLines(proc.stderr, () => {});
 
-  await request("initialize", { clientInfo: { name: "cmux", title: "cmux", version: "0.1" } });
+  await request("initialize", {
+    clientInfo: { name: "cmux", title: "cmux", version: "0.1" },
+    capabilities: { experimentalApi: true, requestAttestation: false },
+  });
   shared = srv;
   return srv;
 }
@@ -92,8 +218,19 @@ function handleServerMessage(srv: AppServer, msg: any) {
     return;
   }
   if (!sess) return;
+  const st = codexState(sess);
 
   switch (msg.method) {
+    case "turn/started":
+      st.currentTurnId = p.turn?.id;
+      resolveTurnWaiters(st, st.currentTurnId ?? null);
+      break;
+    case "thread/settings/updated":
+      applyThreadSettings(sess, p.settings);
+      break;
+    case "skills/changed":
+      refreshCommands(sess).catch(() => {});
+      break;
     case "item/agentMessage/delta":
       if (p.delta) {
         (sess.internal.deltaItems as Set<string>).add(p.itemId);
@@ -102,6 +239,8 @@ function handleServerMessage(srv: AppServer, msg: any) {
       break;
     case "item/reasoning/delta":
     case "item/reasoningSummary/delta":
+    case "item/reasoning/textDelta":
+    case "item/reasoning/summaryTextDelta":
       if (p.delta) sess.emit({ kind: "thinking", text: p.delta });
       break;
     case "item/started":
@@ -114,6 +253,8 @@ function handleServerMessage(srv: AppServer, msg: any) {
       sess.internal.lastUsage = p.tokenUsage?.total;
       break;
     case "turn/completed": {
+      st.currentTurnId = undefined;
+      resolveTurnWaiters(st, null);
       const u = sess.internal.lastUsage as any;
       const secs = p.turn?.durationMs != null ? `${(p.turn.durationMs / 1000).toFixed(1)}s` : null;
       const stats = [
@@ -125,6 +266,8 @@ function handleServerMessage(srv: AppServer, msg: any) {
       break;
     }
     case "turn/failed": {
+      st.currentTurnId = undefined;
+      resolveTurnWaiters(st, null);
       sess.emit({ kind: "error", message: truncate(p.error?.message ?? p.turn?.error?.message ?? "turn failed", 400) });
       sess.emit({ kind: "done" });
       sess.setStatus("idle");
@@ -156,8 +299,6 @@ function itemCompleted(sess: SessionCtx, item: any) {
   if (!item) return;
   switch (item.type) {
     case "agentMessage": {
-      // Streaming already delivered deltas for this item; only emit the full
-      // text when no delta arrived (e.g. replayed items).
       const seen = sess.internal.deltaItems as Set<string>;
       if (item.text && !seen.has(item.id)) sess.emit({ kind: "assistant", text: item.text });
       seen.delete(item.id);
@@ -191,40 +332,281 @@ function summarizeChanges(item: any): string {
   return item.status ?? "file change";
 }
 
-export const codexAdapter: Adapter = {
-  async send(sess, prompt) {
-    sess.setStatus("running");
-    try {
-      const srv = await ensureServer();
-      sess.internal.deltaItems ??= new Set<string>();
-      let threadId = sess.internal.threadId as string | undefined;
-      if (!threadId) {
-        const res = await srv.request("thread/start", { cwd: sess.cwd });
-        threadId = res.thread?.id;
-        if (!threadId) throw new Error("codex thread/start returned no thread id");
-        sess.internal.threadId = threadId;
-        srv.sessionsByThread.set(threadId, sess);
-        sess.emit({ kind: "meta", providerSessionId: threadId });
-      }
-      await srv.request("turn/start", {
-        threadId,
-        input: [{ type: "text", text: prompt }],
-      });
-      // Completion arrives via the turn/completed notification.
-    } catch (err) {
-      sess.emit({ kind: "error", message: truncate(String(err), 400) });
-      sess.emit({ kind: "done" });
-      sess.setStatus("idle");
-    }
-  },
-  stop(sess) {
-    const threadId = sess.internal.threadId as string | undefined;
-    if (threadId && shared) {
-      shared.request("turn/interrupt", { threadId }).catch(() => {});
-    }
-  },
-  dispose(sess) {
-    const threadId = sess.internal.threadId as string | undefined;
-    if (threadId && shared) shared.sessionsByThread.delete(threadId);
-  },
-};
+function defaultState(autoApprove: boolean): CodexState {
+  return {
+    models: [],
+    modes: [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }],
+    model: "",
+    effort: "medium",
+    approvals: autoApprove ? "never" : "on-request",
+    sandbox: autoApprove ? "workspace-write" : "read-only",
+    fastMode: false,
+    mode: "default",
+    turnWaiters: [],
+    commands: [],
+  };
+}
+
+function waitForTurnId(st: CodexState): Promise<string | null> {
+  if (st.currentTurnId) return Promise.resolve(st.currentTurnId);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      st.turnWaiters = st.turnWaiters.filter((r) => r !== done);
+      resolve(null);
+    }, 5_000);
+    const done = (id: string | null) => {
+      clearTimeout(timer);
+      resolve(id);
+    };
+    st.turnWaiters.push(done);
+  });
+}
+
+function resolveTurnWaiters(st: CodexState, id: string | null) {
+  const waiters = st.turnWaiters.splice(0);
+  for (const resolve of waiters) resolve(id);
+}
+
+function codexState(sess: SessionCtx): CodexState {
+  let st = sess.internal.codex as CodexState | undefined;
+  if (!st) {
+    st = defaultState(sess.autoApprove);
+    if (typeof sess.startOptions.model === "string") st.model = sess.startOptions.model;
+    if (typeof sess.startOptions.effort === "string") st.effort = sess.startOptions.effort;
+    if (typeof sess.startOptions.approvals === "string") st.approvals = sess.startOptions.approvals;
+    if (typeof sess.startOptions.sandbox === "string") st.sandbox = sess.startOptions.sandbox;
+    if (typeof sess.startOptions.fastMode === "boolean") st.fastMode = sess.startOptions.fastMode;
+    if (typeof sess.startOptions.mode === "string") st.mode = sess.startOptions.mode;
+    sess.internal.codex = st;
+  }
+  return st;
+}
+
+async function ensureCodexState(sess: SessionCtx, force = false): Promise<CodexState> {
+  const st = codexState(sess);
+  if (force || !st.models.length) st.models = await listModels();
+  if (force || !st.modes.length) st.modes = await listModes();
+  if (!st.model) st.model = initialModel(st.models, st.model);
+  const effort = effortForModel(st);
+  if (!effort.choices.some((c) => c.value === st.effort)) st.effort = effort.value;
+  sess.internal.deltaItems ??= new Set<string>();
+  return st;
+}
+
+async function setCodexOption(sess: SessionCtx, id: string, value: OptionValue) {
+  const st = await ensureCodexState(sess);
+  switch (id) {
+    case "model":
+      if (typeof value !== "string") throw new Error("model must be a string");
+      st.model = value;
+      if (!effortForModel(st).choices.some((c) => c.value === st.effort)) st.effort = effortForModel(st).value;
+      break;
+    case "effort":
+      if (typeof value !== "string") throw new Error("effort must be a string");
+      st.effort = value;
+      break;
+    case "fastMode":
+      if (typeof value !== "boolean") throw new Error("fastMode must be boolean");
+      st.fastMode = value;
+      break;
+    case "approvals":
+      if (typeof value !== "string") throw new Error("approvals must be a string");
+      st.approvals = value;
+      break;
+    case "sandbox":
+      if (typeof value !== "string") throw new Error("sandbox must be a string");
+      st.sandbox = value;
+      break;
+    case "mode":
+      if (typeof value !== "string") throw new Error("mode must be a string");
+      st.mode = value;
+      break;
+    default:
+      throw new Error(`unsupported codex option: ${id}`);
+  }
+  const threadId = sess.internal.threadId as string | undefined;
+  if (threadId) {
+    const srv = await ensureServer();
+    await srv.request("thread/settings/update", {
+      threadId,
+      model: st.model || null,
+      effort: st.effort || null,
+      serviceTier: st.fastMode ? fastTier(st)?.id ?? null : null,
+      approvalPolicy: st.approvals,
+      sandboxPolicy: sandboxPolicy(st.sandbox, sess.cwd),
+      collaborationMode: collaborationMode(st),
+    });
+  }
+  emitOptions(sess);
+}
+
+function emitOptions(sess: SessionCtx) {
+  sess.emit({ kind: "options", options: buildOptions(codexState(sess)) });
+}
+
+function buildOptions(st: CodexState): SessionOption[] {
+  const effort = effortForModel(st);
+  const opts: SessionOption[] = [
+    {
+      id: "model",
+      label: "Model",
+      kind: "select",
+      value: st.model,
+      choices: st.models.map((m) => ({ value: m.value, label: m.label, description: m.description })),
+      disabled: !st.models.length,
+    },
+    { id: "effort", label: "Effort", kind: "select", value: st.effort, choices: effort.choices },
+  ];
+  if (fastTier(st)) opts.push({ id: "fastMode", label: "Fast", kind: "toggle", value: st.fastMode });
+  opts.push(
+    { id: "approvals", label: "Approvals", kind: "select", value: st.approvals, choices: APPROVAL_CHOICES },
+    { id: "sandbox", label: "Sandbox", kind: "select", value: st.sandbox, choices: SANDBOX_CHOICES },
+    { id: "mode", label: "Mode", kind: "select", value: st.mode, choices: st.modes },
+  );
+  return opts;
+}
+
+async function listModels(): Promise<ModelInfo[]> {
+  const srv = await ensureServer();
+  const out: ModelInfo[] = [];
+  let cursor: string | null = null;
+  do {
+    const res = await srv.request("model/list", { includeHidden: false, cursor });
+    for (const m of res.data ?? []) out.push(normalizeModel(m));
+    cursor = res.nextCursor ?? null;
+  } while (cursor);
+  return out;
+}
+
+function normalizeModel(m: any): ModelInfo {
+  const efforts = Array.isArray(m.supportedReasoningEfforts) && m.supportedReasoningEfforts.length
+    ? m.supportedReasoningEfforts.map((e: any) => ({
+      value: String(e.reasoningEffort ?? e),
+      label: String(e.reasoningEffort ?? e),
+      description: e.description ? String(e.description) : undefined,
+    }))
+    : FALLBACK_EFFORTS;
+  return {
+    value: String(m.model ?? m.id),
+    label: String(m.displayName ?? m.model ?? m.id),
+    description: m.description ? String(m.description) : undefined,
+    efforts,
+    defaultEffort: String(m.defaultReasoningEffort ?? efforts[0]?.value ?? "medium"),
+    serviceTiers: (m.serviceTiers ?? []).map((t: any) => ({
+      id: String(t.id),
+      name: String(t.name ?? t.id),
+      description: t.description ? String(t.description) : undefined,
+    })),
+    defaultServiceTier: m.defaultServiceTier ?? null,
+    isDefault: Boolean(m.isDefault),
+  };
+}
+
+async function listModes(): Promise<OptionChoice[]> {
+  try {
+    const srv = await ensureServer();
+    const res = await srv.request("collaborationMode/list", {});
+    const choices = (res.data ?? [])
+      .map((m: any) => ({
+        value: String(m.mode ?? m.name),
+        label: String(m.name ?? m.mode ?? "mode"),
+        description: m.reasoning_effort ? `effort: ${m.reasoning_effort}` : undefined,
+      }))
+      .filter((c: OptionChoice) => c.value === "default" || c.value === "plan");
+    if (choices.length) return uniqueChoices(choices);
+  } catch {
+    // Older app-server builds or missing experimental capability fall back here.
+  }
+  return [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }];
+}
+
+function uniqueChoices(choices: OptionChoice[]): OptionChoice[] {
+  const seen = new Set<string>();
+  return choices.filter((c) => {
+    if (seen.has(c.value)) return false;
+    seen.add(c.value);
+    return true;
+  });
+}
+
+function initialModel(models: ModelInfo[], requested: string): string {
+  if (requested && models.some((m) => m.value === requested)) return requested;
+  return models.find((m) => m.isDefault)?.value ?? models[0]?.value ?? requested;
+}
+
+function selectedModel(st: CodexState): ModelInfo | undefined {
+  return st.models.find((m) => m.value === st.model) ?? st.models[0];
+}
+
+function effortForModel(st: CodexState): { value: string; choices: OptionChoice[] } {
+  const m = selectedModel(st);
+  const choices = m?.efforts.length ? m.efforts : FALLBACK_EFFORTS;
+  const value = choices.some((c) => c.value === st.effort)
+    ? st.effort
+    : (m?.defaultEffort && choices.some((c) => c.value === m.defaultEffort) ? m.defaultEffort : choices[0]?.value ?? "medium");
+  return { value, choices };
+}
+
+function fastTier(st: CodexState): { id: string; name: string; description?: string } | undefined {
+  return selectedModel(st)?.serviceTiers.find((t) => /fast|priority/i.test(`${t.id} ${t.name} ${t.description ?? ""}`));
+}
+
+function sandboxPolicy(value: string, cwd: string): any {
+  switch (value) {
+    case "danger-full-access":
+      return { type: "dangerFullAccess" };
+    case "workspace-write":
+      return { type: "workspaceWrite", writableRoots: [cwd], networkAccess: true, excludeTmpdirEnvVar: false, excludeSlashTmp: false };
+    case "read-only":
+    default:
+      return { type: "readOnly", networkAccess: true };
+  }
+}
+
+function collaborationMode(st: CodexState): any {
+  const mode = st.mode === "plan" ? "plan" : "default";
+  return {
+    mode,
+    settings: {
+      model: st.model,
+      reasoning_effort: st.effort || null,
+      developer_instructions: null,
+    },
+  };
+}
+
+function applyThreadSettings(sess: SessionCtx, settings: any) {
+  if (!settings) return;
+  const st = codexState(sess);
+  if (settings.model) st.model = String(settings.model);
+  if (settings.effort) st.effort = String(settings.effort);
+  if (settings.serviceTier !== undefined) st.fastMode = Boolean(settings.serviceTier && settings.serviceTier === fastTier(st)?.id);
+  if (settings.approvalPolicy && typeof settings.approvalPolicy === "string") st.approvals = settings.approvalPolicy;
+  if (settings.sandboxPolicy?.type) st.sandbox = sandboxValue(settings.sandboxPolicy.type);
+  if (settings.collaborationMode?.mode) st.mode = String(settings.collaborationMode.mode);
+  emitOptions(sess);
+}
+
+function sandboxValue(type: string): string {
+  if (type === "dangerFullAccess") return "danger-full-access";
+  if (type === "workspaceWrite") return "workspace-write";
+  return "read-only";
+}
+
+async function refreshCommands(sess: SessionCtx) {
+  const commands = await listSkills(sess.cwd);
+  codexState(sess).commands = commands;
+  sess.emit({ kind: "commands", trigger: "$", commands });
+}
+
+async function listSkills(cwd: string): Promise<CommandEntry[]> {
+  const srv = await ensureServer();
+  const res = await srv.request("skills/list", { cwds: [cwd], forceReload: false });
+  return (res.data ?? []).flatMap((entry: any) =>
+    (entry.skills ?? []).filter((s: any) => s.enabled !== false).map((s: any) => ({
+      name: String(s.name ?? ""),
+      description: String(s.shortDescription ?? s.description ?? ""),
+      source: s.scope ? String(s.scope) : "skill",
+    })),
+  ).filter((s: CommandEntry) => s.name);
+}

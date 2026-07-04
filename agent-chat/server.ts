@@ -1,4 +1,12 @@
-import type { AgentEvent, Adapter, ProviderDef, SessionCtx, SessionStatus } from "./types";
+import type {
+  Adapter,
+  AgentEvent,
+  OptionValue,
+  ProviderCapabilities,
+  ProviderDef,
+  SessionCtx,
+  SessionStatus,
+} from "./types";
 import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
@@ -53,7 +61,23 @@ const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
 
 function sessionSummary(s: Session) {
-  return { id: s.id, provider: s.provider, cwd: s.cwd, title: s.title, status: s.status, createdAt: s.createdAt };
+  return {
+    id: s.id,
+    provider: s.provider,
+    cwd: s.cwd,
+    title: s.title,
+    status: s.status,
+    createdAt: s.createdAt,
+    capabilities: capabilitiesFor(s.provider),
+  };
+}
+
+function capabilitiesFor(provider: string): ProviderCapabilities {
+  return adapters.get(provider)?.capabilities ?? { options: [], triggers: [] };
+}
+
+function capabilitiesMap(): Record<string, ProviderCapabilities> {
+  return Object.fromEntries(PROVIDERS.map((p) => [p.id, capabilitiesFor(p.id)]));
 }
 
 function broadcastSessions() {
@@ -64,7 +88,13 @@ function broadcastSessions() {
   for (const ws of allSockets) ws.send(payload);
 }
 
-function createSession(provider: string, cwd: string, autoApprove: boolean, title: string): Session {
+function createSession(
+  provider: string,
+  cwd: string,
+  autoApprove: boolean,
+  title: string,
+  startOptions: Record<string, OptionValue> = {},
+): Session {
   const adapter = adapters.get(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
   const id = crypto.randomUUID().slice(0, 8);
@@ -74,6 +104,7 @@ function createSession(provider: string, cwd: string, autoApprove: boolean, titl
     cwd,
     title,
     autoApprove,
+    startOptions,
     status: "idle",
     events: [],
     internal: {},
@@ -104,6 +135,21 @@ function sendPrompt(sess: Session, prompt: string) {
     sess.emit({ kind: "error", message: String(err) });
     sess.setStatus("idle");
   });
+}
+
+function refreshSession(sess: Session) {
+  Promise.resolve(sess.adapter.refreshOptions?.(sess)).catch((err) => {
+    sess.emit({ kind: "error", message: String(err) });
+  });
+}
+
+function parseOptions(raw: unknown): Record<string, OptionValue> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, OptionValue> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "string" || typeof v === "boolean") out[k] = v;
+  }
+  return out;
 }
 
 // Inject the resolved Ghostty theme as CSS variables at serve time so the
@@ -202,10 +248,11 @@ const server = Bun.serve<WsData>({
       const title = prompt ? (prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt) : `${provider} chat`;
       let sess: Session;
       try {
-        sess = createSession(provider, cwd, body.autoApprove !== false, title);
+        sess = createSession(provider, cwd, body.autoApprove !== false, title, parseOptions(body.options));
       } catch (err) {
         return Response.json({ error: String(err) }, { status: 400 });
       }
+      refreshSession(sess);
       if (prompt) sendPrompt(sess, prompt);
       return Response.json({ id: sess.id, url: `http://127.0.0.1:${PORT}/s/${sess.id}` });
     }
@@ -220,6 +267,7 @@ const server = Bun.serve<WsData>({
       ws.send(JSON.stringify({
         kind: "hello",
         providers: PROVIDERS.map((p) => ({ id: p.id, label: p.label })),
+        capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
       }));
       ws.send(JSON.stringify({
@@ -255,9 +303,10 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       if (!prompt) return;
       const cwd = String(msg.cwd || DEFAULT_CWD);
       const title = prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt;
-      const sess = createSession(String(msg.provider), cwd, Boolean(msg.autoApprove), title);
+      const sess = createSession(String(msg.provider), cwd, Boolean(msg.autoApprove), title, parseOptions(msg.options));
       subscribe(ws, sess);
       ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess) }));
+      refreshSession(sess);
       sendPrompt(sess, prompt);
       break;
     }
@@ -281,11 +330,48 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         session: sessionSummary(sess),
         events: sess.events,
       }));
+      refreshSession(sess);
       break;
     }
     case "stop": {
       const sess = sessions.get(String(msg.sessionId));
       sess?.adapter.stop(sess);
+      break;
+    }
+    case "set-option": {
+      const sess = sessions.get(String(msg.sessionId));
+      const id = String(msg.id ?? "");
+      const value = msg.value;
+      if (!sess || !id || (typeof value !== "string" && typeof value !== "boolean")) return;
+      Promise.resolve(sess.adapter.setOption(sess, id, value)).catch((err) => {
+        sess.emit({ kind: "error", message: String(err) });
+      });
+      break;
+    }
+    case "list-options": {
+      const provider = String(msg.provider ?? "");
+      const adapter = adapters.get(provider);
+      if (!adapter) {
+        ws.send(JSON.stringify({ kind: "error", message: `unknown provider: ${provider}` }));
+        return;
+      }
+      const cwd = String(msg.cwd || DEFAULT_CWD);
+      Promise.resolve(adapter.listOptions?.(cwd) ?? adapter.capabilities?.options ?? [])
+        .then((options) => ws.send(JSON.stringify({ kind: "options-list", provider, options })))
+        .catch((err) => ws.send(JSON.stringify({ kind: "error", message: String(err) })));
+      break;
+    }
+    case "list-commands": {
+      const provider = String(msg.provider ?? "");
+      const adapter = adapters.get(provider);
+      if (!adapter) {
+        ws.send(JSON.stringify({ kind: "error", message: `unknown provider: ${provider}` }));
+        return;
+      }
+      const cwd = String(msg.cwd || DEFAULT_CWD);
+      Promise.resolve(adapter.listCommands?.(cwd) ?? [])
+        .then((groups) => ws.send(JSON.stringify({ kind: "commands-list", provider, groups })))
+        .catch((err) => ws.send(JSON.stringify({ kind: "error", message: String(err) })));
       break;
     }
     case "delete": {

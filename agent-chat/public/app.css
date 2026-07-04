@@ -53,9 +53,14 @@ body { background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--san
 }
 #prompt-input::placeholder { color: var(--text-faint); }
 
-.toolbar { display: flex; align-items: center; gap: 8px; padding: 4px; }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 4px; flex-wrap: wrap; }
 .tb-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tb-spacer { flex: 1; }
+.input-wrap { position: relative; }
+.status-strip {
+  padding: 8px 12px 0; color: var(--text-faint); font: 11.5px/1.35 var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 .chip {
   display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px;
@@ -64,11 +69,19 @@ body { background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--san
   max-width: 260px; user-select: none;
 }
 .chip:hover { background: var(--bg-hover); color: var(--text); }
+.chip:disabled, .chip[data-disabled] { opacity: .48; cursor: default; }
 .chip .chev { display: inline-flex; opacity: .7; margin-left: 1px; }
 .select-trigger[data-popup-open] .chev { transform: rotate(180deg); }
 .cwd-label, .select-value { overflow: hidden; text-overflow: ellipsis; }
 .cwd-label { font-family: var(--mono); font-size: 11.5px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--text-faint); box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent); }
+.options-toolbar { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.option-chip { max-width: 190px; gap: 7px; }
+.option-label {
+  color: var(--text-faint); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: .04em;
+}
+.option-toggle { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; }
+.option-toggle.disabled { opacity: .48; cursor: default; }
 
 .send {
   flex: none; width: 32px; height: 32px; border-radius: 9px; border: 0; cursor: pointer;
@@ -105,6 +118,16 @@ body { background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--san
 .menu-item .mi-check { margin-left: auto; display: inline-flex; opacity: 0; color: var(--accent); }
 .menu-item[data-selected] .mi-check { opacity: 1; }
 .select-positioner, .menu { z-index: 30; }
+.option-menu { max-width: min(520px, 92vw); max-height: 320px; overflow-y: auto; }
+
+.command-menu {
+  position: absolute; left: 8px; right: 8px; bottom: calc(100% + 6px); z-index: 35;
+  max-height: 280px; overflow-y: auto;
+}
+.command-item { width: 100%; border: 0; background: transparent; text-align: left; }
+.command-item.active { background: var(--bg-hover); color: var(--text); }
+.cmd-name { flex: none; color: var(--text); font-family: var(--mono); }
+.cmd-desc { color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .popover {
   min-width: 340px; max-width: 70vw; background: var(--bg-raised); border: 1px solid var(--border-strong);
@@ -169,18 +192,37 @@ details.thinking .t-body { white-space: pre-wrap; font-size: 12.5px; font-style:
 
 #chat-input-row { flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
 #chat-card {
-  display: flex; align-items: flex-end; gap: 8px; padding: 6px;
+  display: flex; flex-direction: column; gap: 6px; padding: 6px;
   background: var(--bg-input); border: 1px solid var(--border); border-radius: 14px;
 }
 #chat-card:focus-within { border-color: var(--border-strong); }
 #chat-input {
-  flex: 1; background: transparent; border: 0; outline: none; resize: none;
+  width: 100%; background: transparent; border: 0; outline: none; resize: none;
   color: var(--text); font: 14px/1.5 var(--sans); padding: 9px 8px; min-height: 24px; max-height: 200px;
 }
 #chat-input::placeholder { color: var(--text-faint); }
+.chat-text-wrap { width: 100%; }
+.chat-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .chat-actions { display: flex; align-items: center; gap: 6px; padding-bottom: 1px; }
 #stop-btn {
   height: 32px; padding: 0 12px; border-radius: 9px; border: 1px solid var(--border); background: transparent;
   color: var(--red); font: 500 12.5px var(--sans); cursor: pointer;
 }
 #stop-btn:hover { background: var(--bg-hover); }
+
+.shortcut-backdrop {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.28); padding: 20px;
+}
+.shortcut-panel {
+  width: min(440px, 100%); background: var(--bg-raised); border: 1px solid var(--border-strong);
+  border-radius: 12px; padding: 14px; box-shadow: 0 18px 42px rgba(0,0,0,.45);
+}
+.shortcut-title { font: 600 13px var(--sans); margin: 0 0 8px; color: var(--text); }
+.shortcut-row { display: flex; align-items: center; gap: 12px; padding: 7px 4px; color: var(--text-dim); }
+.shortcut-row.disabled { opacity: .42; }
+.shortcut-row kbd {
+  min-width: 104px; text-align: center; padding: 3px 7px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  font: 11px var(--mono);
+}
