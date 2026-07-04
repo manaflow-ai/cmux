@@ -16,6 +16,25 @@ private struct MobileMacKeepAwakeDisableResponse: Decodable {
     }
 }
 
+func macPowerSleepResult(forSendError error: any Error) -> MobileMacSleepResult {
+    guard let connectionError = error as? MobileShellConnectionError else {
+        return .failed
+    }
+    switch connectionError {
+    case .connectionClosed:
+        return .requested
+    case .rpcError:
+        return .refused
+    case .invalidResponse,
+         .requestTimedOut,
+         .insecureManualRoute,
+         .attachTicketExpired,
+         .authorizationFailed,
+         .accountMismatch:
+        return .failed
+    }
+}
+
 // MARK: - Mac power control RPCs
 
 extension MobileShellComposite {
@@ -55,16 +74,20 @@ extension MobileShellComposite {
             return .requested
         } catch {
             if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
-            // The Mac answered with an explicit error (e.g. Automation access not
-            // granted yet): a genuine refusal, the Mac did not sleep.
-            if let connectionError = error as? MobileShellConnectionError,
-               case .rpcError = connectionError {
-                return .refused
+            let result = macPowerSleepResult(forSendError: error)
+            switch result {
+            case .requested:
+                // A closed connection right after asking the Mac to sleep is the
+                // expected success signature: the Mac slept and the link dropped.
+                macPowerLog.info("mac.power.sleep link dropped (treated as slept) error=\(String(describing: error), privacy: .public)")
+            case .refused:
+                // The Mac answered with an explicit error (e.g. Automation access
+                // not granted yet): a genuine refusal, the Mac did not sleep.
+                break
+            case .failed:
+                macPowerLog.error("mac.power.sleep send failed error=\(String(describing: error), privacy: .public)")
             }
-            // A closed/timed-out connection right after asking the Mac to sleep is
-            // the expected success signature — the Mac slept and the link dropped.
-            macPowerLog.info("mac.power.sleep link dropped (treated as slept) error=\(String(describing: error), privacy: .public)")
-            return .requested
+            return result
         }
     }
 

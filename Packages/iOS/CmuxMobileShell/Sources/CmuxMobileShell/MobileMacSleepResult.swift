@@ -1,8 +1,8 @@
 /// The outcome of asking the Mac to sleep.
 ///
 /// A sleep request usually drops the connection as the Mac sleeps, so a
-/// connection error is not treated as a failure; only an explicit RPC error
-/// such as missing Automation permission is `refused`.
+/// connection-close error after sending is not treated as a failure. Timeouts
+/// and other delivery failures are reported as ``failed``.
 public enum MobileMacSleepResult: Sendable, Equatable {
     /// The Mac acknowledged the request, or the connection dropped as it slept.
     case requested
