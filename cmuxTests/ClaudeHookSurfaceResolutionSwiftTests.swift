@@ -542,7 +542,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         ))
 
         let stopCommandStart = context.state.snapshot().count
-        assertSuccessfulHook(runGeminiHook(
+        assertHookExitedZero(runGeminiHook(
             context: context,
             subcommand: "stop",
             standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"older done"}"#,
@@ -595,7 +595,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         var staleSurfaceEnvironment = environment
         staleSurfaceEnvironment["CMUX_SURFACE_ID"] = staleSurfaceId
         let stopCommandStart = context.state.snapshot().count
-        assertSuccessfulHook(runGeminiHook(
+        assertHookExitedZero(runGeminiHook(
             context: context,
             subcommand: "stop",
             standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"done"}"#,
@@ -643,12 +643,23 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             standardInput: #"{"session_id":"\#(newerSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             environment: environment
         ))
-        assertSuccessfulHook(runGeminiHook(
+        let staleStartCommandStart = context.state.snapshot().count
+        assertHookExitedZero(runGeminiHook(
             context: context,
             subcommand: "session-start",
             standardInput: #"{"session_id":"\#(olderSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             environment: environment
         ))
+        let staleStartCommands = Array(context.state.snapshot().dropFirst(staleStartCommandStart))
+        #expect(
+            !staleStartCommands.contains {
+                (jsonObject($0)?["method"] as? String) == "surface.resume.set"
+                    || $0.hasPrefix("set_agent_pid gemini.")
+                    || $0.hasPrefix("set_agent_lifecycle gemini ")
+                    || $0.hasPrefix("set_status gemini ")
+            },
+            "A stale duplicate older Gemini SessionStart must not publish pane-visible state, saw \(staleStartCommands)"
+        )
 
         let activeAfterStaleStart = try activeGeminiSlotSessionIds(context: context)
         #expect(!activeAfterStaleStart.isEmpty, "Gemini SessionStart must populate a pane-scoped active session slot")
@@ -1121,6 +1132,11 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "OK\n")
+    }
+
+    func assertHookExitedZero(_ result: ProcessRunResult) {
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
     }
 
     private func resumeBindingRequests(in context: ClaudeHookContext) -> [[String: Any]] {

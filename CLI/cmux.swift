@@ -744,6 +744,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -765,10 +766,10 @@ final class ClaudeHookSessionStore {
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
         preserveNewerActiveSession: Bool = false
-    ) throws {
+    ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        try withLockedState { state in
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
                 sessionId: normalized,
@@ -814,6 +815,7 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             state.sessions[normalized] = record
+            var activePromotionAccepted = true
             if markActive {
                 let activeRecord = ClaudeHookActiveSessionRecord(
                     sessionId: normalized,
@@ -843,12 +845,17 @@ final class ClaudeHookSessionStore {
                 if let normalizedWorkspace = normalizeOptional(workspaceId),
                    canPromoteActiveSession(over: state.activeSessionsByWorkspace[normalizedWorkspace]) {
                     state.activeSessionsByWorkspace[normalizedWorkspace] = activeRecord
+                } else if normalizeOptional(workspaceId) != nil {
+                    activePromotionAccepted = false
                 }
                 if let normalizedSurface = normalizeOptional(surfaceId),
                    canPromoteActiveSession(over: state.activeSessionsBySurface[normalizedSurface]) {
                     state.activeSessionsBySurface[normalizedSurface] = activeRecord
+                } else if normalizeOptional(surfaceId) != nil {
+                    activePromotionAccepted = false
                 }
             }
+            return activePromotionAccepted
         }
     }
 
@@ -29863,7 +29870,7 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: !suppressVisibleMutations
                     )) ?? false
                 } else {
-                    try? store.upsert(
+                    let activePromotionAccepted = (try? store.upsert(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
@@ -29876,8 +29883,8 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: !suppressVisibleMutations,
                         markActive: def.name == "gemini" && !suppressVisibleMutations,
                         preserveNewerActiveSession: true
-                    )
-                    acceptedSessionStart = true
+                    )) ?? false
+                    acceptedSessionStart = def.name != "gemini" || suppressVisibleMutations || activePromotionAccepted
                 }
                 if !acceptedSessionStart {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
