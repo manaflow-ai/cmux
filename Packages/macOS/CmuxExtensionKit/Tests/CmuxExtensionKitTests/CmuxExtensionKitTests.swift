@@ -266,6 +266,8 @@ struct CMUXExtensionKitTests {
         try await host.createTerminalSurface(in: workspaceID)
         try await host.createBrowserSurface(in: workspaceID, url: url)
         try await host.openURL(url)
+        try await host.runWorkspaceCommand(named: "Dev Environment", workingDirectory: "/tmp/project")
+        try await host.invokeNewWorkspaceAction(workingDirectory: "/tmp/project")
 
         #expect(refreshCount == 1)
         #expect(actions == [
@@ -278,6 +280,8 @@ struct CMUXExtensionKitTests {
             .createTerminalSurface(workspaceID: workspaceID),
             .createBrowserSurface(workspaceID: workspaceID, url: "https://example.com/pr/1"),
             .openURL("https://example.com/pr/1"),
+            .runWorkspaceCommand(name: "Dev Environment", workingDirectory: "/tmp/project"),
+            .invokeNewWorkspaceAction(workingDirectory: "/tmp/project"),
         ])
     }
 
@@ -342,6 +346,14 @@ struct CMUXExtensionKitTests {
     func testWorkspaceCreationWithPathRequiresWorkspacePathScope() {
         #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: nil, select: true).requiredScopes == [.createWorkspace])
         #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: "/tmp/project", select: true).requiredScopes == [.createWorkspace, .createWorkspaceWithPath])
+    }
+
+    @Test
+    func testWorkspaceCommandActionsRequireCommandScopeAndPathScope() {
+        #expect(([nil, "", "   "] as [String?]).allSatisfy { CmuxSidebarAction.runWorkspaceCommand(name: "Dev Environment", workingDirectory: $0).requiredScopes == [.runWorkspaceCommand] })
+        #expect(CmuxSidebarAction.runWorkspaceCommand(name: "Dev Environment", workingDirectory: "/tmp/project").requiredScopes == [.runWorkspaceCommand, .createWorkspaceWithPath])
+        #expect(([nil, "", "\n\t"] as [String?]).allSatisfy { CmuxSidebarAction.invokeNewWorkspaceAction(workingDirectory: $0).requiredScopes == [.runWorkspaceCommand] })
+        #expect(CmuxSidebarAction.invokeNewWorkspaceAction(workingDirectory: "/tmp/project").requiredScopes == [.runWorkspaceCommand, .createWorkspaceWithPath])
     }
 
     @Test
@@ -489,7 +501,7 @@ struct CMUXExtensionKitTests {
         {
           "id": "dev.example.sidebar",
           "displayName": "Example Sidebar",
-          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "minimumAPIVersion": { "major": 2, "minor": 2 },
           "readScopes": []
         }
         """.utf8)
@@ -501,8 +513,8 @@ struct CMUXExtensionKitTests {
         } catch {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
-                    requested: CmuxExtensionAPIVersion(major: 2, minor: 1),
-                    supported: .sidebarV2
+                    requested: CmuxExtensionAPIVersion(major: 2, minor: 2),
+                    supported: .sidebarV2_1
                 )
             )
         }
@@ -527,10 +539,103 @@ struct CMUXExtensionKitTests {
             #expect(
                 error as? CmuxExtensionValidationError == .unsupportedAPIVersion(
                     requested: CmuxExtensionAPIVersion(major: 1, minor: 0),
-                    supported: .sidebarV2
+                    supported: .sidebarV2_1
                 )
             )
         }
+    }
+
+    @Test
+    func testManifestValidationAcceptsRunWorkspaceCommandAtV2_1() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "readScopes": [],
+          "actionScopes": ["runWorkspaceCommand"]
+        }
+        """.utf8)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
+
+        #expect(manifest.actionScopes == [.runWorkspaceCommand])
+        try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testManifestValidationRejectsRunWorkspaceCommandBelowRequiredVersion() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 0 },
+          "readScopes": [],
+          "actionScopes": ["runWorkspaceCommand"]
+        }
+        """.utf8)
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
+
+        do {
+            try validateSidebarManifest(manifest)
+            Issue.record("Expected action scope version error")
+        } catch {
+            #expect(
+                error as? CmuxExtensionValidationError == .actionScopeRequiresNewerAPIVersion(
+                    scope: .runWorkspaceCommand,
+                    required: .sidebarV2_1,
+                    declared: .sidebarV2
+                )
+            )
+        }
+    }
+
+    @Test
+    func testManifestDecodingDropsUnknownScopes() throws {
+        let payload = Data("""
+        {
+          "id": "dev.example.sidebar",
+          "displayName": "Example Sidebar",
+          "minimumAPIVersion": { "major": 2, "minor": 1 },
+          "readScopes": ["workspaceMetadata", "futureReadScope"],
+          "actionScopes": ["selectWorkspace", "futureActionScope"]
+        }
+        """.utf8)
+
+        let manifest = try JSONDecoder().decode(CmuxExtensionManifest.self, from: payload)
+
+        #expect(manifest.readScopes == [.workspaceMetadata])
+        #expect(manifest.actionScopes == [.selectWorkspace])
+        try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testManifestInitializerDerivesAPIVersionForRunWorkspaceCommand() throws {
+        let manifest = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            actionScopes: [.runWorkspaceCommand]
+        )
+
+        #expect(manifest.minimumAPIVersion == .sidebarV2_1)
+        try validateSidebarManifest(manifest)
+    }
+
+    @Test
+    func testManifestInitializerDerivesHighestRequiredAPIVersion() throws {
+        let baseline = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            actionScopes: [.selectWorkspace, .openURL]
+        )
+        #expect(baseline.minimumAPIVersion == .sidebarV2)
+
+        let mixed = CmuxExtensionManifest(
+            id: "dev.example.sidebar",
+            displayName: "Example Sidebar",
+            actionScopes: [.selectWorkspace, .runWorkspaceCommand]
+        )
+        #expect(mixed.minimumAPIVersion == .sidebarV2_1)
+        try validateSidebarManifest(mixed)
     }
 }
 

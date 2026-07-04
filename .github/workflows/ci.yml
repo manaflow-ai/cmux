@@ -599,7 +599,7 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*test.*with.*failure" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
               echo "All failures are expected, treating as pass"
             else
@@ -655,6 +655,41 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+
+      - name: Run browser developer tools visibility persistence regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # This suite intentionally drives WebKit inspector attach/detach crash
+          # paths. XCTest does not reliably honor -only-testing argument order,
+          # so keep it out of the balanced shards and run it last in its own
+          # crash-tolerant invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          TEST_OUTPUT="$RUNNER_TEMP/cmux-browser-devtools-visibility-output.txt"
+          set +e
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -only-testing:cmuxTests/BrowserDeveloperToolsVisibilityPersistenceTests \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            test 2>&1 | tee "$TEST_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
+          OUTPUT=$(cat "$TEST_OUTPUT")
+          set -e
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*test.*with.*failure" | tail -1)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected browser developer tools test failures detected"
+              exit 1
+            fi
+          fi
 
   tests:
     name: tests

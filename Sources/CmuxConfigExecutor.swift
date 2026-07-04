@@ -16,10 +16,12 @@ struct CmuxConfigExecutor {
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
         presentingWindow: NSWindow? = nil,
+        forcesSynchronousConfirmation: Bool = false,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let workspace = command.workspace {
-            return authorizeProjectActionIfNeeded(
+            var commandDidRun = false
+            let authorized = authorizeProjectActionIfNeeded(
                 descriptor: workspaceTrustDescriptor(
                     command: command,
                     actionID: actionID ?? command.id,
@@ -33,16 +35,30 @@ struct CmuxConfigExecutor {
                 globalConfigPath: globalConfigPath,
                 displayCommand: command.name,
                 displayTitle: displayTitle ?? command.name,
-                presentingWindow: presentingWindow
+                presentingWindow: presentingWindow,
+                forcesSynchronousConfirmation: forcesSynchronousConfirmation
             ) {
                 guard executeWorkspaceCommand(
                     command: command,
                     workspace: workspace,
                     tabManager: tabManager,
-                    baseCwd: baseCwd
+                    baseCwd: baseCwd,
+                    presentingWindow: presentingWindow
                 ) else { return }
+                commandDidRun = true
                 onExecuted?()
             }
+            // When the caller forced synchronous confirmation (the sidebar
+            // extension command API), the authorization closure has already run
+            // by the time `authorizeProjectActionIfNeeded` returns, so we can
+            // report whether the workspace command actually ran rather than just
+            // whether trust was granted. This matters when `restart: .confirm`
+            // shows a recreate prompt and the user cancels it: authorization is
+            // granted but `executeWorkspaceCommand` returns false, so the action
+            // must not be reported as accepted. Other callers use the async trust
+            // sheet, where the closure has not run yet, and keep the legacy
+            // authorization result.
+            return forcesSynchronousConfirmation ? (authorized && commandDidRun) : authorized
         } else if let rawCommand = command.command {
             let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalPanel
             guard let targetTerminal else { return false }
@@ -56,7 +72,8 @@ struct CmuxConfigExecutor {
                 displayTitle: displayTitle ?? command.name,
                 icon: icon,
                 iconSourcePath: iconSourcePath,
-                presentingWindow: presentingWindow
+                presentingWindow: presentingWindow,
+                forcesSynchronousConfirmation: forcesSynchronousConfirmation
             ) { shellInput in
                 targetTerminal.sendInput(shellInput)
                 onExecuted?()
@@ -74,6 +91,7 @@ struct CmuxConfigExecutor {
         baseCwd: String,
         globalConfigPath: String,
         presentingWindow: NSWindow? = nil,
+        forcesSynchronousConfirmation: Bool = false,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
         if let commandName = action.workspaceCommandName,
@@ -83,13 +101,14 @@ struct CmuxConfigExecutor {
                 command: command,
                 tabManager: tabManager,
                 baseCwd: baseCwd,
-                configSourcePath: commandSourcePaths[command.id] ?? action.actionSourcePath,
+                configSourcePath: action.actionSourcePath ?? commandSourcePaths[command.id],
                 globalConfigPath: globalConfigPath,
                 displayTitle: action.title,
                 actionID: action.id,
                 icon: action.icon,
                 iconSourcePath: action.iconSourcePath,
                 presentingWindow: presentingWindow,
+                forcesSynchronousConfirmation: forcesSynchronousConfirmation,
                 onExecuted: onExecuted
             )
         }
@@ -108,7 +127,8 @@ struct CmuxConfigExecutor {
             displayTitle: action.title,
             icon: action.icon,
             iconSourcePath: action.iconSourcePath,
-            presentingWindow: presentingWindow
+            presentingWindow: presentingWindow,
+            forcesSynchronousConfirmation: forcesSynchronousConfirmation
         ) { shellInput in
             switch target {
             case .currentTerminal:
@@ -133,6 +153,7 @@ struct CmuxConfigExecutor {
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
         presentingWindow: NSWindow? = nil,
+        forcesSynchronousConfirmation: Bool = false,
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
         let shellCommand = sanitizeForDisplay(rawCommand)
@@ -154,7 +175,8 @@ struct CmuxConfigExecutor {
             globalConfigPath: globalConfigPath,
             displayCommand: shellCommand,
             displayTitle: displayTitle,
-            presentingWindow: presentingWindow
+            presentingWindow: presentingWindow,
+            forcesSynchronousConfirmation: forcesSynchronousConfirmation
         ) {
             onAuthorized(shellCommand + "\n")
         }
@@ -194,6 +216,7 @@ struct CmuxConfigExecutor {
         displayCommand: String,
         displayTitle: String?,
         presentingWindow: NSWindow?,
+        forcesSynchronousConfirmation: Bool = false,
         onAuthorized: @escaping () -> Void,
         onDenied: (() -> Void)? = nil
     ) -> Bool {
@@ -210,7 +233,14 @@ struct CmuxConfigExecutor {
             onAuthorized()
             return true
         }
-        if let resolvedPresentingWindow {
+        // Callers that need a definitive synchronous accept/deny result (e.g. the
+        // sidebar extension command API) opt into a synchronous confirmation via
+        // `runConfirmDialog` — which presents through the reliable
+        // `runCmuxModalAlert` presenter — instead of the async window sheet. The
+        // async sheet's callback returns `true` before the user responds, which
+        // would let the action report success even if the trust prompt is later
+        // cancelled.
+        if let resolvedPresentingWindow, !forcesSynchronousConfirmation {
             presentConfirmDialog(
                 command: displayCommand,
                 displayTitle: displayTitle,
@@ -230,7 +260,8 @@ struct CmuxConfigExecutor {
             command: displayCommand,
             displayTitle: displayTitle,
             descriptor: descriptor,
-            configPath: sourcePath
+            configPath: sourcePath,
+            presentingWindow: presentingWindow
         )
         if allowed {
             onAuthorized()
@@ -262,14 +293,25 @@ struct CmuxConfigExecutor {
         command: String,
         displayTitle: String?,
         descriptor: CmuxActionTrustDescriptor,
-        configPath: String
+        configPath: String,
+        presentingWindow: NSWindow?
     ) -> Bool {
         let alert = makeConfirmDialog(
             command: command,
             displayTitle: displayTitle,
             configPath: configPath
         )
-        return handleConfirmDialogResponse(alert.runModal(), descriptor: descriptor)
+        // Route through the shared reliable presenter rather than a bare
+        // `alert.runModal()`: when this synchronous path is taken from a
+        // menu/XPC-style context (the sidebar extension command API), a bare
+        // modal can silently no-op and return cancel without ever drawing the
+        // trust prompt. `runCmuxModalAlert` activates the app and attaches a
+        // sheet to the main cmux window, falling back to app-modal only when no
+        // host window exists.
+        return handleConfirmDialogResponse(
+            runCmuxModalAlert(alert, presentingWindow: presentingWindow),
+            descriptor: descriptor
+        )
     }
 
     private static func makeConfirmDialog(
@@ -455,7 +497,8 @@ struct CmuxConfigExecutor {
         command: CmuxCommandDefinition,
         workspace wsDef: CmuxWorkspaceDefinition,
         tabManager: TabManager,
-        baseCwd: String
+        baseCwd: String,
+        presentingWindow: NSWindow?
     ) -> Bool {
         let workspaceName = wsDef.name ?? command.name
         let restart = command.restart ?? .new
@@ -489,7 +532,11 @@ struct CmuxConfigExecutor {
                     localized: "dialog.cmuxConfig.confirmRestart.cancel",
                     defaultValue: "Cancel"
                 ))
-                guard alert.runModal() == .alertFirstButtonReturn else {
+                // Reliable presentation matters here too: this recreate prompt is
+                // reachable synchronously from the sidebar extension command API
+                // (a menu/XPC-style context), where a bare `alert.runModal()` can
+                // silently no-op and return cancel without drawing the dialog.
+                guard runCmuxModalAlert(alert, presentingWindow: presentingWindow) == .alertFirstButtonReturn else {
                     tabManager.selectWorkspace(existing)
                     return false
                 }

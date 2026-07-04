@@ -1883,6 +1883,7 @@ final class CmuxConfigStore: ObservableObject {
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)),
     ]
+    private static let maxExecutionContextCacheEntries = 16
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var loadedActions: [CmuxResolvedConfigAction] = []
@@ -1910,6 +1911,8 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    private var executionContextCache: [String: CmuxConfigStore] = [:]
+    private var executionContextCacheOrder: [String] = []
 
     nonisolated private static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -2078,7 +2081,7 @@ final class CmuxConfigStore: ObservableObject {
         let newPath: String?
         if let directory, !directory.isEmpty {
             localConfigSearchDirectory = directory
-            newPath = resolvedLocalConfigPath(startingFrom: directory)
+            newPath = Self.resolvedLocalConfigPath(startingFrom: directory)
         } else {
             localConfigSearchDirectory = nil
             newPath = nil
@@ -2093,17 +2096,17 @@ final class CmuxConfigStore: ObservableObject {
         loadAll()
     }
 
-    private func resolvedLocalConfigPath(startingFrom directory: String) -> String {
+    private static func resolvedLocalConfigPath(startingFrom directory: String) -> String {
         findCmuxConfig(startingFrom: directory)
             ?? defaultLocalConfigPath(startingFrom: directory)
     }
 
-    private func defaultLocalConfigPath(startingFrom directory: String) -> String {
+    private static func defaultLocalConfigPath(startingFrom directory: String) -> String {
         (((directory as NSString).appendingPathComponent(".cmux") as NSString)
             .appendingPathComponent("cmux.json"))
     }
 
-    private func findCmuxConfig(startingFrom directory: String) -> String? {
+    private static func findCmuxConfig(startingFrom directory: String) -> String? {
         var current = directory
         let fs = FileManager.default
         while true {
@@ -2474,32 +2477,39 @@ final class CmuxConfigStore: ObservableObject {
 
         for command in commands where registry[command.id] == nil {
             let sourcePath = commandSourcePaths[command.id]
-            registry[command.id] = CmuxResolvedConfigAction(
-                id: command.id,
-                title: String(
-                    localized: "command.cmuxConfig.customTitle",
-                    defaultValue: "Custom: \(sanitizeConfigText(command.name))"
-                ),
-                subtitle: command.description.map { sanitizeConfigText($0) }
-                    ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
-                keywords: command.keywords ?? [],
-                palette: true,
-                shortcut: nil,
-                icon: .symbol(command.workspace == nil ? "terminal" : "rectangle.stack.badge.plus"),
-                tooltip: command.description,
-                action: command.workspace == nil
-                    ? .command(command.command ?? "")
-                    : .workspaceCommand(command.name),
-                confirm: command.confirm,
-                terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
-                actionSourcePath: sourcePath,
-                iconSourcePath: nil
-            )
+            registry[command.id] = resolvedAction(for: command, sourcePath: sourcePath)
         }
 
         return registry.values.sorted { lhs, rhs in
             lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
         }
+    }
+
+    private func resolvedAction(
+        for command: CmuxCommandDefinition,
+        sourcePath: String?
+    ) -> CmuxResolvedConfigAction {
+        CmuxResolvedConfigAction(
+            id: command.id,
+            title: String(
+                localized: "command.cmuxConfig.customTitle",
+                defaultValue: "Custom: \(sanitizeConfigText(command.name))"
+            ),
+            subtitle: command.description.map { sanitizeConfigText($0) }
+                ?? String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"),
+            keywords: command.keywords ?? [],
+            palette: true,
+            shortcut: nil,
+            icon: .symbol(command.workspace == nil ? "terminal" : "rectangle.stack.badge.plus"),
+            tooltip: command.description,
+            action: command.workspace == nil
+                ? .command(command.command ?? "")
+                : .workspaceCommand(command.name),
+            confirm: command.confirm,
+            terminalCommandTarget: command.workspace == nil ? .currentTerminal : nil,
+            actionSourcePath: sourcePath,
+            iconSourcePath: nil
+        )
     }
 
     private func resolvedSurfaceTabBarButtons(
@@ -2635,8 +2645,88 @@ final class CmuxConfigStore: ObservableObject {
         resolvedNewWorkspaceActionCache
     }
 
+    /// Resolves the configured new-workspace action for sidebar extensions.
+    /// Extensions with `runWorkspaceCommand` may run only user-defined workspace
+    /// commands, while the in-app button can also resolve raw command/agent actions.
+    /// This entry point fails closed and returns only workspace-command actions.
+    func resolvedNewWorkspaceActionForExtension() -> CmuxResolvedConfigAction? {
+        guard let action = resolvedNewWorkspaceAction(),
+              action.workspaceCommandName != nil else {
+            return nil
+        }
+        return action
+    }
+
     func resolvedAction(id: String) -> CmuxResolvedConfigAction? {
         actionLookup[canonicalActionID(id)]
+    }
+
+    func resolvedWorkspaceCommandAction(identifier: String) -> CmuxResolvedConfigAction? {
+        let trimmed = sanitizeConfigText(identifier)
+        guard !trimmed.isEmpty else { return nil }
+        // Only prefer a command matched by generated id when it is itself a workspace
+        // command; otherwise fall through so a colliding workspaceCommand action stays reachable.
+        if let command = loadedCommands.first(where: { $0.id == trimmed }),
+           command.workspace != nil {
+            if let action = resolvedAction(id: command.id),
+               action.workspaceCommandName == command.name {
+                return action
+            }
+            return resolvedAction(for: command, sourcePath: commandSourcePaths[command.id])
+        }
+        if let action = resolvedAction(id: trimmed),
+           let workspaceCommandName = action.workspaceCommandName,
+           loadedCommands.contains(where: { $0.name == workspaceCommandName && $0.workspace != nil }) {
+            return action
+        }
+        guard let command = loadedCommands.first(where: { command in
+            command.name == trimmed
+        }), command.workspace != nil else {
+            return nil
+        }
+        if let action = resolvedAction(id: command.id),
+           action.workspaceCommandName == command.name {
+            return action
+        }
+        return resolvedAction(for: command, sourcePath: commandSourcePaths[command.id])
+    }
+
+    func executionContext(startingFrom directory: String?) -> CmuxConfigStore {
+        guard let directory,
+              !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return self
+        }
+        let localPath = Self.resolvedLocalConfigPath(startingFrom: directory)
+        if localPath == localConfigPath {
+            return self
+        }
+        if let cachedContext = executionContextCache[localPath] {
+            markExecutionContextCacheEntryUsed(localPath)
+            cachedContext.loadAll()
+            return cachedContext
+        }
+        let context = CmuxConfigStore(
+            globalConfigPath: globalConfigPath,
+            localConfigPath: localPath,
+            startFileWatchers: false
+        )
+        context.loadAll()
+        cacheExecutionContext(context, localPath: localPath)
+        return context
+    }
+
+    private func cacheExecutionContext(_ context: CmuxConfigStore, localPath: String) {
+        executionContextCache[localPath] = context
+        markExecutionContextCacheEntryUsed(localPath)
+        while executionContextCacheOrder.count > Self.maxExecutionContextCacheEntries {
+            let evictedPath = executionContextCacheOrder.removeFirst()
+            executionContextCache.removeValue(forKey: evictedPath)
+        }
+    }
+
+    private func markExecutionContextCacheEntryUsed(_ localPath: String) {
+        executionContextCacheOrder.removeAll { $0 == localPath }
+        executionContextCacheOrder.append(localPath)
     }
 
     func paletteCustomActions() -> [CmuxResolvedConfigAction] {
@@ -2681,11 +2771,13 @@ final class CmuxConfigStore: ObservableObject {
                 NSLog("[CmuxConfig] %@", issue.logMessage)
                 return NewWorkspaceActionResolution(action: nil, command: nil, issue: issue)
             }
-            if let actionCommandName = action.workspaceCommandName {
+            var resolvedAction = action
+            if resolvedAction.actionSourcePath == nil || resolvedAction.actionSourcePath == globalConfigPath, let actionSourcePath { resolvedAction.actionSourcePath = actionSourcePath }
+            if let actionCommandName = resolvedAction.workspaceCommandName {
                 let commandResolution = resolvedConfiguredNewWorkspaceCommand(
                     named: actionCommandName,
                     settingName: "ui.newWorkspace.action",
-                    settingSourcePath: action.actionSourcePath ?? actionSourcePath,
+                    settingSourcePath: resolvedAction.actionSourcePath,
                     commands: commands,
                     sourcePaths: sourcePaths
                 )
@@ -2697,12 +2789,12 @@ final class CmuxConfigStore: ObservableObject {
                     )
                 }
                 return NewWorkspaceActionResolution(
-                    action: action,
+                    action: resolvedAction,
                     command: commandResolution.command,
                     issue: nil
                 )
             }
-            return NewWorkspaceActionResolution(action: action, command: nil, issue: nil)
+            return NewWorkspaceActionResolution(action: resolvedAction, command: nil, issue: nil)
         }
 
         guard let commandName else {
@@ -3304,7 +3396,7 @@ final class CmuxConfigStore: ObservableObject {
 
     private func handleLocalDirectoryWatchEvent() {
         if let searchDirectory = localConfigSearchDirectory {
-            let resolvedPath = resolvedLocalConfigPath(startingFrom: searchDirectory)
+            let resolvedPath = Self.resolvedLocalConfigPath(startingFrom: searchDirectory)
             if resolvedPath != localConfigPath {
                 localConfigPath = resolvedPath
             }

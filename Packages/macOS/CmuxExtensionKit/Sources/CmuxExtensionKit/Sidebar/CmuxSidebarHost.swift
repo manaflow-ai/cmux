@@ -81,6 +81,33 @@ public struct CmuxSidebarHost {
         try await send(.openURL(url.absoluteString))
     }
 
+    /// Runs a workspace command defined by the user in `cmux.json`.
+    ///
+    /// CMUX resolves `name` against user-authored workspace command names and
+    /// action identifiers. The extension never supplies shell text. Passing a
+    /// non-empty working directory asks CMUX to resolve the nearest local
+    /// `cmux.json` for that path and requires the `.createWorkspaceWithPath`
+    /// action scope in addition to `.runWorkspaceCommand`.
+    public func runWorkspaceCommand(
+        named name: String,
+        workingDirectory: String? = nil
+    ) async throws {
+        try await send(.runWorkspaceCommand(name: name, workingDirectory: workingDirectory))
+    }
+
+    /// Runs the `ui.newWorkspace.action` configured by the user in `cmux.json`.
+    ///
+    /// CMUX resolves the action from the current config, or from the nearest
+    /// local config for a non-empty `workingDirectory` when provided. The
+    /// extension never supplies shell text. Passing a non-empty working directory
+    /// requires the `.createWorkspaceWithPath` action scope in addition to
+    /// `.runWorkspaceCommand`.
+    public func invokeNewWorkspaceAction(
+        workingDirectory: String? = nil
+    ) async throws {
+        try await send(.invokeNewWorkspaceAction(workingDirectory: workingDirectory))
+    }
+
     /// Requests that CMUX create a terminal surface.
     ///
     /// Extensions can ask CMUX to create the surface, but cannot seed shell
