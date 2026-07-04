@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import CmuxCommandPalette
 
 final class SSHPTYAttachReconnectInputFilter {
     private static let escape: UInt8 = 0x1B

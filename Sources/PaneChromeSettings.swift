@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 enum PaneChromeSettings {
     static let paneBorderColorKey = "paneBorderColor"

@@ -4,6 +4,7 @@ import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
 import CmuxCommandPalette
+import CmuxWorkspaces
 import Darwin
 
 /// Cross-container surface transfer for the Dock.

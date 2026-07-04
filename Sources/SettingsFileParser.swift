@@ -25,6 +25,7 @@ struct SettingsFileParser {
 
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
 
+        parsePaneChromeSettings(root, sourcePath: sourcePath, snapshot: &snapshot)
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -490,6 +491,23 @@ struct SettingsFileParser {
                 return
             }
             snapshot.managedUserDefaults[SettingCatalog().workspaceGroups.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
+        }
+    }
+
+    private func parsePaneChromeSettings(
+        _ root: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let keys = [
+            PaneChromeSettings.paneBorderColorKey,
+            PaneChromeSettings.activePaneBorderColorKey,
+        ]
+        for key in keys where root.keys.contains(key) {
+            guard let value = parseNullableHex(root[key], path: key, sourcePath: sourcePath) else {
+                continue
+            }
+            snapshot.managedUserDefaults[key] = .nullableString(value)
         }
     }
 

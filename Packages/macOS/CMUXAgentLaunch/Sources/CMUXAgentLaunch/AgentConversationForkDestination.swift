@@ -36,6 +36,24 @@ public enum AgentConversationForkDestination: String, CaseIterable, Identifiable
     /// The stable identity (the `rawValue`).
     public var id: String { rawValue }
 
+    /// Human-readable destination title for the Fork Conversation menu (#7259).
+    public var settingsTitle: String {
+        switch self {
+        case .right:
+            return String(localized: "forkConversation.destination.right", defaultValue: "Right Split")
+        case .left:
+            return String(localized: "forkConversation.destination.left", defaultValue: "Left Split")
+        case .top:
+            return String(localized: "forkConversation.destination.top", defaultValue: "Top Split")
+        case .bottom:
+            return String(localized: "forkConversation.destination.bottom", defaultValue: "Bottom Split")
+        case .newTab:
+            return String(localized: "forkConversation.destination.newTab", defaultValue: "New Tab")
+        case .newWorkspace:
+            return String(localized: "forkConversation.destination.newWorkspace", defaultValue: "New Workspace")
+        }
+    }
+
     /// The destination used when none is configured (right split).
     public static let defaultDestination: AgentConversationForkDestination = .right
 

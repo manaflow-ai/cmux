@@ -120,6 +120,30 @@ nonisolated public struct SurfaceResumeBindingSnapshot: Codable, Equatable, Send
         autoResume == true
     }
 
+    /// Returns a copy of this agent-hook binding retargeted to a new working
+    /// directory (#7155): the `cwd` is updated and the startup command's
+    /// required `cd` prefix is rewritten. Non-agent-hook bindings are returned
+    /// unchanged.
+    public func retargetingWorkingDirectory(_ workingDirectory: String?) -> SurfaceResumeBindingSnapshot {
+        guard isAgentHookBinding else { return self }
+        let normalizedCwd = Self.normalized(workingDirectory)
+        let retargetedCommand = TerminalStartupWorkingDirectoryPrefix()
+            .replacingRequiredChangeDirectoryPrefix(in: command, workingDirectory: normalizedCwd)
+        return SurfaceResumeBindingSnapshot(
+            name: name,
+            kind: kind,
+            command: retargetedCommand,
+            cwd: normalizedCwd,
+            checkpointId: checkpointId,
+            source: source,
+            environment: environment,
+            autoResume: autoResume,
+            approvalPolicy: approvalPolicy,
+            approvalRecordId: approvalRecordId,
+            updatedAt: updatedAt
+        )
+    }
+
     /// Whether a stored binding (`self`) should yield to a freshly detected one,
     /// reproducing the legacy reconcile precedence.
     public func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {

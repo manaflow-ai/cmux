@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxSettings
 import WebKit
@@ -363,23 +364,17 @@ extension AppDelegate {
 
     @discardableResult
     func handleFocusedFileExplorerOpenSelectionShortcut(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
-        let window = preferredWindow ?? shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        guard let window,
-              let responder = window.firstResponder,
-              let focusView = shortcutFileExplorerFocusView(for: responder),
-              focusView.window === window || focusView.window?.windowNumber == window.windowNumber else {
-            return false
-        }
-
-        if let outlineView = focusView as? FileExplorerNSOutlineView {
-            return outlineView.handleOpenSelectionShortcut(event)
-        }
-        if let resultsView = focusView as? FileExplorerSearchResultsTableView {
-            return resultsView.handleOpenSelectionShortcut(event)
-        }
-        if let searchField = focusView as? FileExplorerSearchField {
-            return searchField.handleOpenSelectionShortcut(event)
-        }
+        // TODO(delta-merge): origin/main's file-explorer open-selection shortcut
+        // (FileExplorerKeyboardShortcuts.swift) drove `handleOpenSelectionShortcut`
+        // on the FileExplorer views via `fileExplorerPanelPlacement` +
+        // `fileExplorerCoordinator` stored properties that HEAD's package view
+        // classes (CmuxAppKitSupportUI) do not yet carry, plus the view-lifecycle
+        // wiring that populates them. Re-add the whole feature (view-class state +
+        // wiring + FileExplorerKeyboardShortcuts.swift) as a follow-up; the
+        // fileExplorerOpenSelection actions route to `.rightSidebarFocus` but have
+        // no handler until then.
+        _ = event
+        _ = preferredWindow
         return false
     }
 

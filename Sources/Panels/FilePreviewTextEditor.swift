@@ -298,12 +298,12 @@ final class SavingTextView: NSTextView {
 
     @discardableResult
     func zoomPreviewFontIn() -> Bool {
-        adjustPreviewFontSize(by: FilePreviewInteraction.zoomStep)
+        adjustPreviewFontSize(by: FilePreviewZoomInteraction.standard.step)
     }
 
     @discardableResult
     func zoomPreviewFontOut() -> Bool {
-        adjustPreviewFontSize(by: 1 / FilePreviewInteraction.zoomStep)
+        adjustPreviewFontSize(by: 1 / FilePreviewZoomInteraction.standard.step)
     }
 
     @discardableResult

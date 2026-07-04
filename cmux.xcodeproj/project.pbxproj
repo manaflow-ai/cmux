@@ -14,7 +14,6 @@
 		ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */; };
 		ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */; };
 		ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */; };
-		A9E020000000000000000010 /* AgentChatTranscriptResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000010 /* AgentChatTranscriptResolverTests.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
@@ -769,9 +768,6 @@
 		6313FACE0000000000000000 /* PaneMemoryGuardrailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */; };
 		6313D1A0 /* PaneMemorySampleProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313D1A1 /* PaneMemorySampleProvider.swift */; };
 		B30AD401C0DE0001C0DE0001 /* PasteboardServiceFileURLReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30AD402C0DE0002C0DE0002 /* PasteboardServiceFileURLReader.swift */; };
-		6313B4A0 /* PaneMemoryPaneKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B4A1 /* PaneMemoryPaneKey.swift */; };
-		6313B5A0 /* PaneMemorySample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B5A1 /* PaneMemorySample.swift */; };
-		6313B6A0 /* PaneMemoryWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313B6A1 /* PaneMemoryWarning.swift */; };
 		E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
 		D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */; };
@@ -1050,6 +1046,7 @@
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */; };
 		E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */; };
+		BF0CADE0BF0CADE0BF0CAD01 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0CADE0BF0CADE0BF0CAD02 /* TabManager+BrowserFocus.swift */; };
 		5BDE8E1F68A3D497FCA40578 /* TabManager+ClosedBrowserPanelReopenHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78D731E3A981DCEF0C3F4D8 /* TabManager+ClosedBrowserPanelReopenHosting.swift */; };
 		E3B7A400000000000000CE01 /* TabManager+ClosedItemReopenRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000CE02 /* TabManager+ClosedItemReopenRouting.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
@@ -1429,7 +1426,6 @@
 		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
-		A9E010000000000000000010 /* AgentChatTranscriptResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptResolverTests.swift; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
@@ -2124,9 +2120,6 @@
 		6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryGuardrailTests.swift; sourceTree = "<group>"; };
 		6313D1A1 /* PaneMemorySampleProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemorySampleProvider.swift; sourceTree = "<group>"; };
 		B30AD402C0DE0002C0DE0002 /* PasteboardServiceFileURLReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardServiceFileURLReader.swift; sourceTree = "<group>"; };
-		6313B4A1 /* PaneMemoryPaneKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryPaneKey.swift; sourceTree = "<group>"; };
-		6313B5A1 /* PaneMemorySample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemorySample.swift; sourceTree = "<group>"; };
-		6313B6A1 /* PaneMemoryWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneMemoryWarning.swift; sourceTree = "<group>"; };
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
 		D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneForwardingMode.swift; sourceTree = "<group>"; };
@@ -2396,6 +2389,7 @@
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000AD02 /* TabManager+AgentPIDLivenessSweepHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AgentPIDLivenessSweepHosting.swift"; sourceTree = "<group>"; };
 		E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserOpenHosting.swift"; sourceTree = "<group>"; };
+		BF0CADE0BF0CADE0BF0CAD02 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
 		D78D731E3A981DCEF0C3F4D8 /* TabManager+ClosedBrowserPanelReopenHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ClosedBrowserPanelReopenHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000CE02 /* TabManager+ClosedItemReopenRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ClosedItemReopenRouting.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
@@ -3332,6 +3326,7 @@
 				5E5510000000000000000002 /* TabManager+SessionEntryResume.swift */,
 				E3CA00000000000000000002 /* TabManager+WorkspaceCommandHosting.swift */,
 				E3CC00000000000000000002 /* TabManager+BrowserOpenHosting.swift */,
+				BF0CADE0BF0CADE0BF0CAD02 /* TabManager+BrowserFocus.swift */,
 				E3CD00000000000000000002 /* Workspace+BrowserOpenWorkspaceHandle.swift */,
 				E3CF00000000000000000002 /* TabManager+SurfaceSplitHosting.swift */,
 				E3D000000000000000000002 /* Workspace+SurfaceSplitWorkspaceHandle.swift */,
@@ -3960,7 +3955,6 @@
 				B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
 				D3610B010000000000000002 /* AgentSessionAutoResumeSettingsTests.swift */,
 				A9E010000000000000000005 /* AgentExecutableResolverTests.swift */,
-				A9E010000000000000000010 /* AgentChatTranscriptResolverTests.swift */,
 				A9E030000000000000000001 /* AgentSessionSocketSurfaceTests.swift */,
 				A9E050000000000000000001 /* AgentSessionWebRendererTests.swift */,
 				A9E040000000000000000001 /* CodexAppServerSessionTests.swift */,
@@ -4969,7 +4963,6 @@
 				C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */,
 				D7C6F5020000000000000000 /* GhosttyFocusSurfaceChange.swift in Sources */,
 				D7C6F5030000000000000000 /* GhosttyFocusSurfaceSubscription.swift in Sources */,
-				048A66B6400AB53182FA4304 /* GhosttyKeyModifiers.swift in Sources */,
 				F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */,
 				D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */,
 				D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */,
@@ -5111,14 +5104,6 @@
 				6313D2A0 /* PaneMemoryGuardrailSettings.swift in Sources */,
 				6313D1A0 /* PaneMemorySampleProvider.swift in Sources */,
 				B30AD401C0DE0001C0DE0001 /* PasteboardServiceFileURLReader.swift in Sources */,
-				6313B1A0 /* PaneMemoryDescriptor.swift in Sources */,
-				6313A1A0 /* PaneMemoryGuardrail.swift in Sources */,
-				6313B2A0 /* PaneMemoryGuardrailEngine.swift in Sources */,
-				6313B3A0 /* PaneMemoryGuardrailEngineOutput.swift in Sources */,
-				6313C6A0 /* PaneMemoryGuardrailSampleBatch.swift in Sources */,
-				6313B4A0 /* PaneMemoryPaneKey.swift in Sources */,
-				6313B5A0 /* PaneMemorySample.swift in Sources */,
-				6313B6A0 /* PaneMemoryWarning.swift in Sources */,
 				E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
 				D1F0A00400000000000000D1 /* PhoneForwardingMode.swift in Sources */,
@@ -5249,12 +5234,8 @@
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
 				A5009D02 /* SidebarDragStateRegistryEnvironment.swift in Sources */,
-				D7AB34310000000000000001 /* SidebarBonsplitWorkspaceRowDropModifier.swift in Sources */,
-				EA1F00000000000000000003 /* SidebarDirectoryText.swift in Sources */,
 					5732A0115732A0115732A011 /* SidebarLazyContractProbe.swift in Sources */,
 					5732A0125732A0125732A012 /* SidebarLazyContractProbeKey.swift in Sources */,
-				C0DE5F210000000000000001 /* SidebarMetadataMarkdownRenderer.swift in Sources */,
-				EA1F00000000000000000001 /* SidebarPathFormatter.swift in Sources */,
 				C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */,
 				E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
 				F57072635F25EBCA741E125D /* SidebarState.swift in Sources */,
@@ -5314,6 +5295,7 @@
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				E3B7A400000000000000AD01 /* TabManager+AgentPIDLivenessSweepHosting.swift in Sources */,
 				E3CC00000000000000000001 /* TabManager+BrowserOpenHosting.swift in Sources */,
+				BF0CADE0BF0CADE0BF0CAD01 /* TabManager+BrowserFocus.swift in Sources */,
 				5BDE8E1F68A3D497FCA40578 /* TabManager+ClosedBrowserPanelReopenHosting.swift in Sources */,
 				E3B7A400000000000000CE01 /* TabManager+ClosedItemReopenRouting.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
@@ -5679,7 +5661,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A9E020000000000000000010 /* AgentChatTranscriptResolverTests.swift in Sources */,
 				A9E020000000000000000005 /* AgentExecutableResolverTests.swift in Sources */,
 				D72260010000000000000001 /* AgentHibernationPortalVisibilityTests.swift in Sources */,
 				D36A00020000000000000001 /* AgentHibernationTests.swift in Sources */,
@@ -5915,7 +5896,6 @@
 				281F3AEA52379AF45C5C1189 /* WorkspaceCustomSidebarPullRequestContextTests.swift in Sources */,
 				72DB1838A0F1B710BFB45DC1 /* WorkspaceEnvironmentTests.swift in Sources */,
 				F0ACC0DE0000000000000005 /* WorkspaceForkConversationContextMenuTests.swift in Sources */,
-				C9A57401C9A57401C9A57401 /* WorkspaceGroupMoveToMenuStateTests.swift in Sources */,
 				C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */,
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,

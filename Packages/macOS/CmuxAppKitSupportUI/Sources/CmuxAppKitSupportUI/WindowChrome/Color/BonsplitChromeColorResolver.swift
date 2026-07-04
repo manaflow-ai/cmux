@@ -52,16 +52,21 @@ public struct BonsplitChromeColorResolver: Sendable {
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop
         )
-        let borderHex = WindowChromeColorResolver()
+        let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
+        let borderHex = Self.resolvedPaneBorderHex(
+            configuredHex: paneBorderColorHex,
+            fallback: defaultBorderHex
+        )
 
         if sharesWindowBackdrop {
             return .init(
@@ -95,12 +100,17 @@ public struct BonsplitChromeColorResolver: Sendable {
     public func resolvedChromeColors(
         from backgroundColor: NSColor,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let backgroundHex = backgroundColor.hexString()
-        let borderHex = WindowChromeColorResolver()
+        let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
+        let borderHex = Self.resolvedPaneBorderHex(
+            configuredHex: paneBorderColorHex,
+            fallback: defaultBorderHex
+        )
 
         if sharesWindowBackdrop {
             return .init(
@@ -125,6 +135,17 @@ public struct BonsplitChromeColorResolver: Sendable {
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
         )
+    }
+
+    /// Resolves the effective pane border hex: the user-configured active pane
+    /// border color (#7239) when set, otherwise the computed separator color.
+    /// Callers pass already-normalized hex (or nil), so an empty/whitespace-only
+    /// value falls back.
+    static func resolvedPaneBorderHex(configuredHex: String?, fallback: String) -> String {
+        guard let configuredHex,
+              !configuredHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return fallback }
+        return configuredHex
     }
 
     /// Field-by-field equality of two chrome color sets.

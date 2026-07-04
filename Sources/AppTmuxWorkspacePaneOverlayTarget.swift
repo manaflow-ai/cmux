@@ -40,6 +40,8 @@ final class AppTmuxWorkspacePaneOverlayTarget: TmuxWorkspacePaneOverlayTarget {
         hostingView.rootView = TmuxWorkspacePaneOverlayView(
             unreadRects: hostingView.model.unreadRects,
             flashRect: hostingView.model.flashRect,
+            activePaneBorderRect: hostingView.model.activePaneBorderRect,
+            activePaneBorderColorHex: hostingView.model.activePaneBorderColorHex,
             flashStartedAt: hostingView.model.flashStartedAt,
             flashReason: hostingView.model.flashReason
         )
@@ -51,6 +53,8 @@ final class AppTmuxWorkspacePaneOverlayTarget: TmuxWorkspacePaneOverlayTarget {
         hostingView.rootView = TmuxWorkspacePaneOverlayView(
             unreadRects: [],
             flashRect: nil,
+            activePaneBorderRect: nil,
+            activePaneBorderColorHex: nil,
             flashStartedAt: nil,
             flashReason: nil
         )
@@ -72,6 +76,8 @@ final class TmuxWorkspacePaneOverlayHostingView: NSHostingView<TmuxWorkspacePane
             rootView: TmuxWorkspacePaneOverlayView(
                 unreadRects: [],
                 flashRect: nil,
+                activePaneBorderRect: nil,
+                activePaneBorderColorHex: nil,
                 flashStartedAt: nil,
                 flashReason: nil
             )
