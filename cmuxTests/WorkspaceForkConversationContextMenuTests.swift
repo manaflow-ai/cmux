@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -132,7 +133,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func forkAvailabilitySnapshotRefreshesWhenProcessScopeChanges() throws {
+    func forkAvailabilitySnapshotRefreshesWhenProcessScopeChanges() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-live-agent-cache-\(UUID().uuidString)", isDirectory: true)
@@ -175,17 +176,17 @@ struct WorkspaceForkConversationContextMenuTests {
             ]
         )
 
-        var processSnapshot = CmuxTopProcessSnapshot(
+        let processSnapshotLock = OSAllocatedUnfairLock(initialState: CmuxTopProcessSnapshot(
             processes: [],
             sampledAt: Date(timeIntervalSince1970: 42),
             includesProcessDetails: true
-        )
+        ))
         let sharedIndex = SharedLiveAgentIndex(
-            processSnapshotProvider: { processSnapshot },
-            synchronousIndexLoader: { snapshot in
+            processSnapshotProvider: { processSnapshotLock.withLock { $0 } },
+            indexLoader: { snapshot in
                 SharedLiveAgentIndexLoader(
                     homeDirectory: root.path,
-                    fileManager: fm,
+                    fileManager: .default,
                     registry: registry,
                     processSnapshotProvider: { snapshot },
                     capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
@@ -204,6 +205,7 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
+        await sharedIndex.refreshIfProcessScopeChanged()
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: staleWorkspaceId,
@@ -211,29 +213,32 @@ struct WorkspaceForkConversationContextMenuTests {
             )?.sessionId == sessionId
         )
 
-        processSnapshot = CmuxTopProcessSnapshot(
-            processes: [
-                CmuxTopProcessInfo(
-                    pid: processId,
-                    parentPID: 1,
-                    name: agentId,
-                    path: executable,
-                    ttyDevice: nil,
-                    cmuxWorkspaceID: liveWorkspaceId,
-                    cmuxSurfaceID: livePanelId,
-                    cmuxAttributionReason: "cmux-test",
-                    processGroupID: nil,
-                    terminalProcessGroupID: nil,
-                    cpuPercent: 0,
-                    residentBytes: 0,
-                    virtualBytes: 0,
-                    threadCount: 1
-                ),
-            ],
-            sampledAt: Date(timeIntervalSince1970: 43),
-            includesProcessDetails: true
-        )
+        processSnapshotLock.withLock {
+            $0 = CmuxTopProcessSnapshot(
+                processes: [
+                    CmuxTopProcessInfo(
+                        pid: processId,
+                        parentPID: 1,
+                        name: agentId,
+                        path: executable,
+                        ttyDevice: nil,
+                        cmuxWorkspaceID: liveWorkspaceId,
+                        cmuxSurfaceID: livePanelId,
+                        cmuxAttributionReason: "cmux-test",
+                        processGroupID: nil,
+                        terminalProcessGroupID: nil,
+                        cpuPercent: 0,
+                        residentBytes: 0,
+                        virtualBytes: 0,
+                        threadCount: 1
+                    ),
+                ],
+                sampledAt: Date(timeIntervalSince1970: 43),
+                includesProcessDetails: true
+            )
+        }
 
+        await sharedIndex.refreshIfProcessScopeChanged()
         #expect(
             sharedIndex.snapshotForForkAvailability(
                 workspaceId: staleWorkspaceId,
