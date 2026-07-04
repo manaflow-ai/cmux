@@ -159,7 +159,7 @@ extension DockSplitStore {
 
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
-            panelScopedMutationSourceWorkspaceIds: preservedTransfer?.panelScopedMutationSourceWorkspaceIds ?? [],
+            panelScopedMutationSourceWorkspaceIds: preservedTransfer?.panelScopedMutationSourceWorkspaceIds.union([workspaceId]) ?? [workspaceId],
             panelId: panelId,
             panel: panel,
             title: transferTitle ?? panel.displayTitle,
