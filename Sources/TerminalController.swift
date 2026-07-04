@@ -3147,12 +3147,6 @@ class TerminalController {
     // MARK: - V2 Context Resolution
 
     nonisolated func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
-        // Prefer explicit window_id routing. Otherwise prefer group_id (group
-        // methods are the only routing key for cross-window group ops, and
-        // CLI helpers always inject caller workspace_id/surface_id, which
-        // would otherwise win even when the group belongs to a different
-        // window). Fall back to workspace/surface/pane lookup, then the
-        // active window's TabManager.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
@@ -3190,23 +3184,27 @@ class TerminalController {
 
     @MainActor
     private func v2LocateTabManager(forGroupId groupId: UUID) -> TabManager? {
+        v2LocateTabManager { $0.workspaceGroups.contains(where: { $0.id == groupId }) }
+    }
+
+    @MainActor
+    private func v2LocateTabManager(forWorkstreamId workstreamId: UUID) -> TabManager? {
+        v2LocateTabManager { $0.workstreams.contains(where: { $0.id == workstreamId }) }
+    }
+
+    @MainActor
+    private func v2LocateTabManager(matching predicate: (TabManager) -> Bool) -> TabManager? {
         guard let app = AppDelegate.shared else { return nil }
         for summary in app.listMainWindowSummaries() {
             guard let tm = app.tabManagerFor(windowId: summary.windowId) else { continue }
-            if tm.workspaceGroups.contains(where: { $0.id == groupId }) {
+            if predicate(tm) {
                 return tm
             }
         }
         return nil
     }
 
-    /// Mirrors the former `v2ResolveTabManager` precedence for the
-    /// ``ControlCommandContext`` window resolution, operating on selectors the
-    /// coordinator already resolved through the shared handle registry: explicit
-    /// `window_id` wins (a present-but-unresolvable one yields no target), then
-    /// group, workspace, surface, pane, then the caller's window, then the
-    /// active scriptable window. Lives here so it can read the controller's
-    /// `private` `tabManager` / `v2LocateTabManager`.
+    /// Resolves coordinator routing selectors to a `TabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
@@ -3216,6 +3214,10 @@ class TerminalController {
            let tm = v2LocateTabManager(forGroupId: groupId) {
             return tm
         }
+        if let workstreamId = routing.workstreamID,
+           let tm = v2LocateTabManager(forWorkstreamId: workstreamId) {
+            return tm
+        }
         if let workspaceId = routing.workspaceID {
             if workspaceId == AppDelegate.windowDockAliasWorkspaceId {
                 return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
@@ -3223,8 +3225,6 @@ class TerminalController {
             if let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
                 return tm
             }
-            // A window-Dock owner id IS its owning window's id, so a Dock-scoped
-            // workspace_id routes to that window rather than the caller's.
             if let tm = AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceId) {
                 return tm
             }

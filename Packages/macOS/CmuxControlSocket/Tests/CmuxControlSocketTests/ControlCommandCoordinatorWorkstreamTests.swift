@@ -30,6 +30,7 @@ private final class FakeWorkstreamContext: ControlCommandContext {
     private(set) var lastCreateName: String?
     private(set) var lastCreateWorkspaceIDs: [UUID] = []
     private(set) var lastRenameName: String?
+    private(set) var lastRenameRouting: ControlRoutingSelectors?
 
     func controlWorkstreamList(routing: ControlRoutingSelectors) -> ControlWorkstreamListResolution {
         listResolution
@@ -44,6 +45,7 @@ private final class FakeWorkstreamContext: ControlCommandContext {
         return createResolution
     }
     func controlRenameWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID, name: String) -> Bool? {
+        lastRenameRouting = routing
         lastRenameName = name
         return renameResult
     }
@@ -163,6 +165,18 @@ struct ControlCommandCoordinatorWorkstreamTests {
         }
         #expect(context.lastRenameName == "New name")
         #expect(payload["name"] == .string("New name"))
+    }
+
+    @Test func renameRoutesByWorkstreamHandle() throws {
+        let (coordinator, context) = coordinator()
+        context.renameResult = true
+        let id = UUID()
+        let workstreamRef = coordinator.ensureRef(kind: .workstream, uuid: id)
+        _ = coordinator.handle(request("workstream.rename", [
+            "workstream_id": .string(workstreamRef),
+            "name": .string("New name"),
+        ]))
+        #expect(context.lastRenameRouting?.workstreamID == id)
     }
 
     @Test func renameRejectsBlankNameWithoutCallingContext() throws {

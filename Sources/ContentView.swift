@@ -12429,6 +12429,7 @@ struct VerticalTabsSidebar: View {
             syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
             onDragStart: onDragStart,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+            visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
@@ -13260,6 +13261,7 @@ struct TabItemView: View, Equatable {
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
+        lhs.visibleWorkspaceRowIds == rhs.visibleWorkspaceRowIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
@@ -13322,6 +13324,7 @@ struct TabItemView: View, Equatable {
     let syncSidebarSelectionAfterBonsplitDrop: @MainActor () -> Void
     let onDragStart: () -> NSItemProvider
     let contextMenuWorkspaceIds: [UUID]
+    let visibleWorkspaceRowIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
@@ -14469,17 +14472,17 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherTabs(targetIds)
         }
-        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
+        .disabled(visibleWorkspaceRowIds.count <= 1 || targetIds.count == visibleWorkspaceRowIds.count)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeTabsBelow(tabId: tab.id)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(visibleWorkspaceRowIds.last == tab.id)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeTabsAbove(tabId: tab.id)
         }
-        .disabled(index == 0)
+        .disabled(visibleWorkspaceRowIds.first == tab.id)
 
         Divider()
 
@@ -14659,19 +14662,19 @@ struct TabItemView: View, Equatable {
 
     private func closeOtherTabs(_ targetIds: [UUID]) {
         let keepIds = Set(targetIds)
-        let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
+        let idsToClose = visibleWorkspaceRowIds.filter { !keepIds.contains($0) }
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsBelow(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
+        guard let anchorIndex = visibleWorkspaceRowIds.firstIndex(of: tabId) else { return }
+        let idsToClose = Array(visibleWorkspaceRowIds.suffix(from: anchorIndex + 1))
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
+        guard let anchorIndex = visibleWorkspaceRowIds.firstIndex(of: tabId) else { return }
+        let idsToClose = Array(visibleWorkspaceRowIds.prefix(upTo: anchorIndex))
         closeTabs(idsToClose, allowPinned: true)
     }
 

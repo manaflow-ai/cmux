@@ -172,6 +172,7 @@ public final class ControlCommandCoordinator {
             hasWindowIDParam: hasNonNull(params, "window_id"),
             windowID: uuid(params, "window_id"),
             groupID: uuid(params, "group_id"),
+            workstreamID: uuid(params, "workstream_id"),
             workspaceID: uuid(params, "workspace_id"),
             surfaceID: uuid(params, "surface_id")
                 ?? uuid(params, "terminal_id")
