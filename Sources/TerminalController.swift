@@ -2161,6 +2161,12 @@ class TerminalController {
     /// refresh, then the coordinator, then the legacy switch. The
     /// coordinator's typed result returns unencoded so the socket worker
     /// serializes it after the hop.
+    ///
+    /// LOCKSTEP: `controlResolveOnMain` (TerminalControllerControlCommandContext.swift)
+    /// is the worker-lane mirror of this dispatch preamble. Any step added
+    /// before `controlCommandCoordinator.handle` here must also be added
+    /// there, or the tranche-D worker-lane verbs silently fork from the
+    /// main lane.
     private func v2MainActorResponse(request: ControlRequest, id: Any?, method: String, params: [String: Any]) -> V2MainHopOutcome {
         v2RefreshKnownRefs()
 
@@ -2308,7 +2314,10 @@ class TerminalController {
         // still-shared v2FileOpen), and project.* handled by ControlCommandCoordinator.
 
         // surface.read_text runs on the socket-worker lane (issue #5757), so it
-        // never reaches this main-actor switch; see v2SurfaceReadText.
+        // never reaches this main-actor switch; see v2SurfaceReadText. Main-lane
+        // entry of a worker-lane method (e.g. via runV2CommandLine) answers
+        // invalid_dispatch ("must run on the socket worker") from the policy
+        // guard in processParsedV2Command — not method_not_found.
 
 
         // Debug / test-only: the DEBUG-gated debug.* domain (shortcuts, typing,
@@ -5434,10 +5443,25 @@ class TerminalController {
             ) else {
                 return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
             }
+            // `terminalTextPayload`'s only failure predicate is snapshot shape
+            // (O(1)), so reject here and mint refs only when a success reply is
+            // guaranteed. The legacy build minted nothing on this error path,
+            // and dock owner/surface ids are first-minted by the mint pass
+            // below (NOT by the refresh above, which walks only main-window
+            // workspace topology) — an error-path mint would shift `kind:N`
+            // ordinals for every later reply on this instance.
+            let payloadIsFormattable = includeScrollback
+                ? (rawSnapshot.screen != nil || rawSnapshot.history != nil || rawSnapshot.active != nil)
+                : rawSnapshot.viewport != nil
+            guard payloadIsFormattable else {
+                return .finished(.err(code: "internal_error", message: "Failed to read terminal text", data: nil))
+            }
             let windowID = self.v2ResolveWindowId(tabManager: tabManager)
             // Refs mint in the success payload's literal order (workspace,
-            // surface, window); every id is live topology the refresh above
-            // already minted, so ordinals match the legacy build exactly.
+            // surface, window). Workspace-hosted ids were pre-minted by the
+            // refresh; dock-hosted ids are first-minted right here, so this
+            // mint pass MUST keep the payload's literal order for ordinal
+            // parity with the legacy build.
             return .captured(ReadTextCapture(
                 rawSnapshot: rawSnapshot,
                 workspaceID: workspaceID,

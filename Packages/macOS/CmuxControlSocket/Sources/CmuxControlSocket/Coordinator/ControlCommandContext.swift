@@ -38,10 +38,13 @@ public protocol ControlCommandContext:
     ///
     /// The conformer MUST refresh its known `kind:N` refs before running the
     /// closure (the app forwards to `v2MainSync { v2RefreshKnownRefs(); … }`),
-    /// mirroring the main-lane dispatch preamble byte-for-byte: caller-supplied
-    /// refs resolve through the registry, and every live-topology id the
-    /// closure mints a ref for is already minted, so payload ordinals cannot
-    /// drift. Like `controlSidebarOnMain`, the hop collapses to an inline call
+    /// mirroring the main-lane dispatch preamble byte-for-byte so
+    /// caller-supplied refs resolve through the registry. The refresh covers
+    /// only main-window workspace topology — dock-hosted surfaces are
+    /// first-minted by each body's in-hop mint pass, so mint passes MUST
+    /// preserve their payload's literal mint order; that ordering (not the
+    /// refresh) is what keeps ordinals identical across lanes.
+    /// Like `controlSidebarOnMain`, the hop collapses to an inline call
     /// when the caller is already on the main thread (mainThreadCallable
     /// in-process dispatch), and the closure receives the seam back as its
     /// main-actor parameter so callers never capture the non-Sendable seam

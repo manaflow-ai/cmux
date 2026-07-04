@@ -113,8 +113,16 @@ extension ControlCommandCoordinator {
             }
         } else {
             // Unreachable today (a nil context never comes from the worker
-            // lane); a loud error beats a MainActor.assumeIsolated crash.
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            // lane). Fail loudly and distinctly — the generic `unavailable`
+            // reply would make this drift indistinguishable from routine
+            // TabManager unavailability (mirrors the worker lanes'
+            // policy-listed-without-handler backstops).
+            assertionFailure("system.tree dispatched off-main with a nil context seam")
+            return .err(
+                code: "internal_error",
+                message: "system.tree dispatched off-main without a context seam",
+                data: nil
+            )
         }
         switch outcome {
         case .finished(let result):
