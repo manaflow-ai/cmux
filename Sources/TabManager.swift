@@ -2226,7 +2226,7 @@ class TabManager: ObservableObject {
     /// ``closeWorkspacesWithConfirmation`` — so every explicit tab-close intent kills
     /// consistently. ``AppDelegate``'s `shouldClose`/`onClose` consume or clear the
     /// marker (veto vs commit).
-    private func markRemoteTmuxKillOnWindowCloseIfNeeded(for workspaces: [Workspace]) {
+    func markRemoteTmuxKillOnWindowCloseIfNeeded(for workspaces: [Workspace]) {
         guard workspaces.contains(where: { $0.isRemoteTmuxMirror }),
               let windowId = AppDelegate.shared?.windowId(for: self) else { return }
         AppDelegate.shared?.remoteTmuxController.markKillSessionsOnWindowClose(windowId: windowId)
