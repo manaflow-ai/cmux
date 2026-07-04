@@ -61,6 +61,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 5,
         text: "live",
+        columns: 16,
         activeScreen: .alternate
     )
     let transport = try #require(box.get())
@@ -145,6 +146,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.lines.contains { $0.contains("alt") } }
@@ -190,6 +192,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 1,
         text: "stale-alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     await transport.deliver(try terminalBytesEventFrame(surfaceID: "live-terminal", seq: 5, text: "raw-b"))
@@ -221,6 +224,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
@@ -256,6 +260,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
@@ -318,6 +323,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 3,
         text: "alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let altDelivered = try await pollUntil { collector.viewportPolicies.last == .remoteGrid(columns: 16, rows: 4) }
@@ -350,6 +356,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 9,
         text: "still-alt",
+        columns: 16,
         activeScreen: .alternate
     ))
     let laterAltDelivered = try await pollUntil { collector.lines.contains { $0.contains("still-alt") } }
@@ -427,6 +434,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 9,
         text: "still-alive",
+        columns: 16,
         activeScreen: .alternate
     )
     let transport = try #require(box.get())
@@ -490,6 +498,7 @@ import Testing
         surfaceID: "live-terminal",
         seq: 11,
         text: "repaired",
+        columns: 16,
         activeScreen: .alternate
     )
     let transport = try #require(box.get())
