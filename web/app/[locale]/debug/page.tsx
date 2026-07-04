@@ -40,8 +40,8 @@ function tw(prefix: string, px: number) {
 
 export default function DownloadButtonDebug() {
   const [pad, setPad] = useState<Record<Size, Pad>>(() => structuredClone(INITIAL));
-  const [dark, setDark] = useState(false);
-  const [zoom, setZoom] = useState(3);
+  const [dark, setDark] = useState(true);
+  const [zoom, setZoom] = useState(1);
   const [reTransition, setReTransition] = useState(false);
   const [forceTranslateZ, setForceTranslateZ] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -156,9 +156,39 @@ export default function DownloadButtonDebug() {
                 } as CSSProperties
               }
             >
-              <div className={wrapClass}
-                style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}>
+              <div
+                className={wrapClass}
+                style={{
+                  transform: `scale(${zoom})`,
+                  transformOrigin: "center",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: size === "sm" ? 20 : 14,
+                  color: "var(--foreground)",
+                }}
+              >
+                {size === "sm" && (
+                  <>
+                    <span style={{ fontSize: 14, fontWeight: 500, opacity: 0.7 }}>Docs</span>
+                    <span style={{ fontSize: 14, fontWeight: 500, opacity: 0.7 }}>Blog</span>
+                  </>
+                )}
                 <DownloadButton size={size} location="debug" padOverride={pad[size]} />
+                {size === "default" && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      borderRadius: 9999,
+                      border: "1px solid color-mix(in srgb, var(--foreground) 18%, transparent)",
+                      padding: "10px 20px",
+                      fontSize: 15,
+                      fontWeight: 500,
+                    }}
+                  >
+                    View on GitHub
+                  </span>
+                )}
               </div>
             </div>
 
