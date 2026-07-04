@@ -25,7 +25,7 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
     }
 
     func postDidChangeNotification() {
-        NotificationCenter.default.post(
+        notificationCenter.post(
             name: UserDefaults.didChangeNotification,
             object: defaults
         )
