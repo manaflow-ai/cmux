@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxCore
+import CmuxDesignSystem
 import CmuxFeedback
 import CmuxFoundation
 import CmuxPanes
@@ -1014,7 +1015,7 @@ struct ContentView: View {
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
-        let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
+        let resolvedActivePaneBorderColorHex = WorkspaceTabColorPaletteStore.normalizedHex(activePaneBorderColorHex)
         let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
         guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder else { return nil }
 
@@ -1152,7 +1153,7 @@ struct ContentView: View {
         if TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay { return true }
         if WindowTmuxWorkspacePaneOverlayController.controller(for: window, createIfNeeded: false)?.hasRenderedState == true { return true }
         guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex))
+        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorPaletteStore.normalizedHex(activePaneBorderColorHex))
     }
 
     private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {
@@ -6717,7 +6718,7 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
-        for entry in WorkspaceTabColorSettings.palette() {
+        for entry in WorkspaceTabColorPaletteStore().palette() {
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: commandPaletteWorkspaceColorCommandID(entry.name),
@@ -7762,7 +7763,7 @@ struct ContentView: View {
             }
             tabManager.applyWorkspaceColor(nil, toWorkspaceIds: [workspace.id])
         }
-        for entry in WorkspaceTabColorSettings.palette() {
+        for entry in WorkspaceTabColorPaletteStore().palette() {
             registry.register(commandId: commandPaletteWorkspaceColorCommandID(entry.name)) {
                 guard let workspace = tabManager.selectedWorkspace else {
                     NSSound.beep()
@@ -14329,7 +14330,7 @@ struct TabItemView: View, Equatable {
         }
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
-            let tabColorPalette = WorkspaceTabColorSettings.palette()
+            let tabColorPalette = WorkspaceTabColorPaletteStore().palette()
 
             if tab.customColor != nil {
                 Button {
@@ -14505,7 +14506,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func tabColorSwatchColor(for hex: String) -> NSColor {
-        WorkspaceTabColorSettings.displayNSColor(
+        WorkspaceTabColorPaletteStore.displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail
@@ -15180,7 +15181,7 @@ struct TabItemView: View, Equatable {
         alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
         alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
 
-        let seed = tab.customColor ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
+        let seed = tab.customColor ?? WorkspaceTabColorPaletteStore().customPaletteEntries().first?.hex ?? ""
         let input = NSTextField(string: seed)
         input.placeholderString = "#1565C0"
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
@@ -15197,7 +15198,7 @@ struct TabItemView: View, Equatable {
 
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
-        guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
+        guard let normalized = WorkspaceTabColorPaletteStore().addCustomColor(input.stringValue) else {
             showInvalidColorAlert(input.stringValue)
             return
         }

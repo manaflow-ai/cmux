@@ -25,6 +25,6 @@ enum PaneChromeSettings {
 
     private static func normalizedColorHex(_ rawValue: String?) -> String? {
         guard let rawValue else { return nil }
-        return WorkspaceTabColorSettings.normalizedHex(rawValue)
+        return WorkspaceTabColorPaletteStore.normalizedHex(rawValue)
     }
 }
