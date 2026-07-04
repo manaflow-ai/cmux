@@ -51,8 +51,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
-        // (mermaid / vega-lite). Swift fetches the bundled source from the
-        // app bundle and injects it via evaluateJavaScript.
+        // (mermaid / vega-lite / katex). Swift fetches the bundled source from
+        // the app bundle and injects it via evaluateJavaScript.
         config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
         config.setURLSchemeHandler(
             context.coordinator,
@@ -150,8 +150,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
         private var isLoaded = false
-        private var isShellLoading = false
-        private var webContentProcessRecoveryAttempts = 0
+        var isShellLoading = false
+        var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
         /// Whether the shell was confirmed loaded at the moment the host view
         /// last left its window. Used to distinguish a blank state caused by
@@ -176,16 +176,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
-
-#if DEBUG
-        var isShellLoadingForTesting: Bool {
-            isShellLoading
-        }
-
-        var webContentProcessRecoveryAttemptsForTesting: Int {
-            webContentProcessRecoveryAttempts
-        }
-#endif
 
         func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
             self.panelId = panelId
@@ -280,9 +270,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             isShellLoading = true
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
-#if DEBUG
-            NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
-#endif
             webView?.loadHTMLString(html, baseURL: baseURL)
         }
 
@@ -379,17 +366,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func pushMarkdown(_ markdown: String) {
             guard let webView else { return }
-#if DEBUG
-            NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
-#endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
-            webView.evaluateJavaScript(js) { _, error in
-#if DEBUG
-                if let error {
-                    NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
-                }
-#endif
-            }
+            webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
         private func renderMarkdownForExport(_ markdown: String) async -> Bool {
@@ -401,9 +379,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 pendingMarkdown = markdown
                 return true
             } catch {
-#if DEBUG
-                NSLog("MarkdownPanel: renderMarkdownForExport evaluateJavaScript failed: \(error)")
-#endif
                 return false
             }
         }
@@ -443,9 +418,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return
             }
             if let action = body["action"] as? String {
-#if DEBUG
-                NSLog("MarkdownPanel.bridge action=\(action) body=\(body)")
-#endif
                 switch action {
                 case "resolveMarkdownFile":
                     guard let requestId = body["requestId"] as? String,
@@ -605,9 +577,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func resolveMarkdownFile(_ rawPath: String, requestId: String) {
             guard let webView else { return }
             let resolved = resolvedMarkdownFilePath(rawPath)
-#if DEBUG
-            NSLog("MarkdownPanel.resolve raw=\(rawPath) resolved=\(resolved ?? "nil")")
-#endif
             let payload: [String: Any] = [
                 "requestId": requestId,
                 "exists": resolved != nil,
@@ -626,9 +595,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private func openMarkdownFile(_ path: String) {
-#if DEBUG
-            NSLog("MarkdownPanel.openMarkdownFile path=\(path)")
-#endif
             guard let app = AppDelegate.shared,
                   let location = app.workspaceContainingPanel(
                       panelId: panelId,
@@ -642,6 +608,53 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             )
         }
 
+        /// The ordered JS source fragments to inject for a lazy-loaded library,
+        /// or nil for an unknown library. Extracted from `handleLibRequest` so
+        /// the shipped injection (asset names, and KaTeX's CSS-before-JS
+        /// ordering) is unit-testable without standing up a WKWebView.
+        static func lazyLibrarySources(
+            for lib: String,
+            assets: MarkdownViewerAssets
+        ) -> [String]? {
+            switch lib {
+            case "mermaid":
+                return [assets.lazyAsset(name: "mermaid.min", ext: "js")]
+            case "vega-lite":
+                // Order matters: vega first, then vega-lite, then vega-embed.
+                return [
+                    assets.lazyAsset(name: "vega.min", ext: "js"),
+                    assets.lazyAsset(name: "vega-lite.min", ext: "js"),
+                    assets.lazyAsset(name: "vega-embed.min", ext: "js"),
+                ]
+            case "katex":
+                // KaTeX needs its stylesheet present before katex.min.js
+                // renders, so inject the CSS as a <style> element first, then
+                // the library source. The fonts are baked into the stylesheet
+                // as data: URIs (see scripts/embed-katex-fonts.py), so no
+                // separate WKURLSchemeHandler is needed — relative font paths
+                // would otherwise resolve against the user's markdown file
+                // (the base URL), not the app bundle.
+                let katexCSS = assets.lazyAsset(name: "katex-fonts.min", ext: "css")
+                // Wrap in a single-element array so JSONSerialization accepts a
+                // String payload (matches the `[lib]` pattern used below).
+                let cssLiteral = (try? JSONSerialization.data(withJSONObject: [katexCSS]))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+                let cssInjection = """
+                (function(css){
+                  if (!document.getElementById('cmux-katex-css')) {
+                    var styleEl = document.createElement('style');
+                    styleEl.id = 'cmux-katex-css';
+                    styleEl.textContent = css;
+                    (document.head || document.documentElement).appendChild(styleEl);
+                  }
+                })(\(cssLiteral)[0]);
+                """
+                return [cssInjection, assets.lazyAsset(name: "katex.min", ext: "js")]
+            default:
+                return nil
+            }
+        }
+
         private func handleLibRequest(_ lib: String) {
             guard let webView else { return }
             // Load each library at most once per WebView lifetime. State is
@@ -651,18 +664,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.insert(lib)
 
             let assets = MarkdownViewerAssets.shared
-            let sources: [String]
-            switch lib {
-            case "mermaid":
-                sources = [assets.lazyAsset(name: "mermaid.min", ext: "js")]
-            case "vega-lite":
-                // Order matters: vega first, then vega-lite, then vega-embed.
-                sources = [
-                    assets.lazyAsset(name: "vega.min", ext: "js"),
-                    assets.lazyAsset(name: "vega-lite.min", ext: "js"),
-                    assets.lazyAsset(name: "vega-embed.min", ext: "js"),
-                ]
-            default:
+            guard let sources = Self.lazyLibrarySources(for: lib, assets: assets) else {
                 return
             }
 
@@ -679,12 +681,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
             let suffix = "\nwindow.__cmuxLibLoaded && window.__cmuxLibLoaded(\(libLiteral)[0]);"
             webView.evaluateJavaScript(injection + suffix) { [weak self] _, error in
-                if let error {
+                if error != nil {
                     // Allow retry on next render if this attempt failed.
                     self?.requestedLibs.remove(lib)
-#if DEBUG
-                    NSLog("MarkdownPanel: failed to load \(lib): \(error)")
-#endif
                 }
             }
         }
@@ -692,9 +691,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // MARK: WKNavigationDelegate
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-#if DEBUG
-            NSLog("MarkdownPanel.webView.didFinish")
-#endif
             isShellLoading = false
             isLoaded = true
             // pageZoom is a WKWebView-level property that survives loadHTMLString,
@@ -729,9 +725,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard let currentWebView = self.webView, currentWebView === webView else { return }
-#if DEBUG
-            NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
-#endif
             isShellLoading = false
             guard webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts else {
                 isLoaded = false
@@ -781,9 +774,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
             guard let currentWebView = self.webView, currentWebView === webView, isShellLoading else { return }
-#if DEBUG
-            NSLog("MarkdownPanel.webView.navigationFailed error=\(error)")
-#endif
             isShellLoading = false
             isLoaded = false
         }
@@ -798,9 +788,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // route through the cmux tab/browser machinery.
             if navigationAction.navigationType == .linkActivated,
                let url = navigationAction.request.url {
-#if DEBUG
-                NSLog("MarkdownPanel.nav linkActivated url=\(url.absoluteString)")
-#endif
                 if isInPageFragment(url) {
                     // Same-document fragment navigation (heading anchors)
                     // scrolls the panel — keep it native.
@@ -835,9 +822,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// browser only when the in-app browser is disabled or the panel
         /// can't be located in any workspace.
         private func handleExternalLink(_ url: URL) {
-#if DEBUG
-            NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
-#endif
             // First preference: links that resolve to local markdown files
             // open as markdown tabs in cmux, not in the browser.
             let fileCandidate = url.scheme == "file" ? url.path : url.absoluteString

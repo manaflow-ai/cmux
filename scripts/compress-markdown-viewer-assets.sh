@@ -19,7 +19,12 @@ import zlib
 
 root = pathlib.Path(sys.argv[1])
 
-for path in sorted(root.glob("*.js")):
+# Compress top-level JS and CSS assets only. Both are loaded as decompressed
+# text via MarkdownViewerAssets.loadAsset (which prefers the .deflate variant),
+# so deflating the large CSS (e.g. katex-fonts.min.css with inlined fonts)
+# shrinks the bundle without changing runtime behavior. Subdirectory assets
+# (diff-viewer/, webviews-app/) are intentionally left untouched.
+for path in sorted(root.glob("*.js")) + sorted(root.glob("*.css")):
     raw = path.read_bytes()
     compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
     compressed = compressor.compress(raw) + compressor.flush()
