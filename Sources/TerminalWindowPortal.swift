@@ -1328,7 +1328,7 @@ final class WindowTerminalPortal: NSObject {
         entry: inout Entry,
         hostedView: GhosttySurfaceScrollView,
         reason: String
-    ) {
+    ) -> Bool {
         // Seed the cumulative cap when a fresh recovery episode begins (no
         // active transient reason). It is only refreshed again through
         // resetTransientRecoveryRetryIfNeeded after a healthy/not-visible sync,
@@ -1361,7 +1361,7 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-        guard retriesRemaining > 0 else { return }
+        guard retriesRemaining > 0 else { return false }
 
         entry.transientRecoveryRetriesRemaining -= 1
         entry.transientRecoveryTotalRetriesRemaining -= 1
@@ -1373,9 +1373,12 @@ final class WindowTerminalPortal: NSObject {
             "total=\(entry.transientRecoveryTotalRetriesRemaining)"
         )
 #endif
-        if min(entry.transientRecoveryRetriesRemaining, entry.transientRecoveryTotalRetriesRemaining) > 0 {
+        let didScheduleDeferredRetry =
+            min(entry.transientRecoveryRetriesRemaining, entry.transientRecoveryTotalRetriesRemaining) > 0
+        if didScheduleDeferredRetry {
             scheduleDeferredFullSynchronizeAll()
         }
+        return didScheduleDeferredRetry
     }
 
     private func synchronizeHostedView(withId hostedId: ObjectIdentifier, syncLayout: Bool = true) {
@@ -1385,15 +1388,22 @@ final class WindowTerminalPortal: NSObject {
             entriesByHostedId.removeValue(forKey: hostedId)
             return
         }
+        func preserveVisibleDuringTransient(reason: String) -> Bool {
+            guard entry.visibleInUI else { return false }
+            let didScheduleTransientRecovery = scheduleTransientRecoveryRetryIfNeeded(
+                forHostedId: hostedId,
+                entry: &entry,
+                hostedView: hostedView,
+                reason: reason
+            )
+            guard didScheduleTransientRecovery, !hostedView.isHidden else { return false }
+            return true
+        }
         guard let anchorView = entry.anchorView, let window else {
-            if entry.visibleInUI {
-                scheduleTransientRecoveryRetryIfNeeded(
-                    forHostedId: hostedId,
-                    entry: &entry,
-                    hostedView: hostedView,
-                    reason: "missingAnchorOrWindow"
-                )
-            } else {
+            if preserveVisibleDuringTransient(reason: "missingAnchorOrWindow") {
+                return
+            }
+            if !entry.visibleInUI {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
 #if DEBUG
@@ -1413,14 +1423,10 @@ final class WindowTerminalPortal: NSObject {
                 )
             }
 #endif
-            if entry.visibleInUI {
-                scheduleTransientRecoveryRetryIfNeeded(
-                    forHostedId: hostedId,
-                    entry: &entry,
-                    hostedView: hostedView,
-                    reason: "anchorWindowMismatch"
-                )
-            } else {
+            if preserveVisibleDuringTransient(reason: "anchorWindowMismatch") {
+                return
+            }
+            if !entry.visibleInUI {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
             hostedView.isHidden = true
@@ -1449,14 +1455,10 @@ final class WindowTerminalPortal: NSObject {
                 "anchor=\(portalDebugFrame(frameInHost)) visibleInUI=\(entry.visibleInUI ? 1 : 0)"
             )
 #endif
-            if entry.visibleInUI {
-                scheduleTransientRecoveryRetryIfNeeded(
-                    forHostedId: hostedId,
-                    entry: &entry,
-                    hostedView: hostedView,
-                    reason: "hostBoundsNotReady"
-                )
-            } else {
+            if preserveVisibleDuringTransient(reason: "hostBoundsNotReady") {
+                return
+            }
+            if !entry.visibleInUI {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
             hostedView.isHidden = true
@@ -1497,14 +1499,20 @@ final class WindowTerminalPortal: NSObject {
             if shouldDeferReveal { return "deferReveal" }
             return nil
         }()
-        if let transientRecoveryReason {
-            scheduleTransientRecoveryRetryIfNeeded(
+        let didScheduleTransientRecovery: Bool = {
+            guard let transientRecoveryReason else { return false }
+            return scheduleTransientRecoveryRetryIfNeeded(
                 forHostedId: hostedId,
                 entry: &entry,
                 hostedView: hostedView,
                 reason: transientRecoveryReason
             )
-        }
+        }()
+        let shouldPreserveVisibleOnTransientGeometry =
+            didScheduleTransientRecovery &&
+            shouldHide &&
+            entry.visibleInUI &&
+            !hostedView.isHidden
 
         let oldFrame = hostedView.frame
 #if DEBUG
@@ -1535,7 +1543,25 @@ final class WindowTerminalPortal: NSObject {
         // Hide before updating the frame when this entry should not be visible.
         // This avoids a one-frame flash of unrendered terminal background when a portal
         // briefly transitions through offscreen/tiny geometry during rapid split churn.
-        if shouldHide, !hostedView.isHidden {
+        if shouldPreserveVisibleOnTransientGeometry {
+            let hasExistingVisibleFrame =
+                oldFrame.width > 1 &&
+                oldFrame.height > 1 &&
+                hostedView.bounds.width > 1 &&
+                hostedView.bounds.height > 1
+#if DEBUG
+            cmuxDebugLog(
+                "portal.hidden.deferKeep hosted=\(portalDebugToken(hostedView)) " +
+                "reason=\(transientRecoveryReason ?? "unknown") frame=\(portalDebugFrame(hostedView.frame)) " +
+                "keepFrame=\(hasExistingVisibleFrame ? 1 : 0)"
+            )
+#endif
+            if hasExistingVisibleFrame {
+                return
+            }
+        }
+
+        if shouldHide, !hostedView.isHidden, !shouldPreserveVisibleOnTransientGeometry {
 #if DEBUG
             cmuxDebugLog(
                 "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
