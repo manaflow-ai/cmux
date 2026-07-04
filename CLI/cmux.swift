@@ -3728,11 +3728,11 @@ struct CMUXCLI {
                 )
                 Self.clearVMCreateIdempotency(idempotency)
 
-            case "shell", "attach":
+            case "shell", "attach", "connect":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
                 guard let vmId = vmArgs.first else {
                     throw CLIError(message: """
-                        Usage: cmux \(command) shell <id>
+                        Usage: cmux vm ssh <id>
 
                         Find an id:
                           cmux vm ls
@@ -3748,7 +3748,7 @@ struct CMUXCLI {
                     idFormat: idFormat
                 )
 
-            case "rm", "destroy", "delete":
+            case "rm", "remove", "destroy", "delete":
                 guard let vmId = rest.first else {
                     throw CLIError(message: """
                         Usage: cmux vm rm <id>
@@ -3854,13 +3854,19 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <new|ls|rm|exec|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
                       cmux vm new
                       cmux vm ssh <id>
                       cmux vm rm <id>
+
+                    Aliases are available for familiar spelling:
+                      create -> new
+                      list -> ls
+                      shell, attach, connect -> ssh
+                      remove, delete, destroy -> rm
                     """)
             }
 
@@ -14058,7 +14064,7 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <new|ls|rm|exec|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
@@ -14068,9 +14074,6 @@ struct CMUXCLI {
                                         Create a new VM. By default drops you into a shell on
                                         the VM (like `docker run -it`). Pass --detach/-d to
                                         just print the id and exit (scripting primitive).
-              shell <id> [--window <id|ref|index>]
-                                        Drop into an interactive shell on an existing VM.
-                                        Alias: `attach <id>`.
               ssh <id> [--window <id|ref|index>]
                                         Drop into a cmux-managed SSH workspace for an existing
                                         VM, using the same session path as `cmux ssh`.
@@ -14078,6 +14081,12 @@ struct CMUXCLI {
                                         exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
+
+            Aliases:
+              create                     Alias for `new`; prefer `new` in docs and scripts.
+              list                       Alias for `ls`; prefer `ls` in docs and scripts.
+              shell, attach, connect     Aliases for `ssh`; prefer `ssh` in docs and scripts.
+              remove, delete, destroy    Aliases for `rm`; prefer `rm` in docs and scripts.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
@@ -34314,7 +34323,7 @@ export default CMUXSessionRestore;
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          vm <new|ls|rm|exec|ssh|ssh-info> [args...]    (alias: cloud; accepts create/list/attach/remove aliases)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
