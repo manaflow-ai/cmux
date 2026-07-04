@@ -78,6 +78,29 @@ struct RemoteSessionProcessRunnerTests {
         #expect(result.stdout == "hello-stdin")
     }
 
+    @Test("Streams a large stdin payload through to stdout without truncation")
+    func deliversLargeStdin() throws {
+        remoteSubprocessTestLock.lock()
+        defer { remoteSubprocessTestLock.unlock() }
+        let runner = RemoteSessionProcessRunner()
+        // Far larger than the OS pipe buffer (~64 KiB) so the writer must loop
+        // over backpressured partial writes while the stdout reader drains
+        // concurrently — the path the cmuxd-remote binary upload now exercises
+        // by piping the daemon over ssh stdin (issue #6207).
+        let payload = String(repeating: "cmux-remote-daemon-", count: 60_000)
+        let result = try runner.run(
+            RemoteProcessRequest(
+                executable: "/bin/cat",
+                arguments: [],
+                stdin: Data(payload.utf8),
+                timeout: 20
+            ),
+            operation: nil
+        )
+        #expect(result.status == 0)
+        #expect(result.stdout == payload)
+    }
+
     @Test("Launch failure throws the pinned cmux.remote.process code 1")
     func launchFailurePinsErrorCode() {
         remoteSubprocessTestLock.lock()
