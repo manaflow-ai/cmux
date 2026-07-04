@@ -966,7 +966,12 @@
       "absolutePath": "Percorso assoluto",
       "cwdAbsolute": "usato così com'è",
       "fullExample": "Esempio completo",
-      "restartNew": "Crea un nuovo workspace (predefinito)"
+      "restartNew": "Crea un nuovo workspace (predefinito)",
+      "fieldFolder": "Percorso di cartella facoltativo separato da / (es. Project/Linting) che raggruppa il comando nella palette dei comandi",
+      "commandVariables": "Variabili del comando",
+      "commandVariablesDesc": "Aggiungi segnaposto a un comando e cmux chiederà ogni valore prima di eseguirlo. Riutilizza lo stesso nome per compilarlo in più punti contemporaneamente.",
+      "commandVariablesDefaultNote": "Aggiungi un valore predefinito dopo un segno di uguale all'interno di un segnaposto per precompilare il prompt.",
+      "commandVariablesTemplateNote": "Diventano variabili solo i segnaposto con identificatore semplice e senza virgolette; i segnaposto tra virgolette (e altro testo di template) vengono eseguiti senza modifiche."
     },
     "keyboardShortcuts": {
       "title": "Scorciatoie da tastiera",

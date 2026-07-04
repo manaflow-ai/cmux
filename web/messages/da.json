@@ -966,7 +966,12 @@
       "absolutePath": "Absolut sti",
       "cwdAbsolute": "bruges som den er",
       "fullExample": "Fuldt eksempel",
-      "restartNew": "Opret et nyt workspace (standard)"
+      "restartNew": "Opret et nyt workspace (standard)",
+      "fieldFolder": "Valgfri /-adskilt mappesti (f.eks. Project/Linting), der grupperer kommandoen i kommandopaletten",
+      "commandVariables": "Kommandovariabler",
+      "commandVariablesDesc": "Tilføj pladsholdere til en kommando, og cmux beder om hver værdi, før den køres. Genbrug det samme navn for at udfylde det flere steder på én gang.",
+      "commandVariablesDefaultNote": "Tilføj en standardværdi efter et lighedstegn inde i en pladsholder for at udfylde prompten på forhånd.",
+      "commandVariablesTemplateNote": "Kun pladsholdere med simple identifikatorer uden anførselstegn bliver variabler; pladsholdere inde i anførselstegn (og anden skabelontekst) køres uændret."
     },
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",

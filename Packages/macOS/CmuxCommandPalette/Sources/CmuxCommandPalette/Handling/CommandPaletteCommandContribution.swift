@@ -12,6 +12,9 @@ public struct CommandPaletteCommandContribution {
     public let subtitle: (CommandPaletteContextSnapshot) -> String
     /// Optional keyboard-shortcut hint.
     public let shortcutHint: String?
+    /// Optional trailing "kind" badge (e.g. a custom command's folder
+    /// breadcrumb). Only shown when there is no `shortcutHint`.
+    public let kindLabel: String?
     /// Additional search keywords.
     public let keywords: [String]
     /// Whether activating the command dismisses the palette.
@@ -27,6 +30,7 @@ public struct CommandPaletteCommandContribution {
         title: @escaping (CommandPaletteContextSnapshot) -> String,
         subtitle: @escaping (CommandPaletteContextSnapshot) -> String,
         shortcutHint: String? = nil,
+        kindLabel: String? = nil,
         keywords: [String] = [],
         dismissOnRun: Bool = true,
         when: @escaping (CommandPaletteContextSnapshot) -> Bool = { _ in true },
@@ -36,6 +40,7 @@ public struct CommandPaletteCommandContribution {
         self.title = title
         self.subtitle = subtitle
         self.shortcutHint = shortcutHint
+        self.kindLabel = kindLabel
         self.keywords = keywords
         self.dismissOnRun = dismissOnRun
         self.when = when

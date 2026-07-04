@@ -966,7 +966,12 @@
       "absolutePath": "Chemin absolu",
       "cwdAbsolute": "utilisé tel quel",
       "fullExample": "Exemple complet",
-      "restartNew": "Créer un nouveau workspace (par défaut)"
+      "restartNew": "Créer un nouveau workspace (par défaut)",
+      "fieldFolder": "Chemin de dossier facultatif séparé par / (par ex. Project/Linting) qui regroupe la commande dans la palette de commandes",
+      "commandVariables": "Variables de commande",
+      "commandVariablesDesc": "Ajoutez des espaces réservés à une commande et cmux demande chaque valeur avant de l'exécuter. Réutilisez le même nom pour le renseigner à plusieurs endroits à la fois.",
+      "commandVariablesDefaultNote": "Ajoutez une valeur par défaut après un signe égal à l'intérieur d'un espace réservé pour préremplir l'invite.",
+      "commandVariablesTemplateNote": "Seuls les espaces réservés à identifiant simple et sans guillemets deviennent des variables ; les espaces réservés entre guillemets (et tout autre texte de modèle) s'exécutent sans changement."
     },
     "keyboardShortcuts": {
       "title": "Raccourcis clavier",
