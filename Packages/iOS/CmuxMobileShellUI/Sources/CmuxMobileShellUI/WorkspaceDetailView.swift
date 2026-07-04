@@ -46,8 +46,6 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width for capping the leading glass title pill.
-    @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
@@ -80,7 +78,6 @@ struct WorkspaceDetailView: View {
 
         #if os(iOS)
         content
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
@@ -150,7 +147,11 @@ struct WorkspaceDetailView: View {
             workspaceTrailingToolbarIsland
                 .layoutPriority(1)
         }
-        .frame(width: workspaceToolbarWidth, alignment: .leading)
+        // Fill the width the navigation bar grants the principal item (already
+        // inset by the bar's leading/trailing layout margins), so the back and
+        // trailing islands keep their native edge insets instead of clipping.
+        // The title truncates within the leftover space via its lower priority.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var workspaceBackToolbarIsland: some View {
@@ -168,10 +169,6 @@ struct WorkspaceDetailView: View {
         } else {
             toolbarTrailingCluster
         }
-    }
-
-    private var workspaceToolbarWidth: CGFloat? {
-        contentWidth > 0 ? contentWidth : nil
     }
 
     private var workspaceToolbarIslandSpacing: CGFloat { 10 }
