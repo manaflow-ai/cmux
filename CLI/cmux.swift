@@ -157,6 +157,7 @@ struct ClaudeHookSessionRecord: Codable {
     var cwd: String?
     var transcriptPath: String?
     var pid: Int?
+    var pidCapturedAt: TimeInterval? = nil
     var launchCommand: AgentHookLaunchCommandRecord?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
@@ -429,6 +430,7 @@ final class ClaudeHookSessionStore {
         previousActivePromptTurnIsTerminal: Bool = false,
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -460,6 +462,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
@@ -535,6 +538,7 @@ final class ClaudeHookSessionStore {
         turnId: String? = nil,
         terminalActivePromptTurnIds: Set<String> = [],
         pid: Int?,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord?,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         lastSubtitle: String?,
@@ -565,6 +569,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
@@ -681,6 +686,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         isRestorable: Bool? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
@@ -730,6 +736,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: isRestorable,
                 agentLifecycle: agentLifecycle,
@@ -768,6 +775,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
@@ -795,6 +803,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
@@ -820,6 +829,7 @@ final class ClaudeHookSessionStore {
         transcriptPath: String? = nil,
         turnId: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
@@ -844,6 +854,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: .running,
@@ -893,6 +904,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String? = nil,
         pid: Int? = nil,
+        pidIsFreshCapture: Bool = true,
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil
@@ -915,6 +927,7 @@ final class ClaudeHookSessionStore {
                 cwd: cwd,
                 transcriptPath: transcriptPath,
                 pid: pid,
+                pidIsFreshCapture: pidIsFreshCapture,
                 launchCommand: launchCommand,
                 isRestorable: nil,
                 agentLifecycle: agentLifecycle,
@@ -1101,6 +1114,7 @@ final class ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String?,
         pid: Int?,
+        pidIsFreshCapture: Bool,
         launchCommand: AgentHookLaunchCommandRecord?,
         isRestorable: Bool?,
         agentLifecycle: AgentHibernationLifecycleState?,
@@ -1124,6 +1138,11 @@ final class ClaudeHookSessionStore {
             record.transcriptPath = transcriptPath
         }
         if let pid {
+            if pidIsFreshCapture {
+                record.pidCapturedAt = now
+            } else if record.pid != pid {
+                record.pidCapturedAt = nil
+            }
             record.pid = pid
         }
         if let launchCommand {
@@ -1245,7 +1264,7 @@ final class ClaudeHookSessionStore {
                     }
                 }
 
-                if requireLiveProcess, !Self.processExists(record.pid) {
+                if requireLiveProcess, !Self.processIsLiveForSession(pid: record.pid, capturedAt: record.pidCapturedAt) {
                     record.runtimeStatus = nil
                     record.updatedAt = now
                     state.sessions[sessionId] = record
@@ -1260,12 +1279,106 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private static func processExists(_ pid: Int?) -> Bool {
-        guard let pid, pid > 0 else { return false }
+    func surfaceHasDifferentLiveOwner(
+        workspaceId: String,
+        surfaceId: String,
+        incomingSessionId: String?
+    ) throws -> Bool {
+        guard let normalizedWorkspace = normalizeOptional(workspaceId),
+              let normalizedSurface = normalizeOptional(surfaceId) else {
+            return false
+        }
+        let incoming = normalizeOptional(incomingSessionId)
+        let candidates = try withLockedState { state in
+            return state.sessions.values.compactMap { record -> (
+                sessionId: String,
+                pid: Int?,
+                pidCapturedAt: TimeInterval?,
+                updatedAt: TimeInterval
+            )? in
+                guard record.sessionId != incoming,
+                      normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                      normalizeOptional(record.surfaceId) == normalizedSurface,
+                      Self.runtimeStatusOwnsSurface(record.runtimeStatus) else {
+                    return nil
+                }
+                return (
+                    sessionId: record.sessionId,
+                    pid: record.pid,
+                    pidCapturedAt: record.pidCapturedAt,
+                    updatedAt: record.updatedAt
+                )
+            }
+        }
+
+        for candidate in candidates {
+            if !Self.processIsLiveForSession(pid: candidate.pid, capturedAt: candidate.pidCapturedAt) {
+                let now = Date().timeIntervalSince1970
+                try withLockedState { state in
+                    guard var record = state.sessions[candidate.sessionId],
+                          normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                          normalizeOptional(record.surfaceId) == normalizedSurface,
+                          Self.runtimeStatusOwnsSurface(record.runtimeStatus),
+                          record.pid == candidate.pid,
+                          record.updatedAt == candidate.updatedAt else {
+                        return
+                    }
+                    record.runtimeStatus = nil
+                    record.updatedAt = now
+                    state.sessions[candidate.sessionId] = record
+                }
+            } else {
+                let stillOwnsSurface = try withLockedState { state in
+                    guard let record = state.sessions[candidate.sessionId],
+                          record.sessionId != incoming,
+                          normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                          normalizeOptional(record.surfaceId) == normalizedSurface,
+                          Self.runtimeStatusOwnsSurface(record.runtimeStatus) else {
+                        return false
+                    }
+                    return true
+                }
+                if stillOwnsSurface {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    private static func runtimeStatusOwnsSurface(_ status: AgentHookRuntimeStatus?) -> Bool {
+        status == .running || status == .needsInput
+    }
+
+    private static func processIsLiveForSession(pid: Int?, capturedAt: TimeInterval?) -> Bool {
+        guard let pid, pid > 0, pid <= Int(Int32.max) else { return false }
+        let processExists: Bool
         if kill(pid_t(pid), 0) == 0 {
+            processExists = true
+        } else {
+            processExists = errno == EPERM
+        }
+        guard processExists else { return false }
+        guard let capturedAt,
+              let startedAt = processStartTime(pid: pid) else {
             return true
         }
-        return errno == EPERM
+        return startedAt <= capturedAt
+    }
+
+    private static func processStartTime(pid: Int) -> TimeInterval? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0,
+              size >= MemoryLayout<kinfo_proc>.size,
+              info.kp_proc.p_pid == pid_t(pid) else {
+            return nil
+        }
+        let startTime = info.kp_proc.p_un.__p_starttime
+        return TimeInterval(startTime.tv_sec) + (TimeInterval(startTime.tv_usec) / 1_000_000)
     }
 
     /// Returns true when an event belongs to the workspace's active Claude session.
@@ -29297,6 +29410,12 @@ export default CMUXSessionRestore;
         // then env, then the caller process. Grok strips CMUX_* from hook
         // subprocesses, so PID attribution is the only reliable live binding.
         let inferredPID = agentPIDFromHookEnvironment(agentName: def.name, env: env) ?? inferredAgentPID()
+        func storedHookPID(mapped: ClaudeHookSessionRecord?) -> (pid: Int?, isFreshCapture: Bool) {
+            if let pid = mapped?.pid {
+                return (pid, false)
+            }
+            return (inferredPID, inferredPID != nil)
+        }
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
@@ -29580,10 +29699,60 @@ export default CMUXSessionRestore;
                 return boundSurface
             }
 
+            func targetBlockedByDifferentLiveOwner(
+                _ target: (workspaceId: String, surfaceId: String),
+                mapped: ClaudeHookSessionRecord?
+            ) -> Bool {
+                guard explicitSurfaceFlag == nil else { return false }
+                guard processBinding() == nil else { return false }
+                let currentPID = mapped?.pid ?? inferredPID
+                guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: currentPID, env: env) else {
+                    return false
+                }
+                let blocked: Bool
+                do {
+                    blocked = try store.surfaceHasDifferentLiveOwner(
+                        workspaceId: target.workspaceId,
+                        surfaceId: target.surfaceId,
+                        incomingSessionId: sessionId
+                    )
+                } catch {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.target.ownerCheckFailed agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId))",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    blocked = false
+                }
+#if DEBUG
+                if blocked {
+                    agentHookDebugLog(
+                        "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=differentLiveSurfaceOwner workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId))",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+                }
+#endif
+                return blocked
+            }
+
+            func targetUnlessBlockedByDifferentLiveOwner(
+                _ target: (workspaceId: String, surfaceId: String)?,
+                mapped: ClaudeHookSessionRecord?
+            ) -> (workspaceId: String, surfaceId: String)? {
+                guard let target else { return nil }
+                return targetBlockedByDifferentLiveOwner(target, mapped: mapped) ? nil : target
+            }
+
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = correctedDirectSurfaceId(workspaceId: workspaceId)
                     ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
-                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
+                let target = targetUnlessBlockedByDifferentLiveOwner(
+                    resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped),
+                    mapped: mapped
+                )
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=direct workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
@@ -29596,9 +29765,12 @@ export default CMUXSessionRestore;
 
             let binding = processBinding()
             if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
-               let target = resolveTarget(
-                   workspaceId: workspaceId,
-                   preferredSurfaceId: binding?.surfaceId,
+               let target = targetUnlessBlockedByDifferentLiveOwner(
+                   resolveTarget(
+                       workspaceId: workspaceId,
+                       preferredSurfaceId: binding?.surfaceId,
+                       mapped: mapped
+                   ),
                    mapped: mapped
                ) {
 #if DEBUG
@@ -29621,7 +29793,10 @@ export default CMUXSessionRestore;
 #endif
                 return nil
             }
-            let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped)
+            let target = targetUnlessBlockedByDifferentLiveOwner(
+                resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped),
+                mapped: mapped
+            )
 #if DEBUG
             agentHookDebugLog(
                 "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=mapped workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
@@ -29776,7 +29951,8 @@ export default CMUXSessionRestore;
             }
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
-            let pid = mapped?.pid ?? inferredPID
+            let storedPID = storedHookPID(mapped: mapped)
+            let pid = storedPID.pid
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -29923,6 +30099,7 @@ export default CMUXSessionRestore;
                         previousActivePromptTurnIsTerminal: previousActivePromptTurnIsTerminal,
                         terminalActivePromptTurnIds: terminalActivePromptTurnIds,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
                         autoNameMessages: autoNamingMessages(
@@ -29980,6 +30157,7 @@ export default CMUXSessionRestore;
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         turnId: input.turnId,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand
                     )) ?? false
                 } else {
@@ -29990,6 +30168,7 @@ export default CMUXSessionRestore;
                         cwd: hookCwd ?? mapped?.cwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
@@ -30117,7 +30296,8 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let storedPID = storedHookPID(mapped: mapped)
+            let pid = storedPID.pid
             let codexFailure: CodexHookFailureSummary?
             let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
@@ -30241,6 +30421,7 @@ export default CMUXSessionRestore;
                     turnId: input.turnId,
                     terminalActivePromptTurnIds: terminalActivePromptTurnIdsForStop,
                     pid: pid,
+                    pidIsFreshCapture: storedPID.isFreshCapture,
                     launchCommand: launchCommand,
                     agentLifecycle: lifecycleAfterStop,
                     lastSubtitle: nil,
@@ -30268,6 +30449,7 @@ export default CMUXSessionRestore;
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
+                                  pidIsFreshCapture: storedPID.isFreshCapture,
                                   launchCommand: launchCommand,
                                   agentLifecycle: lifecycleAfterStop,
                                   lastSubtitle: subtitle,
@@ -30452,7 +30634,8 @@ export default CMUXSessionRestore;
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            let pid = mapped?.pid ?? inferredPID
+            let storedPID = storedHookPID(mapped: mapped)
+            let pid = storedPID.pid
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -30468,6 +30651,7 @@ export default CMUXSessionRestore;
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
+                    pidIsFreshCapture: storedPID.isFreshCapture,
                     launchCommand: launchCommand ?? mapped?.launchCommand,
                     agentLifecycle: .running,
                     runtimeStatus: .running
@@ -30643,7 +30827,8 @@ export default CMUXSessionRestore;
             }
 
             if !sessionId.isEmpty {
-                let pid = mapped?.pid ?? inferredPID
+                let storedPID = storedHookPID(mapped: mapped)
+                let pid = storedPID.pid
                 let launchCommand = agentLaunchCommandFromEnvironment(
                     env,
                     fallbackPID: pid,
@@ -30663,6 +30848,7 @@ export default CMUXSessionRestore;
                         cwd: notificationCwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
                         lastSubtitle: summary.subtitle,
@@ -30686,6 +30872,7 @@ export default CMUXSessionRestore;
                         cwd: notificationCwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
+                        pidIsFreshCapture: storedPID.isFreshCapture,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
                         lastSubtitle: summary.subtitle,
@@ -30821,6 +31008,7 @@ export default CMUXSessionRestore;
                         cwd: hookCwd ?? mapped.cwd,
                         transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
                         pid: mapped.pid,
+                        pidIsFreshCapture: false,
                         launchCommand: mapped.launchCommand,
                         lastSubtitle: nil,
                         lastBody: nil,
