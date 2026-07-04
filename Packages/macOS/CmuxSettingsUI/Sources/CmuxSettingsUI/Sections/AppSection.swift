@@ -510,6 +510,9 @@ public struct AppSection: View {
                 Toggle("", isOn: Binding(get: { reorderPinned.current }, set: { reorderPinned.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+                    // Only meaningful while the parent Reorder on Notification
+                    // setting gates the notification reorder path.
+                    .disabled(!reorder.current)
             }
             SettingsCardDivider()
 
