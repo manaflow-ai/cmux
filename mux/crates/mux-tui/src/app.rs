@@ -66,10 +66,18 @@ pub enum Hit {
         surface: SurfaceId,
         track: Rect,
     },
+    /// Scroll a pane's tab bar left/right (overflow arrows, wheel).
+    TabScroll {
+        pane: PaneId,
+        delta: isize,
+    },
 }
 
-/// One pane's screen real estate for the current frame: an optional
-/// one-row tab bar above the terminal content.
+/// One pane's screen real estate for the current frame. Every pane draws
+/// a border box in its rect; the top border row doubles as the tab bar
+/// and the right border column doubles as the scrollbar track. `content`
+/// is the terminal area inside the box. Rects too small for a box get
+/// `bar: None` and content = rect.
 #[derive(Debug, Clone, Copy)]
 pub struct PaneArea {
     pub pane: PaneId,
@@ -77,6 +85,8 @@ pub struct PaneArea {
     pub rect: Rect,
     pub bar: Option<Rect>,
     pub content: Rect,
+    /// Scrollbar track (the right border between the corners).
+    pub track: Option<Rect>,
 }
 
 /// A context-menu entry: what activating it does (the label is derived).
@@ -109,9 +119,9 @@ impl MenuAction {
     }
 }
 
-/// Right-click context menu overlay. The rect includes a one-cell padding
-/// border around the item rows; `item_at` maps a screen cell back to the
-/// row inside the padding.
+/// Right-click context menu overlay. Items get a one-cell padding column
+/// on each side (no extra rows above/below); the hover/selection
+/// highlight spans the full row including those padding cells.
 pub struct ContextMenu {
     pub items: Vec<MenuAction>,
     pub selected: usize,
@@ -121,27 +131,26 @@ pub struct ContextMenu {
 }
 
 impl ContextMenu {
-    /// Horizontal/vertical padding between the menu border and its items.
+    /// Horizontal padding between the menu edge and the item labels.
     pub const PAD: u16 = 1;
 
     fn at(x: u16, y: u16, items: Vec<MenuAction>) -> Self {
         let label_w = items.iter().map(|i| i.label().len()).max().unwrap_or(0) as u16;
         // One space of inner padding either side of the label, plus the
-        // one-cell padding border.
+        // one-cell padding column on each side.
         let width = label_w + 2 + Self::PAD * 2;
-        let height = items.len() as u16 + Self::PAD * 2;
+        let height = items.len() as u16;
         ContextMenu { items, selected: 0, rect: Rect { x, y, width, height } }
     }
 
-    /// The item row at a screen cell, if it is on one (not the padding).
+    /// The item row at a screen cell. Rows span the menu's full width,
+    /// side padding included.
     pub fn item_at(&self, x: u16, y: u16) -> Option<usize> {
         if !self.rect.contains(x, y) {
             return None;
         }
-        let row = y.checked_sub(self.rect.y + Self::PAD)?;
-        let inside_x = x >= self.rect.x + Self::PAD
-            && x < (self.rect.x + self.rect.width).saturating_sub(Self::PAD);
-        (inside_x && (row as usize) < self.items.len()).then_some(row as usize)
+        let row = (y - self.rect.y) as usize;
+        (row < self.items.len()).then_some(row)
     }
 }
 
@@ -215,7 +224,6 @@ pub struct App {
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
     pub pane_areas: Vec<PaneArea>,
-    pub separators: Vec<mux_core::Separator>,
     pub prefix_armed: bool,
     pub session_label: String,
     pub sidebar_visible: bool,
@@ -225,6 +233,12 @@ pub struct App {
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
     pub hits: Vec<(Rect, Hit)>,
+    /// Per-pane tab-bar scroll offset (first visible tab index), for
+    /// panes whose tabs overflow the bar. Presentation state only.
+    pub tab_scroll: HashMap<PaneId, usize>,
+    /// Pane currently under the mouse (its border box renders a hover
+    /// highlight).
+    pub hover_pane: Option<PaneId>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
     pub selection: Option<Selection>,
@@ -315,13 +329,14 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         tree: TreeView::default(),
         render_states: HashMap::new(),
         pane_areas: Vec::new(),
-        separators: Vec::new(),
         prefix_armed: false,
         session_label,
         sidebar_visible: true,
         sidebar_width: 0,
         content_area: Rect::default(),
         hits: Vec::new(),
+        tab_scroll: HashMap::new(),
+        hover_pane: None,
         menu: None,
         prompt: None,
         selection: None,
@@ -387,8 +402,9 @@ impl App {
         Ok(())
     }
 
-    /// Refresh the tree snapshot, recompute the active workspace's layout
-    /// (reserving tab-bar rows), and push content sizes to surfaces.
+    /// Refresh the tree snapshot, recompute the active screen's layout
+    /// (each pane's border box eats one cell on every side), and push
+    /// content sizes to surfaces.
     fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
         self.sidebar_width = sidebar_width_for(self.sidebar_visible, width);
@@ -405,22 +421,33 @@ impl App {
             .active_screen()
             .map(|screen| layout_screen(&screen.layout, area))
             .unwrap_or_default();
-        self.separators = layout.separators;
 
         self.pane_areas.clear();
         let Some(screen) = self.tree.active_screen() else { return };
         for (pane_id, rect) in layout.panes {
             let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
-            // Panes with several tabs get a one-row tab bar above the
-            // terminal content.
-            let (bar, content) = if pane.tabs.len() > 1 && rect.height > 1 {
+            let (bar, content, track) = if rect.width >= 3 && rect.height >= 3 {
+                // The border box: top row is the tab bar, right column
+                // between the corners is the scrollbar track.
                 (
                     Some(Rect { height: 1, ..rect }),
-                    Rect { y: rect.y + 1, height: rect.height - 1, ..rect },
+                    Rect {
+                        x: rect.x + 1,
+                        y: rect.y + 1,
+                        width: rect.width - 2,
+                        height: rect.height - 2,
+                    },
+                    Some(Rect {
+                        x: rect.x + rect.width - 1,
+                        y: rect.y + 1,
+                        width: 1,
+                        height: rect.height - 2,
+                    }),
                 )
             } else {
-                (None, rect)
+                // Degenerate rect: no box, content fills it.
+                (None, rect, None)
             };
             self.pane_areas.push(PaneArea {
                 pane: pane_id,
@@ -428,6 +455,7 @@ impl App {
                 rect,
                 bar,
                 content,
+                track,
             });
             if content.width == 0 || content.height == 0 {
                 continue;
@@ -483,15 +511,20 @@ impl App {
         self.active_surface().and_then(|id| self.session.surface(id))
     }
 
-    /// Content size for a pane that would fill `rect` with a single tab.
+    /// Content size for a pane filling `rect` (its border box eats one
+    /// cell on every side).
     fn size_of_rect(rect: Rect) -> Option<(u16, u16)> {
-        (rect.width > 0 && rect.height > 0).then_some((rect.width, rect.height))
+        (rect.width > 2 && rect.height > 2).then_some((rect.width - 2, rect.height - 2)).or((rect
+            .width
+            > 0
+            && rect.height > 0)
+            .then_some((rect.width, rect.height)))
     }
 
     /// Size hint for splitting `pane`: the second side of its rect.
     fn split_size_hint(&self, pane: PaneId, dir: SplitDir) -> Option<(u16, u16)> {
         let area = self.pane_areas.iter().find(|a| a.pane == pane)?;
-        let (_, _, b) = split_sides(area.rect, dir, 0.5);
+        let (_, b) = split_sides(area.rect, dir, 0.5);
         Self::size_of_rect(b)
     }
 
@@ -757,7 +790,6 @@ impl App {
         // Re-derive the layout geometry from the frame's pane areas.
         let layout = mux_core::LayoutResult {
             panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
-            separators: Vec::new(),
         };
         if let Some(next) = layout.neighbor(active, dx, dy) {
             self.session.focus_pane(next);
@@ -834,12 +866,21 @@ impl App {
         }
     }
 
-    /// Mouse-move over an open menu highlights the hovered item.
+    /// Mouse-move: highlight the hovered menu item, and track which pane
+    /// the mouse is over so its border box renders a hover state.
     fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
-        let Some(menu) = self.menu.as_mut() else { return Ok(false) };
-        let Some(item) = menu.item_at(x, y) else { return Ok(false) };
-        if item != menu.selected {
-            menu.selected = item;
+        if let Some(menu) = self.menu.as_mut() {
+            if let Some(item) = menu.item_at(x, y) {
+                if item != menu.selected {
+                    menu.selected = item;
+                    return Ok(true);
+                }
+                return Ok(false);
+            }
+        }
+        let hovered = self.pane_area_at(x, y).map(|a| a.pane);
+        if hovered != self.hover_pane {
+            self.hover_pane = hovered;
             return Ok(true);
         }
         Ok(false)
@@ -882,6 +923,7 @@ impl App {
                     self.scroll_to_track_pos(surface, track, y);
                     self.drag = Some(Drag::Scrollbar { surface, track });
                 }
+                Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
             }
             return Ok(true);
         }
@@ -955,6 +997,13 @@ impl App {
         let _ = stdout.flush();
     }
 
+    /// Shift a pane's tab bar left/right. The renderer clamps to the
+    /// valid range next frame.
+    fn scroll_tabs(&mut self, pane: PaneId, delta: isize) {
+        let entry = self.tab_scroll.entry(pane).or_insert(0);
+        *entry = entry.saturating_add_signed(delta);
+    }
+
     /// Map a click/drag on a scrollbar track to a viewport position.
     fn scroll_to_track_pos(&mut self, surface: SurfaceId, track: Rect, y: u16) {
         let Some(handle) = self.session.surface(surface) else { return };
@@ -1011,6 +1060,11 @@ impl App {
 
     fn handle_scroll(&mut self, x: u16, y: u16, down: bool) -> anyhow::Result<bool> {
         let Some(area) = self.pane_area_at(x, y) else { return Ok(false) };
+        // Wheel over the tab bar scrolls the tabs, not the terminal.
+        if area.bar.is_some_and(|bar| bar.contains(x, y)) {
+            self.scroll_tabs(area.pane, if down { 1 } else { -1 });
+            return Ok(true);
+        }
         let (surface_id, _) = (area.surface, area.pane);
         let Some(surface) = self.session.surface(surface_id) else { return Ok(false) };
         let sent_arrows = surface.with_terminal(|term| {

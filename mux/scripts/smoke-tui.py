@@ -64,13 +64,20 @@ pane_id = panes[0]["id"]
 surface_id = panes[0]["tabs"][0]["surface"]
 print("initial tree ok, screen", screen0["id"], "pane", pane_id, "surface", surface_id)
 
-# Spawn-at-size: the first surface was created at its final render size
-# (window 100x30, sidebar 22, status bar 1 -> 78x29), not 80x24 then
-# resized (a post-spawn resize makes zsh repaint its prompt and leave a
-# reverse-video % artifact).
+# Spawn-at-size: the first surface was created at its final render size.
+# Window 100x30, sidebar 22, status bar 1 -> pane rect 78x29; the border
+# box eats one cell on every side -> content 76x27.
 size = panes[0]["tabs"][0]["size"]
-assert size == {"cols": 78, "rows": 29}, size
+assert size == {"cols": 76, "rows": 27}, size
 print("initial surface spawned at final size ok")
+
+# The tab bar is always visible: a single-tab pane still shows its
+# numbered tab and the + button in the top border.
+drain(0.5)
+text = output.decode("utf-8", "replace")
+assert " 1 " in text, text[-500:]
+assert " + " in text, text[-500:]
+print("always-on tab bar with numbered tab ok")
 
 # Type a command into the shell via the TUI's stdin path (real keystrokes).
 os.write(fd, b"printf 'smoke-marker-%s\\n' ok\r")
@@ -80,12 +87,13 @@ assert "smoke-marker-ok" in screen["data"]["text"], screen["data"]["text"][-500:
 print("keystroke -> pty -> ghostty screen ok")
 
 # Drag-select the marker text: press, drag, release (SGR mouse, 1-based).
-# The pane content starts at column 23 (sidebar is 22 wide); find the
-# marker's viewport row via read-screen. On release the TUI must copy the
-# selection to the host clipboard as an OSC 52 sequence.
+# Pane content starts at column 24 (sidebar 22 + left border 1; SGR
+# 1-based) and row offset 1 for the top border. On release the TUI must
+# copy the selection to the host clipboard as an OSC 52 sequence.
 lines = rpc({"id": 100, "cmd": "read-screen", "surface": surface_id})["data"]["text"].splitlines()
-row = next(i for i, l in enumerate(lines) if "smoke-marker-ok" in l) + 1
-col0 = 23 + lines[row - 1].index("smoke-marker-ok")
+vrow = next(i for i, l in enumerate(lines) if "smoke-marker-ok" in l)
+row = vrow + 2  # +1 top border, +1 SGR 1-based
+col0 = 24 + lines[vrow].index("smoke-marker-ok")
 os.write(fd, f"\x1b[<0;{col0};{row}M".encode())
 os.write(fd, f"\x1b[<32;{col0 + 14};{row}M".encode())
 os.write(fd, f"\x1b[<0;{col0 + 14};{row}m".encode())
@@ -97,7 +105,9 @@ copied = base64.b64decode(osc52[-1]).decode()
 assert "smoke-marker-ok" in copied, repr(copied)
 print("drag-select -> OSC52 clipboard copy ok")
 
-# Prefix + c: new tab in the active pane (two tabs, one pane).
+# Click the + in the top border for a new tab (tab "1" label is 3 cols
+# wide plus optional title; find via hits is not possible from outside,
+# so use prefix-c which shares the same action path).
 os.write(fd, b"\x02c")
 drain(1.0)
 screen0 = active_screen(tree()[0])
@@ -187,14 +197,14 @@ assert tree()[0]["active"], tree()
 print("sidebar click switches workspace ok")
 
 # Right-click inside the right-hand pane (col 81, row 6 SGR; clear of the
-# sidebar and separators): a menu with a one-cell padding border opens at
-# the click cell, so the first item row is click+1 in both axes. Click
-# "Rename pane", type a name, press Enter; the pane rename lands.
+# sidebar and borders): a menu opens at the click cell with one-cell side
+# padding and no top padding, so the first item row IS the click row and
+# labels start one cell right. Click "Rename pane", type a name, Enter.
 os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename pane" in text, text[-800:]
-os.write(fd, b"\x1b[<0;82;7M\x1b[<0;82;7m")
+os.write(fd, b"\x1b[<0;82;6M\x1b[<0;82;6m")
 drain(0.8)
 os.write(fd, b"clicked-name\r")
 drain(1.0)

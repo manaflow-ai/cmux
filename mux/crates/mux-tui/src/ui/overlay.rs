@@ -1,6 +1,7 @@
 //! Overlays drawn on top of the frame: the right-click context menu.
-//! The menu has a one-cell padding border around its items, and the
-//! selected row (arrow keys or mouse hover) is highlighted.
+//! Items get a one-cell padding column each side (no extra rows), and
+//! the selected row (arrow keys or mouse hover) highlights across the
+//! menu's full width, padding included.
 
 use mux_core::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -27,25 +28,23 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         .add_modifier(Modifier::BOLD);
     let buf = frame.buffer_mut();
 
-    // Background including the padding border.
-    for dy in 0..height {
-        for dx in 0..width {
-            buf[(x + dx, y + dy)].set_symbol(" ").set_style(base);
-        }
-    }
-
     let pad = ContextMenu::PAD;
-    let label_w = width.saturating_sub(pad * 2) as usize;
     for (i, item) in menu.items.iter().enumerate() {
-        let row_y = y + pad + i as u16;
-        if row_y >= y + height.saturating_sub(pad) {
+        let row_y = y + i as u16;
+        if row_y >= y + height {
             break;
         }
         let style = if i == menu.selected { selected } else { base };
-        // Highlight the item row inside the padding border.
-        for dx in pad..width.saturating_sub(pad) {
-            buf[(x + dx, row_y)].set_style(style);
+        // The highlight spans the full row, side padding included.
+        for dx in 0..width {
+            buf[(x + dx, row_y)].set_symbol(" ").set_style(style);
         }
-        buf.set_stringn(x + pad + 1, row_y, item.label(), label_w.saturating_sub(1), style);
+        buf.set_stringn(
+            x + pad + 1,
+            row_y,
+            item.label(),
+            width.saturating_sub(pad * 2) as usize,
+            style,
+        );
     }
 }

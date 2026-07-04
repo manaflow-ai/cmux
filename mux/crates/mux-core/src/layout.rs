@@ -1,5 +1,5 @@
 //! Pure layout math shared by frontends: a screen's split tree plus a
-//! rectangle produce pane rects and separator segments.
+//! rectangle produce pane rects that tile the area exactly.
 
 use crate::{Node, PaneId, SplitDir};
 
@@ -21,17 +21,9 @@ impl Rect {
     }
 }
 
-/// A one-cell-thick divider line between two panes.
-#[derive(Debug, Clone, Copy)]
-pub struct Separator {
-    pub rect: Rect,
-    pub vertical: bool,
-}
-
 #[derive(Debug, Default)]
 pub struct LayoutResult {
     pub panes: Vec<(PaneId, Rect)>,
-    pub separators: Vec<Separator>,
 }
 
 impl LayoutResult {
@@ -73,7 +65,9 @@ impl LayoutResult {
     }
 }
 
-/// Compute pane rects for a screen, reserving one cell per divider.
+/// Compute pane rects for a screen. Panes tile the area exactly; each
+/// pane draws its own border box inside its rect, so no divider cells
+/// are reserved between siblings.
 pub fn layout_screen(root: &Node, area: Rect) -> LayoutResult {
     let mut result = LayoutResult::default();
     walk(root, area, &mut result);
@@ -84,56 +78,43 @@ fn walk(node: &Node, area: Rect, out: &mut LayoutResult) {
     match node {
         Node::Leaf(id) => out.panes.push((*id, area)),
         Node::Split { dir, ratio, a, b } => {
-            // Too small to hold two panes plus a divider: give the whole
-            // area to the first side and zero-size the second (frontends
-            // draw nothing for empty rects; pane sizes clamp to 1).
+            // Too small to hold two panes: give the whole area to the
+            // first side and zero-size the second (frontends draw nothing
+            // for empty rects; pane sizes clamp to 1).
             let too_small = match dir {
-                SplitDir::Right => area.width < 3,
-                SplitDir::Down => area.height < 3,
+                SplitDir::Right => area.width < 2,
+                SplitDir::Down => area.height < 2,
             };
             if too_small {
                 walk(a, area, out);
                 walk(b, Rect { width: 0, height: 0, ..area }, out);
                 return;
             }
-            walk_split(*dir, *ratio, a, b, area, out);
+            let (a_rect, b_rect) = split_sides(area, *dir, *ratio);
+            walk(a, a_rect, out);
+            walk(b, b_rect, out);
         }
     }
 }
 
-/// The rects a split of `area` produces: the first side, the one-cell
-/// separator, and the second side. Shared by the layout walk and by
-/// frontends predicting the size of a pane about to be created.
-pub fn split_sides(area: Rect, dir: SplitDir, ratio: f32) -> (Rect, Rect, Rect) {
+/// The two rects a split of `area` produces. Shared by the layout walk
+/// and by frontends predicting the size of a pane about to be created.
+pub fn split_sides(area: Rect, dir: SplitDir, ratio: f32) -> (Rect, Rect) {
     match dir {
         SplitDir::Right => {
-            let usable = area.width.saturating_sub(1);
-            let a_w = ((usable as f32) * ratio).round() as u16;
-            let a_w = a_w.clamp(1, usable.saturating_sub(1).max(1));
-            (
-                Rect { width: a_w, ..area },
-                Rect { x: area.x + a_w, y: area.y, width: 1, height: area.height },
-                Rect { x: area.x + a_w + 1, width: usable - a_w, ..area },
-            )
+            let a_w = ((area.width as f32) * ratio).round() as u16;
+            let a_w = a_w.clamp(1, area.width.saturating_sub(1).max(1));
+            (Rect { width: a_w, ..area }, Rect { x: area.x + a_w, width: area.width - a_w, ..area })
         }
         SplitDir::Down => {
-            let usable = area.height.saturating_sub(1);
-            let a_h = ((usable as f32) * ratio).round() as u16;
-            let a_h = a_h.clamp(1, usable.saturating_sub(1).max(1));
+            let a_h = ((area.height as f32) * ratio).round() as u16;
+            let a_h = a_h.clamp(1, area.height.saturating_sub(1).max(1));
             (
                 Rect { height: a_h, ..area },
-                Rect { x: area.x, y: area.y + a_h, width: area.width, height: 1 },
-                Rect { y: area.y + a_h + 1, height: usable - a_h, ..area },
+                Rect { y: area.y + a_h, height: area.height - a_h, ..area },
             )
         }
     }
-}
-
-fn walk_split(dir: SplitDir, ratio: f32, a: &Node, b: &Node, area: Rect, out: &mut LayoutResult) {
-    let (a_rect, sep, b_rect) = split_sides(area, dir, ratio);
-    out.separators.push(Separator { rect: sep, vertical: matches!(dir, SplitDir::Right) });
-    walk(a, a_rect, out);
-    walk(b, b_rect, out);
 }
 
 #[cfg(test)]
@@ -141,24 +122,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn splits_reserve_separator() {
+    fn splits_tile_exactly() {
         let root = Node::Split {
             dir: SplitDir::Right,
             ratio: 0.5,
             a: Box::new(Node::Leaf(1)),
             b: Box::new(Node::Leaf(2)),
         };
-        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 81, height: 24 });
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 24 });
         let r1 = layout.rect_of(1).unwrap();
         let r2 = layout.rect_of(2).unwrap();
         assert_eq!(r1.width, 40);
         assert_eq!(r2.width, 40);
-        assert_eq!(r2.x, 41);
-        assert_eq!(layout.separators.len(), 1);
-        assert_eq!(layout.separators[0].rect.x, 40);
+        assert_eq!(r2.x, 40);
+        // Panes tile without gaps: every cell belongs to exactly one pane.
         assert_eq!(layout.pane_at(39, 0), Some(1));
-        assert_eq!(layout.pane_at(41, 0), Some(2));
-        assert_eq!(layout.pane_at(40, 0), None);
+        assert_eq!(layout.pane_at(40, 0), Some(2));
     }
 
     #[test]

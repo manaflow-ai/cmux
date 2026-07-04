@@ -1,5 +1,5 @@
-//! Frame drawing: sidebar, panes (tab bar + ghostty render state +
-//! scrollbar), separators, status bar, and overlays (context menu,
+//! Frame drawing: sidebar, panes (border box with tab bar, ghostty
+//! render state, and scrollbar), status bar, and overlays (context menu,
 //! rename prompt). Every renderer that draws something interactive also
 //! pushes a [`Hit`] so clicks always match what is on screen.
 
@@ -26,7 +26,6 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     }
 
     let cursor = pane::draw_all(app, frame);
-    draw_separators(app, frame);
     draw_status_bar(app, frame);
     overlay::draw_menu(app, frame);
 
@@ -34,23 +33,6 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     if app.prompt.is_none() {
         if let Some((x, y)) = cursor {
             frame.set_cursor_position(Position::new(x, y));
-        }
-    }
-}
-
-fn draw_separators(app: &App, frame: &mut Frame) {
-    let area = frame.area();
-    let sep_style = Style::default().fg(Color::DarkGray);
-    for sep in &app.separators {
-        let symbol = if sep.vertical { "│" } else { "─" };
-        for dy in 0..sep.rect.height {
-            for dx in 0..sep.rect.width {
-                let x = sep.rect.x + dx;
-                let y = sep.rect.y + dy;
-                if x < area.width && y < area.height {
-                    frame.buffer_mut()[(x, y)].set_symbol(symbol).set_style(sep_style);
-                }
-            }
         }
     }
 }
@@ -151,12 +133,4 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
         out.push('…');
         out
     }
-}
-
-pub(crate) fn bar_base_style() -> Style {
-    Style::default().bg(Color::Indexed(234)).fg(Color::Indexed(246))
-}
-
-pub(crate) fn bar_active_style() -> Style {
-    Style::default().bg(Color::Indexed(238)).fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
 }

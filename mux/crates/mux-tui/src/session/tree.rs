@@ -94,24 +94,29 @@ impl PaneView {
         self.tabs.get(self.active_tab).map(|t| t.surface)
     }
 
-    /// Display name: the user-assigned name, else the active tab title,
-    /// else "shell".
+    /// Display name: the user-assigned name, else the active tab's
+    /// process title, else "shell".
     pub fn display_name(&self) -> &str {
         if let Some(name) = self.name.as_deref() {
             if !name.is_empty() {
                 return name;
             }
         }
-        self.tabs.get(self.active_tab).map(|t| t.display_title()).unwrap_or("shell")
+        self.tabs
+            .get(self.active_tab)
+            .map(|t| if t.title.is_empty() { "shell" } else { t.title.as_str() })
+            .unwrap_or("shell")
     }
 }
 
 impl TabView {
-    pub fn display_title(&self) -> &str {
+    /// Tab-bar label: tabs are numbered by position; the process title
+    /// (when reported) follows as context.
+    pub fn display_title(&self, index: usize) -> String {
         if self.title.is_empty() {
-            "shell"
+            format!("{}", index + 1)
         } else {
-            &self.title
+            format!("{} {}", index + 1, self.title)
         }
     }
 }

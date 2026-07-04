@@ -1,14 +1,31 @@
-//! Pane drawing: per-pane tab bar, terminal content from the ghostty
-//! render state (with selection highlight), and a thin scrollbar when
-//! the surface is scrolled back.
+//! Pane drawing: each pane renders a border box in its rect. The top
+//! border row doubles as the tab bar (always visible, with overflow
+//! scrolling), the right border column doubles as the scrollbar (shown
+//! whenever the surface has any scrollback), and the interior is the
+//! terminal content from the ghostty render state (with selection
+//! highlight). The active pane's border is highlighted — this is also
+//! where flashing notifications will hook in later.
 
 use ghostty_vt::{Cell as VtCell, RenderState, Scrollbar};
 use mux_core::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
-use super::{bar_active_style, bar_base_style, truncate};
+use super::truncate;
 use crate::app::{App, Hit, PaneArea, Selection};
+
+/// Border style for a pane box: active gets the accent color, hovered
+/// gets a brighter grey, idle stays dim. Notification flashing will
+/// slot in here as a fourth state later.
+fn border_style(focused: bool, hovered: bool) -> Style {
+    if focused {
+        Style::default().fg(Color::Indexed(110))
+    } else if hovered {
+        Style::default().fg(Color::Indexed(246))
+    } else {
+        Style::default().fg(Color::Indexed(238))
+    }
+}
 
 /// Draw every pane of the current frame. Returns the terminal cursor
 /// position for the focused pane, if visible.
@@ -18,57 +35,141 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let mut cursor = None;
     for area in &areas {
         let focused = Some(area.pane) == active_pane;
-        if let Some(bar) = area.bar {
-            draw_tab_bar(app, frame, area, bar, focused);
+        let hovered = app.hover_pane == Some(area.pane);
+        draw_box(app, frame, area, focused, hovered);
+        if area.bar.is_some() {
+            draw_tab_bar(app, frame, area, focused, hovered);
         }
         if let Some(c) = draw_content(app, frame, area, focused) {
             cursor = Some(c);
         }
-        draw_scrollbar(app, frame, area);
+        draw_scrollbar(app, frame, area, focused);
     }
     cursor
 }
 
-fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, bar: Rect, focused: bool) {
-    let Some(screen) = app.tree.active_screen() else { return };
-    let Some(pane) = screen.pane(area.pane) else { return };
+/// The pane's border box. The top row is left to the tab bar; here we
+/// draw the left/right/bottom edges and the corners.
+fn draw_box(_app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool, hovered: bool) {
+    let rect = area.rect;
+    if area.bar.is_none() || rect.width < 2 || rect.height < 2 {
+        return;
+    }
     let screen = frame.area();
     let buf = frame.buffer_mut();
-    let base = bar_base_style();
+    let style = border_style(focused, hovered);
+    let (x0, y0) = (rect.x, rect.y);
+    let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
+    if x1 >= screen.width || y1 >= screen.height {
+        return;
+    }
+    for x in x0 + 1..x1 {
+        buf[(x, y1)].set_symbol("─").set_style(style);
+    }
+    for y in y0 + 1..y1 {
+        buf[(x0, y)].set_symbol("│").set_style(style);
+        buf[(x1, y)].set_symbol("│").set_style(style);
+    }
+    buf[(x0, y0)].set_symbol("┌").set_style(style);
+    buf[(x1, y0)].set_symbol("┐").set_style(style);
+    buf[(x0, y1)].set_symbol("└").set_style(style);
+    buf[(x1, y1)].set_symbol("┘").set_style(style);
+}
 
-    for x in bar.x..bar.x + bar.width {
-        if x < screen.width && bar.y < screen.height {
-            buf[(x, bar.y)].set_symbol(" ").set_style(base);
-        }
+/// The top border row: `┌` + tabs + `+` + `─...─` + `┐`, with `‹`/`›`
+/// overflow arrows when the tabs don't fit. Always visible so a new tab
+/// is always one click away.
+fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool, hovered: bool) {
+    let Some(bar) = area.bar else { return };
+    let Some(screen_view) = app.tree.active_screen() else { return };
+    let Some(pane) = screen_view.pane(area.pane) else { return };
+    let tabs: Vec<String> = pane.tabs.iter().enumerate().map(|(i, t)| t.display_title(i)).collect();
+    let active_tab = pane.active_tab;
+    let pane_id = area.pane;
+
+    let screen = frame.area();
+    if bar.width < 2 || bar.y >= screen.height {
+        return;
+    }
+    let style = border_style(focused, hovered);
+    let base = Style::default().fg(Color::Indexed(246));
+    let active_style = if focused {
+        Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Indexed(250))
+    };
+
+    // Fill the whole top row with the border line first; tabs overlay it.
+    let buf = frame.buffer_mut();
+    let (x0, x1) = (bar.x, bar.x + bar.width - 1);
+    buf[(x0, bar.y)].set_symbol("┌").set_style(style);
+    buf[(x1, bar.y)].set_symbol("┐").set_style(style);
+    for x in x0 + 1..x1 {
+        buf[(x, bar.y)].set_symbol("─").set_style(style);
     }
 
-    let max_x = (bar.x + bar.width).min(screen.width);
-    let mut x = bar.x;
+    // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
+    // starting at tab_scroll fits; the active tab is always kept visible.
+    let labels: Vec<String> = tabs.iter().map(|t| format!(" {} ", truncate(t, 16))).collect();
+    let widths: Vec<u16> = labels.iter().map(|l| l.chars().count() as u16).collect();
+    let inner_w = bar.width.saturating_sub(2); // between the corners
+    let plus_w: u16 = 3; // " + "
+    let arrow_w: u16 = 1;
+
+    // Clamp the requested scroll, then bump it until the active tab fits.
+    let max_scroll = tabs.len().saturating_sub(1);
+    let mut scroll = app.tab_scroll.get(&pane_id).copied().unwrap_or(0).min(max_scroll);
+    let fits = |scroll: usize| {
+        let left_arrow = if scroll > 0 { arrow_w } else { 0 };
+        let mut budget = inner_w.saturating_sub(left_arrow + plus_w + arrow_w);
+        for w in &widths[scroll..=active_tab.max(scroll)] {
+            if *w > budget {
+                return false;
+            }
+            budget -= *w;
+        }
+        true
+    };
+    while scroll < active_tab && !fits(scroll) {
+        scroll += 1;
+    }
+    app.tab_scroll.insert(pane_id, scroll);
+
     let mut hits = Vec::new();
-    for (i, tab) in pane.tabs.iter().enumerate() {
-        if x >= max_x {
+    let mut x = x0 + 1;
+    let max_x = x1; // exclusive
+    if scroll > 0 {
+        let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
+        buf.set_stringn(x, bar.y, "‹", 1, base);
+        hits.push((rect, Hit::TabScroll { pane: pane_id, delta: -1 }));
+        x += arrow_w;
+    }
+    let mut overflow = false;
+    for (i, label) in labels.iter().enumerate().skip(scroll) {
+        let w = widths[i];
+        // Reserve room for the + button and a possible right arrow.
+        if x + w + plus_w + arrow_w > max_x {
+            overflow = true;
             break;
         }
-        let active = i == pane.active_tab;
-        let style = if active && focused {
-            bar_active_style()
-        } else if active {
-            bar_active_style().remove_modifier(Modifier::BOLD)
-        } else {
-            base
-        };
-        let label = format!(" {} ", truncate(tab.display_title(), 16));
-        let width = (label.chars().count() as u16).min(max_x - x);
-        buf.set_stringn(x, bar.y, &label, width as usize, style);
-        hits.push((Rect { x, y: bar.y, width, height: 1 }, Hit::Tab { pane: area.pane, index: i }));
-        x += width;
+        let style = if i == active_tab { active_style } else { base };
+        buf.set_stringn(x, bar.y, label, w as usize, style);
+        hits.push((
+            Rect { x, y: bar.y, width: w, height: 1 },
+            Hit::Tab { pane: pane_id, index: i },
+        ));
+        x += w;
     }
-    // Trailing "+" opens a new tab in this pane.
-    if x < max_x {
-        let label = " + ";
-        let width = (label.len() as u16).min(max_x - x);
-        buf.set_stringn(x, bar.y, label, width as usize, base.fg(Color::Indexed(250)));
-        hits.push((Rect { x, y: bar.y, width, height: 1 }, Hit::NewTab { pane: area.pane }));
+    if overflow && x + arrow_w <= max_x {
+        let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
+        buf.set_stringn(x, bar.y, "›", 1, base);
+        hits.push((rect, Hit::TabScroll { pane: pane_id, delta: 1 }));
+        x += arrow_w;
+    }
+    if x + plus_w <= max_x {
+        let rect = Rect { x, y: bar.y, width: plus_w, height: 1 };
+        buf.set_stringn(x, bar.y, " + ", plus_w as usize, base);
+        hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
     app.hits.extend(hits);
 }
@@ -146,40 +247,40 @@ fn draw_content(
     None
 }
 
-/// Thin scrollbar in the content rect's last column, shown only while
-/// the surface is scrolled back (like a transient overlay scrollbar).
-/// The whole track is clickable/draggable.
-fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea) {
-    let rect = area.content;
-    if rect.width < 2 || rect.height < 2 {
+/// Scrollbar in the right border column. Visible whenever the surface
+/// has any scrollback (total > viewport); hidden only when no scrolling
+/// is possible at all. The thumb overlays the border line; the whole
+/// track is clickable/draggable.
+fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
+    let Some(track) = area.track else { return };
+    if track.height == 0 {
         return;
     }
     let Some(surface) = app.session.surface(area.surface) else { return };
     let Some(sb) = surface.with_terminal(|t| t.scrollbar()) else { return };
-    if !sb.scrolled_back() {
-        return;
+    if sb.total <= sb.len {
+        return; // nothing to scroll: no scrollbar
     }
 
-    let track = Rect { x: rect.x + rect.width - 1, y: rect.y, width: 1, height: rect.height };
     let (thumb_y, thumb_len) = thumb_geometry(&sb, track.height);
 
     let screen = frame.area();
     let buf = frame.buffer_mut();
-    let track_style = Style::default().fg(Color::Indexed(238));
-    let thumb_style = Style::default().fg(Color::Indexed(246));
+    let thumb_style = if focused {
+        Style::default().fg(Color::Indexed(252))
+    } else {
+        Style::default().fg(Color::Indexed(246))
+    };
     for dy in 0..track.height {
         let y = track.y + dy;
         if track.x >= screen.width || y >= screen.height {
             continue;
         }
-        // ▕ is a thin right-edge bar, so the scrollbar overlays the last
-        // column without hiding much content.
-        let in_thumb = dy >= thumb_y && dy < thumb_y + thumb_len;
-        buf[(track.x, y)].set_symbol("▕").set_style(if in_thumb {
-            thumb_style
-        } else {
-            track_style
-        });
+        // The track stays the border line (drawn by draw_box); only the
+        // thumb overlays it with a solid bar.
+        if dy >= thumb_y && dy < thumb_y + thumb_len {
+            buf[(track.x, y)].set_symbol("┃").set_style(thumb_style);
+        }
     }
     app.hits.push((track, Hit::Scrollbar { surface: area.surface, track }));
 }
