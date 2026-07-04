@@ -1,5 +1,4 @@
 import Foundation
-import os
 import Testing
 
 @testable import CmuxSettings
@@ -13,8 +12,8 @@ struct UserDefaultsSettingsStoreObservationTests {
             defaults: observedDefaults,
             notificationCenter: notificationCenter
         )
-        let injectedCenterReceivedNotification = BoolRecorder()
-        let defaultCenterReceivedNotification = BoolRecorder()
+        let injectedCenterReceivedNotification = NotificationBoolRecorder()
+        let defaultCenterReceivedNotification = NotificationBoolRecorder()
         let injectedToken = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: observedDefaults,
@@ -97,18 +96,5 @@ struct UserDefaultsSettingsStoreObservationTests {
         #expect(event?.mutationSource == thirdSource)
         #expect(event?.supersededMutationSources.contains(firstSource) == true)
         #expect(event?.supersededMutationSources.contains(secondSource) == true)
-    }
-
-    private final class BoolRecorder: Sendable {
-        // Synchronous NotificationCenter observers can run on the posting thread.
-        private let valueLock = OSAllocatedUnfairLock(initialState: false)
-
-        var value: Bool {
-            valueLock.withLock { $0 }
-        }
-
-        func setTrue() {
-            valueLock.withLock { $0 = true }
-        }
     }
 }
