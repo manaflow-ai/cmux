@@ -41,8 +41,14 @@ public final class PaneMemoryGuardrailService {
     private let settings: any PaneMemoryGuardrailSettingsReading
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
+    // The poll timer fires on the main queue: this service is `@MainActor`, so
+    // the `setEventHandler` closure the compiler synthesizes carries a MainActor
+    // isolation assertion, and running it on a background queue traps at runtime
+    // (`swift_task_isCurrentExecutor` → `dispatch_assert_queue_fail`) on
+    // macOS 26 / Swift 6. `tick()` only kicks off `Task.detached` sampling, so
+    // the main-queue cost is a periodic guard + dispatch, not the heavy scan.
     @ObservationIgnored
-    private let timerQueue = DispatchQueue(label: "com.cmux.pane-memory-guardrail", qos: .utility)
+    private let timerQueue = DispatchQueue.main
     @ObservationIgnored
     private var timer: (any DispatchSourceTimer)?
     @ObservationIgnored
@@ -74,8 +80,13 @@ public final class PaneMemoryGuardrailService {
             repeating: Self.pollInterval,
             leeway: .seconds(1)
         )
+        // `timerQueue` is the main queue (see its declaration), so the handler
+        // runs on the main thread and MainActor isolation holds when we call
+        // `tick()`.
         timer.setEventHandler { [weak self] in
-            Task { @MainActor in self?.tick() }
+            MainActor.assumeIsolated {
+                self?.tick()
+            }
         }
         self.timer = timer
         timer.resume()
