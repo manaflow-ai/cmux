@@ -732,7 +732,7 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        applyBooleanSettings(WorkspaceColorsSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        applyBooleanSettings(workspaceColorsBooleanSettingsFileMappings(), from: section, sourcePath: sourcePath, snapshot: &snapshot)
         if let raw = jsonString(section["indicatorStyle"]) {
             let indicatorKey = SettingCatalog().workspaceColors.indicatorStyle
             let normalized = (WorkspaceIndicatorStyle.decodeFromJSON(raw) ?? indicatorKey.defaultValue).rawValue

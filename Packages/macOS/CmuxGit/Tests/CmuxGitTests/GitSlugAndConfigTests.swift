@@ -12,12 +12,12 @@ import Testing
         "https://github.com/manaflow-ai/cmux",
     ])
     func parsesGitHubRemoteForms(url: String) {
-        #expect(GitMetadataService.githubRepositorySlug(fromRemoteURL: url) == "manaflow-ai/cmux")
+        #expect(GitMetadataService().githubRepositorySlug(fromRemoteURL: url) == "manaflow-ai/cmux")
     }
 
     @Test func ignoresNonGitHubRemotes() {
-        #expect(GitMetadataService.githubRepositorySlug(fromRemoteURL: "git@gitlab.com:foo/bar.git") == nil)
-        #expect(GitMetadataService.githubRepositorySlug(fromRemoteURL: "") == nil)
+        #expect(GitMetadataService().githubRepositorySlug(fromRemoteURL: "git@gitlab.com:foo/bar.git") == nil)
+        #expect(GitMetadataService().githubRepositorySlug(fromRemoteURL: "") == nil)
     }
 
     @Test func ordersRemotesUpstreamThenOriginThenRest() {
@@ -27,7 +27,7 @@ import Testing
         zeta\thttps://github.com/zeta/zeta.git (fetch)
         """
         #expect(
-            GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output)
+            GitMetadataService().githubRepositorySlugs(fromGitRemoteVOutput: output)
                 == ["owner/repo", "me/fork", "zeta/zeta"]
         )
     }
@@ -37,12 +37,12 @@ import Testing
         origin\thttps://github.com/owner/repo.git (fetch)
         mirror\tgit@github.com:owner/repo.git (fetch)
         """
-        #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output) == ["owner/repo"])
+        #expect(GitMetadataService().githubRepositorySlugs(fromGitRemoteVOutput: output) == ["owner/repo"])
     }
 
     @Test func ignoresPushOnlyLines() {
         let output = "origin\thttps://github.com/owner/repo.git (push)\n"
-        #expect(GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output).isEmpty)
+        #expect(GitMetadataService().githubRepositorySlugs(fromGitRemoteVOutput: output).isEmpty)
     }
 
     // MARK: config parsing
@@ -53,38 +53,38 @@ import Testing
         \turl = https://github.com/owner/repo.git
         \tfetch = +refs/heads/*:refs/remotes/origin/*
         """
-        let slugs = GitMetadataService.githubRepositorySlugs(
-            fromGitRemoteVOutput: GitMetadataService.gitRemoteVLines(fromConfig: config).joined()
+        let slugs = GitMetadataService().githubRepositorySlugs(
+            fromGitRemoteVOutput: GitMetadataService().gitRemoteVLines(fromConfig: config).joined()
         )
         #expect(slugs == ["owner/repo"])
     }
 
     @Test func inlineCommentsAreStrippedOutsideQuotes() {
-        let line = GitMetadataService.gitConfigLineRemovingInlineComment("\turl = value # trailing comment")
+        let line = GitMetadataService().gitConfigLineRemovingInlineComment("\turl = value # trailing comment")
         #expect(line.trimmingCharacters(in: .whitespaces) == "url = value")
     }
 
     @Test func inlineCommentInsideQuotesIsKept() {
-        let line = GitMetadataService.gitConfigLineRemovingInlineComment("\turl = \"a#b\"")
+        let line = GitMetadataService().gitConfigLineRemovingInlineComment("\turl = \"a#b\"")
         #expect(line.contains("a#b"))
     }
 
     @Test func globMatchesSingleSegmentWildcard() {
-        #expect(GitMetadataService.gitConfigGlobMatches("/a/b", pattern: "/a/*", caseInsensitive: false))
-        #expect(!GitMetadataService.gitConfigGlobMatches("/a/b/c", pattern: "/a/*", caseInsensitive: false))
+        #expect(GitMetadataService().gitConfigGlobMatches("/a/b", pattern: "/a/*", caseInsensitive: false))
+        #expect(!GitMetadataService().gitConfigGlobMatches("/a/b/c", pattern: "/a/*", caseInsensitive: false))
     }
 
     @Test func globDoubleStarMatchesAcrossSegments() {
-        #expect(GitMetadataService.gitConfigGlobMatches("/a/b/c/d", pattern: "/a/**/d", caseInsensitive: false))
+        #expect(GitMetadataService().gitConfigGlobMatches("/a/b/c/d", pattern: "/a/**/d", caseInsensitive: false))
     }
 
     @Test func includeIfGitdirRecursiveMatchesNestedRepository() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
         let condition = "gitdir:\(fixture.gitDirectory.path)/"
-        #expect(GitMetadataService.gitConfigIncludeIfConditionMatches(
+        #expect(GitMetadataService().gitConfigIncludeIfConditionMatches(
             condition,
-            repository: try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path)),
+            repository: try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path)),
             configURL: fixture.gitDirectory.appendingPathComponent("config")
         ))
     }
@@ -92,17 +92,17 @@ import Testing
     // MARK: Parsing fidelity (issue #5359)
 
     private func slugs(fromConfig config: String) -> [String] {
-        GitMetadataService.githubRepositorySlugs(
-            fromGitRemoteVOutput: GitMetadataService.gitRemoteVLines(fromConfig: config).joined()
+        GitMetadataService().githubRepositorySlugs(
+            fromGitRemoteVOutput: GitMetadataService().gitRemoteVLines(fromConfig: config).joined()
         )
     }
 
     private func slugs(forDirectory directory: String) -> [String] {
-        guard let repository = GitMetadataService.resolveGitRepository(containing: directory),
-              let output = GitMetadataService.gitRemoteVOutput(repository: repository) else {
+        guard let repository = GitMetadataService().resolveGitRepository(containing: directory),
+              let output = GitMetadataService().gitRemoteVOutput(repository: repository) else {
             return []
         }
-        return GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: output)
+        return GitMetadataService().githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 
     @Test func configSectionAndKeyNamesAreCaseInsensitive() {
@@ -130,17 +130,17 @@ import Testing
     @Test func relativeGitdirPatternMatchesAtAnyDepth() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         let configURL = fixture.gitDirectory.appendingPathComponent("config")
         // Relative pattern (no leading /, ~/, ./) gets **/ prepended per git,
         // so "<rootDirName>/.git/" matches the absolute git directory.
         let rootDirName = fixture.root.lastPathComponent
-        #expect(GitMetadataService.gitConfigIncludeIfConditionMatches(
+        #expect(GitMetadataService().gitConfigIncludeIfConditionMatches(
             "gitdir:\(rootDirName)/.git/",
             repository: repository,
             configURL: configURL
         ))
-        #expect(!GitMetadataService.gitConfigIncludeIfConditionMatches(
+        #expect(!GitMetadataService().gitConfigIncludeIfConditionMatches(
             "gitdir:not-the-dir/.git/",
             repository: repository,
             configURL: configURL
@@ -150,16 +150,16 @@ import Testing
     @Test func dotSlashGitdirPatternIsRelativeToConfigDirectory() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         // "./" in the .git/config means the .git directory itself; with the
         // trailing-slash recursion rule it matches the git directory.
-        #expect(GitMetadataService.gitConfigIncludeIfConditionMatches(
+        #expect(GitMetadataService().gitConfigIncludeIfConditionMatches(
             "gitdir:./",
             repository: repository,
             configURL: fixture.gitDirectory.appendingPathComponent("config")
         ))
         // Anchored to a different config directory, the same pattern must not match.
-        #expect(!GitMetadataService.gitConfigIncludeIfConditionMatches(
+        #expect(!GitMetadataService().gitConfigIncludeIfConditionMatches(
             "gitdir:./",
             repository: repository,
             configURL: URL(fileURLWithPath: "/somewhere/else/config")

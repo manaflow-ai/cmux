@@ -8,7 +8,7 @@ import Testing
         try fixture.writeBranch("main")
         let entry = try fixture.writeWorkingTreeFile("file.txt", contents: "hello")
         try fixture.writeIndex(GitIndexFixture(version: 2, entries: [entry]))
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         let filePath = fixture.root.appendingPathComponent("file.txt").path
         let reader = CountingGitFileStatusReader()
         let service = GitMetadataService(fileStatusReader: reader)
@@ -35,7 +35,7 @@ import Testing
     @Test func refreshedCacheEntryMovesBehindOlderEntryForEviction() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
-        let repository = try #require(GitMetadataService.resolveGitRepository(containing: fixture.root.path))
+        let repository = try #require(GitMetadataService().resolveGitRepository(containing: fixture.root.path))
         let cache = GitTrackedChangesSnapshotCache(maximumEntryCount: 2)
         let indexStatSignature = GitIndexStatSignature(
             size: 1,

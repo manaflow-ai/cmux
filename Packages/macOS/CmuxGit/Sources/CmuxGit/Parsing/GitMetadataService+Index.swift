@@ -253,7 +253,7 @@ extension GitMetadataService {
         let gitlinkURL = URL(fileURLWithPath: parentRepository.workTreeRoot)
             .appendingPathComponent(gitlinkPath)
             .standardizedFileURL
-        guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
+        guard let submoduleRepository = GitMetadataService().resolveGitRepository(containing: gitlinkURL.path),
               submoduleRepository.workTreeRoot == gitlinkURL.path else {
             return nil
         }

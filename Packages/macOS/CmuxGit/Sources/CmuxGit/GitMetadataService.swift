@@ -77,7 +77,7 @@ public struct GitMetadataService: Sendable {
         for directory: String,
         trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata {
-        guard let repository = Self.resolveGitRepository(containing: directory) else {
+        guard let repository = resolveGitRepository(containing: directory) else {
             return .notARepository
         }
         let trackedChanges = await gitTrackedChangesSnapshot(
@@ -149,11 +149,11 @@ public struct GitMetadataService: Sendable {
     /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
     ///   repository or no GitHub remote.
     public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
-        guard let repository = Self.resolveGitRepository(containing: directory),
-              let output = Self.gitRemoteVOutput(repository: repository) else {
+        guard let repository = resolveGitRepository(containing: directory),
+              let output = gitRemoteVOutput(repository: repository) else {
             return []
         }
-        return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
+        return githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 
     /// Whether this module's `nonisolated async` methods execute off the calling

@@ -7,7 +7,8 @@ extension GitMetadataService {
     nonisolated static func workspaceGitMetadataWatchedPaths(
         for directory: String
     ) -> [String]? {
-        guard let repository = resolveGitRepository(containing: directory) else {
+        let service = GitMetadataService()
+        guard let repository = service.resolveGitRepository(containing: directory) else {
             return nil
         }
 
@@ -41,7 +42,7 @@ extension GitMetadataService {
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
-        ] + gitConfigURLs(repository: repository).map(\.path)
+        ] + GitMetadataService().gitConfigURLs(repository: repository).map(\.path)
     }
 
     /// The metadata paths contributed by gitlink (submodule) entries in the
@@ -70,7 +71,7 @@ extension GitMetadataService {
                 .appendingPathComponent(entry.path)
                 .standardizedFileURL
             guard visitedWorkTreeRoots.insert(gitlinkURL.path).inserted,
-                  let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
+                  let submoduleRepository = GitMetadataService().resolveGitRepository(containing: gitlinkURL.path),
                   submoduleRepository.workTreeRoot == gitlinkURL.path else {
                 continue
             }

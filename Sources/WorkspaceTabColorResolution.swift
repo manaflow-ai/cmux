@@ -33,9 +33,10 @@ extension WorkspaceTabColorSettings {
             return nil
         }
 
-        if let repository = GitMetadataService.resolveGitRepository(containing: normalizedDirectory) {
-            if let remoteOutput = GitMetadataService.gitRemoteVOutput(repository: repository),
-               let slug = GitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: remoteOutput).first {
+        let gitMetadataService = GitMetadataService()
+        if let repository = gitMetadataService.resolveGitRepository(containing: normalizedDirectory) {
+            if let remoteOutput = gitMetadataService.gitRemoteVOutput(repository: repository),
+               let slug = gitMetadataService.githubRepositorySlugs(fromGitRemoteVOutput: remoteOutput).first {
                 return "github:\(slug.lowercased())"
             }
             return "git:\(normalizedAutoColorPath(repository.workTreeRoot))"
