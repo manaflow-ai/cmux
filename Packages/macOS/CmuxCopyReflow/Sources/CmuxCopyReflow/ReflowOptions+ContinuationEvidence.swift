@@ -43,6 +43,35 @@ extension ReflowOptions {
         return false
     }
 
+    /// Indented code/traceback records use indentation structurally, not as
+    /// paragraph wrap continuation.
+    func looksLikeStructuredIndentedCode(_ current: String, after previous: String) -> Bool {
+        let trimmed = current.trimmingLeadingWhitespaceForReflow()
+        guard !trimmed.isEmpty else { return false }
+        if startsStackTraceFrame(previous) { return true }
+        if startsCodeKeyword(trimmed) { return true }
+        return containsCodeOperator(trimmed)
+    }
+
+    func startsStackTraceFrame(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        return trimmed.hasPrefix("File \"")
+            || trimmed.hasPrefix("Traceback ")
+            || trimmed.hasPrefix("at ")
+    }
+
+    func startsCodeKeyword(_ s: String) -> Bool {
+        guard let word = firstWord(in: s) else { return false }
+        return Self.codeStartWords.contains(word)
+    }
+
+    func containsCodeOperator(_ s: String) -> Bool {
+        for marker in Self.codeOperatorMarkers {
+            if s.contains(marker) { return true }
+        }
+        return false
+    }
+
     static let continuationTailWords: Set<String> = [
         "a", "an", "and", "are", "as", "at", "be", "because", "been", "being",
         "but", "by", "can", "could", "did", "do", "does", "for", "from", "had",
@@ -64,6 +93,18 @@ extension ReflowOptions {
         "fatal", "info", "notice", "ok", "processing", "queued", "retrying",
         "running", "skipping", "started", "starting", "stopped", "stopping",
         "success", "trace", "updated", "warn", "warning"
+    ]
+
+    static let codeStartWords: Set<String> = [
+        "await", "case", "catch", "class", "const", "def", "else", "enum", "final",
+        "for", "func", "function", "guard", "if", "import", "let", "private",
+        "public", "return", "static", "struct", "switch", "throw", "try", "var",
+        "while"
+    ]
+
+    static let codeOperatorMarkers = [
+        " = ", " == ", " != ", " += ", " -= ", " *= ", " /= ", " %= ", " => ",
+        " -> ", " && ", " || "
     ]
 
     func firstWord(in s: String) -> String? {

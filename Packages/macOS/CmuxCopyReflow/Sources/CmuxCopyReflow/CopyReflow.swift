@@ -167,12 +167,15 @@ private extension ReflowOptions {
                     // s1: an explicit continuation indent (line indented past the
                     //     paragraph's first line).
                     let indentationDelta = indent - p.baseIndent
+                    let structuredIndentedCode = indentationDelta > 0
+                        && looksLikeStructuredIndentedCode(content, after: p.prevContent)
                     let shortIndentContinuation = indentationDelta <= 2
                         && p.prevHasSpace
                         && startsLowercaseLetter(content)
                     let s1 = indentationDelta > 0
                         && (p.prevVisibleLength >= minWrapWidth || shortIndentContinuation)
                         && !endsIndentedBlock(p.prevContent)
+                        && !structuredIndentedCode
                     // s3: a wrapped bare URL continues as a spaceless path fragment.
                     let s3 = p.isURL && startsURLContinuationToken(content)
                     // s4: mid-sentence continuation. The previous line is full
@@ -197,6 +200,7 @@ private extension ReflowOptions {
                         && !startsOptionLikeRow(p.prevContent)
                     let s4 = p.prevHasSpace
                         && p.allowsWidthJoin
+                        && !structuredIndentedCode
                         && previousLineWasFull
                         && (lowercaseContinuation || commandContinuation)
                     let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
