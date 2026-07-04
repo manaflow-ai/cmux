@@ -59,7 +59,8 @@ struct TerminalInputReportParser {
         case 0x75:
             return intermediates.isEmpty && startsWithQuestionMark(parameters)
         case 0x79:
-            return intermediates == [0x24] && startsWithQuestionMark(parameters)
+            return intermediates == [0x24]
+                && (startsWithQuestionMark(parameters) || isANSIModeReport(parameters))
         default:
             return false
         }
@@ -95,8 +96,31 @@ struct TerminalInputReportParser {
         parameters == [0x30] || parameters == [0x33]
     }
 
+    private func isANSIModeReport(_ parameters: [UInt32]) -> Bool {
+        guard let separatorIndex = parameters.firstIndex(of: 0x3B),
+              separatorIndex > 0,
+              separatorIndex + 1 < parameters.count else {
+            return false
+        }
+
+        let mode = parameters[..<separatorIndex]
+        let state = parameters[(separatorIndex + 1)...]
+        return mode.allSatisfy { isDigit($0) } && isModeReportState(state)
+    }
+
+    private func isModeReportState(_ parameters: ArraySlice<UInt32>) -> Bool {
+        guard parameters.count == 1, let state = parameters.first else {
+            return false
+        }
+        return state >= 0x30 && state <= 0x34
+    }
+
     private func startsWithQuestionMark(_ parameters: [UInt32]) -> Bool {
         parameters.first == 0x3F
+    }
+
+    private func isDigit(_ value: UInt32) -> Bool {
+        value >= 0x30 && value <= 0x39
     }
 
     private func isCSIParameterByte(_ value: UInt32) -> Bool {
