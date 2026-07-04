@@ -4113,7 +4113,7 @@ class TerminalController {
                 case "agent", nil:
                     .agent
                 default:
-                    .user
+                    .agent
                 }
                 tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw, source: source)
                 finish(["description": v2OrNull(workspace.customDescription)])
