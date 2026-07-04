@@ -259,8 +259,14 @@ final class InboxRuntime {
     /// are user-shaped; anything else becomes generic localized copy instead
     /// of a raw Swift error dump.
     private static func userFacingMessage(for error: Error) -> String {
-        if let error = error as? InboxError { return error.description }
-        return String(localized: "inbox.error.generic", defaultValue: "Inbox operation failed")
+        switch error {
+        case InboxError.openFailed, InboxError.prepareFailed, InboxError.stepFailed:
+            return String(localized: "inbox.error.storage", defaultValue: "Inbox storage error")
+        case let error as InboxError:
+            return error.description
+        default:
+            return String(localized: "inbox.error.generic", defaultValue: "Inbox operation failed")
+        }
     }
 
     private func postCmuxNotification(for item: InboxItem) {

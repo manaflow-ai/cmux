@@ -230,7 +230,7 @@ public actor SlackConnector: InboxConnector {
            (object["ok"] as? Bool) == false,
            let error = object["error"] as? String,
            ["invalid_auth", "token_revoked", "account_inactive"].contains(error) {
-            return InboxConnectorStatus(source: .slack, accountID: accountID, displayName: displayName, status: .tokenExpired, message: error, credentialState: .present, capabilities: capabilities)
+            return InboxConnectorStatus(source: .slack, accountID: accountID, displayName: displayName, status: .tokenExpired, message: "Slack token expired or revoked", credentialState: .present, capabilities: capabilities)
         }
         // Any other non-2xx must surface as an error; falling through would
         // parse an error body as an empty message list and report success.

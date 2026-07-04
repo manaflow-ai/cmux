@@ -203,8 +203,14 @@ public actor IntegrationHub {
     /// already user-shaped; anything else becomes a generic connector failure
     /// so raw Swift error dumps never reach persisted or UI-visible fields.
     private static func userSafeMessage(for error: Error) -> String {
-        if let error = error as? InboxError { return error.description }
-        return "Connector request failed"
+        switch error {
+        case InboxError.openFailed, InboxError.prepareFailed, InboxError.stepFailed:
+            return "Inbox storage error"
+        case let error as InboxError:
+            return error.description
+        default:
+            return "Connector request failed"
+        }
     }
 
     /// Maps the `"default"` account-id sentinel to the connector's canonical

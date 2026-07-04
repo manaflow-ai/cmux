@@ -213,9 +213,7 @@ private extension TerminalController {
         let accountID = string(root["account_id"] ?? accountObject["account_id"] ?? itemObject["account_id"]) ?? "default"
         let identity = InboxIdentity()
         let externalThreadID = string(threadObject["external_thread_id"] ?? threadObject["thread_id"] ?? root["external_thread_id"] ?? root["thread_id"]) ?? "default"
-        guard let externalMessageID = string(itemObject["external_message_id"] ?? itemObject["message_id"] ?? root["external_message_id"] ?? root["message_id"]) else {
-            throw InboxError.invalidParameters("inbox.push requires external_message_id (or message_id) so retries dedupe instead of duplicating items")
-        }
+        guard let externalMessageID = string(itemObject["external_message_id"] ?? itemObject["message_id"] ?? root["external_message_id"] ?? root["message_id"]) else { throw InboxError.invalidParameters("inbox.push requires external_message_id (or message_id) so retries dedupe instead of duplicating items") }
         let sender = participant(itemObject["sender"] ?? root["sender"]) ?? InboxParticipant(displayName: source.rawValue)
         let timestamp = date(itemObject["timestamp"] ?? itemObject["created_at"] ?? root["timestamp"]) ?? Date.now
         let threadID = string(threadObject["local_thread_id"] ?? threadObject["thread_id"]) ?? identity.threadID(source: source, accountID: accountID, externalThreadID: externalThreadID)
@@ -440,12 +438,14 @@ private extension TerminalController {
         }
     }
 
+    // Shared: these serializers run per item per socket call; the formatter is thread-safe.
+    nonisolated static let inboxISOFormatter = ISO8601DateFormatter()
     nonisolated static func date(_ value: Any?) -> Date? {
         if let number = value as? NSNumber { return Date(timeIntervalSince1970: number.doubleValue) }
         if let double = value as? Double { return Date(timeIntervalSince1970: double) }
         guard let raw = string(value) else { return nil }
         if let seconds = Double(raw) { return Date(timeIntervalSince1970: seconds) }
-        return ISO8601DateFormatter().date(from: raw)
+        return inboxISOFormatter.date(from: raw)
     }
 
     nonisolated static func participant(_ value: Any?) -> InboxParticipant? {
@@ -481,7 +481,7 @@ private extension TerminalController {
         return result
     }
 
-    nonisolated static func iso(_ date: Date?) -> String? { date.map { ISO8601DateFormatter().string(from: $0) } }
+    nonisolated static func iso(_ date: Date?) -> String? { date.map { inboxISOFormatter.string(from: $0) } }
 }
 
 private extension Dictionary where Key == String, Value == Any {

@@ -9,8 +9,8 @@ import Testing
         let url = fixtures.temporaryDatabaseURL()
         let store = try InboxSQLiteStore(databaseURL: url)
 
-        try await store.runMigrationsForTesting()
-        try await store.runMigrationsForTesting()
+        try await store.runMigrations()
+        try await store.runMigrations()
 
         let account = fixtures.account(source: .gmail, accountID: "me")
         let thread = fixtures.thread(source: .gmail, accountID: "me", title: "Launch mail")

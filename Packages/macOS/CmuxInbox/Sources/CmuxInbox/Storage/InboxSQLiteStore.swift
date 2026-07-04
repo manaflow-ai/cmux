@@ -35,9 +35,9 @@ public actor InboxSQLiteStore {
             .appendingPathComponent("inbox.sqlite3", isDirectory: false)
     }
 
-    /// Runs idempotent schema migrations. Internal test seam reached through
-    /// `@testable import`; not part of the public package API.
-    func runMigrationsForTesting() throws {
+    /// Runs idempotent schema migrations. Internal; reached from tests via
+    /// `@testable import`, not part of the public package API.
+    func runMigrations() throws {
         try Self.migrate(database)
     }
 
