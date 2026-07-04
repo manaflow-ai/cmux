@@ -465,6 +465,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId
+        lastPublishedTerminalTitle = nil
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
     }

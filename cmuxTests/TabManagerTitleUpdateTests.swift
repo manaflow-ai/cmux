@@ -604,6 +604,22 @@ struct TabManagerTitleUpdateTests {
         #expect(surface.stableTerminalNotificationTitle("").isEmpty)
     }
 
+    @Test
+    func publishableTerminalTitleResetsAfterWorkspaceRebind() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let surface = try #require(workspace.terminalPanel(for: focusedPanelId)?.surface)
+
+        #expect(surface.publishableTerminalTitle(forRawTitle: "⠋ pnpm install") == "pnpm install")
+        #expect(surface.publishableTerminalTitle(forRawTitle: "⠙ pnpm install") == nil)
+
+        surface.updateWorkspaceId(UUID())
+        defer { surface.updateWorkspaceId(workspace.id) }
+
+        #expect(surface.publishableTerminalTitle(forRawTitle: "⠹ pnpm install") == "pnpm install")
+    }
+
     private func drainMainQueue() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async {
