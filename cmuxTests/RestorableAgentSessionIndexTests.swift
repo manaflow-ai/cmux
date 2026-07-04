@@ -1,6 +1,6 @@
 import CMUXAgentLaunch
 import Foundation
-import XCTest
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1162,8 +1162,6 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("claude"), "codex resume must not run the claude binary; got: \(resume)")
-        // Bare `codex` now routes through the codex wrapper token (CMUX_CODEX_WRAPPER_SHIM)
-        // wrapped in `/bin/sh -c '…'` so the resumed session keeps cmux hooks (issue #5639).
         XCTAssertTrue(resume.contains("/bin/sh -c "), "codex resume must wrap the wrapper token for any login shell; got: \(resume)")
         XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must route through the codex wrapper shim; got: \(resume)")
         XCTAssertTrue(resume.contains("resume") && resume.contains(sid), "codex resume must use the resume verb and session id; got: \(resume)")
@@ -1214,8 +1212,6 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("'sh'"), "codex resume must not run the hook shell wrapper; got: \(resume)")
-        // Bare `codex` routes through the codex wrapper token wrapped in `/bin/sh -c '…'`
-        // (issue #5639) so the resumed session keeps cmux hooks.
         XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must route through the codex wrapper shim; got: \(resume)")
         XCTAssertTrue(resume.contains("resume") && resume.contains(sid), "codex resume must use the resume verb and session id; got: \(resume)")
         let fork = try XCTUnwrap(snapshot.forkCommand)
@@ -1259,9 +1255,16 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         let fork = try XCTUnwrap(snapshot.forkCommand)
-        XCTAssertTrue(
-            fork.contains("'codex-teams' 'fork' '\(sid)'"),
-            "codexTeams capture must keep routing fork through the cmux wrapper; got: \(fork)"
+        // The retry launcher single-quote-escapes the inner fork argv (`'…'` -> `'\''…'\''`),
+        // so the verbatim `'codex-teams' 'fork' '<sid>'` substring no longer appears. Assert the
+        // three tokens still appear in this exact order to catch a reordered/reworded fork assembly.
+        let teamsRange = try XCTUnwrap(fork.range(of: "codex-teams"), fork)
+        let forkVerbRange = try XCTUnwrap(
+            fork.range(of: "fork", range: teamsRange.upperBound..<fork.endIndex), fork
+        )
+        XCTAssertNotNil(
+            fork.range(of: sid, range: forkVerbRange.upperBound..<fork.endIndex),
+            "codexTeams capture must route fork through the cmux wrapper as codex-teams -> fork -> \(sid); got: \(fork)"
         )
     }
 

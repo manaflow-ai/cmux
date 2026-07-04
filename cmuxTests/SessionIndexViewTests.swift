@@ -3,7 +3,7 @@ import CMUXAgentLaunch
 import Combine
 import SQLite3
 import SwiftUI
-import XCTest
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -159,12 +159,8 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        // The codex resume now routes the codex executable through the cmux codex
-        // wrapper token and wraps the rendered command in `/bin/sh -c '…'` so a
-        // resumed codex session keeps its hooks (issue #5639). Assert the inner
-        // POSIX command preserves the sandbox-flag behavior of issue #5262.
-        XCTAssertTrue(command.hasPrefix("/bin/sh -c "), command)
-        let inner = Self.unwrapPortableShellCommand(command)
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -c "), command)
+        let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
         XCTAssertTrue(inner.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken), inner)
         XCTAssertEqual(
             inner,
@@ -196,7 +192,8 @@ final class SessionIndexViewTests: XCTestCase {
         )
 
         let command = entry.resumeCommand ?? ""
-        let inner = Self.unwrapPortableShellCommand(command)
+        XCTAssertTrue(command.hasPrefix("/bin/zsh -c "), command)
+        let inner = Self.unwrapPortableShellCommand(Self.unwrapRetryWrappedShellCommand(command))
         XCTAssertEqual(
             inner,
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-managed -c check_for_update_on_startup=false -a on-request"
@@ -223,7 +220,9 @@ final class SessionIndexViewTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            Self.unwrapPortableShellCommand(readOnly.resumeCommand ?? ""),
+            Self.unwrapPortableShellCommand(
+                Self.unwrapRetryWrappedShellCommand(readOnly.resumeCommand ?? "")
+            ),
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -c check_for_update_on_startup=false -a untrusted -s read-only"
         )
 
@@ -239,9 +238,32 @@ final class SessionIndexViewTests: XCTestCase {
             )
         )
         XCTAssertEqual(
-            Self.unwrapPortableShellCommand(dangerFullAccess.resumeCommand ?? ""),
+            Self.unwrapPortableShellCommand(
+                Self.unwrapRetryWrappedShellCommand(dangerFullAccess.resumeCommand ?? "")
+            ),
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -c check_for_update_on_startup=false -m gpt-5.5 -a never -s danger-full-access"
         )
+    }
+
+    /// Reverses `CodexResumeRetryShell.wrappedCommand`, recovering the inner
+    /// launched command from the `/bin/zsh -c '<retry script>'` wrapper. The
+    /// retry script uses `script(1)` so Codex keeps TTY fds while startup output is captured.
+    static func unwrapRetryWrappedShellCommand(_ command: String) -> String {
+        let prefix = "/bin/zsh -c "
+        guard command.hasPrefix(prefix) else { return command }
+        var quoted = String(command.dropFirst(prefix.count))
+        guard quoted.hasPrefix("'"), quoted.hasSuffix("'") else { return quoted }
+        quoted = String(quoted.dropFirst().dropLast())
+        let script = quoted.replacingOccurrences(of: "'\\''", with: "'")
+        let launchPrefix = "/usr/bin/script -q \"$_cmux_codex_retry_pipe\" /bin/zsh -c "
+        guard let launchRange = script.range(of: launchPrefix) else { return script }
+        let afterLaunchPrefix = script[launchRange.upperBound...]
+        let statusMarker = "; _cmux_codex_retry_status=$?"
+        guard let statusRange = afterLaunchPrefix.range(of: statusMarker) else { return script }
+        var inner = String(afterLaunchPrefix[..<statusRange.lowerBound])
+        guard inner.hasPrefix("'"), inner.hasSuffix("'") else { return inner }
+        inner = String(inner.dropFirst().dropLast())
+        return inner.replacingOccurrences(of: "'\\''", with: "'")
     }
 
     /// Reverses `AgentResumeArgv.portableCodexResumeShellCommand`, recovering the
