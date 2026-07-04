@@ -397,6 +397,11 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat：</strong>掃描 QR 碼加入社群。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="用於加入 cmux 社群的 WeChat QR 碼" width="240" />
+</p>
+
 ## Founder's Edition
 
 cmux 免費、開放原始碼，並將一直如此。如果您想支持開發並提前體驗即將推出的功能：
