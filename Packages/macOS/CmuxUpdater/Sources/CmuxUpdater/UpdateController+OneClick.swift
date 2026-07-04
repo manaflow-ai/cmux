@@ -101,9 +101,7 @@ extension UpdateController {
                 }
                 guard self.actionDelegate?.updaterIsSafeToRestartNow() == true else { continue }
                 self.log.append("restart-when-idle firing (host reports idle)")
-                self.cancelRestartWhenIdleLoop()
                 installing.retryTerminatingApplication()
-                return
             }
         }
     }

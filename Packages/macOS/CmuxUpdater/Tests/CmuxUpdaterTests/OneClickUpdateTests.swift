@@ -265,6 +265,25 @@ import Testing
         #expect(!restarted)
     }
 
+    @Test func restartWhenIdleRetriesIfTerminationDoesNotLeaveInstalling() async throws {
+        let controller = try makeController(clock: YieldClock())
+        let delegate = IdleStubDelegate()
+        controller.actionDelegate = delegate
+        delegate.isSafeToRestart = true
+
+        var restartAttempts = 0
+        controller.model.setState(.installing(stagedInstalling(onRestart: { restartAttempts += 1 })))
+        controller.requestRestartWhenIdle()
+
+        for _ in 0..<200 {
+            await Task.yield()
+            if restartAttempts >= 2 { break }
+        }
+
+        #expect(restartAttempts >= 2)
+        #expect(controller.model.isRestartWhenIdleArmed)
+    }
+
     @Test func restartLaterCancelsDeferredRestartForStagedInstall() async throws {
         let controller = try makeController(clock: YieldClock())
         let delegate = IdleStubDelegate()
