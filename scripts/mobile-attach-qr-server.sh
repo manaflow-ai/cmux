@@ -37,9 +37,10 @@ INITIAL_TAG = os.environ["TAG"]
 INITIAL_IOS_TAG = os.environ["IOS_TAG"]
 SCRIPT_DIR = os.environ["SCRIPT_DIR"]
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
-# `ios/scripts/reload.sh` builds + installs + launches the tagged iOS app on
-# the connected iPhone. The Open button shells out to it so a stale (or
-# missing) device build is brought current before launch — no manual reload.
+# `ios/scripts/reload.sh --dev-auth` builds + installs + launches the tagged
+# iOS app on the connected iPhone. The Open button shells out to it so a stale
+# (or missing) dogfood device build is brought current before launch — no
+# manual reload.
 IOS_RELOAD = os.path.join(PROJECT_DIR, "ios", "scripts", "reload.sh")
 IOS_TEAM = os.environ.get("CMUX_IOS_TEAM", "7WLXT3NR37")
 # Build can take a couple minutes (xcodebuild incremental + install over the
@@ -250,12 +251,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _build_and_launch_ios(self) -> str:
         """Build, install, and launch the tagged iOS app on the connected
-        iPhone via `ios/scripts/reload.sh --device-only`. Blocks until the
-        build finishes (the page shows a building state); the threading server
-        keeps serving other requests meanwhile."""
+        iPhone via `ios/scripts/reload.sh --device-only --dev-auth`. Blocks
+        until the build finishes (the page shows a building state); the
+        threading server keeps serving other requests meanwhile."""
         if not os.path.exists(IOS_RELOAD):
             return f"no-reload-script ({IOS_RELOAD})"
-        cmd = [IOS_RELOAD, "--tag", IOS_TAG, "--device-only", "--team", IOS_TEAM]
+        cmd = [IOS_RELOAD, "--tag", IOS_TAG, "--device-only", "--dev-auth", "--team", IOS_TEAM]
         env = os.environ.copy()
         env["CMUX_TAG"] = IOS_TAG
         try:
