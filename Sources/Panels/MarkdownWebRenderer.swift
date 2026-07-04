@@ -681,7 +681,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
             let suffix = "\nwindow.__cmuxLibLoaded && window.__cmuxLibLoaded(\(libLiteral)[0]);"
             webView.evaluateJavaScript(injection + suffix) { [weak self] _, error in
-                if let error {
+                if error != nil {
                     // Allow retry on next render if this attempt failed.
                     self?.requestedLibs.remove(lib)
                 }
