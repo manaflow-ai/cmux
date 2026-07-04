@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> Skenirajte QR kod da se pridružite zajednici.<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR kod za pridruživanje cmux zajednici" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux snimak ekrana" width="900" />
 </p>
 
@@ -401,6 +396,11 @@ Načini da se uključite:
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> Skenirajte QR kod da se pridružite zajednici.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR kod za pridruživanje cmux zajednici" width="240" />
+</p>
 
 ## Osnivačko izdanje
 

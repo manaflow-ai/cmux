@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat:</strong> امسح رمز QR للانضمام إلى المجتمع.<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="رمز QR على WeChat للانضمام إلى مجتمع cmux" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="لقطة شاشة cmux" width="900" />
 </p>
 
@@ -401,6 +396,11 @@ cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إ
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> امسح رمز QR للانضمام إلى المجتمع.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="رمز QR على WeChat للانضمام إلى مجتمع cmux" width="240" />
+</p>
 
 ## إصدار المؤسسين
 
