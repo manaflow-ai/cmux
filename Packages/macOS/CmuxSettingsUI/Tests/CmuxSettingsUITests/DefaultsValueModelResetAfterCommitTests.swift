@@ -18,9 +18,12 @@ import Testing
         let model = DefaultsValueModel(store: store, key: key)
 
         await confirmation("afterCommit runs after reset") { afterCommit in
-            model.reset(afterCommit: {
-                afterCommit()
-            })
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                model.reset(afterCommit: {
+                    afterCommit()
+                    continuation.resume()
+                })
+            }
         }
 
         #expect(await store.value(for: key) == key.defaultValue)
