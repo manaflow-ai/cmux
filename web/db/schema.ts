@@ -199,13 +199,13 @@ export const vaultCliAuthRequests = pgTable(
     userCode: text("user_code").notNull(),
     status: text("status").notNull(),
     userId: text("user_id"),
-    tokens: jsonb("tokens").$type<{ accessToken: string; refreshToken: string } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [
     uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
     index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
+    index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
   ],
 );
 

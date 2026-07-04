@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8fdea355-463a-49aa-98cc-bd76fd74cf2b",
+  "id": "b0e0da94-1705-47c5-987f-be9c9ed4e961",
   "prevIds": [
     "ba8f09f6-d710-41c7-b9c0-153faea51c65"
   ],
@@ -1196,19 +1196,6 @@
       "table": "vault_cli_auth_requests"
     },
     {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "vault_cli_auth_requests"
-    },
-    {
       "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
@@ -2141,6 +2128,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "vault_cli_auth_requests_expires_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "vault_cli_auth_requests"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_code",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "vault_cli_auth_requests_user_code_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "vault_cli_auth_requests"

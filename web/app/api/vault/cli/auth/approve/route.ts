@@ -1,7 +1,6 @@
 import { and, eq, gt } from "drizzle-orm";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
-import { getStackServerApp } from "../../../../../lib/stack";
 import { readVaultJsonObject } from "../../../../../../services/vault/validation";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../../../services/vms/auth";
@@ -9,17 +8,9 @@ import { unauthorized, verifyRequest } from "../../../../../../services/vms/auth
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SESSION_EXPIRES_IN_MS = 90 * 24 * 60 * 60 * 1000;
-
-type StackSessionLike = {
-  getTokens: () => Promise<{ accessToken?: string | null; refreshToken?: string | null }>;
-};
-
-type StackUserWithSession = {
-  id: string;
-  createSession: (options: { expiresInMillis: number }) => Promise<StackSessionLike>;
-};
-
+// Approval only records WHO approved. Tokens are minted later, by the poll
+// route at claim time, so no credential is ever stored in the database and a
+// duplicate approve cannot mint an orphaned Stack session.
 export async function POST(request: Request): Promise<Response> {
   const verified = await verifyRequest(request);
   if (!verified) return unauthorized();
@@ -35,47 +26,12 @@ export async function POST(request: Request): Promise<Response> {
 
   const db = cloudDb();
   const now = new Date();
-  const [pending] = await db
-    .select({ id: vaultCliAuthRequests.id })
-    .from(vaultCliAuthRequests)
+  const [updated] = await db
+    .update(vaultCliAuthRequests)
+    .set({ status: "approved", userId: verified.id })
     .where(
       and(
         eq(vaultCliAuthRequests.userCode, userCode),
-        eq(vaultCliAuthRequests.status, "pending"),
-        gt(vaultCliAuthRequests.expiresAt, now),
-      ),
-    )
-    .limit(1);
-  if (!pending) {
-    return jsonResponse({ error: "auth_request_not_pending" }, 409);
-  }
-
-  const stackUser = await getStackServerApp().getUser({
-    tokenStore: request as unknown as { headers: { get(name: string): string | null } },
-  }) as StackUserWithSession | null;
-  if (!stackUser || stackUser.id !== verified.id) return unauthorized();
-
-  const session = await stackUser.createSession({ expiresInMillis: SESSION_EXPIRES_IN_MS });
-  const tokens = await session.getTokens();
-  if (!tokens.accessToken || !tokens.refreshToken) {
-    return jsonResponse({ error: "token_mint_failed" }, 500);
-  }
-  const accessToken = tokens.accessToken;
-  const refreshToken = tokens.refreshToken;
-
-  const [updated] = await db
-    .update(vaultCliAuthRequests)
-    .set({
-      status: "approved",
-      userId: verified.id,
-      tokens: {
-        accessToken,
-        refreshToken,
-      },
-    })
-    .where(
-      and(
-        eq(vaultCliAuthRequests.id, pending.id),
         eq(vaultCliAuthRequests.status, "pending"),
         gt(vaultCliAuthRequests.expiresAt, now),
       ),

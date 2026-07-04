@@ -4,7 +4,6 @@ CREATE TABLE "vault_cli_auth_requests" (
 	"user_code" text NOT NULL,
 	"status" text NOT NULL,
 	"user_id" text,
-	"tokens" jsonb,
 	"created_at" timestamp with time zone NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL
 );
@@ -37,6 +36,7 @@ CREATE TABLE "vault_snapshots" (
 --> statement-breakpoint
 CREATE UNIQUE INDEX "vault_cli_auth_requests_device_hash_unique" ON "vault_cli_auth_requests" ("device_code_hash");--> statement-breakpoint
 CREATE INDEX "vault_cli_auth_requests_expires_idx" ON "vault_cli_auth_requests" ("expires_at");--> statement-breakpoint
+CREATE INDEX "vault_cli_auth_requests_user_code_idx" ON "vault_cli_auth_requests" ("user_code");--> statement-breakpoint
 CREATE UNIQUE INDEX "vault_sessions_user_agent_session_unique" ON "vault_sessions" ("user_id","agent","agent_session_id");--> statement-breakpoint
 CREATE INDEX "vault_sessions_user_last_uploaded_idx" ON "vault_sessions" ("user_id","last_uploaded_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "vault_snapshots_session_sha_unique" ON "vault_snapshots" ("session_id","sha256");--> statement-breakpoint
