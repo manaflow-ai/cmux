@@ -188,8 +188,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
-    @Test("workspace default cwd is stable while live terminal cwd drifts")
-    func workspaceDefaultWorkingDirectoryDoesNotDriftWithLiveTerminalPwd() throws {
+    @Test("workspace default cwd is stable while current cwd tracks focused terminal pwd")
+    func workspaceDefaultWorkingDirectoryDoesNotDriftWhenLiveCurrentDirectoryChanges() throws {
         let defaultDirectory = "/tmp/cmux-default-\(UUID().uuidString)"
         let liveDirectory = "/tmp/cmux-live-\(UUID().uuidString)"
         let workspace = Workspace(workingDirectory: defaultDirectory)
@@ -198,7 +198,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         workspace.updatePanelDirectory(panelId: focusedPanel.id, directory: liveDirectory)
 
         #expect(workspace.defaultWorkingDirectory == defaultDirectory)
-        #expect(workspace.currentDirectory == defaultDirectory)
+        #expect(workspace.currentDirectory == liveDirectory)
         #expect(workspace.panelDirectories[focusedPanel.id] == liveDirectory)
 
         let createdPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
@@ -247,7 +247,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let focusedPanel = try #require(workspace.focusedTerminalPanel)
 
         workspace.updatePanelDirectory(panelId: focusedPanel.id, directory: liveDirectory)
-        #expect(workspace.currentDirectory == defaultDirectory)
+        #expect(workspace.currentDirectory == liveDirectory)
         #expect(workspace.surfaceTabBarDirectory == defaultDirectory)
 
         workspace.setDefaultWorkingDirectory(nil)

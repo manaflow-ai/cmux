@@ -176,6 +176,74 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(managerB.tabs.map(\.id), [thirdB.id, firstB.id, secondB.id])
     }
 
+    func testWorkspaceGetCwdRejectsExplicitWorkspaceOutsideExplicitWindow() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let managerA = TabManager(autoWelcomeIfNeeded: false)
+        let managerB = TabManager(autoWelcomeIfNeeded: false)
+        let windowAId = app.registerMainWindowContextForTesting(tabManager: managerA)
+        let windowBId = app.registerMainWindowContextForTesting(tabManager: managerB)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowAId)
+            app.unregisterMainWindowContextForTesting(windowId: windowBId)
+        }
+
+        TerminalController.shared.setActiveTabManager(managerA)
+        let workspaceB = try XCTUnwrap(managerB.selectedWorkspace)
+        workspaceB.setDefaultWorkingDirectory("/tmp/cmux-window-b-\(UUID().uuidString)")
+
+        let error = try v2Error(
+            method: "workspace.get_cwd",
+            params: [
+                "window_id": windowAId.uuidString,
+                "workspace_id": workspaceB.id.uuidString,
+            ]
+        )
+
+        XCTAssertEqual(error["code"] as? String, "not_found")
+    }
+
+    func testWorkspaceSetCwdRejectsExplicitWorkspaceOutsideExplicitWindow() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let managerA = TabManager(autoWelcomeIfNeeded: false)
+        let managerB = TabManager(autoWelcomeIfNeeded: false)
+        let windowAId = app.registerMainWindowContextForTesting(tabManager: managerA)
+        let windowBId = app.registerMainWindowContextForTesting(tabManager: managerB)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowAId)
+            app.unregisterMainWindowContextForTesting(windowId: windowBId)
+        }
+
+        TerminalController.shared.setActiveTabManager(managerA)
+        let workspaceB = try XCTUnwrap(managerB.selectedWorkspace)
+        let originalDefaultDirectory = "/tmp/cmux-window-b-original-\(UUID().uuidString)"
+        let wrongWindowDirectory = "/tmp/cmux-window-b-wrong-\(UUID().uuidString)"
+        workspaceB.setDefaultWorkingDirectory(originalDefaultDirectory)
+
+        let error = try v2Error(
+            method: "workspace.set_cwd",
+            params: [
+                "window_id": windowAId.uuidString,
+                "workspace_id": workspaceB.id.uuidString,
+                "cwd": wrongWindowDirectory,
+            ]
+        )
+
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        XCTAssertEqual(workspaceB.defaultWorkingDirectory, originalDefaultDirectory)
+    }
+
     func testWorkspaceReorderManyRejectsEmptyOrderItems() throws {
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
