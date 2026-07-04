@@ -504,7 +504,7 @@ public struct GhosttyConfig {
                 continue
             }
 
-            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             if parts.count == 2 {
                 let key = parts[0].trimmingCharacters(in: .whitespaces)
                 let value = parts[1].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
