@@ -275,7 +275,8 @@ extension CMUXCLI {
             ],
             prompt: prompt,
             environment: summarizerEnv,
-            timeout: timeout
+            timeout: timeout,
+            failOnOutputOverflow: false
         ) != nil else {
             return nil
         }

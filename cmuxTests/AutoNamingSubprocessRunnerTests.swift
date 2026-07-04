@@ -85,6 +85,26 @@ import Testing
         #expect(output == nil)
     }
 
+    @Test func oversizedStdoutCanBeDiscardedForFileBackedCallers() throws {
+        let root = try temporaryDirectory(named: "autoname-runner-output-discard")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let chunk = String(repeating: "x", count: 16)
+        let script = try executableScript(in: root, named: "summarizer", body: """
+        printf '\(chunk)'
+        """)
+
+        let output = AutoNamingSubprocessRunner(maxOutputBytes: 8).run(
+            executable: script,
+            arguments: [],
+            prompt: "",
+            environment: processEnvironment(),
+            timeout: 2,
+            failOnOutputOverflow: false
+        )
+
+        #expect(output == "")
+    }
+
     @Test func blockedStdinIsBoundedByRunnerDeadline() throws {
         let root = try temporaryDirectory(named: "autoname-runner-stdin")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -4,14 +4,15 @@ import Foundation
 struct AutoNamingSubprocessRunner: Sendable {
     var maxOutputBytes: Int = 64 * 1024
 
-    /// Runs a tool-disabled summarizer with bounded stdout, deadline-aware stdin,
-    /// and process-group cleanup for descendants spawned by the summarizer.
+    /// Runs a tool-disabled summarizer with deadline-aware stdin, bounded or
+    /// discarded stdout, and process-group cleanup for descendants.
     func run(
         executable: String,
         arguments: [String],
         prompt: String,
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        failOnOutputOverflow: Bool = true
     ) -> String? {
         var stdinFDs = [Int32](repeating: -1, count: 2)
         var stdoutFDs = [Int32](repeating: -1, count: 2)
@@ -90,7 +91,8 @@ struct AutoNamingSubprocessRunner: Sendable {
             promptData: promptData,
             stdoutFD: stdoutFD,
             output: &output,
-            timeout: timeout
+            timeout: timeout,
+            failOnOutputOverflow: failOnOutputOverflow
         )
         closeFD(&stdinFDs[1])
         guard firstWait.outputWithinLimit else {
@@ -123,9 +125,11 @@ struct AutoNamingSubprocessRunner: Sendable {
         promptData: Data,
         stdoutFD: Int32,
         output: inout Data,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        failOnOutputOverflow: Bool
     ) -> (rawStatus: Int32?, outputWithinLimit: Bool, promptDelivered: Bool) {
         var stdoutEOF = false
+        var stdoutOverflowed = false
         var promptOffset = 0
         var promptDelivered = promptData.isEmpty
         var reapedStatus: Int32?
@@ -141,7 +145,9 @@ struct AutoNamingSubprocessRunner: Sendable {
                 let withinLimit = drainAvailableOutput(
                     from: stdoutFD,
                     into: &output,
-                    reachedEOF: &stdoutEOF
+                    reachedEOF: &stdoutEOF,
+                    overflowed: &stdoutOverflowed,
+                    failOnOverflow: failOnOutputOverflow
                 )
                 guard withinLimit else { return (nil, false, promptDelivered) }
             }
@@ -169,7 +175,9 @@ struct AutoNamingSubprocessRunner: Sendable {
                         let withinLimit = drainAvailableOutput(
                             from: stdoutFD,
                             into: &output,
-                            reachedEOF: &stdoutEOF
+                            reachedEOF: &stdoutEOF,
+                            overflowed: &stdoutOverflowed,
+                            failOnOverflow: failOnOutputOverflow
                         )
                         guard withinLimit else { return (nil, false, true) }
                         if stdoutEOF { break }
@@ -235,15 +243,21 @@ struct AutoNamingSubprocessRunner: Sendable {
     private func drainAvailableOutput(
         from fd: Int32,
         into output: inout Data,
-        reachedEOF: inout Bool
+        reachedEOF: inout Bool,
+        overflowed: inout Bool,
+        failOnOverflow: Bool
     ) -> Bool {
         var chunk = [UInt8](repeating: 0, count: 8 * 1024)
         while true {
             let readCount = Darwin.read(fd, &chunk, chunk.count)
             if readCount > 0 {
+                if overflowed {
+                    continue
+                }
                 guard output.count + readCount <= maxOutputBytes else {
                     output.removeAll(keepingCapacity: false)
-                    return false
+                    overflowed = true
+                    return !failOnOverflow
                 }
                 output.append(contentsOf: chunk.prefix(readCount))
                 continue

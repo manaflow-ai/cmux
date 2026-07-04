@@ -110,23 +110,23 @@ extension CMUXCLI {
     }
 
     /// Runs the summarizer subprocess with the prompt on stdin and a hard
-    /// deadline, returning bounded stdout (nil on failure, timeout, oversized
-    /// output, or non-zero exit). stdout is captured through a pipe with a live
-    /// byte cap, then the read side is closed on return so inherited writer fds
-    /// cannot keep the hook blocked after the main summarizer exits.
+    /// deadline. By default oversized stdout fails the run; file-backed callers
+    /// can request discard-only stdout so noisy progress output cannot block.
     func runAutoNamingSummarizer(
         executable: String,
         arguments: [String],
         prompt: String,
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        failOnOutputOverflow: Bool = true
     ) -> String? {
         AutoNamingSubprocessRunner().run(
             executable: executable,
             arguments: arguments,
             prompt: prompt,
             environment: environment,
-            timeout: timeout
+            timeout: timeout,
+            failOnOutputOverflow: failOnOutputOverflow
         )
     }
 }
