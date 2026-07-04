@@ -865,7 +865,8 @@
       "shortcutsWhenBooleanKeys": "Booleovi ključevi. Nepoznat ili odsutan ključ čita se kao false; prihvataju se i literali true i false.",
       "shortcutsWhenTypedKeys": "tipizirani ključevi za poređenja: aktivni način desne bočne trake (string) te broj okana i radnih prostora (cijeli brojevi).",
       "shortcutsWhenOperators": "Booleovi operatori, tipizirana poređenja, regex podudaranje i pripadnost listi. Poređenja se vezuju jače od && i ||.",
-      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:"
+      "shortcutsWhenExample": "Na primjer, ovo čini da Ctrl+1–9 bira radne prostore svuda osim kada desna bočna traka ima fokus (ostavljajući Ctrl+1–5 prebacivaču načina bočne trake), i ograničava izbor površine na bočnu traku za pretragu kada radni prostor ima više okana:",
+      "shortcutsCommandsIntro": "Dodijelite vlastiti tastaturni prečac bilo kojoj naredbi iz palete naredbi — uključujući naredbe koje dolaze bez ugrađenog prečaca, kao što je otvaranje trenutnog direktorija u vašem uređivaču. Ključevi su id-ovi naredbi (isti id-ovi prikazani u paleti, na primjer <code>palette.openFolderInVSCodeInline</code>); vrijednosti su prečac s jednim pritiskom. Akordi ovdje nisu podržani — koristite jedan pritisak tastera koji uključuje primarni modifikator (⌘, ⌥ ili ⌃). Prečac pokreće naredbu u fokusiranom prozoru; naredba nedostupna u trenutnom kontekstu ne radi ništa. Koristite <code>null</code> (ili <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>) da obrišete vezu. Najlakši način za upravljanje njima je <settings>Postavke → Tastaturni prečaci → Prilagođene naredbe</settings>, koji nejasno pretražuje naredbe i blokira pritisak koji već pripada ugrađenoj akciji ili drugoj naredbi."
     },
     "customCommands": {
       "title": "Prilagođene komande",
@@ -1032,7 +1033,10 @@
         "wn-reload": "Ponovo učitaj konfiguraciju",
         "wn-quit": "Izađi"
       },
-      "metaTitle": "Prečice na tastaturi"
+      "metaTitle": "Prečice na tastaturi",
+      "customCommandsTitle": "Prilagođeni prečaci naredbi",
+      "customCommandsIntro": "Povežite jedan pritisak tastera s bilo kojom naredbom iz palete naredbi putem <settings>Postavke → Tastaturni prečaci → Prilagođene naredbe</settings>, ili direktno pod <settingsFile>shortcuts.commands</settingsFile> u cmux.json. Pogledajte <configurationLink>dokumentaciju o konfiguraciji</configurationLink> za format datoteke.",
+      "customCommandsCallout": "Snimanje pritiska koji već koristi ugrađena akcija ili druga naredba blokira se banerom, tako da prilagođeni prečac ne može tiho zasjeniti ugrađenu akciju niti se sukobiti s drugom naredbom. Prilagođeni prečaci naredbi imaju samo jedan pritisak."
     },
     "api": {
       "title": "CLI Referenca",

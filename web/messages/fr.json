@@ -865,7 +865,8 @@
       "shortcutsWhenBooleanKeys": "clés booléennes. Une clé inconnue ou absente vaut false ; les littéraux true et false sont également acceptés.",
       "shortcutsWhenTypedKeys": "clés typées pour les comparaisons : le mode actif de la barre latérale droite (chaîne) ainsi que le nombre de panneaux et d'espaces de travail (entiers).",
       "shortcutsWhenOperators": "opérateurs booléens, comparaisons typées, correspondance par expression régulière et appartenance à une liste. Les comparaisons lient plus fort que && et ||.",
-      "shortcutsWhenExample": "Par exemple, ceci fait que Ctrl+1–9 sélectionne les espaces de travail partout sauf lorsque la barre latérale droite a le focus (laissant Ctrl+1–5 au sélecteur de mode de la barre latérale), et limite la sélection de surface à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux :"
+      "shortcutsWhenExample": "Par exemple, ceci fait que Ctrl+1–9 sélectionne les espaces de travail partout sauf lorsque la barre latérale droite a le focus (laissant Ctrl+1–5 au sélecteur de mode de la barre latérale), et limite la sélection de surface à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux :",
+      "shortcutsCommandsIntro": "Attribuez votre propre raccourci clavier à n'importe quelle commande de la palette de commandes — y compris les commandes sans raccourci intégré, comme ouvrir le répertoire courant dans votre éditeur. Les clés sont des ID de commande (les mêmes que ceux affichés dans la palette, par exemple <code>palette.openFolderInVSCodeInline</code>) ; les valeurs sont un raccourci à une frappe. Les accords ne sont pas pris en charge ici — utilisez une seule frappe incluant un modificateur principal (⌘, ⌥ ou ⌃). Le raccourci déclenche la commande dans la fenêtre active ; une commande indisponible dans le contexte actuel ne fait rien. Utilisez <code>null</code> (ou <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>) pour effacer une liaison. Le plus simple est de les gérer dans <settings>Réglages → Raccourcis clavier → Commandes personnalisées</settings>, qui recherche les commandes en mode flou et bloque une frappe appartenant déjà à une action intégrée ou à une autre commande."
     },
     "customCommands": {
       "title": "Commandes personnalisées",
@@ -1032,7 +1033,10 @@
         "wn-reload": "Recharger la configuration",
         "wn-quit": "Quitter"
       },
-      "metaTitle": "Raccourcis clavier"
+      "metaTitle": "Raccourcis clavier",
+      "customCommandsTitle": "Raccourcis de commande personnalisés",
+      "customCommandsIntro": "Associez une seule frappe à n'importe quelle commande de la palette de commandes depuis <settings>Réglages → Raccourcis clavier → Commandes personnalisées</settings>, ou directement sous <settingsFile>shortcuts.commands</settingsFile> dans cmux.json. Consultez la <configurationLink>documentation de configuration</configurationLink> pour le format du fichier.",
+      "customCommandsCallout": "L'enregistrement d'une frappe déjà utilisée par une action intégrée ou une autre commande est bloqué par une bannière, afin qu'un raccourci personnalisé ne puisse pas masquer silencieusement une action intégrée ni entrer en conflit avec une autre commande. Les raccourcis de commande personnalisés sont à une seule frappe."
     },
     "api": {
       "title": "Référence CLI",

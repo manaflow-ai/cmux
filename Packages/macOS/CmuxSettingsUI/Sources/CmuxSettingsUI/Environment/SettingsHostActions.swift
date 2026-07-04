@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host-supplied callbacks the package's section views invoke for
@@ -147,6 +148,50 @@ public protocol SettingsHostActions: AnyObject {
     /// `async` because the availability check probes a real bind.
     func applyMobilePairingPort(_ port: Int) async -> MobilePairingPortApplyResult
 
+    /// The full catalog of Command Palette commands a user can bind a custom
+    /// keyboard shortcut to, in a stable display order. Backed by the host's
+    /// live command contributions, so it lives here rather than in the catalog.
+    /// The **Custom Commands** keyboard-shortcut section reads this to resolve a
+    /// bound command id back to a title and to seed the picker's default list.
+    /// Returns an empty array for hosts without a live palette (previews/tests).
+    func commandShortcutCatalog() -> [CommandShortcutCatalogEntry]
+
+    /// Ranks the command-shortcut catalog for `query` using the **same ranking
+    /// engine as the Command Palette**, returning at most `limit` entries best
+    /// first. An empty query yields the default catalog order (capped to
+    /// `limit`). Returns an empty array for hosts without a live palette.
+    func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry]
+
+    /// The user's currently-bound command shortcuts (`shortcuts.commands`),
+    /// keyed by command id, parsed by the **host's** lenient config reader so a
+    /// value written in *any* documented form (string `"cmd+n"`, object, or an
+    /// unbind marker) resolves correctly. The Settings **Custom Commands**
+    /// section uses this for the bound list and conflict detection rather than
+    /// the package's object-only typed decode, which would silently drop a
+    /// string-form binding. Returns an empty map for hosts without a config
+    /// reader (previews/tests).
+    func commandShortcuts() -> [String: StoredShortcut]
+
+    /// The effective (override-or-default) shortcut for every built-in cmux
+    /// action, keyed by action id, resolved by the **host's** lenient reader.
+    /// The Custom Commands conflict check uses this instead of the package's
+    /// `shortcuts.bindings` typed decode, which is object-only and all-or-nothing
+    /// — a single string-form override there would blank the whole map and let a
+    /// command silently shadow a rebound built-in. Empty for hosts without a
+    /// config reader (previews/tests).
+    func effectiveActionShortcuts() -> [String: StoredShortcut]
+
+    /// The shortcuts of user-defined cmux config actions (cmux.json `actions`
+    /// with a `shortcut`), as `(displayLabel, shortcut)` pairs. The runtime key
+    /// router dispatches these *before* custom command shortcuts, so the Custom
+    /// Commands conflict check must include them — otherwise a command could be
+    /// bound to a keystroke a configured action already owns and never fire. The
+    /// stored shortcut's first stroke is compared, which also catches chord
+    /// prefixes. Returned as a list rather than a title-keyed map because action
+    /// titles are free-form and may collide. Empty for hosts without a config
+    /// store (previews/tests).
+    func configuredActionShortcuts() -> [(label: String, shortcut: StoredShortcut)]
+
     /// Shows the Sleepy Mode screensaver as a non-locking preview (any key/click
     /// exits, no Touch ID). The host owns the overlay window.
     func sleepyModePreview()
@@ -199,18 +244,41 @@ public extension SettingsHostActions {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
     }
 
+    /// Default: empty catalog, for hosts without a live Command Palette.
+    func commandShortcutCatalog() -> [CommandShortcutCatalogEntry] { [] }
+
+    /// Default: no bound command shortcuts, for hosts without a config reader.
+    func commandShortcuts() -> [String: StoredShortcut] { [:] }
+
+    /// Default: no built-in action shortcuts, for hosts without a config reader.
+    func effectiveActionShortcuts() -> [String: StoredShortcut] { [:] }
+
+    /// Default: no configured action shortcuts, for hosts without a config store.
+    func configuredActionShortcuts() -> [(label: String, shortcut: StoredShortcut)] { [] }
+
+    /// Default: a simple case-insensitive substring filter over the catalog so
+    /// preview/test hosts still render a usable picker without the app's engine.
+    func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry] {
+        defaultCommandShortcutCatalogSearch(in: commandShortcutCatalog(), query: query, limit: limit)
+    }
+
+    /// Default sidebar font size + range, for hosts without a Ghostty config.
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
     }
 
+    /// Default: reports success without persisting, for hosts with no config writer.
     func setSidebarFontSize(_ points: Double) async -> Bool { true }
 
+    /// Default workspace tab-bar font size + range, for hosts without a config.
     func surfaceTabBarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 11, minimum: 8, maximum: 14, defaultValue: 11)
     }
 
+    /// Default: reports success without persisting, for hosts with no config writer.
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
 
+    /// Default point-size formatter, trimming trailing zeros (e.g. `12`, `13.5`).
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()
         let whole = Int(scaled / 100)
@@ -242,4 +310,28 @@ public final class NoopSettingsHostActions: SettingsHostActions {
     /// package-only settings hosts.
     public func previewNotificationSound(value: String, customFilePath: String) {}
     public func browserHistoryEntryCount() -> Int? { nil }
+}
+
+/// Case-insensitive substring filter used by the default
+/// ``SettingsHostActions/searchCommandShortcutCatalog(query:limit:)`` so
+/// preview/test hosts render a usable picker without the app's ranking engine.
+/// File-private so it stays out of the public protocol surface.
+private func defaultCommandShortcutCatalogSearch(
+    in catalog: [CommandShortcutCatalogEntry],
+    query: String,
+    limit: Int
+) -> [CommandShortcutCatalogEntry] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let filtered: [CommandShortcutCatalogEntry]
+    if trimmed.isEmpty {
+        filtered = catalog
+    } else {
+        let needle = trimmed.lowercased()
+        filtered = catalog.filter { entry in
+            entry.title.lowercased().contains(needle)
+                || entry.subtitle.lowercased().contains(needle)
+                || entry.keywords.contains { $0.lowercased().contains(needle) }
+        }
+    }
+    return limit >= 0 ? Array(filtered.prefix(limit)) : filtered
 }

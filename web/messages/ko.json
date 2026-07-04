@@ -865,7 +865,8 @@
       "shortcutsWhenBooleanKeys": "불리언 키. 알 수 없거나 존재하지 않는 키는 false로 평가되며, 리터럴 true와 false도 사용할 수 있습니다.",
       "shortcutsWhenTypedKeys": "비교용 타입 키: 오른쪽 사이드바의 활성 모드(문자열)와 패널 및 워크스페이스 개수(정수)입니다.",
       "shortcutsWhenOperators": "불리언 연산자, 타입 비교, 정규식 일치, 리스트 포함 여부. 비교는 &&와 ||보다 더 강하게 결합합니다.",
-      "shortcutsWhenExample": "예를 들어 다음 설정은 오른쪽 사이드바에 포커스가 있을 때를 제외한 모든 곳에서 Ctrl+1–9로 워크스페이스를 선택하게 하고(Ctrl+1–5는 사이드바 모드 전환기에 남겨 둠), 워크스페이스에 패널이 여러 개 있을 때 서피스 선택을 찾기 사이드바로 한정합니다:"
+      "shortcutsWhenExample": "예를 들어 다음 설정은 오른쪽 사이드바에 포커스가 있을 때를 제외한 모든 곳에서 Ctrl+1–9로 워크스페이스를 선택하게 하고(Ctrl+1–5는 사이드바 모드 전환기에 남겨 둠), 워크스페이스에 패널이 여러 개 있을 때 서피스 선택을 찾기 사이드바로 한정합니다:",
+      "shortcutsCommandsIntro": "명령 팔레트의 모든 명령에 직접 키보드 단축키를 지정할 수 있습니다. 편집기에서 현재 디렉터리 열기처럼 기본 단축키가 없는 명령도 포함됩니다. 키는 명령 id(팔레트에 표시되는 것과 동일한 id, 예: <code>palette.openFolderInVSCodeInline</code>)이고, 값은 단일 입력 단축키입니다. 여기서는 코드(연속 입력)를 지원하지 않습니다. 기본 보조키(⌘, ⌥ 또는 ⌃)를 포함하는 단일 키 입력을 사용하세요. 단축키는 포커스된 창에서 명령을 실행하며, 현재 컨텍스트에서 사용할 수 없는 명령은 아무 동작도 하지 않습니다. 바인딩을 지우려면 <code>null</code>(또는 <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>)을 사용하세요. 가장 쉬운 관리 방법은 <settings>설정 → 키보드 단축키 → 사용자 지정 명령</settings>이며, 명령을 퍼지 검색하고 이미 기본 동작이나 다른 명령에 속한 입력을 차단합니다."
     },
     "customCommands": {
       "title": "사용자 정의 명령어",
@@ -1032,7 +1033,10 @@
         "wn-reload": "설정 새로고침",
         "wn-quit": "종료"
       },
-      "metaTitle": "키보드 단축키"
+      "metaTitle": "키보드 단축키",
+      "customCommandsTitle": "사용자 지정 명령 단축키",
+      "customCommandsIntro": "<settings>설정 → 키보드 단축키 → 사용자 지정 명령</settings>에서, 또는 cmux.json의 <settingsFile>shortcuts.commands</settingsFile> 아래에 직접, 명령 팔레트의 모든 명령에 단일 키 입력을 바인딩하세요. 파일 형식은 <configurationLink>구성 문서</configurationLink>를 참고하세요.",
+      "customCommandsCallout": "기본 동작이나 다른 명령에서 이미 사용 중인 키 입력을 기록하려고 하면 배너로 차단되므로, 사용자 지정 단축키가 기본 동작을 조용히 가리거나 다른 명령과 충돌하지 않습니다. 사용자 지정 명령 단축키는 단일 입력만 가능합니다."
     },
     "api": {
       "title": "CLI 레퍼런스",

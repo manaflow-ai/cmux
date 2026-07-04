@@ -1,5 +1,7 @@
 import AppKit
 import CMUXMobileCore
+import CmuxCommandPalette
+import CmuxSettings
 import CmuxWorkspaces
 import CmuxSettingsUI
 import CmuxFoundation
@@ -42,6 +44,15 @@ final class HostSettingsActions: SettingsHostActions {
     /// window instead of stacking duplicates.
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
+
+    /// Memoized bindable command catalog + its prepared search engine. The
+    /// catalog is static for the process lifetime (locale changes restart the
+    /// app), so both are built once and reused across the picker's per-keystroke
+    /// searches rather than rebuilt each call.
+    private var cachedCommandShortcutCatalog: [CommandShortcutCatalogEntry]?
+    private var cachedCommandShortcutSearchEngine: CommandPaletteSearchEngine<CommandShortcutCatalogEntry>?
+    private typealias ConfiguredActionShortcut = (label: String, shortcut: CmuxSettings.StoredShortcut)
+    private var cachedStandaloneConfiguredActionShortcuts: [ConfiguredActionShortcut]?
 
     init(configFileURL: URL) {
         self.configFileURL = configFileURL
@@ -316,6 +327,182 @@ final class HostSettingsActions: SettingsHostActions {
         case .invalid:
             return .invalid(requestedPort: port)
         }
+    }
+
+    /// All built-in palette commands a custom shortcut can target, in a stable
+    /// display order (deduplicated by command id, keeping the first occurrence).
+    ///
+    /// Derived from ``ContentView/builtInCommandPaletteCommandContributions()`` —
+    /// the same single source of truth the live palette uses — evaluated against
+    /// a neutral context so every bindable command appears with a generic title
+    /// regardless of the current window's focus. Config-derived `actions` are
+    /// intentionally excluded: those already support a `shortcut` field directly
+    /// in cmux.json, so surfacing them here would offer two ways to bind one thing.
+    ///
+    /// Built once and memoized: the contributions are static (the only variable,
+    /// the active locale, requires a process restart), and the Settings picker
+    /// calls this on every keystroke, so rebuilding the list each time is wasted
+    /// work.
+    func commandShortcutCatalog() -> [CommandShortcutCatalogEntry] {
+        if let cachedCommandShortcutCatalog {
+            return cachedCommandShortcutCatalog
+        }
+        let neutralContext = CommandPaletteContextSnapshot()
+        var seen = Set<String>()
+        var entries: [CommandShortcutCatalogEntry] = []
+        for contribution in ContentView.builtInCommandPaletteCommandContributions() {
+            guard seen.insert(contribution.commandId).inserted else { continue }
+            let title = contribution.title(neutralContext)
+            guard !title.isEmpty else { continue }
+            entries.append(
+                CommandShortcutCatalogEntry(
+                    commandId: contribution.commandId,
+                    title: title,
+                    subtitle: contribution.subtitle(neutralContext),
+                    keywords: contribution.keywords
+                )
+            )
+        }
+        cachedCommandShortcutCatalog = entries
+        return entries
+    }
+
+    /// The user's bound command shortcuts, parsed by the app's lenient settings
+    /// reader (``KeyboardShortcutSettings/commandShortcuts()``) so a binding
+    /// written in any documented form — `"cmd+n"`, the package's object form, or
+    /// an unbind marker — resolves the same way the runtime dispatcher sees it.
+    ///
+    /// The return type is the **package** ``CmuxSettings/StoredShortcut`` (the
+    /// protocol's type), not the app's identically-named flat struct; the app
+    /// type would make this a non-witness and silently fall back to the
+    /// protocol's empty default. ``Self/packageStoredShortcut(from:)`` bridges.
+    func commandShortcuts() -> [String: CmuxSettings.StoredShortcut] {
+        KeyboardShortcutSettings.commandShortcuts().mapValues(Self.packageStoredShortcut(from:))
+    }
+
+    /// The effective (override-or-default) binding for every built-in cmux
+    /// action, keyed by action id, read through the app's lenient resolver so a
+    /// string-form `shortcuts.bindings` override is honored. Bridged to the
+    /// package ``CmuxSettings/StoredShortcut`` for the protocol witness.
+    ///
+    /// Includes explicitly-unbound actions as the package unbound marker (rather
+    /// than omitting them) so the package conflict checker — which falls back to
+    /// an action's built-in default for any *absent* id — treats a user-unbound
+    /// action as free rather than as still occupying its default keystroke.
+    func effectiveActionShortcuts() -> [String: CmuxSettings.StoredShortcut] {
+        var result: [String: CmuxSettings.StoredShortcut] = [:]
+        for action in KeyboardShortcutSettings.Action.allCases {
+            result[action.rawValue] = Self.packageStoredShortcut(
+                from: KeyboardShortcutSettings.shortcut(for: action)
+            )
+        }
+        return result
+    }
+
+    /// The shortcuts of user-defined cmux config actions (cmux.json `actions`
+    /// with a `shortcut`), keyed by display label, for the Custom Commands
+    /// conflict check. These are dispatched by the key router *before* custom
+    /// command shortcuts, so a command bound to a keystroke an action already
+    /// owns would never fire — the conflict check must see them.
+    ///
+    /// cmux.json is global, so any live window's config store carries the same
+    /// `actions`; the first available one is used.
+    func configuredActionShortcuts() -> [(label: String, shortcut: CmuxSettings.StoredShortcut)] {
+        let liveStores = AppDelegate.shared?.mainWindowContexts.values
+            .compactMap { $0.cmuxConfigStore } ?? []
+        if liveStores.isEmpty {
+            if let cachedStandaloneConfiguredActionShortcuts {
+                return cachedStandaloneConfiguredActionShortcuts
+            }
+            // No live window (e.g. Settings opened after the last window closed):
+            // load the global config standalone so configured-action conflicts are
+            // still checked rather than silently skipped. Cache the snapshot so
+            // recorder validation does not synchronously reload cmux.json on
+            // every attempted keystroke.
+            let transient = CmuxConfigStore()
+            transient.loadAll()
+            let shortcuts = configuredActionShortcuts(from: [transient])
+            cachedStandaloneConfiguredActionShortcuts = shortcuts
+            return shortcuts
+        }
+        cachedStandaloneConfiguredActionShortcuts = nil
+        // Each window's store merges its local config with the global one, and
+        // runtime dispatch checks the focused window's store. Aggregate across
+        // every live window so a configured action defined in another project
+        // window is still treated as a conflict.
+        return configuredActionShortcuts(from: liveStores)
+    }
+
+    private func configuredActionShortcuts(from stores: [CmuxConfigStore]) -> [ConfiguredActionShortcut] {
+        // A list, not a title-keyed map: action titles are free-form and may
+        // collide, and dropping a duplicate would hide a real conflict. Dedup by
+        // (id, keystroke) so the global actions shared across windows collapse
+        // while distinct per-window overrides are all kept.
+        var seen = Set<String>()
+        var result: [ConfiguredActionShortcut] = []
+        for store in stores {
+            for action in store.shortcutActions() {
+                guard let shortcut = action.shortcut, !shortcut.isUnbound else { continue }
+                guard seen.insert("\(action.id)\u{0}\(shortcut.configIdentifier)").inserted else { continue }
+                result.append((label: action.title, shortcut: Self.packageStoredShortcut(from: shortcut)))
+            }
+        }
+        return result
+    }
+
+    /// Bridges the app's flat ``StoredShortcut`` to the package
+    /// ``CmuxSettings/StoredShortcut`` (first/second strokes) the Settings
+    /// package speaks. Field-by-field — the two Codable shapes differ (flat vs
+    /// nested), so a JSON round-trip would not bridge them.
+    private static func packageStoredShortcut(from shortcut: StoredShortcut) -> CmuxSettings.StoredShortcut {
+        func packageStroke(_ stroke: ShortcutStroke) -> CmuxSettings.ShortcutStroke {
+            CmuxSettings.ShortcutStroke(
+                key: stroke.key,
+                command: stroke.command,
+                shift: stroke.shift,
+                option: stroke.option,
+                control: stroke.control,
+                keyCode: stroke.keyCode
+            )
+        }
+        return CmuxSettings.StoredShortcut(
+            first: packageStroke(shortcut.firstStroke),
+            second: shortcut.secondStroke.map(packageStroke)
+        )
+    }
+
+    /// Ranks ``commandShortcutCatalog()`` for `query` with the Command Palette's
+    /// own ``CommandPaletteSearchEngine`` so the Settings picker matches palette
+    /// search exactly. An empty query yields the default order capped to `limit`.
+    /// The corpus + engine are built once (the catalog is static) and reused so a
+    /// per-keystroke search does not re-prepare the whole corpus.
+    func searchCommandShortcutCatalog(query: String, limit: Int) -> [CommandShortcutCatalogEntry] {
+        let entries = commandShortcutCatalog()
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return limit >= 0 ? Array(entries.prefix(limit)) : entries
+        }
+        let engine: CommandPaletteSearchEngine<CommandShortcutCatalogEntry>
+        if let cachedCommandShortcutSearchEngine {
+            engine = cachedCommandShortcutSearchEngine
+        } else {
+            let corpus = entries.enumerated().map { index, entry in
+                CommandPaletteSearchCorpusEntry(
+                    payload: entry,
+                    rank: index,
+                    title: entry.title,
+                    searchableTexts: [entry.title, entry.subtitle] + entry.keywords
+                )
+            }
+            engine = CommandPaletteSearchEngine(entries: corpus)
+            cachedCommandShortcutSearchEngine = engine
+        }
+        let results = engine.search(
+            query: trimmed,
+            resultLimit: limit >= 0 ? limit : nil,
+            historyBoost: { _, _ in 0 }
+        )
+        return results.map(\.payload)
     }
 
     /// Localized transport label for a pairing route shown in diagnostics.

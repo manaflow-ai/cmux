@@ -1132,7 +1132,8 @@
       "shortcutsWhenBooleanKeys": "boolean キー。未知または存在しないキーは false として扱われ、リテラル true / false も使えます。",
       "shortcutsWhenTypedKeys": "比較用の型付きキー。右サイドバーのアクティブモード（文字列）と、ペイン数・ワークスペース数（整数）です。",
       "shortcutsWhenOperators": "boolean 演算子、型付き比較、正規表現マッチ、リスト所属。比較は && や || より強く結合します。",
-      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+1–5 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。"
+      "shortcutsWhenExample": "例えば次の設定では、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択し（Ctrl+1–5 はサイドバーのモード切り替えに残します）、ワークスペースに複数のペインがあるときはサーフェス選択を Find サイドバーに限定します。",
+      "shortcutsCommandsIntro": "任意のコマンドパレットコマンドに、自分のキーボードショートカットを割り当てられます。組み込みショートカットを持たないコマンド（現在のディレクトリをエディタで開くなど）も対象です。キーはコマンド id（パレットに表示されるものと同じ id、例: <code>palette.openFolderInVSCodeInline</code>）、値は単一ストロークのショートカットです。ここではコードは使用できません。プライマリ修飾キー（⌘、⌥、⌃）を含む単一のキーストロークを使用してください。ショートカットはフォーカス中のウィンドウでコマンドを実行し、現在のコンテキストで利用できないコマンドは何も行いません。バインドを解除するには <code>null</code>（または <code>\"\"</code>、<code>none</code>、<code>clear</code>、<code>unbound</code>、<code>disabled</code>）を使用します。最も簡単な管理方法は <settings>設定 → キーボードショートカット → カスタムコマンド</settings> で、コマンドをあいまい検索し、組み込みアクションや他のコマンドですでに使用されているキーストロークをブロックします。"
     },
     "customCommands": {
       "title": "カスタムコマンド",
@@ -1244,6 +1245,9 @@
       "chordsRuleSingle": "1回のショートカットは文字列で指定します。",
       "chordsRuleArray": "コードは2要素の配列で指定します。1つ目がプレフィックス、2つ目が続けて押すキーです。",
       "chordsRuleSyntax": "各要素は通常のショートカットと同じ構文で、例: cmd+b、ctrl+b、shift+/、ctrl+1。",
+      "customCommandsTitle": "カスタムコマンドショートカット",
+      "customCommandsIntro": "<settings>設定 → キーボードショートカット → カスタムコマンド</settings>から、または cmux.json の <settingsFile>shortcuts.commands</settingsFile> に直接、任意のコマンドパレットコマンドに単一のキーストロークを割り当てられます。ファイル形式については<configurationLink>設定ドキュメント</configurationLink>を参照してください。",
+      "customCommandsCallout": "組み込みアクションや他のコマンドですでに使用されているキーストロークを記録しようとするとバナーでブロックされるため、カスタムショートカットが組み込みアクションを暗黙的に上書きしたり、他のコマンドと競合したりすることはありません。カスタムコマンドショートカットは単一ストロークのみです。",
       "metaDescription": "cmuxのmacOS向けデフォルトキーボードショートカット一覧。ワークスペース、サーフェス、分割ペイン、ブラウザ、通知、検索、アプリ操作を収録し、すべて設定画面または cmux.json で変更できます。",
       "searchPlaceholder": "ショートカットを検索...",
       "searchLabel": "キーボードショートカットを検索",

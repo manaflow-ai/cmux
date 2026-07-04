@@ -500,6 +500,24 @@ working-directory = ~/code`}</CodeBlock>
   }
 }`}</code>
       </pre>
+
+      <DocsHeading level={3} id="shortcuts-commands">
+        <code>shortcuts.commands</code>
+      </DocsHeading>
+      <p>
+        {t.rich("shortcutsCommandsIntro", {
+          code: (chunks) => <code>{chunks}</code>,
+          settings: (chunks) => <strong>{chunks}</strong>,
+        })}
+      </p>
+      <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
+        <code>{`"shortcuts": {
+  "commands": {
+    "palette.openFolderInVSCodeInline": "cmd+shift+o",
+    "palette.newWindow": "cmd+ctrl+n"
+  }
+}`}</code>
+      </pre>
     </>
   );
 }

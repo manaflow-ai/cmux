@@ -865,7 +865,8 @@
       "shortcutsWhenBooleanKeys": "chaves booleanas. Uma chave desconhecida ou ausente é avaliada como false; os literais true e false também são aceitos.",
       "shortcutsWhenTypedKeys": "chaves tipadas para comparações: o modo ativo da barra lateral direita (string) e as contagens de painéis e workspaces (inteiros).",
       "shortcutsWhenOperators": "operadores booleanos, comparações tipadas, correspondência por regex e pertinência a listas. Comparações ligam mais forte que && e ||.",
-      "shortcutsWhenExample": "Por exemplo, isto faz Ctrl+1–9 selecionar workspaces em todos os lugares, exceto quando a barra lateral direita está em foco (deixando Ctrl+1–5 para o seletor de modo da barra lateral), e restringe a seleção de superfície à barra lateral Localizar quando o workspace tem vários painéis:"
+      "shortcutsWhenExample": "Por exemplo, isto faz Ctrl+1–9 selecionar workspaces em todos os lugares, exceto quando a barra lateral direita está em foco (deixando Ctrl+1–5 para o seletor de modo da barra lateral), e restringe a seleção de superfície à barra lateral Localizar quando o workspace tem vários painéis:",
+      "shortcutsCommandsIntro": "Atribua seu próprio atalho de teclado a qualquer comando da paleta de comandos — incluindo comandos que vêm sem um atalho integrado, como abrir o diretório atual no seu editor. As chaves são ids de comando (os mesmos ids mostrados na paleta, por exemplo <code>palette.openFolderInVSCodeInline</code>); os valores são um atalho de um único toque. Acordes não são suportados aqui — use um único toque que inclua um modificador principal (⌘, ⌥ ou ⌃). O atalho aciona o comando na janela em foco; um comando indisponível no contexto atual não faz nada. Use <code>null</code> (ou <code>\"\"</code>, <code>none</code>, <code>clear</code>, <code>unbound</code>, <code>disabled</code>) para limpar uma associação. A maneira mais fácil de gerenciá-los é <settings>Configurações → Atalhos de teclado → Comandos personalizados</settings>, que busca comandos de forma aproximada e bloqueia um toque que já pertence a uma ação integrada ou a outro comando."
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -1032,7 +1033,10 @@
         "wn-reload": "Recarregar configuração",
         "wn-quit": "Sair"
       },
-      "metaTitle": "Atalhos de teclado"
+      "metaTitle": "Atalhos de teclado",
+      "customCommandsTitle": "Atalhos de comando personalizados",
+      "customCommandsIntro": "Associe um único toque a qualquer comando da paleta de comandos em <settings>Configurações → Atalhos de teclado → Comandos personalizados</settings>, ou diretamente em <settingsFile>shortcuts.commands</settingsFile> no cmux.json. Consulte a <configurationLink>documentação de configuração</configurationLink> para o formato do arquivo.",
+      "customCommandsCallout": "Gravar um toque já usado por uma ação integrada ou outro comando é bloqueado com um aviso, para que um atalho personalizado não possa ocultar silenciosamente uma ação integrada nem colidir com outro comando. Atalhos de comando personalizados são de um único toque."
     },
     "api": {
       "title": "Referência da CLI",

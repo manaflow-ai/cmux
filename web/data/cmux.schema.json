@@ -63,7 +63,12 @@
           "items": {
             "type": "object",
             "additionalProperties": true,
-            "required": ["id", "name", "sessionIdSource", "resumeCommand"],
+            "required": [
+              "id",
+              "name",
+              "sessionIdSource",
+              "resumeCommand"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -89,10 +94,14 @@
                   },
                   "argvContains": {
                     "oneOf": [
-                      { "type": "string" },
+                      {
+                        "type": "string"
+                      },
                       {
                         "type": "array",
-                        "items": { "type": "string" }
+                        "items": {
+                          "type": "string"
+                        }
                       }
                     ],
                     "description": "Substring or substrings that must appear in the process argv."
@@ -108,11 +117,16 @@
                   {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["type"],
+                    "required": [
+                      "type"
+                    ],
                     "properties": {
                       "type": {
                         "type": "string",
-                        "enum": ["argvOption", "piSessionFile"]
+                        "enum": [
+                          "argvOption",
+                          "piSessionFile"
+                        ]
                       },
                       "argvOption": {
                         "type": "string",
@@ -123,19 +137,31 @@
                       {
                         "if": {
                           "properties": {
-                            "type": { "const": "argvOption" }
+                            "type": {
+                              "const": "argvOption"
+                            }
                           }
                         },
-                        "then": { "required": ["argvOption"] }
+                        "then": {
+                          "required": [
+                            "argvOption"
+                          ]
+                        }
                       },
                       {
                         "if": {
                           "properties": {
-                            "type": { "const": "piSessionFile" }
+                            "type": {
+                              "const": "piSessionFile"
+                            }
                           }
                         },
                         "then": {
-                          "not": { "required": ["argvOption"] }
+                          "not": {
+                            "required": [
+                              "argvOption"
+                            ]
+                          }
                         }
                       }
                     ]
@@ -146,22 +172,33 @@
               "resumeCommand": {
                 "type": "string",
                 "anyOf": [
-                  { "pattern": "\\{\\{sessionId\\}\\}" },
-                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                  {
+                    "pattern": "\\{\\{sessionId\\}\\}"
+                  },
+                  {
+                    "pattern": "\\{\\{sessionPath\\}\\}"
+                  }
                 ],
                 "description": "Shell-like argv template used to resume a session. Supported placeholders: {{sessionId}}, {{sessionPath}}, {{executable}}, {{cwd}}, {{sessionDir}}. Must include {{sessionId}} or {{sessionPath}}."
               },
               "forkCommand": {
                 "type": "string",
                 "anyOf": [
-                  { "pattern": "\\{\\{sessionId\\}\\}" },
-                  { "pattern": "\\{\\{sessionPath\\}\\}" }
+                  {
+                    "pattern": "\\{\\{sessionId\\}\\}"
+                  },
+                  {
+                    "pattern": "\\{\\{sessionPath\\}\\}"
+                  }
                 ],
                 "description": "Optional shell-like argv template used to fork (branch) a session into a new copy, for example \"{{executable}} --session {{sessionId}} --fork\". Same placeholders as resumeCommand. Omit when the agent has no fork capability; Fork Conversation stays hidden for it."
               },
               "cwd": {
                 "type": "string",
-                "enum": ["preserve", "ignore"],
+                "enum": [
+                  "preserve",
+                  "ignore"
+                ],
                 "default": "preserve",
                 "description": "Whether Vault should cd to the saved working directory before running resumeCommand."
               },
@@ -187,7 +224,11 @@
       "properties": {
         "newWorkspacePlacement": {
           "type": "string",
-          "enum": ["afterCurrent", "top", "end"],
+          "enum": [
+            "afterCurrent",
+            "top",
+            "end"
+          ],
           "default": "afterCurrent",
           "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
           "descriptionKey": "schemaDescriptions.workspaceGroups.newWorkspacePlacement"
@@ -212,14 +253,23 @@
                 "description": "Items appearing in the right-click menu on the group's + button. Same schema as the global ui.newWorkspace.contextMenu entries.",
                 "items": {
                   "oneOf": [
-                    { "type": "string" },
-                    { "type": "object", "additionalProperties": true }
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true
+                    }
                   ]
                 }
               },
               "newWorkspacePlacement": {
                 "type": "string",
-                "enum": ["afterCurrent", "top", "end"],
+                "enum": [
+                  "afterCurrent",
+                  "top",
+                  "end"
+                ],
                 "description": "Per-cwd override for where Cmd-N inside the group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member). Falls back to the global default when omitted.",
                 "descriptionKey": "schemaDescriptions.workspaceGroups.byCwd.newWorkspacePlacement"
               }
@@ -234,7 +284,9 @@
       "type": "array",
       "items": {
         "oneOf": [
-          { "type": "string" },
+          {
+            "type": "string"
+          },
           {
             "type": "object",
             "additionalProperties": true
@@ -276,13 +328,21 @@
         },
         "appearance": {
           "type": "string",
-          "enum": ["system", "light", "dark"],
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ],
           "default": "system",
           "description": "App appearance mode."
         },
         "appIcon": {
           "type": "string",
-          "enum": ["automatic", "light", "dark"],
+          "enum": [
+            "automatic",
+            "light",
+            "dark"
+          ],
           "default": "automatic",
           "description": "Dock and app switcher icon style."
         },
@@ -299,13 +359,24 @@
         },
         "newWorkspacePlacement": {
           "type": "string",
-          "enum": ["top", "afterCurrent", "end"],
+          "enum": [
+            "top",
+            "afterCurrent",
+            "end"
+          ],
           "default": "afterCurrent",
           "description": "Where new workspaces are inserted in the sidebar."
         },
         "forkConversationDefaultDestination": {
           "type": "string",
-          "enum": ["right", "left", "top", "bottom", "newTab", "newWorkspace"],
+          "enum": [
+            "right",
+            "left",
+            "top",
+            "bottom",
+            "newTab",
+            "newWorkspace"
+          ],
           "default": "right",
           "descriptionKey": "schemaDescriptions.app.forkConversationDefaultDestination",
           "description": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
@@ -371,7 +442,11 @@
         },
         "confirmQuit": {
           "type": "string",
-          "enum": ["always", "dirty-only", "never"],
+          "enum": [
+            "always",
+            "dirty-only",
+            "never"
+          ],
           "default": "always",
           "descriptionKey": "schemaDescriptions.app.confirmQuit",
           "description": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback."
@@ -615,7 +690,16 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["version", "id", "commandPrefix", "environmentKeys", "policy", "createdAt", "updatedAt", "signature"],
+            "required": [
+              "version",
+              "id",
+              "commandPrefix",
+              "environmentKeys",
+              "policy",
+              "createdAt",
+              "updatedAt",
+              "signature"
+            ],
             "properties": {
               "version": {
                 "type": "integer",
@@ -658,7 +742,11 @@
               },
               "policy": {
                 "type": "string",
-                "enum": ["manual", "prompt", "auto"]
+                "enum": [
+                  "manual",
+                  "prompt",
+                  "auto"
+                ]
               },
               "createdAt": {
                 "type": "number"
@@ -765,7 +853,10 @@
         },
         "hooksMode": {
           "type": "string",
-          "enum": ["append", "replace"],
+          "enum": [
+            "append",
+            "replace"
+          ],
           "default": "append",
           "description": "Controls whether project-local notification hooks append to inherited hooks or replace them."
         },
@@ -776,7 +867,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "command"],
+            "required": [
+              "id",
+              "command"
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -828,7 +922,10 @@
         },
         "branchLayout": {
           "type": "string",
-          "enum": ["vertical", "inline"],
+          "enum": [
+            "vertical",
+            "inline"
+          ],
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
         },
@@ -1132,7 +1229,25 @@
       "properties": {
         "defaultSearchEngine": {
           "type": "string",
-          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],
+          "enum": [
+            "google",
+            "duckduckgo",
+            "bing",
+            "kagi",
+            "startpage",
+            "brave",
+            "perplexity",
+            "exa",
+            "yahoo",
+            "ecosia",
+            "qwant",
+            "mojeek",
+            "wikipedia",
+            "github",
+            "baidu",
+            "yandex",
+            "custom"
+          ],
           "default": "google",
           "descriptionKey": "schemaDescriptions.browser.defaultSearchEngine",
           "description": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers."
@@ -1156,7 +1271,11 @@
         },
         "theme": {
           "type": "string",
-          "enum": ["system", "light", "dark"],
+          "enum": [
+            "system",
+            "light",
+            "dark"
+          ],
           "default": "system",
           "description": "Embedded browser theme."
         },
@@ -1306,7 +1425,11 @@
       "properties": {
         "doubleClickAction": {
           "type": "string",
-          "enum": ["preview", "defaultEditor", "preferredEditor"],
+          "enum": [
+            "preview",
+            "defaultEditor",
+            "preferredEditor"
+          ],
           "default": "preview",
           "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
           "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
@@ -1321,7 +1444,10 @@
       "properties": {
         "defaultLayout": {
           "type": "string",
-          "enum": ["unified", "split"],
+          "enum": [
+            "unified",
+            "split"
+          ],
           "default": "unified",
           "description": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both.",
           "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
@@ -1494,6 +1620,14 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "commands": {
+          "type": "object",
+          "default": {},
+          "description": "Custom single-stroke keyboard shortcuts for Command Palette commands, keyed by command id (for example \"palette.openFolderInVSCodeInline\"). The shortcut fires the command on the focused window; a command unavailable in the current context does nothing. Single-stroke only — chords are not supported here. Use null, an empty string, none, clear, unbound, or disabled to clear a binding. Manage these in Settings > Keyboard Shortcuts > Custom Commands.",
+          "additionalProperties": {
+            "$ref": "#/$defs/singleShortcutBindingNullable"
+          }
         }
       }
     }
@@ -1548,6 +1682,100 @@
         {
           "type": "null",
           "description": "Unbind this shortcut."
+        }
+      ]
+    },
+    "singleShortcutBindingNullable": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unboundShortcutBinding",
+          "description": "Unbind this command shortcut. Accepted values are an empty string, none, clear, unbound, or disabled."
+        },
+        {
+          "$ref": "#/$defs/commandShortcutFirstStroke",
+          "description": "Single-stroke shortcut, for example cmd+shift+v. Command shortcuts are single-stroke only."
+        },
+        {
+          "$ref": "#/$defs/singleStrokeObjectBinding",
+          "description": "Object form written by Settings > Keyboard Shortcuts > Custom Commands. Prefer the string form when hand-editing."
+        },
+        {
+          "type": "null",
+          "description": "Unbind this command shortcut."
+        }
+      ]
+    },
+    "singleStrokeObjectBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "first"
+      ],
+      "description": "A single-stroke shortcut in the nested object form the Settings recorder writes (no second/chord stroke).",
+      "properties": {
+        "first": {
+          "$ref": "#/$defs/shortcutStrokeObject"
+        }
+      }
+    },
+    "shortcutStrokeObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key"
+      ],
+      "description": "One recorded keystroke as flat fields: the key plus modifier booleans and an optional macOS virtual key code. At least one primary modifier (command, option, or control) must be true; shift alone is not enough for a command shortcut.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "command": {
+          "type": "boolean"
+        },
+        "shift": {
+          "type": "boolean"
+        },
+        "option": {
+          "type": "boolean"
+        },
+        "control": {
+          "type": "boolean"
+        },
+        "keyCode": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "command"
+          ],
+          "properties": {
+            "command": {
+              "const": true
+            }
+          }
+        },
+        {
+          "required": [
+            "option"
+          ],
+          "properties": {
+            "option": {
+              "const": true
+            }
+          }
+        },
+        {
+          "required": [
+            "control"
+          ],
+          "properties": {
+            "control": {
+              "const": true
+            }
+          }
         }
       ]
     },
@@ -1613,7 +1841,13 @@
     },
     "unboundShortcutBinding": {
       "type": "string",
-      "enum": ["", "none", "clear", "unbound", "disabled"]
+      "enum": [
+        "",
+        "none",
+        "clear",
+        "unbound",
+        "disabled"
+      ]
     },
     "shortcutFirstStroke": {
       "allOf": [
@@ -1664,6 +1898,20 @@
       "type": "string",
       "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)*(?: |[A-Za-z0-9]|[lL][eE][fF][tT]|[aA][rR][rR][oO][wW][lL][eE][fF][tT]|[lL][eE][fF][tT][aA][rR][rR][oO][wW]|←|[rR][iI][gG][hH][tT]|[aA][rR][rR][oO][wW][rR][iI][gG][hH][tT]|[rR][iI][gG][hH][tT][aA][rR][rR][oO][wW]|→|[uU][pP]|[aA][rR][rR][oO][wW][uU][pP]|[uU][pP][aA][rR][rR][oO][wW]|↑|[dD][oO][wW][nN]|[aA][rR][rR][oO][wW][dD][oO][wW][nN]|[dD][oO][wW][nN][aA][rR][rR][oO][wW]|↓|[tT][aA][bB]|[rR][eE][tT][uU][rR][nN]|[eE][nN][tT][eE][rR]|↩|[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>|[,./\\\\;'`=\\[\\]-]|[cC][oO][mM][mM][aA]|[pP][eE][rR][iI][oO][dD]|[dD][oO][tT]|[sS][lL][aA][sS][hH]|[bB][aA][cC][kK][sS][lL][aA][sS][hH]|[sS][eE][mM][iI][cC][oO][lL][oO][nN]|[qQ][uU][oO][tT][eE]|[aA][pP][oO][sS][tT][rR][oO][pP][hH][eE]|[bB][aA][cC][kK][tT][iI][cC][kK]|[gG][rR][aA][vV][eE]|[mM][iI][nN][uU][sS]|[hH][yY][pP][hH][eE][nN]|[pP][lL][uU][sS]|[eE][qQ][uU][aA][lL][sS]|[lL][eE][fF][tT][bB][rR][aA][cC][kK][eE][tT]|[oO][pP][eE][nN][bB][rR][aA][cC][kK][eE][tT]|[rR][iI][gG][hH][tT][bB][rR][aA][cC][kK][eE][tT]|[cC][lL][oO][sS][eE][bB][rR][aA][cC][kK][eE][tT]|[fF](?:[1-9]|1[0-9]|20)|[vV][oO][lL][uU][mM][eE][uU][pP]|[mM][eE][dD][iI][aA][vV][oO][lL][uU][mM][eE][uU][pP]|[mM][eE][dD][iI][aA]\\.[vV][oO][lL][uU][mM][eE][uU][pP]|[vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[mM][eE][dD][iI][aA][vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[mM][eE][dD][iI][aA]\\.[vV][oO][lL][uU][mM][eE][dD][oO][wW][nN]|[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[mM][eE][dD][iI][aA][bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[mM][eE][dD][iI][aA]\\.[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][uU][pP]|[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][eE][dD][iI][aA][bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][eE][dD][iI][aA]\\.[bB][rR][iI][gG][hH][tT][nN][eE][sS][sS][dD][oO][wW][nN]|[mM][uU][tT][eE]|[mM][eE][dD][iI][aA][mM][uU][tT][eE]|[mM][eE][dD][iI][aA]\\.[mM][uU][tT][eE]|[pP][lL][aA][yY][pP][aA][uU][sS][eE]|[mM][eE][dD][iI][aA][pP][lL][aA][yY][pP][aA][uU][sS][eE]|[mM][eE][dD][iI][aA]\\.[pP][lL][aA][yY][pP][aA][uU][sS][eE]|[nN][eE][xX][tT][tT][rR][aA][cC][kK]|[mM][eE][dD][iI][aA][nN][eE][xX][tT]|[mM][eE][dD][iI][aA]\\.[nN][eE][xX][tT]|[mM][eE][dD][iI][aA]\\.[nN][eE][xX][tT][tT][rR][aA][cC][kK]|[pP][rR][eE][vV][iI][oO][uU][sS][tT][rR][aA][cC][kK]|[mM][eE][dD][iI][aA][pP][rR][eE][vV][iI][oO][uU][sS]|[mM][eE][dD][iI][aA]\\.[pP][rR][eE][vV][iI][oO][uU][sS]|[mM][eE][dD][iI][aA]\\.[pP][rR][eE][vV][iI][oO][uU][sS][tT][rR][aA][cC][kK])$",
       "description": "One keyboard shortcut stroke using modifier+key syntax. Supported key names include space, Space, <space>, and <Space>."
+    },
+    "commandShortcutFirstStroke": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortcutStroke"
+        },
+        {
+          "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)+"
+        },
+        {
+          "pattern": "(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⌥|⌃)\\+"
+        }
+      ],
+      "description": "Single-stroke command shortcut string. Must include a primary modifier (cmd, opt, or ctrl); shift alone or a bare key (including Space) is not allowed."
     }
   }
 }

@@ -865,7 +865,8 @@
       "shortcutsWhenBooleanKeys": "布林鍵。未知或不存在的鍵視為 false；也接受常值 true 和 false。",
       "shortcutsWhenTypedKeys": "用於比較的型別化鍵：右側邊欄的目前模式（字串），以及窗格與工作區數量（整數）。",
       "shortcutsWhenOperators": "布林運算子、型別化比較、正規表示式比對與清單成員判斷。比較的結合優先順序高於 && 和 ||。",
-      "shortcutsWhenExample": "例如，以下設定讓 Ctrl+1–9 在右側邊欄未取得焦點時選取工作區（將 Ctrl+1–5 留給側邊欄模式切換器），並在工作區有多個窗格時，將表面選取限制在尋找側邊欄："
+      "shortcutsWhenExample": "例如，以下設定讓 Ctrl+1–9 在右側邊欄未取得焦點時選取工作區（將 Ctrl+1–5 留給側邊欄模式切換器），並在工作區有多個窗格時，將表面選取限制在尋找側邊欄：",
+      "shortcutsCommandsIntro": "為命令面板中的任何命令指派你自己的鍵盤快速鍵——包括沒有內建快速鍵的命令，例如在編輯器中開啟目前目錄。鍵是命令 id（與面板中顯示的 id 相同，例如 <code>palette.openFolderInVSCodeInline</code>）；值是單次按鍵的快速鍵。這裡不支援和弦——請使用包含主要修飾鍵（⌘、⌥ 或 ⌃）的單次按鍵。該快速鍵會在目前聚焦的視窗上觸發命令；在目前情境中無法使用的命令不會執行任何動作。使用 <code>null</code>（或 <code>\"\"</code>、<code>none</code>、<code>clear</code>、<code>unbound</code>、<code>disabled</code>）來清除繫結。最簡單的管理方式是 <settings>設定 → 鍵盤快速鍵 → 自訂命令</settings>，它會對命令進行模糊搜尋，並封鎖已屬於內建動作或其他命令的按鍵。"
     },
     "customCommands": {
       "title": "自訂指令",
@@ -1032,7 +1033,10 @@
         "wn-reload": "重新載入設定",
         "wn-quit": "結束"
       },
-      "metaTitle": "鍵盤快捷鍵"
+      "metaTitle": "鍵盤快捷鍵",
+      "customCommandsTitle": "自訂命令快速鍵",
+      "customCommandsIntro": "在 <settings>設定 → 鍵盤快速鍵 → 自訂命令</settings> 中，或直接在 cmux.json 的 <settingsFile>shortcuts.commands</settingsFile> 底下，為命令面板中的任何命令繫結一次按鍵。檔案格式請參閱<configurationLink>設定文件</configurationLink>。",
+      "customCommandsCallout": "錄製一個已被內建動作或其他命令使用的按鍵時會被橫幅封鎖，因此自訂快速鍵不會悄悄覆蓋內建動作或與其他命令衝突。自訂命令快速鍵僅支援單次按鍵。"
     },
     "api": {
       "title": "CLI 參考",
