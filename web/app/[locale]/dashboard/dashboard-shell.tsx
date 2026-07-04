@@ -2,7 +2,25 @@
 
 import { UserButton } from "@stackframe/stack";
 import { useTranslations } from "next-intl";
+import { useTheme } from "next-themes";
 import { Link, usePathname } from "@/i18n/navigation";
+
+// The label is rendered purely via CSS visibility (dark:hidden vs dark:inline)
+// so SSR output never depends on the client's resolved theme; the handler is
+// the only place the theme value is read.
+function ThemeToggle({ toDark, toLight }: { toDark: string; toLight: string }) {
+  const { resolvedTheme, setTheme } = useTheme();
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+      className="text-muted hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+    >
+      <span className="dark:hidden">{toDark}</span>
+      <span className="hidden dark:inline">{toLight}</span>
+    </button>
+  );
+}
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations("dashboard.nav");
@@ -42,15 +60,18 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background text-sm text-foreground">
-      <header className="sticky top-0 z-30 border-b border-border bg-background">
-        <div className="flex h-11 items-center justify-between px-3">
+      <header className="sticky top-0 z-30 h-11 border-b border-border bg-background">
+        <div className="flex h-full items-center justify-between px-3">
           <Link
             href="/dashboard"
             className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           >
             {t("brand")}
           </Link>
-          <UserButton />
+          <div className="flex items-center gap-4">
+            <ThemeToggle toDark={t("themeDark")} toLight={t("themeLight")} />
+            <UserButton />
+          </div>
         </div>
       </header>
       <div className="grid min-h-[calc(100vh-2.75rem)] grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -59,15 +80,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             {groups.map((group) => (
               <div key={group.label} className="flex min-w-max gap-2 md:flex-col">
                 <p className="text-xs text-muted">{group.label}</p>
-                <div className="flex gap-2 md:flex-col">
+                <div className="flex gap-3 md:flex-col md:gap-1">
                   {group.items.map((item) => (
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`whitespace-nowrap border border-border px-3 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
+                      className={`whitespace-nowrap py-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
                         item.active
-                          ? "bg-foreground text-background"
-                          : "bg-background text-foreground hover:bg-foreground hover:text-background"
+                          ? "text-foreground"
+                          : "text-muted hover:text-foreground"
                       }`}
                     >
                       {item.label}

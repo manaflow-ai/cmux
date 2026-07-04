@@ -51,7 +51,9 @@
       "vaultSessions": "セッション",
       "vaultCliSetup": "CLI設定",
       "subrouterGroup": "subrouter",
-      "subrouterOverview": "概要"
+      "subrouterOverview": "概要",
+      "themeDark": "ダーク",
+      "themeLight": "ライト"
     },
     "home": {
       "title": "ダッシュボード",
