@@ -588,6 +588,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
+    var debugScrollbackReversalStressPhase = "idle"
+    var debugScrollbackReversalStressFailure = "none"
 
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
@@ -635,6 +637,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
             "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
+            "scrollbackReversalPhase=\(debugScrollbackReversalStressPhase)",
+            "scrollbackReversalFailure=\(debugScrollbackReversalStressFailure)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -2846,6 +2850,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         let traitScale = traitCollection.displayScale
         return traitScale > 0 ? traitScale : 2
+    }
+
+    func localScrollbackScrollState() -> (
+        surface: ghostty_surface_t,
+        generation: UInt64,
+        scale: Double,
+        queue: GhosttySurfaceWorkQueue
+    )? {
+        guard let surface, !isDismantled else { return nil }
+        return (
+            surface,
+            surfaceGeneration,
+            Double(max(preferredScreenScale, 1)),
+            outputQueue
+        )
+    }
+
+    func requestDrawAfterLocalScrollbackScroll(generation: UInt64) {
+        guard surface != nil,
+              surfaceGeneration == generation else {
+            return
+        }
+        drawForWakeup()
     }
 
     private func sendText(_ text: String) {

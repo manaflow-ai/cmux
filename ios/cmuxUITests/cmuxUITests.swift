@@ -324,6 +324,28 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFastScrollbackReversalKeepsRenderedRowsOrdered() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_SCROLLBACK_REVERSAL_STRESS": "1",
+        ])
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+
+        let dock = waitForDock(in: app, timeout: 12, describe: "scrollback reversal stress completed") {
+            $0["scrollbackReversalPhase"] == "done" || $0["scrollbackReversalPhase"] == "failed"
+        }
+        XCTAssertEqual(
+            dock["scrollbackReversalPhase"],
+            "done",
+            "Fast scrollback reversal harness failed. dock=\(dock)"
+        )
+        XCTAssertEqual(
+            dock["scrollbackReversalFailure"],
+            "none",
+            "Rendered numbered rows became duplicated, skipped, or misordered during fast scrollback reversal. dock=\(dock)"
+        )
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer(createdWorkspaceTerminalDelay: 1.5)
         let port = try await server.start()
