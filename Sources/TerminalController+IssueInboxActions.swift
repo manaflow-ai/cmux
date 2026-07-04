@@ -1,5 +1,6 @@
 import AppKit
 import CmuxIssueInbox
+import CmuxWorkspaces
 import Foundation
 
 extension TerminalController {
