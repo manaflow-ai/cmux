@@ -6,27 +6,20 @@ import SwiftUI
 public struct ChatFileEditCardView: View {
     private let edit: ChatFileEdit
     private let rowID: String
-    private let isExpanded: Bool
-    private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatContentCache) private var contentCache
 
     private static let collapsedLineCap = 8
-    private static let expandedLineCap = 400
 
     /// Creates a file-edit card.
     ///
     /// - Parameters:
     ///   - edit: The file modification payload.
-    ///   - rowID: The row's stable identity, for expansion toggling.
-    ///   - isExpanded: Whether the full diff is showing.
-    ///   - actions: Row action bundle.
-    public init(edit: ChatFileEdit, rowID: String, isExpanded: Bool, actions: ChatRowActions) {
+    ///   - rowID: The row's stable identity, for cached diff rendering.
+    public init(edit: ChatFileEdit, rowID: String) {
         self.edit = edit
         self.rowID = rowID
-        self.isExpanded = isExpanded
-        self.actions = actions
     }
 
     public var body: some View {
@@ -48,52 +41,20 @@ public struct ChatFileEditCardView: View {
     }
 
     private var header: some View {
-        Button {
-            actions.toggleExpanded(rowID)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: operationSymbolName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(edit.filePath)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(theme.terminalCardText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 6)
-                counts
-            }
-            .padding(.horizontal, 10)
-            .frame(minHeight: 32)
-            .contentShape(.rect)
+        HStack(spacing: 6) {
+            Image(systemName: operationSymbolName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(edit.filePath)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(theme.terminalCardText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 6)
+            counts
         }
-        .buttonStyle(.plain)
-        .accessibilityValue(
-            isExpanded
-                ? String(
-                    localized: "chat.row.expanded.accessibility",
-                    defaultValue: "Expanded",
-                    bundle: .module
-                )
-                : String(
-                    localized: "chat.row.collapsed.accessibility",
-                    defaultValue: "Collapsed",
-                    bundle: .module
-                )
-        )
-        .accessibilityHint(
-            isExpanded
-                ? String(
-                    localized: "chat.row.collapse.hint",
-                    defaultValue: "Double tap to collapse",
-                    bundle: .module
-                )
-                : String(
-                    localized: "chat.row.expand.hint",
-                    defaultValue: "Double tap to expand",
-                    bundle: .module
-                )
-        )
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
     }
 
     /// SF symbol for the edit operation.
@@ -123,7 +84,7 @@ public struct ChatFileEditCardView: View {
     private func diffBlock(diff: String) -> some View {
         let lines = contentCache?.diffLines(messageID: rowID, diff: diff)
             ?? diff.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let cap = isExpanded ? Self.expandedLineCap : Self.collapsedLineCap
+        let cap = Self.collapsedLineCap
         let visible = Array(lines.prefix(cap))
         return ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {

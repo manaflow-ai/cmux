@@ -8,25 +8,22 @@ import SwiftUI
 /// them.
 public struct ChatTranscriptRowView: View, Equatable {
     private let row: ChatTranscriptRow
-    private let isExpanded: Bool
     private let actions: ChatRowActions
 
     /// Creates the dispatcher.
     ///
     /// - Parameters:
     ///   - row: The row snapshot to render.
-    ///   - isExpanded: Whether this row's card is expanded.
     ///   - actions: Row action bundle.
-    public init(row: ChatTranscriptRow, isExpanded: Bool, actions: ChatRowActions) {
+    public init(row: ChatTranscriptRow, actions: ChatRowActions) {
         self.row = row
-        self.isExpanded = isExpanded
         self.actions = actions
     }
 
     /// Compares only render-relevant value state; the action closures are
     /// intentionally excluded.
     nonisolated public static func == (lhs: ChatTranscriptRowView, rhs: ChatTranscriptRowView) -> Bool {
-        lhs.row == rhs.row && lhs.isExpanded == rhs.isExpanded
+        lhs.row == rhs.row
     }
 
     public var body: some View {
@@ -36,14 +33,12 @@ public struct ChatTranscriptRowView: View, Equatable {
         case .unreadSeparator:
             ChatUnreadSeparatorView()
         case .message(let snapshot):
-            ChatMessageRowView(snapshot: snapshot, isExpanded: isExpanded, actions: actions)
+            ChatMessageRowView(snapshot: snapshot, actions: actions)
         case .pendingOutbound(let pending):
             ChatPendingBubbleView(pending: pending, actions: actions)
         case .terminalCommand(let block):
             TerminalCommandBlockView(
                 block: block,
-                isExpanded: isExpanded,
-                onToggleExpanded: { actions.toggleExpanded(row.id) },
                 onOpenTerminal: actions.openTerminal
             )
         }

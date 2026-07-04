@@ -5,9 +5,6 @@
 /// (snapshot-boundary rule).
 @MainActor
 public struct ChatRowActions {
-    /// Toggles a card's expanded state, keyed by row id.
-    public var toggleExpanded: (String) -> Void
-
     /// Answers the pending question or permission card by option index.
     public var answerOption: (Int) -> Void
 
@@ -23,19 +20,16 @@ public struct ChatRowActions {
     /// Creates an action bundle.
     ///
     /// - Parameters:
-    ///   - toggleExpanded: Toggles a card's expanded state by row id.
     ///   - answerOption: Answers the pending actionable card by index.
     ///   - retryPending: Retries a failed pending send by pending id.
     ///   - discardPending: Discards a failed pending send by pending id.
     ///   - openTerminal: Opens the session's raw terminal.
     public init(
-        toggleExpanded: @escaping (String) -> Void = { _ in },
         answerOption: @escaping (Int) -> Void = { _ in },
         retryPending: @escaping (String) -> Void = { _ in },
         discardPending: @escaping (String) -> Void = { _ in },
         openTerminal: @escaping () -> Void = {}
     ) {
-        self.toggleExpanded = toggleExpanded
         self.answerOption = answerOption
         self.retryPending = retryPending
         self.discardPending = discardPending

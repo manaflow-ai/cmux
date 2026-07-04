@@ -11,10 +11,9 @@ import UIKit
 ///
 /// The host creates the ``ChatConversationStore`` (with its platform event
 /// source) and hands it over; this screen owns presentation state only
-/// (expansion, drafts, attachments).
+/// (drafts, attachments).
 public struct ChatScreen: View {
     @State private var store: ChatConversationStore
-    @State private var expandedIDs: Set<String> = []
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
 
@@ -146,7 +145,6 @@ public struct ChatScreen: View {
     private var transcriptContent: some View {
         ChatTranscriptListView(
             rows: store.rows,
-            expandedIDs: expandedIDs,
             agentState: store.agentState,
             hasMoreHistory: store.hasMoreHistory,
             hasLoadedInitialHistory: store.hasLoadedInitialHistory,
@@ -213,13 +211,6 @@ public struct ChatScreen: View {
 
     private var rowActions: ChatRowActions {
         ChatRowActions(
-            toggleExpanded: { id in
-                if expandedIDs.contains(id) {
-                    expandedIDs.remove(id)
-                } else {
-                    expandedIDs.insert(id)
-                }
-            },
             answerOption: { index in
                 Task { await store.answer(optionIndex: index) }
             },

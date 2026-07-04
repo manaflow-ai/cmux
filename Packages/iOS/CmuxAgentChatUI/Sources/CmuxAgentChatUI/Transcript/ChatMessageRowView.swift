@@ -6,7 +6,6 @@ import SwiftUI
 /// for permissions and questions, captions for status rows.
 public struct ChatMessageRowView: View {
     private let snapshot: ChatMessageRowSnapshot
-    private let isExpanded: Bool
     private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
@@ -15,11 +14,9 @@ public struct ChatMessageRowView: View {
     ///
     /// - Parameters:
     ///   - snapshot: The message plus its computed group rendering info.
-    ///   - isExpanded: Whether this row's card is expanded.
     ///   - actions: Row action bundle.
-    public init(snapshot: ChatMessageRowSnapshot, isExpanded: Bool, actions: ChatRowActions) {
+    public init(snapshot: ChatMessageRowSnapshot, actions: ChatRowActions) {
         self.snapshot = snapshot
-        self.isExpanded = isExpanded
         self.actions = actions
     }
 
@@ -33,33 +30,21 @@ public struct ChatMessageRowView: View {
                     groupPosition: snapshot.groupPosition,
                     showsTimestamp: snapshot.showsTimestamp
                 )
-            case .thought(let thought):
-                ChatThoughtRowView(
-                    thought: thought,
-                    rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
-                )
+            case .thought:
+                ChatThoughtRowView()
             case .toolUse(let toolUse):
                 ChatToolUseRowView(
-                    toolUse: toolUse,
-                    rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
+                    toolUse: toolUse
                 )
             case .terminal(let capture):
                 ChatTerminalCardView(
                     capture: capture,
-                    rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
+                    rowID: rowID
                 )
             case .fileEdit(let edit):
                 ChatFileEditCardView(
                     edit: edit,
-                    rowID: rowID,
-                    isExpanded: isExpanded,
-                    actions: actions
+                    rowID: rowID
                 )
             case .permissionRequest(let request):
                 ChatPermissionCardView(

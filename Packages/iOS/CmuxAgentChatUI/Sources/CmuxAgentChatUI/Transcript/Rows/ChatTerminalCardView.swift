@@ -4,13 +4,10 @@ import SwiftUI
 /// A near-full-width terminal card: command header with run status, and the
 /// captured output as a horizontally scrolling monospace block.
 ///
-/// Collapsed cards preview the head and tail of long output; expanded cards
-/// cap at 400 lines and then offer the raw-terminal escape hatch.
+/// Long cards preview the head and tail of output at a stable row height.
 public struct ChatTerminalCardView: View {
     private let capture: ChatTerminalCapture
     private let rowID: String
-    private let isExpanded: Bool
-    private let actions: ChatRowActions
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatContentCache) private var contentCache
@@ -18,25 +15,18 @@ public struct ChatTerminalCardView: View {
     private static let collapseThreshold = 6
     private static let collapsedHeadCount = 3
     private static let collapsedTailCount = 2
-    private static let expandedLineCap = 400
 
     /// Creates a terminal card.
     ///
     /// - Parameters:
     ///   - capture: The command-and-output payload.
-    ///   - rowID: The row's stable identity, for expansion toggling.
-    ///   - isExpanded: Whether the full output is showing.
-    ///   - actions: Row action bundle.
+    ///   - rowID: The row's stable identity, for cached output rendering.
     public init(
         capture: ChatTerminalCapture,
-        rowID: String,
-        isExpanded: Bool,
-        actions: ChatRowActions
+        rowID: String
     ) {
         self.capture = capture
         self.rowID = rowID
-        self.isExpanded = isExpanded
-        self.actions = actions
     }
 
     public var body: some View {
@@ -48,9 +38,6 @@ public struct ChatTerminalCardView: View {
                     .fill(theme.hairline)
                     .frame(height: 0.5)
                 outputBlock(lines: lines)
-                if isExpanded, lines.count > Self.expandedLineCap {
-                    openTerminalRow
-                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -73,54 +60,21 @@ public struct ChatTerminalCardView: View {
     }
 
     private var header: some View {
-        Button {
-            actions.toggleExpanded(rowID)
-        } label: {
-            HStack(spacing: 6) {
-                Text(verbatim: "$")
-                    .font(.system(.footnote, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(theme.accent)
-                Text(capture.command)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundStyle(theme.terminalCardText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 6)
-                trailingStatus
-            }
-            .padding(.horizontal, 10)
-            .frame(minHeight: 32)
-            .contentShape(.rect)
+        HStack(spacing: 6) {
+            Text(verbatim: "$")
+                .font(.system(.footnote, design: .monospaced).weight(.semibold))
+                .foregroundStyle(theme.accent)
+            Text(capture.command)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(theme.terminalCardText)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 6)
+            trailingStatus
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("ChatTerminalToggle-\(rowID)")
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
         .accessibilityLabel(headerAccessibilityLabel)
-        .accessibilityValue(
-            isExpanded
-                ? String(
-                    localized: "chat.row.expanded.accessibility",
-                    defaultValue: "Expanded",
-                    bundle: .module
-                )
-                : String(
-                    localized: "chat.row.collapsed.accessibility",
-                    defaultValue: "Collapsed",
-                    bundle: .module
-                )
-        )
-        .accessibilityHint(
-            isExpanded
-                ? String(
-                    localized: "chat.row.collapse.hint",
-                    defaultValue: "Double tap to collapse",
-                    bundle: .module
-                )
-                : String(
-                    localized: "chat.row.expand.hint",
-                    defaultValue: "Double tap to expand",
-                    bundle: .module
-                )
-        )
     }
 
     /// VoiceOver label for the header: the command plus its run outcome.
@@ -183,10 +137,10 @@ public struct ChatTerminalCardView: View {
     private func outputBlock(lines: [String]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                if !isExpanded, lines.count > Self.collapseThreshold {
+                if lines.count > Self.collapseThreshold {
                     collapsedOutput(lines: lines)
                 } else {
-                    outputText(lines: Array(lines.prefix(Self.expandedLineCap)))
+                    outputText(lines: lines)
                 }
             }
             .padding(8)
@@ -219,28 +173,5 @@ public struct ChatTerminalCardView: View {
             .lineLimit(nil)
             .fixedSize(horizontal: true, vertical: false)
             .textSelection(.enabled)
-    }
-
-    private var openTerminalRow: some View {
-        Button(action: actions.openTerminal) {
-            Text(
-                String(
-                    localized: "chat.terminal.open_in_terminal",
-                    defaultValue: "Open in terminal",
-                    bundle: .module
-                )
-            )
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(theme.accent)
-            .frame(maxWidth: .infinity)
-            .frame(height: 36)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(theme.hairline)
-                .frame(height: 0.5)
-        }
     }
 }
