@@ -15351,16 +15351,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if event.window is NSPanel || keyWindow is NSPanel || NSApp.modalWindow != nil || keyWindow?.attachedSheet != nil {
             return false
         }
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard flags.contains(.command) else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
 
         let staleDefaultActions = KeyboardShortcutSettings.Action.allCases.filter { action in
             isMenuBackedShortcutAction(action) &&
                 matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut)
         }
         guard !staleDefaultActions.isEmpty else { return false }
+        guard flags.contains(.command) || staleDefaultActions.contains(.selectWorkspaceByNumber) else { return false }
 
         for action in staleDefaultActions {
             if currentShortcutMatchesKeyboardShortcutEvent(event, action: action) {

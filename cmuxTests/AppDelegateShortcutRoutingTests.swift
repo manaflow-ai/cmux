@@ -2607,10 +2607,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 return
             }
 #if DEBUG
-            XCTAssertFalse(
-                appDelegate.debugHandleCustomShortcut(event: staleCtrl1),
-                "After rebinding Select Workspace 1…9, the old ⌃1 must not be routed by cmux"
-            )
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: staleCtrl1), "After rebinding Select Workspace 1…9, the old ⌃1 must not be routed by cmux")
+            XCTAssertTrue(appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: staleCtrl1), "After rebinding Select Workspace 1…9, the old ⌃1 menu fallback must be suppressed")
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
