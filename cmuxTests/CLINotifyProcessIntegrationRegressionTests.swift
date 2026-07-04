@@ -7905,7 +7905,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             request["command"] as? String,
             "cd -- '\(root.path)' 2>/dev/null || [ ! -d '\(root.path)' ] && "
-                + "'/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+                + "'/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '-c' 'check_for_update_on_startup=false' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 

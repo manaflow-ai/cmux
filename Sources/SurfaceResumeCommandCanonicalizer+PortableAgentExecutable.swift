@@ -88,25 +88,32 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
-        let command = if repairPortableAgentExecutable, isAgentHookBinding {
-            SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
-                in: startupCommand,
-                kind: kind
-            )
-        } else {
-            startupCommand
+        guard isAgentHookBinding else {
+            return startupCommand
         }
+        let suppressed = SurfaceResumeCommandCanonicalizer.insertingCodexUpdateCheckSuppression(
+            in: startupCommand,
+            kind: kind
+        )
+        guard repairPortableAgentExecutable else {
+            return suppressed
+        }
+        // Suppression insertion runs before executable repair: repair can wrap a
+        // stale-executable command in `/bin/sh -c '…'`, whose single-word body no
+        // longer parses as a codex resume argv.
+        let repaired = SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+            in: suppressed,
+            kind: kind
+        )
         // Only wrap local startup paths in the `/bin/zsh -c` retry launcher. `repairPortableAgentExecutable`
         // is set exactly for the local agent-hook dispatch (where cmux repairs the executable to its wrapper
         // shim and `/bin/zsh` is guaranteed); the remote path passes `false`, and remote hosts may not have
         // `/bin/zsh`, so forcing the retry launcher there would break Codex resume for those hosts.
-        guard repairPortableAgentExecutable,
-              isAgentHookBinding,
-              kind?.trimmingCharacters(in: .whitespacesAndNewlines) == "codex" else {
-            return command
+        guard kind?.trimmingCharacters(in: .whitespacesAndNewlines) == "codex" else {
+            return repaired
         }
         let commandWithoutCwdPrefix = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
-            in: command,
+            in: repaired,
             previousWorkingDirectory: cwd,
             workingDirectory: nil
         )
@@ -422,7 +429,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return false
     }
 
-    private static func commandExecutableWordIndex(
+    static func commandExecutableWordIndex(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String
     ) -> Int? {
