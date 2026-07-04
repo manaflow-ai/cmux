@@ -58,4 +58,14 @@ struct ShortcutActionNumberedDigitTests {
         #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
         #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
     }
+
+    @Test func copyRawActionIsVisibleAndDefaultsToCommandShiftC() throws {
+        let action = try #require(ShortcutAction(rawValue: "copyRaw"))
+        #expect(ShortcutAction.settingsVisibleActions.contains(action))
+        #expect(
+            action.defaultShortcut == StoredShortcut(
+                first: ShortcutStroke(key: "c", command: true, shift: true)
+            )
+        )
+    }
 }
