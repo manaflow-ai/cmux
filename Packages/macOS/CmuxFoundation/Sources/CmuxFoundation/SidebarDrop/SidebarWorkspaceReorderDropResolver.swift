@@ -137,12 +137,14 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         guard let candidate = groupScopeCandidate(
             context: context,
             groupsById: groupsById,
+            pointX: request.point.x,
             isDraggedGroupAnchor: groupByAnchorId[draggedWorkspace.id] != nil
         ) else {
             return nil
         }
         if let draggedGroup = groupByAnchorId[draggedWorkspace.id] {
-            guard candidate.groupId == draggedGroup.parentGroupId else {
+            guard candidate.groupId == draggedGroup.parentGroupId,
+                  !groupIsInSubtree(candidate.groupId, rootGroupId: draggedGroup.id, groupsById: groupsById) else {
                 return nil
             }
         }
@@ -167,6 +169,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     private func groupScopeCandidate(
         context: SidebarWorkspaceReorderHitContext,
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        pointX: CGFloat,
         isDraggedGroupAnchor: Bool
     ) -> (groupId: UUID, isAmbiguous: Bool)? {
         if let target = context.target {
@@ -188,15 +191,13 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                     return (groupId, false)
                 case .bottom:
                     let nextIsSameGroup = context.nextTarget?.groupId == groupId
-                    if nextIsSameGroup {
-                        return (groupId, false)
-                    }
+                    if nextIsSameGroup { return (groupId, false) }
                     if let parentGroupId = groupsById[groupId]?.parentGroupId,
                        groupsById[parentGroupId] != nil {
-                        let nextLeavesParentSubtree = context.nextTarget?.groupId.map {
-                            !groupIsInSubtree($0, rootGroupId: parentGroupId, groupsById: groupsById)
-                        } ?? true
-                        return (parentGroupId, nextLeavesParentSubtree)
+                        guard pointX < target.frame.minX else {
+                            return (groupId, false)
+                        }
+                        return (parentGroupId, false)
                     }
                     return (groupId, true)
                 }
