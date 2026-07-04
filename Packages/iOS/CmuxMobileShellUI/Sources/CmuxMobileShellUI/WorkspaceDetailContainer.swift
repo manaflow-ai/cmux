@@ -43,6 +43,16 @@ struct WorkspaceDetailContainer: View {
         return { id in Task { await store.closeWorkspace(id: id) } }
     }
 
+    private var closeTerminalClosure: ((MobileTerminalPreview.ID) async -> String?)? {
+        guard let workspace,
+              workspace.actionCapabilities.supportsTerminalCloseActions else { return nil }
+        let workspaceID = workspace.id
+        let store = store
+        return { terminalID in
+            await store.closeTerminal(workspaceID: workspaceID, terminalID: terminalID)
+        }
+    }
+
     var body: some View {
         Group {
             if let workspace {
@@ -55,6 +65,7 @@ struct WorkspaceDetailContainer: View {
                     canCreateWorkspace: canCreateWorkspace,
                     createTerminal: { store.createTerminal(in: workspace.id) },
                     closeWorkspace: closeWorkspaceClosure,
+                    closeTerminal: closeTerminalClosure,
                     reportTerminalViewport: store.reportTerminalViewport,
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext,

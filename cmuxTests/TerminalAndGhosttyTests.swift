@@ -1445,6 +1445,270 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
     }
 
+    func testMobileTerminalCloseRejectsMissingExplicitTargetsBeforeImplicitFallback() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+
+        let missingWorkspaceResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-missing-workspace",
+                method: "terminal.close",
+                params: ["surface_id": panel.id.uuidString],
+                auth: nil
+            )
+        )
+        guard case let .failure(missingWorkspaceError) = missingWorkspaceResponse else {
+            XCTFail("Expected terminal.close without a workspace id to fail")
+            return
+        }
+        XCTAssertEqual(missingWorkspaceError.code, "invalid_params")
+        XCTAssertNotNil(workspace.terminalPanel(for: panel.id))
+
+        let missingTerminalResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-missing-terminal",
+                method: "terminal.close",
+                params: ["workspace_id": workspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(missingTerminalError) = missingTerminalResponse else {
+            XCTFail("Expected terminal.close without a terminal id to fail")
+            return
+        }
+        XCTAssertEqual(missingTerminalError.code, "invalid_params")
+        XCTAssertNotNil(workspace.terminalPanel(for: panel.id))
+    }
+
+    func testMobileTerminalCloseRejectsPinnedTerminalSurface() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let pinnedPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        workspace.setPanelPinned(panelId: pinnedPanel.id, pinned: true)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-pinned",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": pinnedPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close on a pinned terminal to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "protected")
+        let data = try XCTUnwrap(error.data as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(data["surface_id"] as? String, pinnedPanel.id.uuidString)
+        XCTAssertEqual(data["pinned"] as? Bool, true)
+        XCTAssertNotNil(workspace.terminalPanel(for: pinnedPanel.id))
+    }
+
+    func testMobileTerminalCloseRejectsLastSurfaceWithLocalizedMessage() async throws {
+        try await withActiveMobileHostTabManager { _, workspace in
+            let terminal = try XCTUnwrap(workspace.focusedTerminalPanel)
+
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "terminal-close-last-surface",
+                    method: "terminal.close",
+                    params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "surface_id": terminal.id.uuidString,
+                    ],
+                    auth: nil
+                )
+            )
+
+            guard case let .failure(error) = response else {
+                XCTFail("Expected terminal.close on the last surface to fail")
+                return
+            }
+            XCTAssertEqual(error.code, "invalid_state")
+            XCTAssertEqual(
+                error.message,
+                String(
+                    localized: "mobile.terminal.closeLastSurface.message",
+                    defaultValue: "This is the last item in the workspace. Close the workspace from the Mac instead."
+                )
+            )
+            XCTAssertNotNil(workspace.terminalPanel(for: terminal.id))
+        }
+    }
+
+    func testMobileTerminalCloseRejectsRunningTerminalWhenCloseWarningEnabled() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let suiteName = "terminal-close-warning-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        CloseTabWarningStore(defaults: defaults).setWarnsBeforeClosingTab(true)
+        let manager = TabManager(closeTabWarningDefaults: defaults)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let runningPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        workspace.updatePanelShellActivityState(panelId: runningPanel.id, state: .commandRunning)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-running",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": runningPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected terminal.close on a running terminal to require confirmation")
+            return
+        }
+        XCTAssertEqual(error.code, "confirmation_required")
+        XCTAssertEqual(
+            error.message,
+            String(
+                localized: "mobile.terminal.closeConfirmationRequired.message",
+                defaultValue: "This terminal is running a command. Close it from the Mac to confirm."
+            )
+        )
+        let data = try XCTUnwrap(error.data as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(data["surface_id"] as? String, runningPanel.id.uuidString)
+        XCTAssertEqual(data["requires_confirmation"] as? Bool, true)
+        XCTAssertNotNil(workspace.terminalPanel(for: runningPanel.id))
+    }
+
+    func testMobileTerminalCloseHonorsTabCloseButtonWarningForCleanTerminal() async throws {
+        let suiteName = "terminal-close-x-button-warning-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        AppCatalogSection().warnBeforeClosingTab.set(false, in: defaults)
+        AppCatalogSection().warnBeforeClosingTabXButton.set(true, in: defaults)
+        let manager = TabManager(closeTabWarningDefaults: defaults)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        try await withActiveMobileHostTabManager(manager) { _, workspace in
+            let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+            let cleanPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+            cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+
+            let response = await TerminalController.shared.mobileHostHandleRPC(
+                MobileHostRPCRequest(
+                    id: "terminal-close-x-button-warning",
+                    method: "terminal.close",
+                    params: [
+                        "workspace_id": workspace.id.uuidString,
+                        "surface_id": cleanPanel.id.uuidString,
+                    ],
+                    auth: nil
+                )
+            )
+
+            guard case let .failure(error) = response else {
+                XCTFail("Expected terminal.close to honor the tab-close-button warning setting")
+                return
+            }
+            XCTAssertEqual(error.code, "confirmation_required")
+            XCTAssertEqual(
+                error.message,
+                String(
+                    localized: "mobile.terminal.closeUserConfirmationRequired.message",
+                    defaultValue: "Close this terminal from the Mac to confirm."
+                )
+            )
+            let data = try XCTUnwrap(error.data as? [String: Any])
+            XCTAssertEqual(data["workspace_id"] as? String, workspace.id.uuidString)
+            XCTAssertEqual(data["surface_id"] as? String, cleanPanel.id.uuidString)
+            XCTAssertEqual(data["requires_confirmation"] as? Bool, true)
+            XCTAssertNotNil(workspace.terminalPanel(for: cleanPanel.id))
+        }
+    }
+
+    private func withActiveMobileHostTabManager(
+        _ manager: TabManager = TabManager(),
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        run: (TabManager, Workspace) async throws -> Void
+    ) async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace, file: file, line: line)
+        try await run(manager, workspace)
+    }
+
+    func testMobileTerminalCloseClearsViewportReportsForClosedSurface() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.clearAllMobileViewportReports(reason: "test.cleanup")
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: false))
+        TerminalController.shared.debugSetMobileViewportReportForTesting(
+            surfaceID: panel.id,
+            clientID: "ipad-client",
+            columns: 80,
+            rows: 24
+        )
+        XCTAssertEqual(
+            TerminalController.shared.debugMobileViewportReportClientIDsForTesting(surfaceID: panel.id),
+            Set(["ipad-client"])
+        )
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-close-clears-viewport",
+                method: "terminal.close",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": panel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case .ok = response else {
+            XCTFail("Expected terminal.close to succeed")
+            return
+        }
+        XCTAssertNil(TerminalController.shared.debugMobileViewportReportClientIDsForTesting(surfaceID: panel.id))
+    }
+
     func testMobileWorkspaceListRejectsMissingScopedTargets() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

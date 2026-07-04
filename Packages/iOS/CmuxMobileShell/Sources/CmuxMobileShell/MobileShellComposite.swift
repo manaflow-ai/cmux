@@ -90,6 +90,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
+    private static let terminalCloseCapability = "terminal.close.v1"
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
@@ -241,7 +242,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var workspaces: [MobileWorkspacePreview] = [] {
         didSet {
             workspaceTopologyVersion &+= 1
-            prunePendingAttachmentsForMissingTerminals()
+            pruneTerminalScopedStateForMissingTerminals()
         }
     }
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
@@ -309,6 +310,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var supportsWorkspaceReadStateActions: Bool { supportedHostCapabilities.contains(Self.workspaceReadStateCapability) }
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
+    /// Whether the Mac supports terminal close requests.
+    public var supportsTerminalCloseActions: Bool { supportedHostCapabilities.contains(Self.terminalCloseCapability) }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
@@ -551,6 +554,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// keyboard, while push-notification navigation (``selectTerminal(_:)``) is
     /// intentionally left out of the set and allowed to autofocus.
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
+    /// Chrome-initiated selected-terminal closes awaiting their authoritative
+    /// refresh. If a refresh repairs selection away from one of these terminals,
+    /// the replacement must mount without stealing the keyboard.
+    @ObservationIgnored private var terminalCloseRepairSuppressionTerminalIDs: Set<MobileTerminalPreview.ID> = []
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
@@ -3706,39 +3713,74 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// at most one extra scan after the in-flight one (not one scan, and one
     /// MainActor aggregate update, per event). Bounded — each fetch completes
     /// before the next starts, so there is no cancel/restart starvation.
+    @discardableResult
     private func scheduleSecondaryRefresh(
         macID: String,
         client: MobileCoreRPCClient,
         displayName: String?
-    ) {
+    ) -> Task<Void, Never>? {
         guard let subscription = secondaryMacSubscriptions[macID],
-              subscription.client === client else { return }
-        guard subscription.refreshTask == nil else {
+              subscription.client === client else { return nil }
+        if let refreshTask = subscription.refreshTask {
             subscription.refreshPending = true
-            return
+            return refreshTask
         }
-        subscription.refreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        let refreshTask = Task { @MainActor [weak self, weak subscription] in
+            guard let self, let subscription else { return }
+            defer {
+                if self.secondaryMacSubscriptions[macID] === subscription {
+                    subscription.refreshTask = nil
+                }
+            }
             repeat {
                 // Clear before the fetch; an event during the await re-sets it and
                 // we loop once more (the trailing refresh).
-                self.secondaryMacSubscriptions[macID]?.refreshPending = false
-                let previews = await self.fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
-                // Bail if the subscription was replaced/torn down across the await.
-                guard let current = self.secondaryMacSubscriptions[macID],
-                      current.client === client else { return }
-                if let previews {
-                    self.workspacesByMac[macID] = MacWorkspaceState(
-                        macDeviceID: macID,
-                        displayName: displayName,
-                        workspaces: previews,
-                        status: .connected,
-                        actionCapabilities: current.actionCapabilities
-                    )
-                }
-            } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
-            self.secondaryMacSubscriptions[macID]?.refreshTask = nil
+                subscription.refreshPending = false
+                guard await self.refreshSecondaryWorkspaceListNow(
+                    macID: macID,
+                    client: client,
+                    displayName: displayName
+                ) else { return }
+            } while subscription.refreshPending
         }
+        subscription.refreshTask = refreshTask
+        return refreshTask
+    }
+
+    /// Re-fetch and apply one secondary Mac's authoritative workspace list.
+    ///
+    /// Returns `false` when the subscription was replaced or removed across the
+    /// await. Event-driven refresh uses that to stop its coalesced loop; mutation
+    /// refresh awaits the coalesced task that calls this helper so post-close
+    /// selection repair can consume any pending autofocus suppression before the
+    /// close action returns.
+    @discardableResult
+    private func refreshSecondaryWorkspaceListNow(
+        macID: String,
+        client: MobileCoreRPCClient,
+        displayName: String?
+    ) async -> Bool {
+        guard let subscription = secondaryMacSubscriptions[macID],
+              subscription.client === client else {
+            return false
+        }
+        let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
+        guard let current = secondaryMacSubscriptions[macID],
+              current.client === client else {
+            return false
+        }
+        if let previews {
+            workspacesByMac[macID] = MacWorkspaceState(
+                macDeviceID: macID,
+                displayName: displayName,
+                workspaces: previews,
+                status: .connected,
+                actionCapabilities: current.actionCapabilities
+            )
+        } else {
+            markSecondaryMacUnavailable(macID)
+        }
+        return true
     }
 
     /// Routing target for a workspace mutation (rename / pin / unread / close): the
@@ -3769,8 +3811,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if target.isForeground {
             await refreshWorkspaces()
         } else if let macID = target.macDeviceID, let sub = secondaryMacSubscriptions[macID] {
-            scheduleSecondaryRefresh(
+            let refreshTask = scheduleSecondaryRefresh(
                 macID: macID, client: sub.client, displayName: workspacesByMac[macID]?.displayName)
+            if let refreshTask {
+                await refreshTask.value
+            }
         }
     }
 
@@ -3879,6 +3924,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
         }
+        if selectedWorkspaceID != nil {
+            syncSelectedTerminalForWorkspace()
+        } else if derived.isEmpty {
+            selectedTerminalID = nil
+        }
+        pruneTerminalCloseRepairSuppressionsForMissingTerminals()
         workspaceGroups = workspaceAggregation.derivedGroups(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
     }
@@ -4167,6 +4218,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
         selectedTerminalID = id
+    }
+
+    /// Arms the selection-repair autofocus suppression when chrome closes the
+    /// currently selected terminal. Non-selected terminal closes do not rebuild
+    /// the visible surface, so they leave autofocus behavior unchanged.
+    func beginSelectedTerminalCloseAutoFocusSuppression(for terminalID: MobileTerminalPreview.ID) {
+        guard selectedTerminalID == terminalID else { return }
+        terminalCloseRepairSuppressionTerminalIDs.insert(terminalID)
+    }
+
+    func endSelectedTerminalCloseAutoFocusSuppression(for terminalID: MobileTerminalPreview.ID) {
+        terminalCloseRepairSuppressionTerminalIDs.remove(terminalID)
     }
 
     /// Whether the surface for `terminalID` may grab the keyboard on its next
@@ -4514,20 +4577,37 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaces.contains { $0.terminals.contains { $0.id.rawValue == terminalID } }
     }
 
-    /// Drop staged attachments whose terminal id is no longer in the topology.
-    /// Called from the ``workspaces`` `didSet` so a workspace/terminal sync that
-    /// removes a terminal also releases its (potentially multi-MB) staged photo
-    /// bytes instead of letting them accumulate until sign-out. The dictionary
-    /// holds large `Data`, so unlike the externally-stored text draft it must be
-    /// pruned in memory on every topology change.
-    private func prunePendingAttachmentsForMissingTerminals() {
-        guard !pendingAttachmentsByTerminalID.isEmpty else { return }
+    /// Drop per-terminal bookkeeping whose terminal id is no longer in the
+    /// topology. Called from the ``workspaces`` `didSet` so a workspace/terminal
+    /// sync that removes a terminal releases staged photo bytes and one-shot
+    /// autofocus suppressions instead of letting them accumulate until sign-out.
+    private func pruneTerminalScopedStateForMissingTerminals() {
+        guard !pendingAttachmentsByTerminalID.isEmpty
+            || !terminalAutoFocusSuppressedSurfaceIDs.isEmpty else {
+            return
+        }
         let liveTerminalIDs: Set<String> = Set(
             workspaces.flatMap { $0.terminals.map(\.id.rawValue) }
         )
-        pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter {
-            liveTerminalIDs.contains($0.key)
+        if !pendingAttachmentsByTerminalID.isEmpty {
+            pendingAttachmentsByTerminalID = pendingAttachmentsByTerminalID.filter {
+                liveTerminalIDs.contains($0.key)
+            }
         }
+        terminalAutoFocusSuppressedSurfaceIDs.formIntersection(liveTerminalIDs)
+    }
+
+    /// Drop close-repair tokens for terminals that are no longer in the topology.
+    ///
+    /// This runs after ``syncSelectedTerminalForWorkspace()`` so a selected
+    /// terminal that just disappeared can first consume its token and suppress the
+    /// replacement terminal's next autofocus.
+    private func pruneTerminalCloseRepairSuppressionsForMissingTerminals() {
+        guard !terminalCloseRepairSuppressionTerminalIDs.isEmpty else { return }
+        let liveTerminalIDs: Set<MobileTerminalPreview.ID> = Set(
+            workspaces.flatMap { $0.terminals.map(\.id) }
+        )
+        terminalCloseRepairSuppressionTerminalIDs.formIntersection(liveTerminalIDs)
     }
 
     /// Remove one staged attachment by id. A no-op when the id is not staged.
@@ -5665,12 +5745,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             selectedTerminalID = nil
             return
         }
+        let previousSelectedTerminalID = selectedTerminalID
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
             return
         }
-        selectedTerminalID = selectedWorkspace.preferredTerminal?.id
+        let repairedTerminalID = selectedWorkspace.preferredTerminal?.id
+        if let previousSelectedTerminalID,
+           terminalCloseRepairSuppressionTerminalIDs.remove(previousSelectedTerminalID) != nil {
+            suppressTerminalAutoFocusOnNextAttach(for: repairedTerminalID)
+        }
+        selectedTerminalID = repairedTerminalID
     }
 
     // MARK: - Per-terminal composer drafts

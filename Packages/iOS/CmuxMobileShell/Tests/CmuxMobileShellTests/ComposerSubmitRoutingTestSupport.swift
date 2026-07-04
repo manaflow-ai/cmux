@@ -42,17 +42,35 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var terminalCloses: [(workspaceID: String, surfaceID: String)] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
+    private var terminalIDs = [Self.terminalA, Self.terminalB]
+    private var closedTerminalIDs: Set<String> = []
+    private var terminalCloseRequestCount = 0
+    private var heldTerminalCloseRequestNumbers: Set<Int> = []
+    private var heldTerminalCloseContinuations: [CheckedContinuation<Void, Never>] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
     private var holdFirstPasteImage = false
     private var firstPasteImageHeld = false
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var rejectTerminalClose = false
+    private var rejectTerminalCloseCode: String?
+    private var rejectTerminalCloseMessage = "terminal.close rejected"
+    private var staleWorkspaceListRefreshesBeforeCloseVisible = 0
+    private var pendingClosedTerminalIDs: Set<String> = []
+    private var failWorkspaceList = false
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
     static let terminalB = "term-route-b"
+    static let terminalC = "term-route-c"
+
+    /// Configure the workspace-list fixture's terminals. Defaults to A/B.
+    func setTerminalIDs(_ terminalIDs: [String]) {
+        self.terminalIDs = terminalIDs
+    }
 
     /// Reject every terminal.paste_image with an error frame, modeling a host
     /// that cannot accept the image (the composer must keep the attachment).
@@ -87,8 +105,56 @@ actor RoutingHostRouter {
         continuation?.resume()
     }
 
+    /// Reject every terminal.close with an error frame, modeling a Mac that
+    /// refuses the close. The authoritative list keeps the terminal.
+    func setRejectTerminalClose(_ reject: Bool) {
+        rejectTerminalClose = reject
+        rejectTerminalCloseCode = nil
+        rejectTerminalCloseMessage = "terminal.close rejected"
+    }
+
+    /// Reject terminal.close as an authorization failure. The shell-level
+    /// reconnect/reauth UI owns this case, so the terminal picker should not
+    /// show a separate close-failed alert.
+    func setRejectTerminalCloseAuthorizationFailure(_ reject: Bool) {
+        rejectTerminalClose = reject
+        rejectTerminalCloseCode = reject ? "unauthorized" : nil
+        rejectTerminalCloseMessage = reject ? "Unauthorized terminal close" : "terminal.close rejected"
+    }
+
+    /// Keep the next successful terminal.close visible for `count` workspace-list
+    /// refreshes before the authoritative list observes it as closed.
+    func delayNextTerminalCloseVisibility(workspaceListRefreshCount count: Int) {
+        staleWorkspaceListRefreshesBeforeCloseVisible = count
+    }
+
+    /// Fail workspace-list refreshes while leaving other RPCs available.
+    func setFailWorkspaceList(_ fail: Bool) {
+        failWorkspaceList = fail
+    }
+
+    /// Hold the Nth terminal.close response (1-based) until explicitly released.
+    func holdTerminalCloseRequest(number: Int) {
+        heldTerminalCloseRequestNumbers.insert(number)
+    }
+
+    func releaseNextHeldTerminalClose() {
+        guard !heldTerminalCloseContinuations.isEmpty else { return }
+        heldTerminalCloseContinuations.removeFirst().resume()
+    }
+
+    func releaseAllHeldTerminalCloses() {
+        heldTerminalCloseRequestNumbers.removeAll()
+        let continuations = heldTerminalCloseContinuations
+        heldTerminalCloseContinuations = []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedTerminalCloses() -> [(workspaceID: String, surfaceID: String)] { terminalCloses }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -96,6 +162,7 @@ actor RoutingHostRouter {
     struct RequestInfo: Sendable {
         var method: String?
         var id: String?
+        var workspaceID: String?
         var surfaceID: String?
         var imageFormat: String?
         var text: String?
@@ -108,32 +175,40 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            return try? Self.resultFrame(id: id, result: [
+            if failWorkspaceList {
+                return try? Self.errorFrame(id: id, message: "workspace.list failed")
+            }
+            let closedTerminalIDsSnapshot = closedTerminalIDs
+            let focusedTerminalID = terminalIDs.first { !closedTerminalIDsSnapshot.contains($0) }
+            let terminals: [[String: Any]] = terminalIDs.enumerated().compactMap { index, terminalID in
+                guard !closedTerminalIDsSnapshot.contains(terminalID) else { return nil }
+                return [
+                    "id": terminalID,
+                    "title": String(Character(UnicodeScalar(65 + index)!)),
+                    "current_directory": "/tmp/route",
+                    "is_ready": true,
+                    "is_focused": terminalID == focusedTerminalID,
+                ]
+            }
+            let response = try? Self.resultFrame(id: id, result: [
                 "workspaces": [
                     [
                         "id": Self.workspaceID,
                         "title": "Routing Workspace",
                         "current_directory": "/tmp/route",
                         "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": Self.terminalA,
-                                "title": "A",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                            [
-                                "id": Self.terminalB,
-                                "title": "B",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": false,
-                            ],
-                        ],
+                        "terminals": terminals,
                     ],
                 ],
             ])
+            if staleWorkspaceListRefreshesBeforeCloseVisible > 0 {
+                staleWorkspaceListRefreshesBeforeCloseVisible -= 1
+                if staleWorkspaceListRefreshesBeforeCloseVisible == 0 {
+                    closedTerminalIDs.formUnion(pendingClosedTerminalIDs)
+                    pendingClosedTerminalIDs.removeAll()
+                }
+            }
+            return response
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
@@ -166,6 +241,34 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.close":
+            let workspaceID = info.workspaceID ?? ""
+            let surfaceID = info.surfaceID ?? ""
+            terminalCloseRequestCount += 1
+            let requestNumber = terminalCloseRequestCount
+            terminalCloses.append((workspaceID: workspaceID, surfaceID: surfaceID))
+            if heldTerminalCloseRequestNumbers.remove(requestNumber) != nil {
+                await withCheckedContinuation { continuation in
+                    heldTerminalCloseContinuations.append(continuation)
+                }
+            }
+            if rejectTerminalClose {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: rejectTerminalCloseCode,
+                    message: rejectTerminalCloseMessage
+                )
+            }
+            if staleWorkspaceListRefreshesBeforeCloseVisible > 0 {
+                pendingClosedTerminalIDs.insert(surfaceID)
+            } else {
+                closedTerminalIDs.insert(surfaceID)
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "closed": true,
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ])
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
@@ -188,11 +291,15 @@ actor RoutingHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code {
+            error["code"] = code
+        }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
@@ -241,6 +348,7 @@ private actor RoutingTransport: CmxByteTransport {
             let info = RoutingHostRouter.RequestInfo(
                 method: parsed?["method"] as? String,
                 id: parsed?["id"] as? String,
+                workspaceID: params?["workspace_id"] as? String,
                 surfaceID: params?["surface_id"] as? String,
                 imageFormat: params?["image_format"] as? String,
                 text: params?["text"] as? String,
@@ -302,6 +410,8 @@ func makeRoutingConnectedStore(
     let store = MobileShellComposite(
         runtime: runtime,
         isSignedIn: true,
+        connectionState: .connected,
+        connectedHostName: "Test Mac",
         workspaces: [
             MobileWorkspacePreview(
                 id: .init(rawValue: RoutingHostRouter.workspaceID),

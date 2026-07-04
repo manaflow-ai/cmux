@@ -1,36 +1,72 @@
 import CmuxMobileShellModel
 
-struct TerminalPickerMenuRow: Identifiable, Equatable {
-    let id: MobileTerminalPreview.ID
-    let name: String
-
-    init(_ terminal: MobileTerminalPreview) {
-        id = terminal.id
-        name = terminal.name
-    }
-}
-
-extension Collection where Element == TerminalPickerMenuRow {
-    func resolvedTerminalPickerSelection(
-        selectedID: MobileTerminalPreview.ID?
-    ) -> (id: MobileTerminalPreview.ID, name: String)? {
-        if let selectedID,
-           let selected = first(where: { $0.id == selectedID }) {
-            return (id: selected.id, name: selected.name)
-        }
-        guard let first else { return nil }
-        return (id: first.id, name: first.name)
-    }
-}
-
 extension WorkspaceDetailView {
-    var terminalPickerLiveRows: [TerminalPickerMenuRow] {
-        workspace.terminals.map(TerminalPickerMenuRow.init)
+    enum TerminalPickerAction {
+        case selectTerminal(MobileTerminalPreview.ID)
+        case createWorkspace
+        case createTerminal
+        case openBrowser
+        case openTextSheet(String?)
+        case copyDebugLogs
+        case openFeedbackComposer
     }
 
     var hasTitleMenuActions: Bool {
         workspace.actionCapabilities.supportsWorkspaceActions
             || workspace.actionCapabilities.supportsReadStateActions
             || closeWorkspace != nil
+    }
+
+    var terminalPickerDebugCopyLogsAction: (() -> Void)? {
+        #if DEBUG
+        return { queueTerminalPickerAction(.copyDebugLogs) }
+        #else
+        return nil
+        #endif
+    }
+
+    func closeTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) async -> String? {
+        guard let closeTerminal else { return nil }
+        return await closeTerminal(terminalID)
+    }
+
+    func queueTerminalPickerAction(_ action: TerminalPickerAction) {
+        pendingTerminalPickerAction = action
+    }
+
+    func performPendingTerminalPickerActionIfNeeded() {
+        guard let pendingTerminalPickerAction else { return }
+        self.pendingTerminalPickerAction = nil
+        switch pendingTerminalPickerAction {
+        case .selectTerminal(let terminalID):
+            selectTerminalFromPicker(terminalID)
+        case .createWorkspace:
+            createWorkspaceFromToolbar()
+        case .createTerminal:
+            createTerminalFromToolbar()
+        case .openBrowser:
+            openBrowserFromToolbar()
+        #if canImport(UIKit)
+        case .openTextSheet(let surfaceID):
+            openTextSheetFromMenu(surfaceID: surfaceID)
+        #else
+        case .openTextSheet(_):
+            break
+        #endif
+        #if canImport(UIKit) && DEBUG
+        case .copyDebugLogs:
+            copyDebugLogsFromMenu()
+        #else
+        case .copyDebugLogs:
+            break
+        #endif
+        #if canImport(UIKit)
+        case .openFeedbackComposer:
+            openFeedbackComposerFromMenu()
+        #else
+        case .openFeedbackComposer:
+            break
+        #endif
+        }
     }
 }
