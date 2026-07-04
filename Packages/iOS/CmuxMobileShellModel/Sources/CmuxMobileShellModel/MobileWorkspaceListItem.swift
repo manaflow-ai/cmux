@@ -23,8 +23,9 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// nested group headers.
     case groupHeader(MobileWorkspaceGroupPreview, hasUnread: Bool, depth: Int = 0)
     /// A workspace row. `indented` is `true` for non-anchor members nested under
-    /// a group header, so the view can inset them.
-    case workspace(MobileWorkspacePreview, indented: Bool)
+    /// a group header, so the view can inset them. `depth` is the containing
+    /// group's normalized parent-chain depth.
+    case workspace(MobileWorkspacePreview, indented: Bool, depth: Int = 0)
 
     /// A stable, list-unique identity for SwiftUI diffing. Namespaced by item
     /// kind (`group.` / `workspace.`) so a group header and a workspace row can
@@ -33,7 +34,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
         switch self {
         case .groupHeader(let group, _, _):
             return "group.\(group.id.rawValue)"
-        case .workspace(let workspace, _):
+        case .workspace(let workspace, _, _):
             return "workspace.\(workspace.id.rawValue)"
         }
     }
@@ -190,7 +191,8 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 continue
             }
 
-            items.append(.workspace(workspace, indented: true))
+            var depthVisiting: Set<MobileWorkspaceGroupPreview.ID> = []
+            items.append(.workspace(workspace, indented: true, depth: groupDepth(for: groupID, visiting: &depthVisiting)))
         }
 
         return items

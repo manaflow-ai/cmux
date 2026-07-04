@@ -216,7 +216,7 @@ import Testing
             .groupHeader(group("hotels", anchor: "hotels-anchor"), hasUnread: false),
             .workspace(workspace("hotels-loose", group: "hotels"), indented: true),
             .groupHeader(group("marriott", anchor: "marriott-anchor", parent: "hotels"), hasUnread: false, depth: 1),
-            .workspace(workspace("terminal", group: "marriott"), indented: true),
+            .workspace(workspace("terminal", group: "marriott"), indented: true, depth: 1),
             .workspace(workspace("outside"), indented: false),
         ])
     }
