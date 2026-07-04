@@ -9145,17 +9145,9 @@ struct ContentView: View {
         )
     }
 
-    private func selectedWorkspaceIndex() -> Int? {
-        guard let workspace = tabManager.selectedWorkspace else { return nil }
-        return tabManager.tabs.firstIndex { $0.id == workspace.id }
-    }
-
     private func moveSelectedWorkspace(by delta: Int) {
         guard let workspace = tabManager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex() else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+              tabManager.moveWorkspaceInSidebarScope(tabId: workspace.id, by: delta) else { return }
         tabManager.selectWorkspace(workspace)
     }
 
@@ -9165,21 +9157,19 @@ struct ContentView: View {
 
     private func closeOtherSelectedWorkspaces() {
         guard let workspace = tabManager.selectedWorkspace else { return }
-        let workspaceIds = tabManager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
+        let workspaceIds = tabManager.workspaceIdsForClosingOtherSidebarRows(keeping: [workspace.id])
         closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow() {
-        guard tabManager.selectedWorkspace != nil,
-              let anchorIndex = selectedWorkspaceIndex() else { return }
-        let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
+        guard let workspace = tabManager.selectedWorkspace else { return }
+        let workspaceIds = tabManager.workspaceIdsForClosingSidebarRowsBelow(tabId: workspace.id)
         closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove() {
-        guard tabManager.selectedWorkspace != nil,
-              let anchorIndex = selectedWorkspaceIndex() else { return }
-        let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
+        guard let workspace = tabManager.selectedWorkspace else { return }
+        let workspaceIds = tabManager.workspaceIdsForClosingSidebarRowsAbove(tabId: workspace.id)
         closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
@@ -14551,14 +14541,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func moveBy(_ delta: Int) {
-        let visibleIds = currentVisibleWorkspaceRowIds
-        guard delta != 0, let visibleIndex = visibleIds.firstIndex(of: tab.id),
-              visibleIds.indices.contains(visibleIndex + delta) else { return }
-        let peerId = visibleIds[visibleIndex + delta]
-        let moved = delta < 0
-            ? tabManager.reorderWorkspace(tabId: tab.id, before: peerId)
-            : tabManager.reorderWorkspace(tabId: tab.id, after: peerId)
-        guard moved else { return }
+        guard tabManager.moveWorkspaceInSidebarScope(tabId: tab.id, by: delta) else { return }
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
@@ -14673,10 +14656,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var currentVisibleWorkspaceRowIds: [UUID] {
-        SidebarWorkspaceRenderItem.rowWorkspaceIds(
-            tabs: tabManager.tabs.filter { $0.workstreamId == tabManager.drilledInWorkstreamId },
-            groupsById: Dictionary(uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0) })
-        )
+        tabManager.sidebarScopedWorkspaceRowIds()
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {

@@ -47,6 +47,43 @@ extension TabManager {
         }
     }
 
+    func sidebarScopedWorkspaceRowIds() -> [UUID] {
+        SidebarWorkspaceRenderItem.rowWorkspaceIds(
+            tabs: tabs.filter { $0.workstreamId == drilledInWorkstreamId },
+            groupsById: Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        )
+    }
+
+    func sidebarScopedWorkspaceIndex(tabId: UUID) -> Int? {
+        sidebarScopedWorkspaceRowIds().firstIndex(of: tabId)
+    }
+
+    func moveWorkspaceInSidebarScope(tabId: UUID, by delta: Int) -> Bool {
+        let visibleIds = sidebarScopedWorkspaceRowIds()
+        guard delta != 0, let visibleIndex = visibleIds.firstIndex(of: tabId),
+              visibleIds.indices.contains(visibleIndex + delta) else { return false }
+        let peerId = visibleIds[visibleIndex + delta]
+        return delta < 0
+            ? reorderWorkspace(tabId: tabId, before: peerId)
+            : reorderWorkspace(tabId: tabId, after: peerId)
+    }
+
+    func workspaceIdsForClosingOtherSidebarRows(keeping keepIds: Set<UUID>) -> [UUID] {
+        sidebarScopedWorkspaceRowIds().filter { !keepIds.contains($0) }
+    }
+
+    func workspaceIdsForClosingSidebarRowsBelow(tabId: UUID) -> [UUID] {
+        let visibleIds = sidebarScopedWorkspaceRowIds()
+        guard let anchorIndex = visibleIds.firstIndex(of: tabId) else { return [] }
+        return Array(visibleIds.suffix(from: anchorIndex + 1))
+    }
+
+    func workspaceIdsForClosingSidebarRowsAbove(tabId: UUID) -> [UUID] {
+        let visibleIds = sidebarScopedWorkspaceRowIds()
+        guard let anchorIndex = visibleIds.firstIndex(of: tabId) else { return [] }
+        return Array(visibleIds.prefix(upTo: anchorIndex))
+    }
+
     func fallbackSelectedWorkspaceIdAfterClosingWorkspace(at removedIndex: Int) -> UUID {
         if drilledInWorkstreamId != nil {
             let scopedIndices = tabs.indices.filter { tabs[$0].workstreamId == drilledInWorkstreamId }
