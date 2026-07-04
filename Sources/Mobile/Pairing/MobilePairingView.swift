@@ -12,9 +12,9 @@ import SwiftUI
 /// same-account check; Tailscale is what gives the iPhone a route to this Mac.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
-    /// The manual-entry value that was just copied (the host or the port
-    /// string), so only the matching button shows the brief "Copied" flash.
-    /// The two values can never collide: one is a host, the other a port.
+    /// The address string that was just copied, so the Copy Address button's
+    /// brief "Copied" flash only shows while the button still offers that
+    /// exact value (a route refresh that changes the address drops the flash).
     @State private var copiedValue: String?
     /// Bumped per copy so an older flash's dismissal can't clear a newer one.
     @State private var copiedValueGeneration = 0
