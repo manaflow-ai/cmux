@@ -110,7 +110,7 @@ final class TerminalOutputCollector {
     let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
-    let route = CMUXMobileShellStore.firstReconnectHostPortRoute(
+    let route = MobileShellRouteSelection().firstReconnectHostPortRoute(
         [loopback, tailscale],
         supportedKinds: [.tailscale]
     )
