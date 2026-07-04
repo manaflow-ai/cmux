@@ -231,6 +231,42 @@ import Testing
         #expect(statuses == [1: .success, 2: .failure, 3: .neutral])
     }
 
+    @Test func ciStatusFetchTreatsAllErrorNoStatusResponseAsTransientFailure() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PullRequestCIMockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        PullRequestCIMockURLProtocol.handler = { request in
+            let json = """
+            {
+              "data": null,
+              "errors": [{"message": "rate limit exceeded"}]
+            }
+            """
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+            guard let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, Data(json.utf8))
+        }
+        defer { PullRequestCIMockURLProtocol.handler = nil }
+
+        let service = PullRequestProbeService()
+        let statuses = await service.pullRequestCIStatusesByNumber(
+            repoSlug: "manaflow-ai/cmux",
+            pullRequestNumbers: [7],
+            session: session,
+            authHeader: "Bearer test-token"
+        )
+        #expect(statuses == nil)
+    }
+
     @Test func openPullRequestNumbersOnlyIncludesRequestedOpenBranches() {
         let entry = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: Date(),

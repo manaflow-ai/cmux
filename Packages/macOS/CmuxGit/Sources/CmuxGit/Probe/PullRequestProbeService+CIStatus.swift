@@ -61,7 +61,11 @@ extension PullRequestProbeService {
             let messages = response.errors.map(\.message).prefix(3).joined(separator: " | ")
             debugLog("workspace.prRefresh.ci.errors repo=\(repoSlug) count=\(response.errors.count) messages=\(messages)")
         }
-        return response.ciStatusesByPullRequestNumber
+        let statuses = response.ciStatusesByPullRequestNumber
+        guard response.errors.isEmpty || !statuses.isEmpty else {
+            return nil
+        }
+        return statuses
     }
 
     /// Open pull-request numbers that are actually needed for the current candidate branches.
