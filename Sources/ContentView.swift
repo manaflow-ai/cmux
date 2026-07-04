@@ -12223,13 +12223,14 @@ struct VerticalTabsSidebar: View {
     }
 
     private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+        let selectionBeforeReorder = selectedTabIds
+        let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+            existingAnchorIndex: lastSidebarSelectionIndex,
+            liveWorkspaceIds: tabManager.tabs.map(\.id)
+        )
+        func syncSelectionAfterWorkspaceTreeMutation() { syncSidebarSelectionAfterWorkspaceReorder(preserving: selectionBeforeReorder, preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder) }
         switch plan.action {
         case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
-            let selectionBeforeReorder = selectedTabIds
-            let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
-                existingAnchorIndex: lastSidebarSelectionIndex,
-                liveWorkspaceIds: tabManager.tabs.map(\.id)
-            )
             let didReorder = tabManager.reorderSidebarWorkspace(
                 tabId: plan.draggedWorkspaceId,
                 toIndex: targetIndex,
@@ -12237,15 +12238,14 @@ struct VerticalTabsSidebar: View {
                 usesTopLevelRows: usesTopLevelRows,
                 explicitGroupId: explicitGroupId
             )
-            syncSidebarSelectionAfterWorkspaceReorder(
-                preserving: selectionBeforeReorder,
-                preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
-            )
+            syncSelectionAfterWorkspaceTreeMutation()
             return didReorder
         case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
             return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
         case .reparentGroup(let groupId, let parentGroupId):
-            return tabManager.setWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId)
+            let didReparent = tabManager.setWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId)
+            if didReparent { syncSelectionAfterWorkspaceTreeMutation() }
+            return didReparent
         }
     }
 

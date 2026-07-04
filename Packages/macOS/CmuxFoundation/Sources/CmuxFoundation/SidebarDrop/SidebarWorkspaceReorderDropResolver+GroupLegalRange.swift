@@ -12,6 +12,7 @@ extension SidebarWorkspaceReorderDropResolver {
             return nil
         }
         let subtreeGroupIds = groupSubtreeIds(rootGroupId: explicitGroupId, groupsById: groupsById)
+        let groupByAnchorId = Dictionary(uniqueKeysWithValues: groupsById.values.map { ($0.anchorWorkspaceId, $0) })
         let memberIndices = workspaces.indices.filter { index in
             workspaces[index].groupId.map { subtreeGroupIds.contains($0) } ?? false
         }
@@ -21,11 +22,12 @@ extension SidebarWorkspaceReorderDropResolver {
         }
         let pinnedMemberCount = memberIndices.reduce(into: 0) { count, index in
             let member = workspaces[index]
-            if member.id != group.anchorWorkspaceId, member.isPinned {
+            if member.id != group.anchorWorkspaceId,
+               workspaceRowIsPinned(member, groupByAnchorId: groupByAnchorId) {
                 count += 1
             }
         }
-        if draggedWorkspace.isPinned {
+        if workspaceRowIsPinned(draggedWorkspace, groupByAnchorId: groupByAnchorId) {
             let lower = min(firstIndex + 1, workspaces.count)
             let upper = min(firstIndex + 1 + pinnedMemberCount, workspaces.count)
             return lower...max(lower, upper)
@@ -52,5 +54,12 @@ extension SidebarWorkspaceReorderDropResolver {
             stack.append(contentsOf: childGroupIdsByParentId[current] ?? [])
         }
         return result
+    }
+
+    private func workspaceRowIsPinned(
+        _ workspace: SidebarWorkspaceReorderWorkspaceSnapshot,
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+    ) -> Bool {
+        groupByAnchorId[workspace.id]?.isPinned ?? workspace.isPinned
     }
 }
