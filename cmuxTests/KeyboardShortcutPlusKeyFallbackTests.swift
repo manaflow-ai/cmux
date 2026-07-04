@@ -90,4 +90,24 @@ import Testing
             "A user-recorded physical keyCode shortcut should survive the non-US + glyph guard"
         )
     }
+
+    @Test func controlShortcutStillFallsBackByPhysicalKeyCodeOnAlternateAsciiLayout() {
+        let controlN = StoredShortcut(
+            key: "n",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+
+        #expect(
+            controlN.matches(
+                keyCode: 45, // US kVK_ANSI_N.
+                modifierFlags: [.control],
+                eventCharacter: "b",
+                layoutCharacterProvider: { _, _ in "b" }
+            ),
+            "Control shortcuts should keep the longstanding ANSI keyCode fallback on alternate ASCII layouts"
+        )
+    }
 }

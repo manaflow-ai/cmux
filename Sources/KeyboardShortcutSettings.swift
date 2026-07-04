@@ -1802,7 +1802,8 @@ struct ShortcutStroke: Equatable, Hashable {
         // character and decline the keyCode fallback. Layouts whose physical key
         // yields a non-base-key glyph (French "$", Nordic dead keys) are untouched
         // and keep matching by keyCode.
-        if Self.eventResolvesToDifferentBaseShortcutKey(
+        if !flags.contains(.control),
+           Self.eventResolvesToDifferentBaseShortcutKey(
             eventCharacter: eventCharacter,
             layoutCharacter: layoutCharacter,
             shortcutKey: shortcutKey,
