@@ -250,6 +250,8 @@ extension CMUXCLI {
     }
 
     private func inboxPushObject(_ args: [String]) throws -> [String: Any] {
+        var args = args
+        if args.first == "--json" { args.removeFirst() }
         guard args.count == 1, let raw = args.first else {
             throw CLIError(message: String(localized: "cli.inbox.error.pushUsage", defaultValue: "Usage: cmux inbox push --json '<event-json>'"))
         }
