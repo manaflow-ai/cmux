@@ -465,8 +465,112 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
         tabId = newTabId
+        lastPublishedTerminalTitle = nil
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+    }
+
+    // MARK: - Terminal title normalization (issue #6291)
+
+    /// The last spinner-normalized title published to `.ghosttyDidSetTitle` for
+    /// this surface. CLI tools animate spinners by rewriting the terminal title
+    /// every frame, so frame-by-frame updates that collapse to the same stable
+    /// title are dropped before they reach the workspace title coalescer and the
+    /// toolbar command-text updater. Mutated only through the main-actor
+    /// `publishableTerminalTitle(forRawTitle:)`, matching this type's unannotated
+    /// stored-property convention.
+    private var lastPublishedTerminalTitle: String?
+
+    /// Unicode scalars that CLI tools cycle through purely to animate a spinner in
+    /// the terminal title (`pnpm`, `npm`, `cargo`, generic braille spinners, …).
+    /// They carry no information — only the current animation frame — so two
+    /// titles that differ solely by these scalars denote the same logical state.
+    private static let terminalTitleSpinnerScalars: Set<Unicode.Scalar> = {
+        var scalars = Set<Unicode.Scalar>()
+        // The entire Braille Patterns block (U+2800…U+28FF). Every popular CLI
+        // spinner style (`dots`, `dots2`, …, and the `⣾⣽⣻⢿⡿⣟⣯⣷` family) is built
+        // from these code points, and braille never legitimately appears in a
+        // terminal title, so removing them is safe.
+        for value in 0x2800...0x28FF {
+            if let scalar = Unicode.Scalar(value) { scalars.insert(scalar) }
+        }
+        // Non-braille rotating glyphs used by other common spinner styles.
+        let extras: [Unicode.Scalar] = [
+            "◐", "◓", "◑", "◒",
+            "◴", "◷", "◶", "◵",
+            "◰", "◱", "◲", "◳",
+            "▖", "▘", "▝", "▗",
+        ]
+        for scalar in extras { scalars.insert(scalar) }
+        return scalars
+    }()
+
+    /// Returns `raw` with standalone spinner animation frames removed, so
+    /// successive frames of a CLI spinner title reduce to one stable string
+    /// (`"⠋ pnpm install"` and `"⠙ pnpm install"` both become `"pnpm install"`).
+    ///
+    /// Only whitespace-delimited tokens made up *entirely* of spinner glyphs — a
+    /// standalone animation frame at any position — are dropped, along with one
+    /// adjacent separator run. Every other token and separator is preserved
+    /// verbatim, including one that merely contains a Braille scalar inside a
+    /// larger word (e.g. a path component like `~/work/⠋-proj`), so legitimate
+    /// titles are never corrupted. Titles with no spinner glyph take a fast path
+    /// and are returned byte-for-byte unchanged.
+    public func stableTerminalNotificationTitle(_ raw: String) -> String {
+        guard raw.unicodeScalars.contains(where: { Self.terminalTitleSpinnerScalars.contains($0) }) else {
+            return raw
+        }
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        var segments: [(text: String, isWhitespace: Bool, isPureSpinner: Bool)] = []
+        var current = ""
+        var currentIsWhitespace: Bool?
+
+        func appendCurrentSegment() {
+            guard !current.isEmpty, let isWhitespace = currentIsWhitespace else { return }
+            let isPureSpinner = !isWhitespace
+                && current.unicodeScalars.allSatisfy { Self.terminalTitleSpinnerScalars.contains($0) }
+            segments.append((text: current, isWhitespace: isWhitespace, isPureSpinner: isPureSpinner))
+            current = ""
+            currentIsWhitespace = nil
+        }
+
+        for scalar in raw.unicodeScalars {
+            let isWhitespace = whitespace.contains(scalar)
+            if currentIsWhitespace != nil, currentIsWhitespace != isWhitespace {
+                appendCurrentSegment()
+            }
+            currentIsWhitespace = isWhitespace
+            current.unicodeScalars.append(scalar)
+        }
+        appendCurrentSegment()
+
+        var droppedSegmentIndexes = Set<Int>()
+        for index in segments.indices where segments[index].isPureSpinner {
+            droppedSegmentIndexes.insert(index)
+            if index + 1 < segments.count, segments[index + 1].isWhitespace {
+                droppedSegmentIndexes.insert(index + 1)
+            } else if index > 0, segments[index - 1].isWhitespace {
+                droppedSegmentIndexes.insert(index - 1)
+            }
+        }
+
+        var normalized = ""
+        for (index, segment) in segments.enumerated() where !droppedSegmentIndexes.contains(index) {
+            normalized.append(segment.text)
+        }
+        return normalized
+    }
+
+    /// Returns the spinner-normalized title to publish for `rawTitle`, or `nil`
+    /// when it equals the previously published title (so the caller skips posting
+    /// `.ghosttyDidSetTitle` entirely). Main-actor isolated so the dedup state is
+    /// updated without locking.
+    @MainActor
+    public func publishableTerminalTitle(forRawTitle rawTitle: String) -> String? {
+        let stable = stableTerminalNotificationTitle(rawTitle)
+        guard stable != lastPublishedTerminalTitle else { return nil }
+        lastPublishedTerminalTitle = stable
+        return stable
     }
 
     /// Moves this surface between focus-routing placements (workspace ↔

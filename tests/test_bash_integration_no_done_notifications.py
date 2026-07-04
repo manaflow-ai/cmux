@@ -16,6 +16,7 @@ import select
 import shlex
 import signal
 import socket
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -38,16 +39,28 @@ class InteractiveBash:
             os.execvpe("bash", ["bash", "--noprofile", "--norc", "-i"], self.env)
         self.pid = pid
         self.fd = fd
-        self.run(f"PS1='{PROMPT}'")
+        os.write(self.fd, f"PS1={shlex.quote(PROMPT)}\n".encode("utf-8"))
+        self._read_until(b"\n", timeout=1)
+        self.run(":")
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        self._kill_descendants(signal.SIGTERM)
         if self.fd is not None:
             try:
-                os.write(self.fd, b"exit\n")
-                self._read_until(b"exit", timeout=1)
+                os.write(
+                    self.fd,
+                    (
+                        "for _cmux_test_pid in $(jobs -pr); do "
+                        'kill -TERM "-$_cmux_test_pid" 2>/dev/null || '
+                        'kill -TERM "$_cmux_test_pid" 2>/dev/null || true; '
+                        "done; wait 2>/dev/null || true; exit\n"
+                    ).encode("utf-8"),
+                )
+                self._read_until(b"__CMUX_TEST_NEVER__", timeout=1)
             except OSError:
                 pass
+            self._kill_descendants(signal.SIGKILL)
             try:
                 os.close(self.fd)
             except OSError:
@@ -65,6 +78,46 @@ class InteractiveBash:
             try:
                 os.waitpid(self.pid, 0)
             except ChildProcessError:
+                pass
+
+    def _kill_descendants(self, sig: signal.Signals) -> None:
+        if self.pid is None:
+            return
+        try:
+            result = subprocess.run(
+                ["ps", "-axo", "pid=,ppid="],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return
+
+        children: dict[int, list[int]] = {}
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) != 2:
+                continue
+            try:
+                pid = int(parts[0])
+                ppid = int(parts[1])
+            except ValueError:
+                continue
+            children.setdefault(ppid, []).append(pid)
+
+        pending = list(children.get(self.pid, []))
+        descendants: list[int] = []
+        while pending:
+            pid = pending.pop()
+            descendants.append(pid)
+            pending.extend(children.get(pid, []))
+
+        for pid in reversed(descendants):
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+            except OSError:
                 pass
 
     def run(self, command: str, timeout: float = 5) -> None:
