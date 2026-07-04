@@ -2088,8 +2088,9 @@ final class SharedLiveAgentIndex: ObservableObject {
     // The directory watcher is the primary freshness mechanism; pull access only needs an
     // occasional safety refresh.
     private static let cacheTTL: TimeInterval = 60.0
-    // Floor between event-driven reloads so a chatty agent cannot thrash the ~1.6s loader.
-    private static let minEventReloadInterval: TimeInterval = 2.0
+    // Floor between event-driven reloads so chatty hook stores cannot keep the
+    // measured ~350ms-1.8s loader running at near-continuous duty cycle.
+    private static let minEventReloadInterval: TimeInterval = 5.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
