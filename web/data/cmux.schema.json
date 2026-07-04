@@ -359,6 +359,11 @@
           "default": true,
           "description": "Move workspaces with new notifications toward the top."
         },
+        "reorderPinnedOnNotification": {
+          "type": "boolean",
+          "default": false,
+          "description": "When notification reordering is enabled, also move pinned workspaces to the top of the pinned section."
+        },
         "iMessageMode": {
           "type": "boolean",
           "default": false,

@@ -20,6 +20,7 @@ struct UserDefaultsSettingsClientTests {
         let catalog = SettingCatalog()
 
         #expect(client.value(for: catalog.app.reorderOnNotification) == true)
+        #expect(client.value(for: catalog.app.reorderPinnedOnNotification) == false)
         #expect(client.value(for: catalog.sidebar.hideAllDetails) == false)
         #expect(client.value(for: catalog.sidebar.showWorkspaceDescription) == true)
         #expect(client.value(for: catalog.sidebar.showNotificationMessage) == true)
@@ -47,6 +48,10 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.app.reorderOnNotification) == false)
         // The stored representation stays the legacy plain Bool.
         #expect(defaults.object(forKey: "workspaceAutoReorderOnNotification") as? Bool == false)
+
+        client.set(true, for: catalog.app.reorderPinnedOnNotification)
+        #expect(client.value(for: catalog.app.reorderPinnedOnNotification) == true)
+        #expect(defaults.object(forKey: "workspaceAutoReorderPinnedOnNotification") as? Bool == true)
 
         client.set(true, for: catalog.workspaceGroups.anchorCloseSuppressed)
         #expect(defaults.object(forKey: "workspaceGroup.anchorCloseSuppressed") as? Bool == true)

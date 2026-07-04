@@ -286,6 +286,17 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "reorderPinnedOnNotification",
+                settingsKey: "app.reorderPinnedOnNotification",
+                title: {
+                    String(localized: "settings.app.reorderPinnedOnNotification", defaultValue: "Reorder Pinned on Notification")
+                },
+                sectionTitle: app,
+                keywords: ["app.reorderPinnedOnNotification", "notification", "reorder", "pinned", "workspace", "unread", "sort"],
+                defaultValue: SettingCatalog().app.reorderPinnedOnNotification.defaultValue,
+                defaultsKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "dockBadge",
                 settingsKey: "notifications.dockBadge",
                 title: {

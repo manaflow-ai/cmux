@@ -1529,7 +1529,9 @@ class TabManager: ObservableObject {
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
-        workspaceReordering.moveTabToTopForNotification(tabId)
+        let reorderPinned = UserDefaultsSettingsClient(defaults: .standard)
+            .value(for: SettingCatalog().app.reorderPinnedOnNotification)
+        workspaceReordering.moveTabToTopForNotification(tabId, reorderPinned: reorderPinned)
     }
 
     @discardableResult

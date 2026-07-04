@@ -3875,6 +3875,17 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
     }
 
+    func testPinnedReorderDefaultIsDisabled() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.PinnedDefault.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderPinnedOnNotification))
+    }
+
     func testDisabledWhenSetToFalse() {
         let suiteName = "WorkspaceAutoReorderSettingsTests.Disabled.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -3887,6 +3898,18 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
         XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
     }
 
+    func testPinnedReorderDisabledWhenSetToFalse() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.PinnedDisabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
+        XCTAssertFalse(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderPinnedOnNotification))
+    }
+
     func testEnabledWhenSetToTrue() {
         let suiteName = "WorkspaceAutoReorderSettingsTests.Enabled.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -3897,6 +3920,18 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
         XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderOnNotification))
+    }
+
+    func testPinnedReorderEnabledWhenSetToTrue() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.PinnedEnabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
+        XCTAssertTrue(UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.reorderPinnedOnNotification))
     }
 }
 
@@ -4405,6 +4440,7 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
         let originalNotificationStore = appDelegate.notificationStore
         let defaults = UserDefaults.standard
         let originalAutoReorderSetting = defaults.object(forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+        let originalPinnedAutoReorderSetting = defaults.object(forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         notificationStore.replaceNotificationsForTesting([])
@@ -4412,6 +4448,7 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = notificationStore
         defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+        defaults.set(false, forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
         AppFocusState.overrideIsFocused = false
 
         defer {
@@ -4424,6 +4461,11 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
                 defaults.set(originalAutoReorderSetting, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
             } else {
                 defaults.removeObject(forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+            }
+            if let originalPinnedAutoReorderSetting {
+                defaults.set(originalPinnedAutoReorderSetting, forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
             }
         }
 
@@ -4443,6 +4485,64 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
         )
 
         XCTAssertEqual(manager.tabs.map(\.id), expectedOrder)
+    }
+
+    func testNotificationAutoReorderMovesPinnedWorkspaceWhenPinnedReorderEnabled() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let notificationStore = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let defaults = UserDefaults.standard
+        let originalAutoReorderSetting = defaults.object(forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+        let originalPinnedAutoReorderSetting = defaults.object(forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        notificationStore.replaceNotificationsForTesting([])
+        notificationStore.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = notificationStore
+        defaults.set(true, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+        defaults.set(true, forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
+        AppFocusState.overrideIsFocused = false
+
+        defer {
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalAutoReorderSetting {
+                defaults.set(originalAutoReorderSetting, forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey)
+            }
+            if let originalPinnedAutoReorderSetting {
+                defaults.set(originalPinnedAutoReorderSetting, forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: SettingCatalog().app.reorderPinnedOnNotification.userDefaultsKey)
+            }
+        }
+
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+
+        notificationStore.addNotification(
+            tabId: secondPinned.id,
+            surfaceId: nil,
+            title: "Build finished",
+            subtitle: "",
+            body: "Pinned workspace should move within pinned tier"
+        )
+
+        XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
+        XCTAssertTrue(manager.tabs[0].isPinned)
+        XCTAssertTrue(manager.tabs[1].isPinned)
+        XCTAssertFalse(manager.tabs[2].isPinned)
     }
 }
 
