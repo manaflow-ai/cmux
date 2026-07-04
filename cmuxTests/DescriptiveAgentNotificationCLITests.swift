@@ -80,6 +80,66 @@ final class DescriptiveAgentNotificationCLITests: XCTestCase {
         XCTAssertTrue(notify.hasSuffix("|c=turn-complete;p=0;a=codex"), notify)
     }
 
+    func testClaudeTranscriptJSONAssistantMessageDoesNotBecomeNotificationBody() throws {
+        let context = try makeClaudeHookContext(name: "claude-transcript-json-fallback")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-transcript-json-fallback-session"
+        let transcriptURL = context.root.appendingPathComponent("claude-transcript-json-fallback.jsonl")
+        try [
+            #"{"type":"assistant","message":{"role":"assistant","content":"Earlier assistant prose"}}"#,
+            #"{"type":"assistant","message":{"role":"assistant","content":"{\"findings\":[]}"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit"}"#
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let stop = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "stop"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        let stopNotify = try XCTUnwrap(
+            stopCommands.first { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Claude Code|") },
+            "Expected a Claude stop notification, saw \(stopCommands)"
+        )
+        XCTAssertTrue(stopNotify.contains("|Claude session completed in \(context.root.lastPathComponent)|"), stopNotify)
+        XCTAssertFalse(stopNotify.contains(#"{"findings":[]}"#), stopNotify)
+        XCTAssertFalse(stopNotify.contains("Earlier assistant prose"), stopNotify)
+        XCTAssertTrue(stopNotify.hasSuffix("|c=turn-complete;p=0;a=claude"), stopNotify)
+
+        let idleStart = context.state.commands.count
+        let idle = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "notification"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude needs your input"}"#
+        )
+        XCTAssertFalse(idle.timedOut, idle.stderr)
+        XCTAssertEqual(idle.status, 0, idle.stderr)
+
+        let idleCommands = Array(context.state.commands.dropFirst(idleStart))
+        let idleNotify = try XCTUnwrap(
+            idleCommands.first { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Claude Code|") },
+            "Expected a Claude idle notification, saw \(idleCommands)"
+        )
+        XCTAssertTrue(idleNotify.contains("|Claude session completed in \(context.root.lastPathComponent)|"), idleNotify)
+        XCTAssertFalse(idleNotify.contains(#"{"findings":[]}"#), idleNotify)
+        XCTAssertFalse(idleNotify.contains("Earlier assistant prose"), idleNotify)
+        XCTAssertTrue(idleNotify.hasSuffix("|c=idle-reminder;p=0;a=claude"), idleNotify)
+    }
+
     @MainActor
     func testLegacyNotifyTargetPayloadsFlowThroughAppParserWithoutAgentTagging() async throws {
         let socketPath = makeSocketPath("legacy-payloads")

@@ -8,7 +8,7 @@ import Testing
 
 @Suite struct NotificationBannerCompositionTests {
     @Test func agentNotificationWithWorkspaceUsesWorkspaceTitleAndAgentSubtitle() {
-        let content = composeNotificationBannerContent(
+        let content = NotificationBannerComposer.composeNotificationBannerContent(
             title: "Claude Code",
             subtitle: "Waiting",
             body: "Review the proposed change",
@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func agentNotificationWithoutWorkspaceKeepsLegacyContent() {
-        let content = composeNotificationBannerContent(
+        let content = NotificationBannerComposer.composeNotificationBannerContent(
             title: "Codex",
             subtitle: "Completed",
             body: "Done",
@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func nonAgentNotificationUsesWorkspaceAsMissingSubtitle() {
-        let content = composeNotificationBannerContent(
+        let content = NotificationBannerComposer.composeNotificationBannerContent(
             title: "Build finished",
             subtitle: "",
             body: "All checks passed",
@@ -53,7 +53,7 @@ import Testing
     }
 
     @Test func nonAgentNotificationDoesNotDuplicateWorkspaceSubtitleWhenTitleMatches() {
-        let content = composeNotificationBannerContent(
+        let content = NotificationBannerComposer.composeNotificationBannerContent(
             title: "cmux",
             subtitle: "",
             body: "All checks passed",
@@ -68,7 +68,7 @@ import Testing
     }
 
     @Test func nonAgentNotificationKeepsExistingSubtitle() {
-        let content = composeNotificationBannerContent(
+        let content = NotificationBannerComposer.composeNotificationBannerContent(
             title: "Build finished",
             subtitle: "Release",
             body: "All checks passed",
@@ -83,7 +83,7 @@ import Testing
     }
 
     @Test func emptyTitleFallsBackToAppNameWhenLegacyTitleIsTrulyEmpty() {
-        let content = composeNotificationBannerContent(
+        let content = NotificationBannerComposer.composeNotificationBannerContent(
             title: "",
             subtitle: "",
             body: "Y",
@@ -98,7 +98,7 @@ import Testing
     }
 
     @Test func legacyPathPreservesPaddedAndWhitespaceOnlyTitles() {
-        let padded = composeNotificationBannerContent(
+        let padded = NotificationBannerComposer.composeNotificationBannerContent(
             title: " My Title ",
             subtitle: "",
             body: "Y",
@@ -109,7 +109,7 @@ import Testing
         #expect(padded.title == " My Title ")
         #expect(padded.subtitle == "")
 
-        let whitespace = composeNotificationBannerContent(
+        let whitespace = NotificationBannerComposer.composeNotificationBannerContent(
             title: "  ",
             subtitle: "",
             body: "Y",
@@ -119,5 +119,22 @@ import Testing
         )
         #expect(whitespace.title == "  ")
         #expect(whitespace.subtitle == "")
+    }
+
+    @Test func jsonBlobAssistantMessageDetectionParsesOnlyJSONObjectOrArrayText() {
+        #expect(NotificationBannerComposer.isJSONBlobAssistantMessage(#"{"findings":[]}"#))
+        #expect(NotificationBannerComposer.isJSONBlobAssistantMessage(#"  [1,2,3]  "#))
+        #expect(NotificationBannerComposer.isJSONBlobAssistantMessage("{\n  \"findings\": [\"\(String(repeating: "x", count: 220))\"]\n}"))
+        #expect(!NotificationBannerComposer.isJSONBlobAssistantMessage("Finished with changes"))
+        #expect(!NotificationBannerComposer.isJSONBlobAssistantMessage("{not json}"))
+    }
+
+    @Test func longJSONAssistantMessageFallsBackToPromptBodyBeforeSnippet() throws {
+        let assistantMessage = "{\n  \"findings\": [\"\(String(repeating: "x", count: 220))\"]\n}"
+        let promptBody = try #require(NotificationBannerComposer.notificationBannerSnippet("Investigate warnings", maxLength: 120))
+        let body = NotificationBannerComposer.assistantMessageSnippetRejectingJSONBlob(assistantMessage, maxLength: 180)
+            ?? "Finished: \(promptBody)"
+
+        #expect(body == "Finished: Investigate warnings")
     }
 }

@@ -30,6 +30,9 @@ extension CMUXCLI {
         return true
     }
 
+    /// These literals mirror Claude Code's Notification hook copy. If matching
+    /// fails, cmux gracefully shows the original body; extend the set when
+    /// Claude Code changes that external copy.
     func isGenericClaudeNotificationBody(_ body: String) -> Bool {
         let normalized = normalizedSingleLine(body)
         let placeholders: Set<String> = [

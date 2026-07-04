@@ -17,7 +17,7 @@ extension TerminalNotificationStore {
     }
 
     func bannerContent(for notification: TerminalNotification) -> NotificationBannerContent {
-        composeNotificationBannerContent(
+        NotificationBannerComposer.composeNotificationBannerContent(
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,

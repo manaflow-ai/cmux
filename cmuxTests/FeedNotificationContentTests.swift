@@ -9,7 +9,7 @@ import Testing
 
 @Suite struct FeedNotificationContentTests {
     @Test func permissionBodyUsesCommandDetail() throws {
-        let content = try #require(composeFeedNotificationContent(
+        let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .permissionRequest,
             source: "opencode",
             toolName: "Bash",
@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func permissionBodyUsesFileBasename() throws {
-        let content = try #require(composeFeedNotificationContent(
+        let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .permissionRequest,
             source: "codex",
             toolName: "Edit",
@@ -37,7 +37,7 @@ import Testing
     }
 
     @Test func permissionBodyUsesFirstPattern() throws {
-        let content = try #require(composeFeedNotificationContent(
+        let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .permissionRequest,
             source: "claude",
             toolName: "Read",
@@ -50,8 +50,8 @@ import Testing
         #expect(content.body == "Allow Read: Sources/**/*.swift")
     }
 
-    @Test func permissionBodyFallsBackToToolNameForOpaqueInput() throws {
-        let content = try #require(composeFeedNotificationContent(
+    @Test func permissionBodyUsesSingleToolApprovalForOpaqueInput() throws {
+        let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .permissionRequest,
             source: "custom",
             toolName: "Shell",
@@ -61,11 +61,11 @@ import Testing
 
         #expect(content.title == "custom permission")
         #expect(content.subtitle == "custom \u{00B7} permission")
-        #expect(content.body == "Allow Shell: Shell")
+        #expect(content.body == "Shell needs approval")
     }
 
     @Test func questionBodyUsesFirstQuestionText() throws {
-        let content = try #require(composeFeedNotificationContent(
+        let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .askUserQuestion,
             source: "opencode",
             toolName: nil,
@@ -79,7 +79,7 @@ import Testing
     }
 
     @Test func exitPlanBodyUsesQuestionThenPlanLine() throws {
-        let questionContent = try #require(composeFeedNotificationContent(
+        let questionContent = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .exitPlanMode,
             source: "codex",
             toolName: nil,
@@ -90,7 +90,7 @@ import Testing
         #expect(questionContent.subtitle == "Codex \u{00B7} plan ready")
         #expect(questionContent.body == "Approve this plan?")
 
-        let planContent = try #require(composeFeedNotificationContent(
+        let planContent = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .exitPlanMode,
             source: "codex",
             toolName: nil,

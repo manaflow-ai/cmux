@@ -26,13 +26,17 @@ extension TerminalController {
 
         let title = String(localized: "agentSession.provider.opencode", defaultValue: "OpenCode")
         let subtitle = String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed")
-        let promptBody = notificationBannerSnippet(event.context?.lastUserMessage, maxLength: 120).map { prompt in
+        let promptBody = NotificationBannerComposer.notificationBannerSnippet(event.context?.lastUserMessage, maxLength: 120).map { prompt in
             String.localizedStringWithFormat(
                 String(localized: "agent.generic.completion.body.finishedPrompt", defaultValue: "Finished: %@"),
                 prompt
             )
         }
-        let body = notificationBannerSnippet(event.assistantFinalMessage, maxLength: 180)
+        let assistantBody = NotificationBannerComposer.assistantMessageSnippetRejectingJSONBlob(
+            event.assistantFinalMessage,
+            maxLength: 180
+        )
+        let body = assistantBody
             ?? promptBody
             ?? String(localized: "agent.opencode.completion.body.sessionCompleted", defaultValue: "OpenCode session completed")
 

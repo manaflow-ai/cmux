@@ -745,7 +745,7 @@ private extension FeedCoordinator {
             default:
                 return
             }
-            guard let content = composeFeedNotificationContent(
+            guard let content = NotificationBannerComposer.composeFeedNotificationContent(
                 hookEventName: event.hookEventName,
                 source: event.source,
                 toolName: event.toolName,

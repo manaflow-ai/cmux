@@ -24758,7 +24758,12 @@ struct CMUXCLI {
 
             let text = extractMessageText(from: message)
             guard let text, !text.isEmpty else { continue }
-            lastAssistantMessage = truncate(normalizedSingleLine(text), maxLength: 120)
+            let normalized = normalizedSingleLine(text)
+            guard !isJSONBlobAssistantMessage(normalized) else {
+                lastAssistantMessage = nil
+                continue
+            }
+            lastAssistantMessage = truncate(normalized, maxLength: 120)
         }
 
         guard lastAssistantMessage != nil else { return nil }

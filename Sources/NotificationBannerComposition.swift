@@ -7,100 +7,117 @@ struct NotificationBannerContent: Equatable, Sendable {
     let body: String
 }
 
-nonisolated func composeNotificationBannerContent(
-    title: String,
-    subtitle: String,
-    body: String,
-    agentId: String?,
-    workspaceTitle: String?,
-    appName: String
-) -> NotificationBannerContent {
-    let legacyTitle = title.isEmpty ? (notificationBannerNonEmpty(appName) ?? "cmux") : title
-    let agentTitle = notificationBannerNonEmpty(title) ?? notificationBannerNonEmpty(appName) ?? "cmux"
-    let workspace = notificationBannerNonEmpty(workspaceTitle)
-    let originalSubtitle = notificationBannerNonEmpty(subtitle)
+enum NotificationBannerComposer {
+    static nonisolated func composeNotificationBannerContent(
+        title: String,
+        subtitle: String,
+        body: String,
+        agentId: String?,
+        workspaceTitle: String?,
+        appName: String
+    ) -> NotificationBannerContent {
+        let legacyTitle = title.isEmpty ? (notificationBannerNonEmpty(appName) ?? "cmux") : title
+        let agentTitle = notificationBannerNonEmpty(title) ?? notificationBannerNonEmpty(appName) ?? "cmux"
+        let workspace = notificationBannerNonEmpty(workspaceTitle)
+        let originalSubtitle = notificationBannerNonEmpty(subtitle)
 
-    if agentId != nil, let workspace {
-        let subtitlePieces = [agentTitle, originalSubtitle].compactMap { $0 }
+        if agentId != nil, let workspace {
+            let subtitlePieces = [agentTitle, originalSubtitle].compactMap { $0 }
+            return NotificationBannerContent(
+                title: workspace,
+                subtitle: subtitlePieces.joined(separator: " · "),
+                body: body
+            )
+        }
+
+        if agentId == nil,
+           let workspace,
+           originalSubtitle == nil,
+           workspace != notificationBannerNonEmpty(legacyTitle) {
+            return NotificationBannerContent(title: legacyTitle, subtitle: workspace, body: body)
+        }
+
+        return NotificationBannerContent(title: legacyTitle, subtitle: subtitle, body: body)
+    }
+
+    static nonisolated func composeFeedNotificationContent(
+        hookEventName: WorkstreamEvent.HookEventName,
+        source: String,
+        toolName: String?,
+        toolInputJSON: String?,
+        workspaceTitle: String?
+    ) -> NotificationBannerContent? {
+        let sourceDisplayName = feedNotificationSourceDisplayName(source)
+        let title: String
+        let fallbackTitle: String
+        let kind: String
+        let body: String
+
+        switch hookEventName {
+        case .permissionRequest:
+            fallbackTitle = String.localizedStringWithFormat(
+                String(localized: "feed.notification.permission.title", defaultValue: "%@ permission"),
+                sourceDisplayName
+            )
+            kind = String(localized: "feed.notification.permission.kind", defaultValue: "permission")
+            body = feedNotificationPermissionBody(toolName: toolName, toolInputJSON: toolInputJSON)
+        case .exitPlanMode:
+            fallbackTitle = String.localizedStringWithFormat(
+                String(localized: "feed.notification.exitPlan.title", defaultValue: "%@ plan ready"),
+                sourceDisplayName
+            )
+            kind = String(localized: "feed.notification.exitPlan.kind", defaultValue: "plan ready")
+            body = feedNotificationExitPlanBody(toolInputJSON: toolInputJSON)
+        case .askUserQuestion:
+            fallbackTitle = String.localizedStringWithFormat(
+                String(localized: "feed.notification.question.title", defaultValue: "%@ question"),
+                sourceDisplayName
+            )
+            kind = String(localized: "feed.notification.question.kind", defaultValue: "question")
+            body = feedNotificationQuestionBody(toolInputJSON: toolInputJSON)
+        default:
+            return nil
+        }
+
+        if let workspace = notificationBannerNonEmpty(workspaceTitle) {
+            title = workspace
+        } else {
+            title = fallbackTitle
+        }
+
         return NotificationBannerContent(
-            title: workspace,
-            subtitle: subtitlePieces.joined(separator: " · "),
+            title: title,
+            subtitle: [sourceDisplayName, kind].compactMap(notificationBannerNonEmpty).joined(separator: " · "),
             body: body
         )
     }
 
-    if agentId == nil,
-       let workspace,
-       originalSubtitle == nil,
-       workspace != notificationBannerNonEmpty(legacyTitle) {
-        return NotificationBannerContent(title: legacyTitle, subtitle: workspace, body: body)
+    static nonisolated func notificationBannerSnippet(_ value: String?, maxLength: Int) -> String? {
+        guard let value else { return nil }
+        let normalized = value
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        guard maxLength > 3, normalized.count > maxLength else { return normalized }
+        let end = normalized.index(normalized.startIndex, offsetBy: maxLength - 3)
+        return String(normalized[..<end]) + "..."
     }
 
-    return NotificationBannerContent(title: legacyTitle, subtitle: subtitle, body: body)
-}
-
-nonisolated func composeFeedNotificationContent(
-    hookEventName: WorkstreamEvent.HookEventName,
-    source: String,
-    toolName: String?,
-    toolInputJSON: String?,
-    workspaceTitle: String?
-) -> NotificationBannerContent? {
-    let sourceDisplayName = feedNotificationSourceDisplayName(source)
-    let title: String
-    let fallbackTitle: String
-    let kind: String
-    let body: String
-
-    switch hookEventName {
-    case .permissionRequest:
-        fallbackTitle = String.localizedStringWithFormat(
-            String(localized: "feed.notification.permission.title", defaultValue: "%@ permission"),
-            sourceDisplayName
-        )
-        kind = String(localized: "feed.notification.permission.kind", defaultValue: "permission")
-        body = feedNotificationPermissionBody(toolName: toolName, toolInputJSON: toolInputJSON)
-    case .exitPlanMode:
-        fallbackTitle = String.localizedStringWithFormat(
-            String(localized: "feed.notification.exitPlan.title", defaultValue: "%@ plan ready"),
-            sourceDisplayName
-        )
-        kind = String(localized: "feed.notification.exitPlan.kind", defaultValue: "plan ready")
-        body = feedNotificationExitPlanBody(toolInputJSON: toolInputJSON)
-    case .askUserQuestion:
-        fallbackTitle = String.localizedStringWithFormat(
-            String(localized: "feed.notification.question.title", defaultValue: "%@ question"),
-            sourceDisplayName
-        )
-        kind = String(localized: "feed.notification.question.kind", defaultValue: "question")
-        body = feedNotificationQuestionBody(toolInputJSON: toolInputJSON)
-    default:
-        return nil
+    static nonisolated func assistantMessageSnippetRejectingJSONBlob(_ value: String?, maxLength: Int) -> String? {
+        guard let value, !isJSONBlobAssistantMessage(value) else { return nil }
+        return notificationBannerSnippet(value, maxLength: maxLength)
     }
 
-    if let workspace = notificationBannerNonEmpty(workspaceTitle) {
-        title = workspace
-    } else {
-        title = fallbackTitle
+    static nonisolated func isJSONBlobAssistantMessage(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+              let data = trimmed.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil else {
+            return false
+        }
+        return true
     }
-
-    return NotificationBannerContent(
-        title: title,
-        subtitle: [sourceDisplayName, kind].compactMap(notificationBannerNonEmpty).joined(separator: " · "),
-        body: body
-    )
-}
-
-nonisolated func notificationBannerSnippet(_ value: String?, maxLength: Int) -> String? {
-    guard let value else { return nil }
-    let normalized = value
-        .split(whereSeparator: { $0.isWhitespace })
-        .joined(separator: " ")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !normalized.isEmpty else { return nil }
-    guard maxLength > 3, normalized.count > maxLength else { return normalized }
-    let end = normalized.index(normalized.startIndex, offsetBy: maxLength - 3)
-    return String(normalized[..<end]) + "..."
 }
 
 private nonisolated func feedNotificationSourceDisplayName(_ source: String) -> String {
@@ -120,13 +137,12 @@ private nonisolated func feedNotificationPermissionBody(toolName: String?, toolI
         ?? notificationBannerFileBasename(object?["file_path"] as? String)
         ?? notificationBannerFileBasename(object?["filePath"] as? String)
         ?? notificationBannerFirstPattern(object?["patterns"])
-        ?? tool
 
     if let tool, let detail {
         return String.localizedStringWithFormat(
             String(localized: "feed.notification.permission.allowBody", defaultValue: "Allow %@: %@"),
             tool,
-            notificationBannerSnippet(detail, maxLength: 120) ?? detail
+            NotificationBannerComposer.notificationBannerSnippet(detail, maxLength: 120) ?? detail
         )
     }
 
@@ -156,13 +172,13 @@ private nonisolated func feedNotificationExitPlanBody(toolInputJSON: String?) ->
 
     if let question = notificationBannerJSONObject(object["tool_input"]).flatMap({ notificationBannerNonEmpty($0["question"] as? String) })
         ?? notificationBannerNonEmpty(object["question"] as? String) {
-        return notificationBannerSnippet(question, maxLength: 120) ?? question
+        return NotificationBannerComposer.notificationBannerSnippet(question, maxLength: 120) ?? question
     }
 
     let plan = notificationBannerJSONObject(object["tool_input"]).flatMap({ notificationBannerNonEmpty($0["plan"] as? String) })
         ?? notificationBannerNonEmpty(object["plan"] as? String)
     if let line = plan?.components(separatedBy: .newlines).compactMap(notificationBannerNonEmpty).first {
-        return notificationBannerSnippet(line, maxLength: 120) ?? line
+        return NotificationBannerComposer.notificationBannerSnippet(line, maxLength: 120) ?? line
     }
 
     return String(localized: "feed.notification.exitPlan.body", defaultValue: "Review and approve the plan")
@@ -172,7 +188,7 @@ private nonisolated func notificationBannerQuestion(from object: [String: Any]) 
     if let questions = object["questions"] as? [[String: Any]],
        let first = questions.first,
        let question = notificationBannerNonEmpty(first["question"] as? String) {
-        return notificationBannerSnippet(question, maxLength: 120) ?? question
+        return NotificationBannerComposer.notificationBannerSnippet(question, maxLength: 120) ?? question
     }
     if let nested = notificationBannerJSONObject(object["tool_input"]),
        let question = notificationBannerQuestion(from: nested) {
