@@ -1363,7 +1363,6 @@ struct HiddenTitlebarSidebarControlsView: View {
             WindowAccessor(invokeDuringUpdate: false) { window in
                 let nextWindowNumber = window.windowNumber
                 _ = viewModel.setHostWindow(window)
-                isHoveringWindowChrome = nextWindowNumber == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
                 _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -1463,6 +1462,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             }
             #endif
         }
+        .onAppear { isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
         .onDisappear {
             isHoveringHost = false
             isHoveringWindowChrome = false
