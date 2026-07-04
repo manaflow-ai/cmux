@@ -4,6 +4,7 @@ import Balancer from "react-wrap-balancer";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
+import { WaitlistCallout } from "./components/waitlist-callout";
 import { SiteHeader } from "./components/site-header";
 import { BrandLogoLink } from "./components/brand-logo-link";
 import {
@@ -74,10 +75,7 @@ function HomeContent() {
 
         {/* Tagline */}
         <p className="text-lg leading-relaxed mb-3 text-foreground">
-          <span className="sr-only">
-            {t("taglinePrefix")}
-            {t("typingCodingAgents")}, {t("typingMultitasking")}
-          </span>
+          <span className="sr-only">{t("taglineStatic")}</span>
           <span aria-hidden="true">
             {t("taglinePrefix")}
             <TypingTagline />
@@ -126,7 +124,6 @@ function HomeContent() {
               [
                 ["verticalTabs", "verticalTabsDesc"],
                 ["notificationRings", "notificationRingsDesc"],
-                ["ios", "iosDesc"],
                 ["inAppBrowser", "inAppBrowserDesc"],
                 ["splitPanes", "splitPanesDesc"],
                 ["scriptable", "scriptableDesc"],
@@ -139,13 +136,7 @@ function HomeContent() {
                 <span className="text-muted shrink-0">-</span>
                 <span>
                   <strong className="font-medium">
-                    {title === "ios" ? (
-                      <Link href="/ios" className={linkClass}>
-                        {t(`feature.${title}`)}
-                      </Link>
-                    ) : (
-                      t(`feature.${title}`)
-                    )}
+                    {t(`feature.${title}`)}
                   </strong>
                   <span className="text-muted">{t(`feature.${desc}`)}</span>
                 </span>
@@ -188,16 +179,20 @@ function HomeContent() {
           </ul>
         </section>
 
-        {/* Screenshot */}
+        {/* Screenshot: bleeds wider than the text column but stays bounded to
+            the viewport so it always fits on screen with a left/right gutter.
+            The width tracks the viewport minus a 1.5rem gutter on each side and
+            is capped at 90rem; left-1/2 + -translate-x-1/2 keeps it centered
+            over the narrower text column. */}
         <div
           data-dev="screenshot"
-          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 relative left-1/2 -translate-x-1/2 w-[min(90rem,100vw_-_3rem)]"
         >
           <HeroScreenshot />
         </div>
 
         {/* FAQ */}
-        <div data-dev="faq-top-spacer" style={{ height: 0 }} />
+        <div data-dev="faq-top-spacer" style={{ height: 32 }} />
         <section data-dev="faq" className="mb-10">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             {t("faq")}
@@ -227,7 +222,18 @@ function HomeContent() {
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
-              <p className="text-muted">{t("faqIosA")}</p>
+              <p className="text-muted">
+                {t.rich("faqIosA", {
+                  foundersLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqAgentsQ")}</p>
@@ -530,6 +536,9 @@ function HomeContent() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
           <DownloadButton location="bottom" />
           <GitHubButton />
+        </div>
+        <div className="mt-3 flex justify-center">
+          <WaitlistCallout location="bottom" />
         </div>
         <div className="flex justify-center gap-4 mt-6">
           <Link

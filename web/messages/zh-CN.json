@@ -12,7 +12,8 @@
     "toggleTheme": "切换主题",
     "backToBlog": "返回博客",
     "readTheDocs": "阅读文档",
-    "viewChangelog": "查看更新日志"
+    "viewChangelog": "查看更新日志",
+    "otherPlatforms": "其他平台"
   },
   "nav": {
     "docs": "文档",
@@ -72,7 +73,7 @@
       "openSource": "开源",
       "openSourceDesc": "：免费且采用 GPL 许可",
       "ios": "iOS 伴侣应用",
-      "iosDesc": "：从你的 iPhone 连接到你的终端"
+      "iosDesc": "：你的终端实时同步到 iPhone 和 iPad"
     },
     "faqGhosttyQ": "cmux 和 Ghostty 是什么关系？",
     "faqGhosttyA": "cmux 不是 Ghostty 的 fork。它使用 <link>libghostty</link> 作为终端渲染库，就像应用使用 WebKit 来渲染网页一样。Ghostty 是一个独立的终端；cmux 是基于其渲染引擎构建的不同应用。",
@@ -99,7 +100,7 @@
     "faqCustomizeQ": "可以自定义 cmux 吗？",
     "faqCustomizeA": "是的。终端渲染使用你的 Ghostty 配置，因此主题、字体、颜色和光标会直接沿用。cmux 自身的设置位于 <path>~/.config/cmux/cmux.json</path>，用于控制侧边栏、标签栏、分割面板和行为，每个<shortcutsLink>键盘快捷键</shortcutsLink>都可编辑。参阅<link>配置</link>。",
     "faqIosQ": "有 iOS 应用吗？",
-    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 窗口中将你的 iPhone 与 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。它通过 TestFlight 以 cmux BETA 的形式发布。",
+    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 窗口中将你的 iPhone 与 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。它通过 TestFlight 以 cmux BETA 的形式发布。<foundersLink>cmux Founders Edition</foundersLink> 包含抢先访问权限。",
     "faqSkillsQ": "cmux 有 skills 吗？",
     "faqSkillsA": "有。skills 是可复用的工作流，你可以把它交给任何在 cmux 中运行的 agent，用于 CLI 控制、工作区自动化、设置和浏览器界面等场景。在 <skillsLink>cmux-skills</skillsLink> 浏览开放的集合，或阅读 <link>skills 文档</link>。",
     "faqBrowserQ": "内置浏览器能做什么？",
@@ -484,6 +485,16 @@
         "fullHistoryTitle": "完整的历史记录面板",
         "fullHistoryP": "当你需要的不止最后一项时，打开完整的历史记录面板：它按天分组、可搜索，列出你关闭和聚焦过的所有内容，带有时间戳，还有 Clear Closed 操作。",
         "docsCta": "查看<link>键盘快捷键</link>了解完整列表，包括如何重新绑定历史记录导航。"
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "我们不会给 cmux 加入 worktree。它是一种基础组件，你可以自己用脚本实现 worktree、多份检出或远程开发，把它变成自己的家。",
+        "date": "2026年6月23日",
+        "p1": "经常有人问我们会不会给 cmux 加入 git worktree。我们不会，因为我们不想把 worktree 强加给所有人。cmux 是<link>一种基础组件，而不是一套方案</link>。",
+        "p2": "每个人的工作方式都不一样。有些项目分散在多个 git 仓库里。有些人会保留同一个仓库的许多份检出（我的联合创始人有从 cmux0 到 cmux40 命名的克隆，原因我至今没搞懂）。有些人默认用 SSH 和远程开发。",
+        "p3": "cmux 只是终端和浏览器，外加一个用来驱动它们的 CLI。你可以写几个 bash 脚本来管理 worktree、在多份检出之间切换或开启远程会话，并按自己的习惯布置工作区。",
+        "p4": "cmux 应该顺应你的工作流，而不是强迫你接受某一种。我们希望 cmux 用起来像家一样。",
+        "p5": "<link>cmux-home</link> 就是一个例子。它是一个小巧的 Rust TUI，用来启动 Claude 和 Codex 工作区并实时查看它们的状态，完全构建在 cmux 的基础组件之上。启动器使用命令模板，你可以换成自己的脚本来创建 worktree、选择检出或 SSH 连接到 VM。把它 fork 下来，变成你自己的。"
       }
     },
     "zenOfCmux": {
@@ -613,6 +624,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history：重新打开已关闭的终端和会话",
       "metaDescription": "cmux 会记录你关闭和聚焦过的内容。用 Cmd+Shift+T 重新打开已关闭的终端、浏览器、工作区，以及 Claude Code、Codex 和 OpenCode 会话，并用 Cmd+[ 和 Cmd+] 在聚焦之间前后切换。"
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux 不会把 worktree 强加给你。它是一种基础组件，你可以自己用脚本实现 worktree、多份检出或远程开发，把 cmux 变成自己的家。"
     }
   },
   "docs": {
@@ -722,13 +737,13 @@
       "layoutItem1": "已固定的顶级行（工作区和分组）。",
       "layoutItem2": "未固定的顶级行（工作区和分组）。",
       "creatingTitle": "创建分组",
-      "creatingIntro": "可以通过两种方式创建分组：键盘快捷键或工作区右键菜单。两者都会在所选项上方插入一个新的锚点工作区，并将所选工作区移入该分组。分组创建后，你可以从分组标题处管理它并向其中添加工作区（参见下方的“管理分组”）。",
-      "keyboardTitle": "通过键盘（{shortcut}）",
-      "keyboardDesc": "在侧边栏中选中两个或更多工作区，然后按 {shortcut}。一个全新的锚点工作区会插入在选中项的上方，所有选中的工作区都会成为它的子项。分组会被自动命名为 Group 1、Group 2，依此类推——你随时可以通过标题栏右键菜单重命名它。",
+      "creatingIntro": "可以通过键盘快捷键或侧边栏上下文菜单创建组。空组会插入一个新的锚点工作区作为组标题。基于选择的组会把这个锚点插入到所选项上方，并将所选工作区移入组中。组创建后，你可以从组标题管理它并向其中添加工作区（见下方“管理组”）。",
+      "keyboardTitle": "通过键盘快捷键",
+      "keyboardDesc": "按 ⌃⌘G 创建新的空工作区组。在侧边栏中选择两个或更多工作区，然后按 {shortcut} 对所选项分组。两种方式都会创建一个新的锚点工作区，并自动将组命名为 Group 1、Group 2 等。你可以随时通过标题上下文菜单重命名。",
       "keyboardNote": "{shortcut} 与 React Grab 的默认快捷键冲突。分组处理程序只有在侧边栏中明确多选了至少两个工作区时才会占用该组合键，因此在单选以及浏览器或终端环境中 React Grab 仍会触发。如果你不希望两者共用一个按键，可在 设置 → 键盘 中重新绑定它。",
       "keyboardSingle": "单标签分组无法通过快捷键创建。请使用工作区右键菜单中的 New Group from Workspace 项来创建。",
       "contextMenuTitle": "通过工作区右键菜单",
-      "contextMenuDesc": "在侧边栏中右键单击任意工作区并选择 New Group from Workspace，或在选中多个工作区时选择 New Group from Selection。这与快捷键使用相同的自动命名行为。",
+      "contextMenuDesc": "右键点击侧边栏中的任意工作区，选择“新建空工作区组”、“从工作区新建组”，或者在选择多个工作区时选择“从所选项新建组”。侧边栏列表下方的空白区域也提供“新建空工作区组”。这些方式使用与快捷键相同的自动命名行为。",
       "managingTitle": "管理分组",
       "managingIntro": "分组创建后，可以通过其标题的右键菜单以及标题上的 + 按钮来管理分组并向其中添加工作区。这两者都不会创建新分组。",
       "headerMenuTitle": "通过分组标题栏右键菜单",
@@ -784,6 +799,8 @@
       "exampleConfig": "配置示例",
       "metaTitle": "配置",
       "schemaDescriptions": {
+        "paneBorderColor": "覆盖拆分工作区中的 cmux 窗格分隔线颜色。此设置影响 cmux 窗格边界，而不是 Ghostty 的内部分屏。",
+        "activePaneBorderColor": "在拆分工作区中围绕当前聚焦的 cmux 窗格绘制的可选边框颜色。",
         "automation": {
           "ampIntegration": "启用 cmux 与 Amp 的集成钩子。禁用时，捆绑插件将保持非活动状态，无需移除。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。",
@@ -804,6 +821,9 @@
           "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
           "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。"
         },
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
@@ -832,7 +852,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         }
       },
@@ -1053,7 +1073,8 @@
       "closeWorkspaceDesc": "关闭工作区。",
       "splitCommands": "分屏命令",
       "newSplitDesc": "创建新的分屏面板。方向：left、right、up、down。",
-      "listSurfacesDesc": "列出当前工作区中的所有 surface。",
+      "listPanelsDesc": "列出当前工作区中的所有 surface。",
+      "listPaneSurfacesDesc": "列出当前聚焦面板中的 surface。",
       "focusSurfaceDesc": "聚焦到指定 surface。",
       "inputCommands": "输入命令",
       "sendDesc": "向当前聚焦的终端发送文本输入。",
@@ -1575,7 +1596,8 @@
   "afterSignIn": {
     "title": "已登录 cmux",
     "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
-    "button": "返回 cmux"
+    "button": "返回 cmux",
+    "switchAccountButton": "使用其他账号"
   },
   "landing": {
     "bestTerminal": {
@@ -1597,9 +1619,9 @@
       "kittyBuiltFor": "快速、可脚本化、功能丰富",
       "weztermBuiltFor": "带内置多路复用器的 GPU 终端",
       "tmuxBuiltFor": "在任意终端内做多路复用",
-      "cmuxBody": "基于 libghostty 构建的原生 macOS 终端，为三件事而生：多任务处理、组织和可编程性。垂直侧边栏将工作分组为工作区，每个工作区都显示其 git 分支、目录、端口以及 agent 输出的最新一行，让你同时运行许多任务而不会迷失。当 agent 需要关注时，面板会响铃。每个操作都可通过 CLI 和 Unix socket 脚本化，还有一个可编程驱动的内置浏览器。甚至有一个 iOS 伴侣应用，让你在手机上查看终端。如果你要同时处理多个任务或 AI 编程 agent，并希望它们井然有序、可自动化，又不想配置多路复用器，cmux 是最佳选择。",
+      "cmuxBody": "cmux 是一款基于 Ghostty 终端引擎 libghostty 构建的原生 macOS 终端。这意味着终端网格继承了 Ghostty 的优势：快速 GPU 渲染、出色的字体和颜色呈现、现代终端兼容性，以及你现有的 Ghostty 主题、字体、颜色和光标设置。cmux 添加的是 Ghostty 刻意不承担的那一层：垂直工作区、分屏、通知环、侧边栏里的 git/端口/代理上下文、可脚本化的 CLI 和 Unix socket、可编程浏览器，以及 iOS 伴侣应用。当你想要 Ghostty 级别的终端渲染，同时又要为大量任务或 AI 编程代理提供组织和自动化时，选择 cmux。",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "快速、GPU 加速的终端，其引擎 libghostty 驱动着 cmux。如果你想要一个渲染出色的简洁单终端窗口，而不需要工作区或自动化层，Ghostty 本身就很出色。",
+      "ghosttyBody": "Ghostty 是一款快速的原生终端，它的引擎 libghostty 驱动着 cmux。与较旧的 CPU 渲染终端和更重的 Electron 风格终端相比，Ghostty 的优势是低延迟 GPU 渲染、清晰的字体和颜色处理、强大的终端兼容性、简单的文件式配置，以及无需云账号。如果你只想要一个干净的终端窗口，并保留这些渲染优势，不需要工作区或自动化层，Ghostty 本身就很好。如果你想要同样的 Ghostty 渲染优势，再加上工作区、通知、脚本化和代理编排，请使用 cmux。",
       "iterm2Title": "iTerm2",
       "iterm2Body": "成熟、可无止境配置的 macOS 终端。深度的配置文件、触发器和 tmux 集成。如果你想要极致功能且不需要同时编排许多任务，它是稳妥的默认选择。",
       "warpTitle": "Warp",
@@ -1649,7 +1671,16 @@
       "iosTitle": "在手机上查看 Claude",
       "iosBody": "cmux 有一个 iOS 伴侣应用（测试版）：将你的 iPhone 与 Mac 配对，在离开办公桌时查看你的 Claude Code 会话，并可选择转发通知。",
       "scriptTitle": "可脚本化",
-      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用：创建工作区、在其中启动 Claude Code、发送输入、读取屏幕，并驱动内置浏览器来验证更改，全部都能从脚本完成。"
+      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用：创建工作区、在其中启动 Claude Code、发送输入、读取屏幕，并驱动内置浏览器来验证更改，全部都能从脚本完成。",
+      "faqTitle": "FAQ",
+      "faqQ1": "Claude Code 能在 cmux 中运行吗？",
+      "faqA1": "能。cmux 是标准的 macOS 终端，所以 <code>claude</code> 无需额外设置即可在任意工作区运行。",
+      "faqQ2": "我可以在 cmux 中运行 Claude Code 团队吗？",
+      "faqA2": "可以。cmux 用一条命令运行 Claude Code 的队友模式，队友会作为原生 cmux 分割生成，带有各自的侧边栏元数据和通知，无需 tmux。",
+      "faqQ3": "我怎么知道 Claude 何时需要输入？",
+      "faqA3": "当 Claude Code 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让多个 agent 运行，再回到那个需要你的 agent。",
+      "faqQ4": "搭配 Claude Code 使用的 cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
     },
     "codex": {
       "metaTitle": "为 Codex CLI 打造的终端 — cmux",
@@ -1665,7 +1696,16 @@
       "iosTitle": "在手机上查看 Codex",
       "iosBody": "cmux 有一个 iOS 伴侣应用（测试版）：将你的 iPhone 与 Mac 配对，在离开办公桌时查看你的 Codex 运行，并可选择转发通知。",
       "scriptTitle": "可脚本化",
-      "scriptBody": "一切都可通过 cmux CLI 和 Unix socket 使用：创建工作区、启动 Codex、发送输入、读取屏幕、截图，并驱动内置浏览器，全部都能从脚本完成。"
+      "scriptBody": "一切都可通过 cmux CLI 和 Unix socket 使用：创建工作区、启动 Codex、发送输入、读取屏幕、截图，并驱动内置浏览器，全部都能从脚本完成。",
+      "faqTitle": "FAQ",
+      "faqQ1": "Codex CLI 能在 cmux 中运行吗？",
+      "faqA1": "能。cmux 是标准的 macOS 终端，所以 <code>codex</code> 无需额外设置即可在任意工作区运行。",
+      "faqQ2": "我可以让 Codex 与其他 agent 并排运行吗？",
+      "faqA2": "可以。为每个任务打开一个工作区，并排运行 Codex、Claude Code 或 OpenCode。侧边栏会让每个会话保持清晰可读。",
+      "faqQ3": "我怎么知道 Codex 何时需要输入？",
+      "faqA3": "当 Codex 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让它运行，等它需要你时再回来。",
+      "faqQ4": "搭配 Codex 使用的 cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
     },
     "opencode": {
       "metaTitle": "为 OpenCode 打造的终端 — cmux",
@@ -1681,7 +1721,16 @@
       "iosTitle": "在手机上查看 OpenCode",
       "iosBody": "cmux 有一个 iOS 伴侣应用（测试版）：将你的 iPhone 与 Mac 配对，在离开办公桌时查看你的 OpenCode 运行，并可选择转发通知。",
       "scriptTitle": "可脚本化",
-      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用，因此你可以从脚本创建工作区、启动 OpenCode、发送输入、读取屏幕，并驱动内置浏览器。"
+      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用，因此你可以从脚本创建工作区、启动 OpenCode、发送输入、读取屏幕，并驱动内置浏览器。",
+      "faqTitle": "FAQ",
+      "faqQ1": "OpenCode 能在 cmux 中运行吗？",
+      "faqA1": "能。cmux 是标准的 macOS 终端，所以 <code>opencode</code> 无需额外设置即可在任意工作区运行。",
+      "faqQ2": "我可以让 OpenCode 与其他 agent 并排运行吗？",
+      "faqA2": "可以。为每个任务打开一个工作区，并排运行 OpenCode、Claude Code 或 Codex。侧边栏会让每个会话保持清晰可读。",
+      "faqQ3": "我怎么知道 OpenCode 何时需要输入？",
+      "faqA3": "当 OpenCode 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让它运行，等它需要你时再回来。",
+      "faqQ4": "搭配 OpenCode 使用的 cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
     },
     "guides": {
       "metaTitle": "cmux 指南：对比与终端使用场景",
@@ -1704,7 +1753,155 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyOpenCode": "oh-my-opencode",
       "claudeTeams": "Claude Code 团队",
-      "notifications": "通知"
+      "notifications": "通知",
+      "home": "首页",
+      "agents": "为编程 agent 打造的终端",
+      "geminiCli": "为 Gemini CLI 打造的终端",
+      "aider": "为 Aider 打造的终端",
+      "amp": "为 Amp 打造的终端",
+      "cursorCli": "为 Cursor CLI 打造的终端"
+    },
+    "agents": {
+      "metaTitle": "为编程 agent 打造的终端 | cmux",
+      "metaDescription": "cmux 是为运行编程 agent 而打造的原生 macOS 终端：Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor 都能运行。用于并行 agent 的工作区、通知环、垂直标签页、iOS 伴侣应用以及可脚本化的 CLI。",
+      "title": "为编程 agent 打造的终端",
+      "intro": "cmux 是基于 Ghostty 构建、为运行 AI 编程 agent 而打造的原生 macOS 终端。它只是一个终端，所以任何 agent CLI 都开箱即用。而运行 agent 中最令人头疼的部分，即同时跟踪许多 agent 并察觉它们何时需要你，正是 cmux 为之而生的事。",
+      "agentsTitle": "选择你的 agent",
+      "agentsBody": "cmux 适用于每一个 agent CLI。下面的每个页面都介绍 cmux 如何帮你运行那个 agent：并行工作区、通知环、垂直标签页、iOS 伴侣应用以及可脚本化的 socket。",
+      "organizeTitle": "井然有序地运行多个 agent",
+      "organizeBody": "为每个任务打开一个工作区，并在每个工作区中运行任意 agent。垂直侧边栏显示每个工作区的 git 分支、目录、端口以及输出的最新一行，让十几个并行 agent 保持清晰可读，而不是淹没在标签页中。",
+      "notifyTitle": "当 agent 需要你时的通知环",
+      "notifyBody": "当 agent 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让多个 agent 运行，再回到那个需要你做决定的 agent。通知会自动触发，你也可以从 agent 钩子中触发它们。",
+      "scriptTitle": "可脚本化",
+      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用：创建工作区、在其中启动 agent、发送输入、读取屏幕，并驱动内置浏览器来验证更改，全部都能从脚本完成。",
+      "faqTitle": "FAQ",
+      "faqQ1": "哪些编程 agent 能在 cmux 中运行？",
+      "faqA1": "cmux 是标准的 macOS 终端，所以任何 CLI agent 都能运行：Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp、Cursor，以及任何你从 shell 运行的程序。",
+      "faqQ2": "我需要为每个 agent 做配置吗？",
+      "faqA2": "不需要。agent 的运行方式与在任何终端中完全一样。cmux 在其上添加了工作区、通知环和可脚本化的 socket，而不改变 agent 本身的运行方式。",
+      "faqQ3": "我可以同时运行多个 agent 吗？",
+      "faqA3": "可以。为每个任务打开一个工作区，在每个工作区中运行不同的 agent，侧边栏会以各自的分支、目录和输出的最新一行让每个会话保持清晰可读。",
+      "faqQ4": "cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
+    },
+    "geminiCli": {
+      "metaTitle": "为 Gemini CLI 打造的终端 | cmux",
+      "metaDescription": "cmux 是为运行 Google 的 Gemini CLI 而打造的原生 macOS 终端：组织并行 agent 的工作区、当 Gemini 需要你时的通知环、iOS 伴侣应用以及可脚本化的 CLI。",
+      "title": "为 Gemini CLI 打造的终端",
+      "intro": "cmux 是为运行 AI 编程 agent 而打造的原生 macOS 终端，而 Google 的 Gemini CLI 是一流的契合之选。cmux 只是一个终端，所以 <code>gemini</code> 开箱即用地在任意工作区运行，而运行 agent 中最令人头疼的部分，即同时跟踪许多 agent 并察觉它们何时需要你，正是 cmux 为之而生的事。",
+      "organizeTitle": "井然有序地运行多个 Gemini CLI 会话",
+      "organizeBody": "为每个任务打开一个工作区，并在每个工作区中运行 Gemini CLI。垂直侧边栏显示每个工作区的 git 分支、目录、端口以及 Gemini 输出的最新一行，让十几个并行会话保持清晰可读，而不是淹没在标签页中。",
+      "notifyTitle": "当 Gemini 需要你时的通知环",
+      "notifyBody": "当 Gemini CLI 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让多个 agent 运行，再回到那个需要你做决定的 agent。通知会自动触发，你也可以从 shell 钩子中触发它们。",
+      "iosTitle": "在手机上查看 Gemini",
+      "iosBody": "cmux 有一个 iOS 伴侣应用（测试版）：将你的 iPhone 与 Mac 配对，在离开办公桌时查看你的 Gemini CLI 会话，并可选择转发通知。",
+      "scriptTitle": "可脚本化",
+      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用：创建工作区、在其中启动 Gemini CLI、发送输入、读取屏幕，并驱动内置浏览器来验证更改，全部都能从脚本完成。",
+      "faqTitle": "FAQ",
+      "faqQ1": "Gemini CLI 能在 cmux 中运行吗？",
+      "faqA1": "能。cmux 是标准的 macOS 终端，所以 <code>gemini</code> 无需额外设置即可在任意工作区运行。",
+      "faqQ2": "我可以让 Gemini CLI 与其他 agent 并排运行吗？",
+      "faqA2": "可以。为每个任务打开一个工作区，并排运行 Gemini CLI、Claude Code 或 Codex。侧边栏会让每个会话保持清晰可读。",
+      "faqQ3": "我怎么知道 Gemini 何时需要输入？",
+      "faqA3": "当 Gemini CLI 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让它运行，等它需要你时再回来。",
+      "faqQ4": "搭配 Gemini CLI 使用的 cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
+    },
+    "aider": {
+      "metaTitle": "为 Aider 打造的终端 | cmux",
+      "metaDescription": "cmux 是为运行 Aider 而打造的原生 macOS 终端：组织并行 agent 的工作区、当 Aider 需要你时的通知环、iOS 伴侣应用以及可脚本化的 CLI。",
+      "title": "为 Aider 打造的终端",
+      "intro": "cmux 是为运行 AI 编程 agent 而打造的原生 macOS 终端，而 Aider 是一流的契合之选。cmux 只是一个终端，所以 <code>aider</code> 开箱即用地在任意工作区运行，而运行 agent 中最令人头疼的部分，即同时跟踪许多 agent 并察觉它们何时需要你，正是 cmux 为之而生的事。",
+      "organizeTitle": "井然有序地运行多个 Aider 会话",
+      "organizeBody": "为每个任务打开一个工作区，并在每个工作区中运行 Aider。垂直侧边栏显示每个工作区的 git 分支、目录、端口以及输出的最新一行，让十几个并行会话保持清晰可读，而不是淹没在标签页中。Aider 边工作边提交，每个工作区都会显示它所在的分支。",
+      "notifyTitle": "当 Aider 需要你时的通知环",
+      "notifyBody": "当 Aider 完成一项更改或请求确认时，面板会响铃，侧边栏会显示未读标记，于是你可以让多个 agent 运行，再回到那个需要你做决定的 agent。通知会自动触发，你也可以从 shell 钩子中触发它们。",
+      "iosTitle": "在手机上查看 Aider",
+      "iosBody": "cmux 有一个 iOS 伴侣应用（测试版）：将你的 iPhone 与 Mac 配对，在离开办公桌时查看你的 Aider 会话，并可选择转发通知。",
+      "scriptTitle": "可脚本化",
+      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用：创建工作区、在其中启动 Aider、发送输入、读取屏幕，并驱动内置浏览器来验证更改，全部都能从脚本完成。",
+      "faqTitle": "FAQ",
+      "faqQ1": "Aider 能在 cmux 中运行吗？",
+      "faqA1": "能。cmux 是标准的 macOS 终端，所以 <code>aider</code> 无需额外设置即可在任意工作区运行。",
+      "faqQ2": "我可以同时在多个分支上运行 Aider 吗？",
+      "faqA2": "可以。为每个分支打开一个工作区，并在每个工作区中运行 Aider。侧边栏会显示每个工作区的 git 分支和目录，让并行工作保持清晰。",
+      "faqQ3": "我怎么知道 Aider 何时需要确认？",
+      "faqA3": "当 Aider 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让它运行，等它需要你时再回来。",
+      "faqQ4": "搭配 Aider 使用的 cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
+    },
+    "amp": {
+      "metaTitle": "为 Amp 打造的终端 | cmux",
+      "metaDescription": "cmux 是为运行 Sourcegraph 的 Amp 而打造的原生 macOS 终端：组织并行 agent 的工作区、当 Amp 需要你时的通知环、iOS 伴侣应用以及可脚本化的 CLI。",
+      "title": "为 Amp 打造的终端",
+      "intro": "cmux 是为运行 AI 编程 agent 而打造的原生 macOS 终端，而 Sourcegraph 的 Amp 是一流的契合之选。cmux 只是一个终端，所以 <code>amp</code> 开箱即用地在任意工作区运行，而运行 agent 中最令人头疼的部分，即同时跟踪许多 agent 并察觉它们何时需要你，正是 cmux 为之而生的事。",
+      "organizeTitle": "井然有序地运行多个 Amp 会话",
+      "organizeBody": "为每个任务打开一个工作区，并在每个工作区中运行 Amp。垂直侧边栏显示每个工作区的 git 分支、目录、端口以及 Amp 输出的最新一行，让十几个并行会话保持清晰可读，而不是淹没在标签页中。",
+      "notifyTitle": "当 Amp 需要你时的通知环",
+      "notifyBody": "当 Amp 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让多个 agent 运行，再回到那个需要你做决定的 agent。通知会自动触发，你也可以从 shell 钩子中触发它们。",
+      "iosTitle": "在手机上查看 Amp",
+      "iosBody": "cmux 有一个 iOS 伴侣应用（测试版）：将你的 iPhone 与 Mac 配对，在离开办公桌时查看你的 Amp 会话，并可选择转发通知。",
+      "scriptTitle": "可脚本化",
+      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用：创建工作区、在其中启动 Amp、发送输入、读取屏幕，并驱动内置浏览器来验证更改，全部都能从脚本完成。",
+      "faqTitle": "FAQ",
+      "faqQ1": "Amp 能在 cmux 中运行吗？",
+      "faqA1": "能。cmux 是标准的 macOS 终端，所以 <code>amp</code> 无需额外设置即可在任意工作区运行。",
+      "faqQ2": "我可以让 Amp 与其他 agent 并排运行吗？",
+      "faqA2": "可以。为每个任务打开一个工作区，并排运行 Amp、Claude Code 或 Codex。侧边栏会让每个会话保持清晰可读。",
+      "faqQ3": "我怎么知道 Amp 何时需要输入？",
+      "faqA3": "当 Amp 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让它运行，等它需要你时再回来。",
+      "faqQ4": "搭配 Amp 使用的 cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
+    },
+    "cursorCli": {
+      "metaTitle": "为 Cursor CLI 打造的终端 | cmux",
+      "metaDescription": "cmux 是为运行 Cursor CLI（cursor-agent）而打造的原生 macOS 终端：组织并行 agent 的工作区、当 agent 需要你时的通知环、iOS 伴侣应用以及可脚本化的 CLI。",
+      "title": "为 Cursor CLI 打造的终端",
+      "intro": "cmux 是为运行 AI 编程 agent 而打造的原生 macOS 终端，而 Cursor CLI 是一流的契合之选。cmux 只是一个终端，所以 <code>cursor-agent</code> 开箱即用地在任意工作区运行，而运行 agent 中最令人头疼的部分，即同时跟踪许多 agent 并察觉它们何时需要你，正是 cmux 为之而生的事。",
+      "organizeTitle": "井然有序地运行多个 Cursor CLI 会话",
+      "organizeBody": "为每个任务打开一个工作区，并在每个工作区中运行 Cursor CLI。垂直侧边栏显示每个工作区的 git 分支、目录、端口以及输出的最新一行，让十几个并行会话保持清晰可读，而不是淹没在标签页中。",
+      "notifyTitle": "当 agent 需要你时的通知环",
+      "notifyBody": "当 Cursor CLI 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让多个 agent 运行，再回到那个需要你做决定的 agent。通知会自动触发，你也可以从 shell 钩子中触发它们。",
+      "iosTitle": "在手机上查看 Cursor CLI",
+      "iosBody": "cmux 有一个 iOS 伴侣应用（测试版）：将你的 iPhone 与 Mac 配对，在离开办公桌时查看你的 Cursor CLI 会话，并可选择转发通知。",
+      "scriptTitle": "可脚本化",
+      "scriptBody": "每个操作都可通过 cmux CLI 和 Unix socket 使用：创建工作区、在其中启动 Cursor CLI、发送输入、读取屏幕，并驱动内置浏览器来验证更改，全部都能从脚本完成。",
+      "faqTitle": "FAQ",
+      "faqQ1": "Cursor CLI 能在 cmux 中运行吗？",
+      "faqA1": "能。cmux 是标准的 macOS 终端，所以 <code>cursor-agent</code> 无需额外设置即可在任意工作区运行。",
+      "faqQ2": "我可以让 Cursor CLI 与其他 agent 并排运行吗？",
+      "faqA2": "可以。为每个任务打开一个工作区，并排运行 Cursor CLI、Claude Code 或 Codex。侧边栏会让每个会话保持清晰可读。",
+      "faqQ3": "我怎么知道 Cursor CLI 何时需要输入？",
+      "faqA3": "当 Cursor CLI 完成或请求输入时，面板会响铃，侧边栏会显示未读标记，于是你可以让它运行，等它需要你时再回来。",
+      "faqQ4": "搭配 Cursor CLI 使用的 cmux 免费吗？",
+      "faqA4": "免费。cmux 是面向 macOS 的免费开源软件。"
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "加入 {platform} 候补名单",
+    "titleAny": "加入候补名单",
+    "description": "{platform} 支持即将推出。留下你的邮箱，准备好后我们会第一时间通知你。",
+    "descriptionAny": "目前 cmux 优先支持 macOS。留下邮箱，Linux、Windows 或 Android 版本就绪后我们会通知你。",
+    "calloutText": "即将支持 Linux、Windows 和 Android。",
+    "platformsLabel": "哪些平台？",
+    "selectPlatform": "请至少选择一个平台。",
+    "emailLabel": "邮箱",
+    "emailPlaceholder": "you@example.com",
+    "join": "加入候补名单",
+    "joining": "正在加入…",
+    "cancel": "取消",
+    "invalidEmail": "请输入有效的邮箱地址。",
+    "sendError": "发送失败，请重试。",
+    "successTitle": "你已加入名单",
+    "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
+    "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",
+    "done": "完成"
   }
 }

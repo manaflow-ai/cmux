@@ -9,6 +9,8 @@ function usePhrases() {
   return [
     t("typingCodingAgents"),
     t("typingMultitasking"),
+    t("typingOrganization"),
+    t("typingProgrammability"),
     "Claude Code",
     "Codex",
     "OpenCode",
@@ -69,12 +71,15 @@ export function TypingTagline() {
 
   const phrase = phrases[phraseIndex];
   const displayed = phrase.slice(0, charIndex);
+  // Like a macOS insertion point: solid while actively typing/deleting, only
+  // blink once the phrase is fully typed and we're idling before the next one.
+  const atRest = !deleting && charIndex === phrase.length;
 
   return (
     <span>
       <span>{displayed}</span>
       <span
-        className={`inline-block w-[2px] h-[1.1em] bg-foreground/70 ml-[1px] ${dev.cursorBlink ? "animate-blink" : ""}`}
+        className={`inline-block w-[2px] h-[1.1em] bg-foreground/70 ml-[1px] rounded-[0.5px] ${dev.cursorBlink && atRest ? "animate-blink" : ""}`}
         style={{ position: "relative", top: `${dev.cursorTop}px` }}
       />
     </span>

@@ -187,12 +187,21 @@ export async function upsertRecord<P>(
   payload: P,
   nowMs: number,
   shapeEqual: (stored: P, next: P) => boolean = defaultPayloadEqual,
+  freshnessOf?: (payload: P) => number,
 ): Promise<SyncWriteResult<P>> {
   const head = await readHead(storage, collection);
   const stored = await readRecord<P>(storage, collection, id);
   if (stored !== undefined && !stored.deleted && shapeEqual(stored.payload, payload)) {
     // No list-shape change: keep the rev, do not broadcast. This is what keeps
-    // the cursor quiet through steady-state heartbeats.
+    // the cursor quiet through steady-state heartbeats. Optionally refresh
+    // freshness metadata (e.g. `lastSeenAt`) IN PLACE — same rev, no delta — so a
+    // consumer that orders/LWW-merges by it (the iOS paired-Mac restore) sees a
+    // republish of the same live shape as fresh, instead of skipping the backup
+    // and keeping a stale local route.
+    if (freshnessOf && freshnessOf(payload) > freshnessOf(stored.payload)) {
+      const refreshed: StoredSyncRecord<P> = { ...stored, payload, updatedAt: nowMs };
+      await storage.put({ [recordKey(collection, id)]: refreshed });
+    }
     return { delta: null, head };
   }
   const rev = head + 1;
@@ -237,10 +246,11 @@ export async function tombstoneRecord(
   collection: string,
   id: string,
   nowMs: number,
+  options?: { createIfMissing?: boolean },
 ): Promise<SyncWriteResult<Record<string, never>>> {
   const head = await readHead(storage, collection);
   const stored = await readRecord(storage, collection, id);
-  if (stored === undefined || stored.deleted) {
+  if ((stored === undefined && options?.createIfMissing !== true) || stored?.deleted) {
     // Nothing to delete, or already a tombstone: idempotent no-op.
     return { delta: null, head };
   }
@@ -252,6 +262,7 @@ export async function tombstoneRecord(
     [recordKey(collection, id)]: tomb,
     [headKey(collection)]: rev,
     [tombKey(collection, rev)]: id,
+    ...(await firstWriteEpochEntry(storage, collection, head, nowMs)),
   });
   return { delta: buildDelta(collection, rev, [tomb]), head: rev };
 }
@@ -354,6 +365,25 @@ export async function resolveHelloFrames<P>(
  * index oldest-first, deletes each expired tombstone record and its index
  * entry, and raises the GC floor to the highest GC'd rev. O(expired), not a full
  * scan. Returns the number GC'd and the new floor. */
+/** Distinct collections that currently hold tombstone index entries under a base
+ * prefix — e.g. base `"pairedMacs:"` returns every `pairedMacs:<userId>`
+ * collection with a tombstone. Lets the alarm GC per-user collections it does not
+ * know by name. Tombstone keys are `synctomb:<collection>:<16-digit rev>`, so the
+ * collection is the key minus the `synctomb:` prefix and the trailing `:<rev>`. */
+export async function listTombstonedCollections(
+  storage: SyncStorage,
+  basePrefix: string,
+): Promise<string[]> {
+  const index = await storage.list<string>({ prefix: `${TOMB_PREFIX}${basePrefix}` });
+  const collections = new Set<string>();
+  for (const indexKey of index.keys()) {
+    const body = indexKey.slice(TOMB_PREFIX.length);
+    const lastColon = body.lastIndexOf(":");
+    if (lastColon > 0) collections.add(body.slice(0, lastColon));
+  }
+  return [...collections];
+}
+
 export async function gcTombstones(
   storage: SyncStorage,
   collection: string,

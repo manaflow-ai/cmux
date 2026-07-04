@@ -29,6 +29,16 @@
       "severity": "high"
     },
     {
+      "id": "cmux-browser-automation-webkit-waits-off-main",
+      "rule": "Flag browser socket automation commands that wait on page JavaScript, WebKit callbacks, WKHTTPCookieStore, screenshots, or injected page hooks while routed through main actor paths. Require socketWorkerMethods, the worker browser automation router, explicit main hops for WebKit/AppKit access or state mutation, and policy tests that prove worker routing. Pass for direct focus/show commands that do not wait and existing debt not worsened.",
+      "scope": [
+        "Sources/TerminalController.swift",
+        "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift",
+        "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
+      ],
+      "severity": "high"
+    },
+    {
       "id": "cmux-runtime-no-hacky-sleeps",
       "rule": "Flag fixed sleeps, delayed dispatch, timers, polling, or wall-clock waits used as synchronization in production non-Swift app/runtime code across TypeScript, JavaScript, shell, or build/runtime scripts. Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal or a dedicated cancellation-aware timeout/retry abstraction with tests. Swift files are covered by cmux-swift-blocking-runtime.",
       "scope": [
@@ -202,6 +212,15 @@
       "severity": "high"
     },
     {
+      "id": "cmux-react-base-ui-accessibility",
+      "rule": "Flag custom React dialogs, popovers, menus, context menus, checkboxes, selects, switches, tabs, tooltips, comboboxes, command menus, or other composite widgets built from raw elements, ad hoc ARIA, tabIndex, or hand-rolled keyboard handlers when @base-ui-components/react or an existing local component provides the relevant primitive. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility, keyboard, focus, and disabled/loading behavior.",
+      "scope": [
+        "web/**/*.tsx",
+        "web/**/*.jsx"
+      ],
+      "severity": "high"
+    },
+    {
       "id": "cmux-source-control-artifacts",
       "rule": "Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.",
       "scope": [
@@ -218,6 +237,16 @@
         "web/messages/en.json"
       ],
       "severity": "medium"
+    },
+    {
+      "id": "cmux-landing-page-registry-parity",
+      "rule": "When a PR adds a new marketing landing page under web/app/[locale]/(landing)/<slug>/page.tsx, flag it if the new path is missing from any of web/app/sitemap.ts, agentReadablePages in web/app/lib/agent-page-paths.ts, the ARTICLES list in web/app/[locale]/(landing)/guides/page.tsx, or a landing.links label plus an internal cross-link from a sibling page. A sitemap page missing from agentReadablePages breaks tests/agent-page-variants.test.ts and omits the .md/.txt and llms.txt variants. Also flag agentReadablePages/sitemap.ts drift (a path in one but not the other). Localization of the new copy is covered by the internationalization rule. Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently, edits to existing landing pages, and existing drift the PR does not worsen.",
+      "scope": [
+        "web/app/[locale]/(landing)/**/page.tsx",
+        "web/app/sitemap.ts",
+        "web/app/lib/agent-page-paths.ts"
+      ],
+      "severity": "high"
     }
   ]
 }

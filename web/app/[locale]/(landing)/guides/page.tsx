@@ -16,9 +16,14 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 const ARTICLES = [
   { href: "/best-terminal-for-mac", titleKey: "bestTerminal.title", descKey: "bestTerminal.metaDescription" },
   { href: "/built-on-ghostty", titleKey: "ghostty.title", descKey: "ghostty.metaDescription" },
-  { href: "/claude-code-terminal", titleKey: "claude.title", descKey: "claude.metaDescription" },
-  { href: "/codex-cli", titleKey: "codex.title", descKey: "codex.metaDescription" },
-  { href: "/opencode", titleKey: "opencode.title", descKey: "opencode.metaDescription" },
+  { href: "/agents", titleKey: "agents.title", descKey: "agents.metaDescription" },
+  { href: "/agents/claude-code", titleKey: "claude.title", descKey: "claude.metaDescription" },
+  { href: "/agents/codex", titleKey: "codex.title", descKey: "codex.metaDescription" },
+  { href: "/agents/opencode", titleKey: "opencode.title", descKey: "opencode.metaDescription" },
+  { href: "/agents/gemini-cli", titleKey: "geminiCli.title", descKey: "geminiCli.metaDescription" },
+  { href: "/agents/aider", titleKey: "aider.title", descKey: "aider.metaDescription" },
+  { href: "/agents/amp", titleKey: "amp.title", descKey: "amp.metaDescription" },
+  { href: "/agents/cursor-cli", titleKey: "cursorCli.title", descKey: "cursorCli.metaDescription" },
 ] as const;
 
 export default function GuidesPage() {

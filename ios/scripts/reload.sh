@@ -18,6 +18,16 @@ the tagged Mac app. Opt out granularly:
   --no-attach    sign in, but do not auto-pair to the Mac
   --no-setup     plain install + launch (today's behavior)
 
+  --prod-auth    sign this DEV build in against PRODUCTION auth (bakes
+                 CMUXAuthEnvironment=production into Info.plist; the presence
+                 worker and API base follow the channel in-app), so it can
+                 pair with a real beta/stable Mac via QR. A plain dev build
+                 uses the development Stack project, whose user ids can never
+                 match a release Mac's QR account binding. Implies
+                 --no-sign-in (dogfood auto-login creds are dev-channel);
+                 sign in in-app with your real account and use the IN-APP
+                 scanner (the system Camera routes prod QRs to the beta app).
+
 Device signing uses the local Xcode account, or App Store Connect API
 credentials from ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_PATH, or
 ios/Config/AppStoreConnect.local.plist. Set IOS_DEVELOPMENT_TEAM or pass
@@ -56,6 +66,9 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+# --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
+# against the production Stack project and can pair with a release Mac.
+PROD_AUTH=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -119,6 +132,10 @@ while [[ $# -gt 0 ]]; do
       NO_SETUP=1
       shift
       ;;
+    --prod-auth)
+      PROD_AUTH=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -147,6 +164,25 @@ if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 && "$ALLOW_PROVISIONING_UPDATES" -eq 0 
   echo "error: --allow-device-registration requires provisioning updates" >&2
   usage >&2
   exit 1
+fi
+
+# --prod-auth: point the build at the production auth channel so it can pair
+# with a real beta/stable Mac (https://github.com/manaflow-ai/cmux/issues/7145).
+# The value lands in the CMUXAuthEnvironment Info.plist key (a tapped device
+# build sees no shell env), read by MobileAuthComposition. Presence needs no
+# URL here: PresenceClient.resolvedServiceBaseURL follows the resolved auth
+# channel, so the worker URLs live only in Swift and cannot drift; an explicit
+# CMUX_PRESENCE_BASE_URL still wins as before.
+CMUX_IOS_AUTH_ENV_VALUE=""
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  CMUX_IOS_AUTH_ENV_VALUE="production"
+  # The dogfood auto-login creds are dev-Stack-project accounts; against
+  # production auth they cannot sign in. Launch plain and sign in in-app with
+  # the same account as the Mac you want to pair with.
+  if [[ "$NO_SETUP" -eq 0 && "$NO_SIGN_IN" -eq 0 ]]; then
+    echo "==> --prod-auth: skipping auto sign-in/auto-pair (dogfood creds are dev-channel); sign in in the app"
+    NO_SIGN_IN=1
+  fi
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -467,6 +503,8 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
+    CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
+    CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -520,6 +558,13 @@ Bundle id:
 Simulator:
   $SIMULATOR_NAME ($SIM_ID)
 EOF
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cat <<EOF
+Auth environment:
+  production (--prod-auth): sign in in-app with your real account, then pair
+  with your beta/stable Mac using the in-app QR scanner.
+EOF
+  fi
 }
 
 reload_device() {
@@ -573,6 +618,8 @@ reload_device() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
+    CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
+    CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic
@@ -632,6 +679,13 @@ Bundle id:
 Device:
   $selected_device_name ($selected_device_id)
 EOF
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cat <<EOF
+Auth environment:
+  production (--prod-auth): sign in in-app with your real account, then pair
+  with your beta/stable Mac using the in-app QR scanner.
+EOF
+  fi
 }
 
 echo "==> iOS reload starting (tag: $TAG)"
