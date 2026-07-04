@@ -74,6 +74,9 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
+            if let drilledInWorkstreamId, newWorkspace.workstreamId != drilledInWorkstreamId {
+                newWorkspace.workstreamId = drilledInWorkstreamId
+            }
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }

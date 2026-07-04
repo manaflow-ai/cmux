@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Testing
 
 import CmuxFoundation
@@ -19,6 +20,56 @@ struct WorkstreamTests {
             manager.addWorkspace(autoWelcomeIfNeeded: false)
         }
         return manager
+    }
+
+    private final class DetachedSurfaceTestPanel: Panel {
+        let objectWillChange = ObservableObjectPublisher()
+        let id: UUID
+        let panelType: PanelType = .terminal
+        let displayTitle = "Detached"
+        let displayIcon: String? = "terminal.fill"
+        let isDirty = false
+
+        init(id: UUID = UUID()) {
+            self.id = id
+        }
+
+        func close() {}
+        func focus() {}
+        func unfocus() {}
+        func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+    }
+
+    private func makeDetachedSurfaceTransfer(sourceWorkspaceId: UUID) -> Workspace.DetachedSurfaceTransfer {
+        let panel = DetachedSurfaceTestPanel()
+        return Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: sourceWorkspaceId,
+            panelId: panel.id,
+            panel: panel,
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            iconImageData: nil,
+            kind: "terminal",
+            isLoading: false,
+            isPinned: false,
+            directory: nil,
+            directoryDisplayLabel: nil,
+            ttyName: nil,
+            cachedTitle: nil,
+            customTitle: nil,
+            customTitleSource: nil,
+            manuallyUnread: false,
+            restoredUnreadIndicator: nil,
+            restorableAgent: nil,
+            restorableAgentResumeState: nil,
+            restoredResumeSessionWorkingDirectory: nil,
+            resumeBinding: nil,
+            agentRuntime: nil,
+            isRemoteTerminal: false,
+            remoteRelayPort: nil,
+            remotePTYSessionID: nil,
+            remoteCleanupConfiguration: nil
+        )
     }
 
     // MARK: - TabManager integration
@@ -100,6 +151,47 @@ struct WorkstreamTests {
         #expect(attached.workstreamId == workstreamId)
         let visible = destination.tabs.filter { $0.workstreamId == destination.drilledInWorkstreamId }
         #expect(visible.contains { $0.id == movedId })
+    }
+
+    @Test func detachedSurfaceWorkspaceWhileDrilledInJoinsWorkstream() throws {
+        let manager = makeTabManager()
+        let workstreamId = manager.createWorkstream(name: "WS")
+        manager.enterWorkstream(id: workstreamId)
+        let transfer = makeDetachedSurfaceTransfer(sourceWorkspaceId: manager.tabs[0].id)
+
+        let created = try #require(manager.addWorkspace(fromDetachedSurface: transfer, select: true))
+
+        #expect(created.workstreamId == workstreamId)
+        let visible = manager.tabs.filter { $0.workstreamId == manager.drilledInWorkstreamId }
+        #expect(visible.contains { $0.id == created.id })
+    }
+
+    @Test func workspaceGroupVisibleMemberIdsStayInsideWorkstreamScope() throws {
+        let manager = makeTabManager()
+        let firstChildId = manager.tabs[0].id
+        let hiddenChildId = manager.tabs[1].id
+        let groupId = try #require(manager.createWorkspaceGroup(
+            name: "G",
+            childWorkspaceIds: [firstChildId, hiddenChildId]
+        ))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let visibleWorkstreamId = manager.createWorkstream(
+            name: "Visible",
+            memberWorkspaceIds: [group.anchorWorkspaceId, firstChildId]
+        )
+        let hiddenWorkstreamId = manager.createWorkstream(
+            name: "Hidden",
+            memberWorkspaceIds: [hiddenChildId]
+        )
+
+        let visibleMemberIds = manager.workspaceGroupMemberIds(
+            groupId: groupId,
+            visibleInWorkstreamId: visibleWorkstreamId
+        )
+
+        #expect(Set(visibleMemberIds) == Set([group.anchorWorkspaceId, firstChildId]))
+        #expect(!visibleMemberIds.contains(hiddenChildId))
+        #expect(manager.tabs.first { $0.id == hiddenChildId }?.workstreamId == hiddenWorkstreamId)
     }
 
     @Test func restoringClosedWorkspaceReconcilesDrillInToRestoredWorkstream() throws {

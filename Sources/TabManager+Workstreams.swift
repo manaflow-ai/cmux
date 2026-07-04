@@ -41,6 +41,12 @@ extension TabManager {
         workstreamCoordinator.removeWorkspaceFromWorkstream(workspaceId: workspaceId)
     }
 
+    func workspaceGroupMemberIds(groupId: UUID, visibleInWorkstreamId workstreamId: UUID?) -> [UUID] {
+        tabs.compactMap { workspace in
+            workspace.groupId == groupId && workspace.workstreamId == workstreamId ? workspace.id : nil
+        }
+    }
+
     func moveWorkstream(id: UUID, toIndex targetIndex: Int) {
         workstreamCoordinator.moveWorkstream(id: id, toIndex: targetIndex)
     }

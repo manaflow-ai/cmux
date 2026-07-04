@@ -24,11 +24,9 @@ extension VerticalTabsSidebar {
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
-        let fullMemberWorkspaceIds = renderContext.tabs.compactMap { $0.groupId == group.id ? $0.id : nil }
-        let groupMemberWorkspaceIds = fullMemberWorkspaceIds.isEmpty ? memberWorkspaceIds : fullMemberWorkspaceIds
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
-                return groupMemberWorkspaceIds.reduce(0) { partial, workspaceId in
+                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
                     partial + notificationStore.unreadCount(forTabId: workspaceId)
                 }
             }
@@ -41,9 +39,13 @@ extension VerticalTabsSidebar {
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
-        let nonAnchorMemberIds = groupMemberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
+        let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
         let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
         let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
+        let visibleMemberIdsAtActionTime: () -> [UUID] = { [weak tabManager, groupId = group.id, drilledInWorkstreamId = renderContext.drilledInWorkstreamId] in
+            guard let tabManager else { return [] }
+            return tabManager.workspaceGroupMemberIds(groupId: groupId, visibleInWorkstreamId: drilledInWorkstreamId)
+        }
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
@@ -80,7 +82,7 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
-            memberCount: groupMemberWorkspaceIds.count,
+            memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
             canMarkUnread: canMarkAnchorUnread,
@@ -149,21 +151,21 @@ extension VerticalTabsSidebar {
             onClearLatestNotifications: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
                 notificationStore?.clearLatestNotification(forTabId: anchorId)
             },
-            onMarkAllRead: { [weak tabManager, weak notificationStore, groupId = group.id, anchorId = group.anchorWorkspaceId] in
-                guard let tabManager, let notificationStore else { return }
-                // Resolve members live at action time: the header is .equatable()
-                // and closures are excluded from ==, so a captured ID list could
-                // go stale across a same-count membership swap.
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
+            onMarkAllRead: { [weak notificationStore, anchorId = group.anchorWorkspaceId, visibleMemberIdsAtActionTime] in
+                guard let notificationStore else { return }
+                // Resolve members live at action time, but stay inside the current
+                // drill-in scope so a visible group header never marks hidden
+                // workstream siblings.
+                let ids = visibleMemberIdsAtActionTime().filter { $0 != anchorId }
                 // Only touch members that are actually unread, so we never run
                 // notification teardown on already-read workspaces.
                 for id in ids where notificationStore.canMarkWorkspaceRead(forTabIds: [id]) {
                     notificationStore.markRead(forTabId: id)
                 }
             },
-            onMarkAllUnread: { [weak tabManager, weak notificationStore, groupId = group.id, anchorId = group.anchorWorkspaceId] in
-                guard let tabManager, let notificationStore else { return }
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
+            onMarkAllUnread: { [weak notificationStore, anchorId = group.anchorWorkspaceId, visibleMemberIdsAtActionTime] in
+                guard let notificationStore else { return }
+                let ids = visibleMemberIdsAtActionTime().filter { $0 != anchorId }
                 // Only mark members that are not already unread. Calling
                 // markUnread on an already-unread member would set its manual
                 // unread flag, which a later notification dismissal cannot
@@ -175,11 +177,16 @@ extension VerticalTabsSidebar {
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
-            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, memberCount = groupMemberWorkspaceIds.count] in
+            onDelete: { [weak tabManager, groupName = group.name, visibleMemberIdsAtActionTime] in
                 guard let tabManager else { return }
-                let otherMemberCount = max(memberCount - 1, 0)
+                let idsToClose = visibleMemberIdsAtActionTime()
+                guard !idsToClose.isEmpty else { return }
+                let otherMemberCount = max(idsToClose.count - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
-                tabManager.deleteWorkspaceGroup(groupId: groupId)
+                for id in idsToClose {
+                    guard let workspace = tabManager.tabs.first(where: { $0.id == id }) else { continue }
+                    tabManager.closeWorkspace(workspace)
+                }
             },
             onEditConfig: {
                 SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
