@@ -83,6 +83,10 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `terminal.focusedSplitBorder`
+
+When a workspace is split into multiple panes (⌘D), cmux outlines the focused pane with an accent-colored border so the active split is unmistakable — useful when several splits show similar content. It complements the unfocused-split dimming (see below): unfocused splits are dimmed, the focused split is outlined. The border only appears while the workspace has more than one pane.
+
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.
@@ -98,6 +102,9 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
 ```json
 {
   "terminal": {
+    "focusedSplitBorder": true,
+    "focusedSplitBorderColor": "#3B82F6",
+    "focusedSplitBorderWidth": 2,
     "textBoxDefaultSubmitAction": "codex",
     "textBoxSubmitActions": [
       {
@@ -122,6 +129,12 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
   }
 }
 ```
+
+- `focusedSplitBorder`: show the border around the focused split pane. Default: `true`. Toggle it from **Settings > Terminal > Focused Split Border**.
+- `focusedSplitBorderColor`: optional `#RRGGBB` hex override for the border color. Omit or set `null` to follow the system accent color. Default: `null`.
+- `focusedSplitBorderWidth`: border stroke width, in points. Default: `2`. Range: `0.5`-`8`.
+
+To dim the unfocused splits instead of (or in addition to) the border, set Ghostty's `unfocused-split-opacity` in your Ghostty config (**Settings > Terminal > Edit Ghostty Config**); for example `unfocused-split-opacity = 0.7`.
 
 Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 

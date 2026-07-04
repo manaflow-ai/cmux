@@ -820,7 +820,10 @@
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
-          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
+          "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。",
+          "focusedSplitBorder": "當工作區分割成多個窗格時，以強調色邊框勾勒聚焦窗格，讓目前作用中的分割一目了然。它會補足未聚焦分割的調暗效果。設為 false 可停用。",
+          "focusedSplitBorderColor": "可選的 #RRGGBB 十六進位值，用於覆寫聚焦分割邊框顏色。null 表示跟隨系統強調色。",
+          "focusedSplitBorderWidth": "聚焦分割邊框的描邊寬度，單位為點（0.5–8）。"
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。"

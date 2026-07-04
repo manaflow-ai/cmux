@@ -185,6 +185,11 @@ enum TerminalSettingsFileMapping {
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
         ),
+        .init(
+            jsonKey: "focusedSplitBorder",
+            defaultsKey: TerminalFocusedSplitBorderSettings.enabledKey,
+            invalidPath: "terminal.focusedSplitBorder"
+        ),
     ]
 }
 
@@ -369,6 +374,9 @@ extension CmuxSettingsFileStore {
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
         "terminal.autoResumeAgentSessions",
+        "terminal.focusedSplitBorder",
+        "terminal.focusedSplitBorderColor",
+        "terminal.focusedSplitBorderWidth",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.textBoxDefaultSubmitAction",

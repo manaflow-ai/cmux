@@ -8025,6 +8025,14 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    /// Persistent accent outline marking the focused pane while the workspace
+    /// is split. Drawn here (portal/AppKit layer) rather than as a SwiftUI
+    /// overlay so it can never be occluded by the portal-hosted terminal.
+    private let focusBorderOverlayView: GhosttyFlashOverlayView
+    private let focusBorderLayer: CAShapeLayer
+    /// Last applied focus-border stroke width; tracked so the rounded-rect path
+    /// is only recomputed when the width actually changes.
+    private var focusBorderWidth: CGFloat = CGFloat(TerminalFocusedSplitBorderSettings.defaultWidth)
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -8278,6 +8286,8 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
+        focusBorderOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        focusBorderLayer = CAShapeLayer()
         keyboardCopyModeBadgeContainerView = GhosttyFlashOverlayView(frame: .zero)
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
@@ -8345,6 +8355,19 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.addSublayer(notificationRingLayer)
         notificationRingOverlayView.isHidden = true
         addSubview(notificationRingOverlayView)
+        focusBorderOverlayView.wantsLayer = true
+        focusBorderOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        focusBorderOverlayView.layer?.masksToBounds = false
+        focusBorderOverlayView.autoresizingMask = [.width, .height]
+        focusBorderLayer.fillColor = NSColor.clear.cgColor
+        focusBorderLayer.strokeColor = cmuxAccentNSColor().cgColor
+        focusBorderLayer.lineWidth = CGFloat(TerminalFocusedSplitBorderSettings.defaultWidth)
+        focusBorderLayer.lineJoin = .round
+        focusBorderLayer.lineCap = .round
+        focusBorderLayer.opacity = 0
+        focusBorderOverlayView.layer?.addSublayer(focusBorderLayer)
+        focusBorderOverlayView.isHidden = true
+        addSubview(focusBorderOverlayView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -8765,6 +8788,7 @@ final class GhosttySurfaceScrollView: NSView {
             setDropZoneOverlay(zone: pending)
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
+        _ = setFrameIfNeeded(focusBorderOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
@@ -8777,6 +8801,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
+        updateFocusBorderPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
         synchronizeScrollView()
@@ -9077,6 +9102,50 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.isHidden = targetHidden
         notificationRingLayer.opacity = targetOpacity
         CATransaction.commit()
+    }
+
+    /// Shows or hides the focused-split accent border and applies its color and
+    /// stroke width. The border is meant to be visible only on the focused pane
+    /// of a split workspace; callers gate `visible` on that condition.
+    ///
+    /// Called from `updateNSView` on the main thread, like `setInactiveOverlay`.
+    func setFocusBorder(visible: Bool, color: NSColor, width: CGFloat) {
+        let clampedWidth = max(0, width)
+        let targetHidden = !(visible && clampedWidth > 0.0001)
+        let targetOpacity: Float = targetHidden ? 0 : 1
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        focusBorderLayer.strokeColor = color.cgColor
+        if focusBorderWidth != clampedWidth {
+            focusBorderWidth = clampedWidth
+            focusBorderLayer.lineWidth = clampedWidth
+            updateFocusBorderPath()
+        }
+        focusBorderOverlayView.isHidden = targetHidden
+        focusBorderLayer.opacity = targetOpacity
+        CATransaction.commit()
+    }
+
+    /// Recomputes the rounded-rect path for the focus border. The inset grows
+    /// with the stroke width so the (center-aligned) stroke always stays inside
+    /// the host view's masked bounds.
+    private func updateFocusBorderPath() {
+        let bounds = focusBorderOverlayView.bounds
+        focusBorderLayer.frame = bounds
+        let inset = max(PanelOverlayRingMetrics.inset, focusBorderWidth / 2)
+        guard bounds.width > inset * 2, bounds.height > inset * 2 else {
+            focusBorderLayer.path = nil
+            return
+        }
+        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let radius = PanelOverlayRingMetrics.cornerRadius
+        focusBorderLayer.path = CGPath(
+            roundedRect: rect,
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
+        )
     }
 
     private func cancelDeferredSearchOverlayMutation() {
@@ -11831,6 +11900,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var showsUnreadNotificationRing: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
+    var showsFocusBorder: Bool = false
+    var focusBorderColor: NSColor = cmuxAccentNSColor()
+    var focusBorderWidth: Double = TerminalFocusedSplitBorderSettings.defaultWidth
     var searchState: TerminalSurface.SearchState? = nil
     var reattachToken: UInt64 = 0
     var onFocus: ((UUID) -> Void)? = nil
@@ -12046,6 +12118,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 visible: showsInactiveOverlay
             )
             hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
+            hostedView.setFocusBorder(
+                visible: showsFocusBorder,
+                color: focusBorderColor,
+                width: CGFloat(focusBorderWidth)
+            )
             hostedView.setSearchOverlay(searchState: searchState)
             hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         }

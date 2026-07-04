@@ -104,6 +104,14 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+            .init(
+                section: .terminal,
+                id: "focused-split-border",
+                title: String(localized: "settings.terminal.focusedSplitBorder", defaultValue: "Focused Split Border"),
+                detailText: String(localized: "settings.terminal.focusedSplitBorder.subtitleOn", defaultValue: "Outlines the focused pane with an accent border while a workspace is split, so the active split is unmistakable. Override the color and width with terminal.focusedSplitBorderColor / terminal.focusedSplitBorderWidth in cmux.json."),
+                paths: ["terminal.focusedSplitBorder"],
+                synonyms: "terminal.focusedSplitBorder focused active pane split border outline highlight accent color width unfocused dim opacity which pane has focus indicator"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),

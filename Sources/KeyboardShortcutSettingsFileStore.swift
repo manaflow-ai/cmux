@@ -606,6 +606,26 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.textBoxMaxLines", sourcePath: sourcePath)
         }
 
+        if let value = jsonDouble(section["focusedSplitBorderWidth"]) {
+            snapshot.managedUserDefaults[TerminalFocusedSplitBorderSettings.widthKey] = .double(
+                TerminalFocusedSplitBorderSettings().sanitizedWidth(value)
+            )
+        } else if section.keys.contains("focusedSplitBorderWidth") {
+            logInvalid("terminal.focusedSplitBorderWidth", sourcePath: sourcePath)
+        }
+
+        // `nil` (JSON null) clears any override so the border follows the accent
+        // color. Use `if let` rather than the early-return guard so an invalid
+        // color cannot skip sibling terminal keys.
+        if section.keys.contains("focusedSplitBorderColor"),
+           let value = parseNullableHex(
+               section["focusedSplitBorderColor"],
+               path: "terminal.focusedSplitBorderColor",
+               sourcePath: sourcePath
+           ) {
+            snapshot.managedUserDefaults[TerminalFocusedSplitBorderSettings.colorHexKey] = .nullableString(value)
+        }
+
         if let value = jsonString(section["textBoxDefaultSubmitAction"]) {
             let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalized.isEmpty {

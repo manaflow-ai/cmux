@@ -12,8 +12,15 @@ struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    @AppStorage(TerminalFocusedSplitBorderSettings.enabledKey)
+    private var focusedSplitBorderEnabled = TerminalFocusedSplitBorderSettings.defaultEnabled
+    @AppStorage(TerminalFocusedSplitBorderSettings.colorHexKey)
+    private var focusedSplitBorderColorHex = TerminalFocusedSplitBorderSettings.defaultColorHex
+    @AppStorage(TerminalFocusedSplitBorderSettings.widthKey)
+    private var focusedSplitBorderWidth = TerminalFocusedSplitBorderSettings.defaultWidth
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    private let focusedSplitBorderSettings = TerminalFocusedSplitBorderSettings()
     @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
@@ -61,6 +68,12 @@ struct TerminalPanelView: View {
     }
 
     private var terminalBody: some View {
+        // The unread ring and the focus border are both pane-edge overlays drawn
+        // at the same rect; when both apply to one pane the focus border would
+        // sit on top and hide the unread ring. The unread ring is the more
+        // important signal (and focus is still conveyed by the cursor and the
+        // dimmed neighbors), so let the ring win and suppress the focus border.
+        let showsUnreadRing = hasUnreadNotification && notificationPaneRingEnabled
         @Bindable var textBoxState = panel.textBoxState
 
         return VStack(spacing: 0) {
@@ -73,9 +86,12 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
-                showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
+                showsUnreadNotificationRing: showsUnreadRing,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                showsFocusBorder: isSplit && isFocused && focusedSplitBorderEnabled && !showsUnreadRing,
+                focusBorderColor: focusedSplitBorderSettings.resolvedColor(colorHex: focusedSplitBorderColorHex),
+                focusBorderWidth: focusedSplitBorderSettings.sanitizedWidth(focusedSplitBorderWidth),
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
                 onFocus: { _ in

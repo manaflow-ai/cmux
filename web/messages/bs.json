@@ -820,7 +820,10 @@
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",
           "scrollSpeed": "Množitelj koji se primjenjuje na pomak točkića miša i dodirne plohe u terminalu. Veće vrijednosti pomiču brže, a manje sporije.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
-          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
+          "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox.",
+          "focusedSplitBorder": "Iscrtava fokusirani panel akcentnim obrubom dok je radni prostor podijeljen na više panela, tako da je aktivna podjela jasna. Dopunjuje zatamnjenje nefokusiranih podjela. Postavite na false za onemogućavanje.",
+          "focusedSplitBorderColor": "Opcionalno #RRGGBB heksadecimalno prepisivanje boje obruba fokusirane podjele. null prati sistemsku akcentnu boju.",
+          "focusedSplitBorderWidth": "Širina poteza obruba fokusirane podjele, u tačkama (0.5–8)."
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea."

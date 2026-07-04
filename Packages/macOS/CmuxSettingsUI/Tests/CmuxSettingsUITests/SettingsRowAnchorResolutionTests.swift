@@ -119,6 +119,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.rendererRealization.maxWarmRenderers",
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
+        "terminal.focusedSplitBorder",
         "terminal.resumeCommands",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.scrollSpeed",

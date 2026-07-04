@@ -18,10 +18,18 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
 
     func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
         key.set(value, in: defaults)
+        postDidChangeNotification()
     }
 
     func removeObject(forKey key: String) {
         defaults.removeObject(forKey: key)
+        postDidChangeNotification()
+    }
+
+    private func postDidChangeNotification() {
+        // UserDefaults can skip same-value notifications; store observers still
+        // need a deterministic signal for store-owned writes.
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
     }
 
     func addDidChangeObserver(
