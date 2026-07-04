@@ -2876,24 +2876,21 @@ class GhosttyApp {
             let rawTitle = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
             // Capture the emitting surface now (the view may be reused before the
-            // deferred post runs). `DispatchQueue.main.async` — not an unstructured
-            // `Task` — preserves arrival order of rapid title updates; the post is
-            // deferred so it can't re-enter layout, and `assumeIsolated` runs the
-            // main-actor dedup filter on the main thread (#6507, #4735).
+            // deferred post runs). The post is deferred onto the main actor so it
+            // can't re-enter layout while the per-surface filter drops spinner
+            // churn at the source (#6507, #4735).
             guard let tabId = surfaceView.tabId,
                   let sourceSurface = surfaceView.terminalSurface else { return true }
-            DispatchQueue.main.async { [weak surfaceView] in
-                MainActor.assumeIsolated {
-                    guard let surfaceView,
-                          let stableTitle = surfaceView.titleToDispatch(for: rawTitle, surfaceID: sourceSurface.id)
-                    else { return }
-                    let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: stableTitle)
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: sourceSurface,
-                        userInfo: change.userInfo
-                    )
-                }
+            Task { @MainActor [weak surfaceView] in
+                guard let surfaceView,
+                      let stableTitle = surfaceView.titleToDispatch(for: rawTitle, surfaceID: sourceSurface.id)
+                else { return }
+                let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: stableTitle)
+                NotificationCenter.default.post(
+                    name: .ghosttyDidSetTitle,
+                    object: sourceSurface,
+                    userInfo: change.userInfo
+                )
             }
             return true
         case GHOSTTY_ACTION_PWD:
