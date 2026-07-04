@@ -1,6 +1,21 @@
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    /// Inserts `-o RemoteCommand=none` right after the `ssh` executable so a
+    /// host-configured (or caller-supplied) `RemoteCommand` cannot conflict
+    /// with the command-line remote command this invocation appends — OpenSSH
+    /// aborts on that combination ("Cannot execute command-line and remote
+    /// command.", issue #7246) and honors the first value per option. Only
+    /// for invocations that pass their own command; the interactive session
+    /// hop keeps its explicit `-o RemoteCommand=<bootstrap>`.
+    internal func sshArgumentsOverridingHostRemoteCommand(_ arguments: [String]) -> [String] {
+        guard arguments.first == "ssh" else {
+            return SSHHostConfiguredRemoteCommand.overrideArguments + arguments
+        }
+        return [arguments[0]] + SSHHostConfiguredRemoteCommand.overrideArguments + arguments.dropFirst()
+    }
+
     internal func openSSHLocalCommandValue(shellScript: String?) -> String? {
         guard let shellScript else { return nil }
         let trimmed = shellScript.trimmingCharacters(in: .whitespacesAndNewlines)

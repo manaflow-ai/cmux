@@ -176,7 +176,9 @@ struct GitStatusProvider: Sendable {
     ) -> String? {
         let process = Process()
         process.executableURL = sshExecutableURL
-        var args: [String] = []
+        // The positional command conflicts with a host-configured
+        // RemoteCommand unless overridden (issue #7246).
+        var args: [String] = SSHHostConfiguredRemoteCommand.overrideArguments
         if let port { args += ["-p", String(port)] }
         if let identityFile { args += ["-i", identityFile] }
         for option in sshOptions { args += ["-o", option] }

@@ -50,7 +50,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         let arguments = configuration().daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
         let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"''"#
         #expect(
-            arguments == ["-T"]
+            arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
                 + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
         )
@@ -64,7 +64,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
         let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"' '"'"'--persistent'"'"' '"'"'--slot'"'"' '"'"'ws-1'"'"''"#
         #expect(
-            arguments == ["-T"]
+            arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
                 + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
         )
@@ -83,6 +83,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         #expect(
             arguments == [
                 "-T",
+                "-o", "RemoteCommand=none",
                 "-o", "ConnectTimeout=6",
                 "-o", "ServerAliveInterval=20",
                 "-o", "ServerAliveCountMax=2",

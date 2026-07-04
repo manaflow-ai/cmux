@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -181,7 +182,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   `tmux -CC` control client; interactive prompts are handled only by
     ///   ``interactiveAuthInvocation()`` running in the user's terminal.
     func sshControlArguments(controlPersistSeconds: Int, batchMode: Bool) -> [String] {
-        var args = [
+        // Every ssh-tmux invocation supplies its own remote command (`true`,
+        // `tmux -CC …`, one-shot discovery), which OpenSSH refuses while a
+        // host-configured RemoteCommand is in effect (issue #7246).
+        var args = SSHHostConfiguredRemoteCommand.overrideArguments
+        args += [
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(controlSocketPath)",
             "-o", "ControlPersist=\(controlPersistSeconds)",

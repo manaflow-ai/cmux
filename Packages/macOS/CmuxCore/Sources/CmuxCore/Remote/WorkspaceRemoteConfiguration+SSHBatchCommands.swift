@@ -16,6 +16,10 @@ extension WorkspaceRemoteConfiguration {
     /// `--persistent --slot <slot>` when a persistent daemon slot is
     /// configured) on the destination for the stdio daemon transport.
     /// Argument text is wire/process behavior; do not alter.
+    ///
+    /// The positional command conflicts with a host-configured
+    /// `RemoteCommand` unless overridden (issue #7246); the override leads
+    /// so it also wins (first value per option) over configured options.
     public func daemonTransportArguments(remotePath: String) -> [String] {
         var serveArguments = ["serve", "--stdio"]
         if let slot = persistentDaemonSlot?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -28,6 +32,7 @@ extension WorkspaceRemoteConfiguration {
         let script = "exec \(daemonCommand)"
         let command = "sh -c \(script.shellSingleQuoted)"
         return ["-T"]
+            + SSHHostConfiguredRemoteCommand.overrideArguments
             + batchSSHArguments()
             + ["-o", "RequestTTY=no", destination, command]
     }

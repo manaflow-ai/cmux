@@ -261,6 +261,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             startupResult.stderr.contains("Cannot execute command-line and remote command."),
             "The bootstrap installer hop must override a host-configured RemoteCommand; stderr: \(startupResult.stderr)"
         )
+        XCTAssertFalse(
+            startupResult.stderr.contains("[cmux] ssh exited with status"),
+            startupResult.stderr
+        )
         XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
 
         let events = harness.recordedSSHEvents()
