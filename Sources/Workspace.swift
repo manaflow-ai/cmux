@@ -4664,13 +4664,38 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func updatePanelDirectory(panelId: UUID, directory: String, displayLabel: String? = nil) -> Bool {
-        updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel, source: .liveReport)
+        let source: PanelDirectoryUpdateSource = shouldPromoteLiveDirectoryReportToRemoteProvenance(
+            panelId: panelId,
+            directory: directory
+        ) ? .remoteReport : .liveReport
+        return updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel, source: source)
     }
 
     /// Records a directory report that came from the remote shell/PTY control path.
     @discardableResult
     func updateRemotePanelDirectory(panelId: UUID, directory: String, displayLabel: String? = nil) -> Bool {
         updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel, source: .remoteReport)
+    }
+
+    private func shouldPromoteLiveDirectoryReportToRemoteProvenance(panelId: UUID, directory: String) -> Bool {
+        guard isRemoteTerminalSurface(panelId),
+              let reportedDirectory = normalizedDirectoryReport(directory) else {
+            return false
+        }
+        if remoteDirectoryReportPanelIds.contains(panelId) {
+            return true
+        }
+        let inheritedCandidates = [
+            normalizedDirectoryReport(panelDirectories[panelId]),
+            normalizedDirectoryReport(terminalPanel(for: panelId)?.requestedWorkingDirectory),
+            normalizedDirectoryReport(currentDirectory),
+        ]
+        return !inheritedCandidates.contains(reportedDirectory)
+    }
+
+    private func normalizedDirectoryReport(_ directory: String?) -> String? {
+        let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     @discardableResult
