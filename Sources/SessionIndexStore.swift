@@ -868,13 +868,18 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func claudeVaultConfiguration(
         store: JSONConfigStore
     ) async -> ClaudeVaultConfiguration {
-        let catalog = SettingCatalog()
-        let extraSessionRoots = await store.value(for: catalog.vault.claudeSessionRoots)
-        let pathMappings = await store.value(for: catalog.vault.pathMappings)
-        return ClaudeVaultConfiguration(
-            extraSessionRoots: extraSessionRoots,
-            pathMappings: pathMappings
-        )
+        await Task.detached(priority: .utility) {
+            let catalog = SettingCatalog()
+            // Vault discovery must pick up manual cmux.json edits on the next
+            // reload/search. JSONConfigStore.value(for:) is cache-backed until a
+            // subscriber invalidates it, so read these small settings from disk.
+            let extraSessionRoots = store.snapshotValue(for: catalog.vault.claudeSessionRoots)
+            let pathMappings = store.snapshotValue(for: catalog.vault.pathMappings)
+            return ClaudeVaultConfiguration(
+                extraSessionRoots: extraSessionRoots,
+                pathMappings: pathMappings
+            )
+        }.value
     }
 
     private func claudeVaultConfiguration() async -> ClaudeVaultConfiguration {

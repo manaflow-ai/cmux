@@ -46,7 +46,7 @@
 2229	Sources/TerminalWindowPortal.swift
 2085	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
-2039	Sources/SessionIndexStore.swift
+2044	Sources/SessionIndexStore.swift
 2011	Sources/KeyboardShortcutSettingsFileStore.swift
 1944	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
