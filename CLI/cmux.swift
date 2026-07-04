@@ -81,12 +81,24 @@ private struct AgentHookNotificationSummary {
     let body: String
     let status: AgentHookNotificationStatus?
     let isFallback: Bool
+    /// Whether this notification is a genuinely blocking prompt the user must act
+    /// on (permission/approval/error/direct question), as opposed to a routine
+    /// waiting/idle reminder. Only a blocking notification may flip the hibernation
+    /// lifecycle to `.needsInput`; a routine reminder must leave the Stop hook's
+    /// `.idle` intact so the pane stays hibernation-eligible. See
+    /// `AgentNotification.isBlockingPrompt`.
+    let isBlocking: Bool
     /// Which user-facing notification setting gates this alert, decided by the
     /// classifier alongside subtitle/status so "Permission" and "Waiting" cues
     /// (both `.needsInput`) gate under their own settings. `nil` = ungated,
     /// always deliver (errors, unclassified attention alerts, fallbacks).
     var notifyCategory: AgentHookNotifyCategory? = nil
 }
+
+// `AgentNotification(signal:message:).isBlockingPrompt` is the single source of truth
+// for "should this notification keep the pane live". It lives in the CMUXAgentLaunch
+// package (imported above) so it is unit testable via `swift test` without launching
+// the app; both the Claude hook lane and the generic agent-hook lane use it.
 
 #if DEBUG
 private func agentHookDebugLog(
@@ -23532,7 +23544,13 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                // Reuse the specific body an earlier hook saved for display only; the
+                // blocking classification stays the freshly computed value.
+                summary = (
+                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    isBlocking: summary.isBlocking
+                )
             }
 
             let title = String(
@@ -23601,6 +23619,15 @@ struct CMUXCLI {
                 meta: notifyCategory == .other ? nil : notifyMeta(notifyCategory, pending: notifyPending)
             )
 
+            // Only a genuinely blocking prompt (permission/approval/error/direct
+            // question) flips the hibernation lifecycle to `.needsInput`. Claude fires
+            // a Notification after every turn (a routine "waiting for your input"
+            // reminder once idle); that must NOT clobber the `.idle` the Stop hook
+            // recorded, or the pane never hibernates. `nil` preserves the stored
+            // lifecycle; a suppressed idle nag (background work pending) never flips.
+            let blockingLifecycle: AgentHibernationLifecycleState? =
+                (summary.isBlocking && !suppressNeedsInputState) ? .needsInput : nil
+
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -23608,20 +23635,22 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: blockingLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            if !suppressNeedsInputState {
+            if let blockingLifecycle {
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
-                    lifecycle: .needsInput,
+                    lifecycle: blockingLifecycle,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId
                 )
+            }
+            if !suppressNeedsInputState {
                 _ = try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -25948,12 +25977,20 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
+    private func summarizeClaudeHookNotification(
+        parsedInput: ClaudeHookParsedInput
+    ) -> (subtitle: String, body: String, isBlocking: Bool) {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
-                return classifyClaudeNotification(signal: fallback, message: fallback)
+                let classified = classifyClaudeNotification(signal: fallback, message: fallback)
+                return (
+                    classified.subtitle,
+                    classified.body,
+                    AgentNotification(signal: fallback, message: fallback).isBlockingPrompt
+                )
             }
-            return ("Waiting", "Claude is waiting for your input")
+            // A bare "waiting for input" reminder is an idle agent, not a blocking prompt.
+            return ("Waiting", "Claude is waiting for your input", false)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -25972,7 +26009,11 @@ struct CMUXCLI {
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
         classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+        return (
+            classified.subtitle,
+            classified.body,
+            AgentNotification(signal: signal, message: normalizedMessage).isBlockingPrompt
+        )
     }
 
     private func summarizeAgentHookNotification(
@@ -26041,6 +26082,7 @@ struct CMUXCLI {
                 body: String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed"),
                 status: .idle,
                 isFallback: false,
+                isBlocking: false,
                 notifyCategory: .turnComplete
             )
         }
@@ -26074,6 +26116,7 @@ struct CMUXCLI {
             body: truncate(normalizedSingleLine(body), maxLength: 180),
             status: .idle,
             isFallback: false,
+            isBlocking: false,
             notifyCategory: .turnComplete
         )
     }
@@ -26277,6 +26320,11 @@ struct CMUXCLI {
         isFallback: Bool
     ) -> AgentHookNotificationSummary {
         let lower = "\(signal) \(message)".lowercased()
+        // Genuinely blocking == permission/approval/error. A routine waiting/idle
+        // reminder, a completion, or generic attention is NOT blocking and must not
+        // flip the hibernation lifecycle to `.needsInput` (which would clobber the
+        // Stop hook's `.idle` and keep the pane from ever hibernating).
+        let blocking = AgentNotification(signal: signal, message: message).isBlockingPrompt
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")
@@ -26286,6 +26334,7 @@ struct CMUXCLI {
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
                 isFallback: isFallback,
+                isBlocking: blocking,
                 notifyCategory: .needsPermission
             )
         }
@@ -26300,10 +26349,13 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
                 body: truncate(body, maxLength: 180),
                 status: .error,
-                isFallback: isFallback
+                isFallback: isFallback,
+                isBlocking: blocking
             )
         }
-        if containsCompletionCue(lower) {
+        // A blocking prompt never classifies as completion ("Task completed. Continue?"
+        // would durably write `.idle` mid-question); it falls through to `.needsInput`.
+        if containsCompletionCue(lower), !blocking {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
                 : message
@@ -26312,9 +26364,13 @@ struct CMUXCLI {
                 body: truncate(body, maxLength: 180),
                 status: .idle,
                 isFallback: isFallback,
+                isBlocking: blocking,
                 notifyCategory: .turnComplete
             )
         }
+        // Waiting/idle reminders and direct interrogatives both classify `.needsInput`
+        // (see `containsWaitingCue`); only genuine prompts are `isBlocking`, so the generic
+        // lane (status == .needsInput AND isBlocking) flips the lifecycle only for those.
         if containsWaitingCue(lower) {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input")
@@ -26324,6 +26380,7 @@ struct CMUXCLI {
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
                 isFallback: isFallback,
+                isBlocking: blocking,
                 notifyCategory: .idleReminder
             )
         }
@@ -26332,7 +26389,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
                 body: truncate(message, maxLength: 180),
                 status: nil,
-                isFallback: isFallback
+                isFallback: isFallback,
+                isBlocking: blocking
             )
         }
         let body = String.localizedStringWithFormat(
@@ -26343,7 +26401,8 @@ struct CMUXCLI {
             subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
             body: body,
             status: .needsInput,
-            isFallback: true
+            isFallback: true,
+            isBlocking: blocking
         )
     }
 
@@ -26357,7 +26416,7 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Claude reported an error" : message
             return ("Error", body)
         }
-        if containsCompletionCue(lower) {
+        if containsCompletionCue(lower), !AgentNotification(signal: signal, message: message).isBlockingPrompt {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
@@ -26384,6 +26443,9 @@ struct CMUXCLI {
     }
 
     private func containsWaitingCue(_ lowercasedText: String) -> Bool {
+        // A direct interrogative is a genuine prompt (lockstep with
+        // `AgentNotification.containsGenuineQuestionCue`); routine reminders lack a `?`.
+        if lowercasedText.contains("?") { return true }
         let tokens = notificationCueTokens(lowercasedText)
         for (index, token) in tokens.enumerated() {
             let previous = index > 0 ? tokens[index - 1] : nil
@@ -26447,18 +26509,16 @@ struct CMUXCLI {
     }
 
     /// True when a Claude `Stop`/`Notification` payload reports unfinished
-    /// background work: any `background_tasks` entry still `running`, or a
-    /// non-empty `session_crons`. A `nil` rawObject or absent keys (claude
-    /// < 2.1.145) yield `false`, so older clients behave exactly as before.
-    /// Pure over `rawObject` so both the notify gate and the hibernation
-    /// lifecycle decision can share it (mirrors `hasActiveAntigravityBackgroundWork`).
+    /// background work: any `background_tasks` entry with a non-terminal status, or
+    /// a non-empty `session_crons`. A `nil` rawObject or absent keys (claude
+    /// < 2.1.145) yield `false`, so older clients behave exactly as before; a
+    /// PRESENT-but-unreadable field fails closed as active (unreadable evidence of
+    /// work must keep the pane alive, never authorize hibernation's group SIGTERM).
+    /// Pure over `rawObject` so both the notify gate and the hibernation lifecycle
+    /// decision share one parser (`AgentBackgroundWorkStatus`, unit-tested in the
+    /// CMUXAgentLaunch package; mirrors `hasActiveAntigravityBackgroundWork`).
     func hasActiveClaudeBackgroundWork(_ parsedInput: ClaudeHookParsedInput) -> Bool {
-        guard let obj = parsedInput.rawObject else { return false }
-        if let crons = obj["session_crons"] as? [Any], !crons.isEmpty { return true }
-        if let tasks = obj["background_tasks"] as? [[String: Any]] {
-            return tasks.contains { ($0["status"] as? String) == "running" }
-        }
-        return false
+        AgentBackgroundWorkStatus(hookObject: parsedInput.rawObject).isActive
     }
 
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
@@ -30721,6 +30781,7 @@ export default CMUXSessionRestore;
                     body: savedBody,
                     status: mapped?.lastNotificationStatus,
                     isFallback: false,
+                    isBlocking: summary.isBlocking,
                     notifyCategory: mapped?.lastNotificationStatus == .idle ? .turnComplete : nil
                 )
             }
@@ -30811,7 +30872,25 @@ export default CMUXSessionRestore;
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
+                // Persisted (durable) lifecycle must mirror the live decision below:
+                // a routine waiting reminder (status `.needsInput` but not blocking)
+                // must NOT durably write `.needsInput`, or it clobbers the Stop hook's
+                // stored `.idle` and the index fallback (used after restart / when no
+                // in-memory state exists) treats the pane as non-hibernatable. A waiting
+                // nag while background work is still live persists `.running` (the pane
+                // is still working); only a genuinely blocking notification persists
+                // `.needsInput`; a completion persists `.idle`; everything else leaves
+                // the stored lifecycle alone.
+                let lifecycle: AgentHibernationLifecycleState?
+                if suppressPendingWaitingState {
+                    lifecycle = .running
+                } else if summary.isBlocking {
+                    lifecycle = agentLifecycle(for: summary.status)
+                } else if summary.status == .idle {
+                    lifecycle = .idle
+                } else {
+                    lifecycle = nil
+                }
                 let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
@@ -30921,13 +31000,21 @@ export default CMUXSessionRestore;
                 // lifecycle in place; the fullyIdle turn boundary reconciles.
                 break
             case .needsInput?:
-                setAgentLifecycle(
-                    client: client,
-                    key: def.statusKey,
-                    lifecycle: .needsInput,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
+                // Only a genuinely blocking prompt (permission/approval) flips the
+                // hibernation lifecycle to `.needsInput`. A routine "waiting for input"
+                // reminder (which also classifies as `.needsInput` for display) must
+                // leave the Stop hook's `.idle` intact so the pane stays
+                // hibernation-eligible. The bell/status below are user-facing and
+                // unchanged either way.
+                if summary.isBlocking {
+                    setAgentLifecycle(
+                        client: client,
+                        key: def.statusKey,
+                        lifecycle: .needsInput,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                }
                 let statusValue = String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                     def.displayName

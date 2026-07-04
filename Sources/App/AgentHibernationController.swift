@@ -225,6 +225,25 @@ final class AgentHibernationController {
             settings: settings,
             now: nowTime
         )
+        // Observability: hibernation used to fail silently — a restorable agent that
+        // never hibernated gave zero signal, making "why won't X hibernate" a manual
+        // spelunk. Emit one concise line per evaluation whenever there is anything to
+        // hibernate, broken down by the planner's exclusion reasons so the gap is
+        // diagnosable from the debug log. Only logged when restorable records exist,
+        // so it stays quiet on idle systems.
+        #if DEBUG
+        if !records.isEmpty {
+            let idleCount = plannerInputs.filter { $0.lifecycle.allowsHibernation }.count
+            let unconfirmedInput = plannerInputs.filter { $0.hasUnconfirmedTerminalInput }.count
+            let protectedCount = plannerInputs.filter { $0.isProtected }.count
+            cmuxDebugLog(
+                "agentHib.evaluate restorable=\(records.count) live=\(liveRestorableCount) "
+                    + "maxLive=\(settings.maxLiveTerminals) idle=\(idleCount) protected=\(protectedCount) "
+                    + "unconfirmedInput=\(unconfirmedInput) idleSeconds=\(Int(settings.idleSeconds)) "
+                    + "selected=\(selectedKeys.count)"
+            )
+        }
+        #endif
         let currentKeys = Set(records.map(\.key))
         pruneTrackingState(currentKeys: currentKeys, selectedKeys: selectedKeys)
 

@@ -1,6 +1,22 @@
 import Foundation
 import CMUXAgentLaunch
 
+#if DEBUG
+/// Opt-in verbose hibernation-restorability logging. Read once (thread-safe global
+/// initializer). Off unless `CMUX_DEBUG_HIBERNATION_VERBOSE` is truthy, so the
+/// per-record `claudeTranscriptUnresolved` diagnostic never floods the debug log
+/// during the planner's periodic reloads.
+let agentHibernationVerboseLoggingEnabled: Bool = {
+    guard let raw = ProcessInfo.processInfo.environment["CMUX_DEBUG_HIBERNATION_VERBOSE"] else {
+        return false
+    }
+    switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "1", "true", "yes", "on": return true
+    default: return false
+    }
+}()
+#endif
+
 nonisolated enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
         if value.utf8.contains(where: { $0 >= 0x80 }) {
@@ -1257,6 +1273,7 @@ struct RestorableAgentSessionIndex: Sendable {
         guard kind == .claude else {
             return record.isRestorable != false
         }
+        // A located transcript is the strongest signal the conversation can replay.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
                atPath: (transcriptPath as NSString).expandingTildeInPath,
@@ -1264,7 +1281,34 @@ struct RestorableAgentSessionIndex: Sendable {
            ) {
             return true
         }
-        return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+        if claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup) {
+            return true
+        }
+        // Fail closed: claude is restorable only when a transcript file is actually
+        // found by one of the checks above. `isRestorable` is sticky hook state, not
+        // proof the conversation can replay; trusting it when no transcript resolves
+        // risks SIGTERMing a live pane and then failing `claude --resume` into a dead
+        // shell, which is worse than not hibernating. The systemic "only codex
+        // hibernates" cause is the notification-lifecycle clobber fixed elsewhere in
+        // this change; that does not require relaxing this gate.
+        //
+        // Opt-in diagnostic when a claude record claims `isRestorable == true` but no
+        // transcript resolved, so hard-to-locate-transcript sessions (custom
+        // CLAUDE_CONFIG_DIR, forked roots, encoding drift) are observable when
+        // investigating a real never-hibernation report. Gated behind an env flag
+        // because this runs per-record on every ~30s planner reload over the whole
+        // session store, and stale cross-worktree records (deleted worktree, benign)
+        // routinely fail closed here — logging each one every reload floods the debug
+        // log. Off by default; set CMUX_DEBUG_HIBERNATION_VERBOSE=1 to surface it.
+        #if DEBUG
+        if record.isRestorable == true, agentHibernationVerboseLoggingEnabled {
+            cmuxDebugLog(
+                "agentHib.restorable.claudeTranscriptUnresolved session=\(record.sessionId.prefix(8)) "
+                    + "transcriptPath=\(record.transcriptPath ?? "<nil>") — failing closed (no transcript found)"
+            )
+        }
+        #endif
+        return false
     }
 
     private static func resolvedClaudeWorkflowRecord(

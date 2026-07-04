@@ -26,6 +26,14 @@ LARGE_SUITE_METHOD_THRESHOLD = 40
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
+    # Pure, fast hibernation-planner selection tests. Excluded from the shared
+    # shards so adding this new suite does not perturb the greedy shard packing:
+    # the app-host shards carry heavy WKWebView suites (e.g.
+    # BrowserSessionHistoryRestoreTests) whose pass/fail is order- and
+    # load-sensitive, and reshuffling them into a different shard can exhaust
+    # WebKit and abort the app-host. Keeping this suite out of the shards leaves
+    # the shard composition identical to main; the suite still runs isolated below.
+    "cmuxTests/AgentHibernationPlannerTests",
 }
 
 
