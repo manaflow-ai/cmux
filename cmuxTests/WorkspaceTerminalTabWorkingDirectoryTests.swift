@@ -178,7 +178,10 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(restored.presentedCurrentDirectory == nil)
         #expect(restored.sidebarFilesystemDirectoriesInDisplayOrder() == [])
 
-        restored.updatePanelDirectory(panelId: restoredPanelId, directory: remoteDirectory)
+        #expect(!restored.updatePanelDirectory(panelId: restoredPanelId, directory: remoteDirectory))
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
+
+        restored.updateRemotePanelDirectory(panelId: restoredPanelId, directory: remoteDirectory)
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == remoteDirectory)
         #expect(restored.presentedCurrentDirectory == remoteDirectory)
     }
@@ -204,7 +207,11 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
         #expect(workspace.presentedCurrentDirectory == nil)
 
-        workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        #expect(!workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory))
+        #expect(workspace.presentedCurrentDirectory == nil)
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
+
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
 
         #expect(workspace.presentedCurrentDirectory == remoteDirectory)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [remoteDirectory])
