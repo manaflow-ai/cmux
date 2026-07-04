@@ -212,9 +212,20 @@ export default function DownloadButtonDebug() {
                         style={{ background: f.accent }} />
                       {f.label}
                     </span>
-                    <input type="number" min={0} max={40} value={pad[size][f.key]}
-                      onChange={(e) => set(size, f.key, Number(e.target.value))}
-                      className="w-14 rounded border border-border bg-transparent px-2 py-0.5 text-right text-sm" />
+                    <span className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => set(size, f.key, INITIAL[size][f.key])}
+                        disabled={pad[size][f.key] === INITIAL[size][f.key]}
+                        title={`reset to ${INITIAL[size][f.key]}px`}
+                        className="rounded px-1 leading-none text-muted hover:text-foreground disabled:opacity-25"
+                      >
+                        ↺
+                      </button>
+                      <input type="number" min={0} max={40} value={pad[size][f.key]}
+                        onChange={(e) => set(size, f.key, Number(e.target.value))}
+                        className="w-14 rounded border border-border bg-transparent px-2 py-0.5 text-right text-sm" />
+                    </span>
                   </div>
                   <input type="range" min={0} max={40} step={1} value={pad[size][f.key]}
                     onChange={(e) => set(size, f.key, Number(e.target.value))}
