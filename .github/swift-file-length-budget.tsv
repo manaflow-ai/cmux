@@ -124,6 +124,7 @@
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift
 802	Sources/TerminalController+ControlPaneContext.swift
 797	Sources/ClosedItemHistory.swift
+786	cmuxTests/KeyboardShortcutContextTests.swift
 782	CLI/CMUXCLI+AgentHookDefinitions.swift
 779	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 773	Sources/App/MenuBarExtraController.swift
@@ -142,7 +143,6 @@
 710	Sources/TerminalSSHSessionDetector.swift
 709	Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SidebarDrop/SidebarWorkspaceReorderDropResolver.swift
 706	CLI/CMUXCLI+Config.swift
-702	cmuxTests/KeyboardShortcutContextTests.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift

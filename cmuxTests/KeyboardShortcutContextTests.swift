@@ -1,5 +1,5 @@
-import XCTest
 import CmuxSettings
+import Testing
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
@@ -17,7 +17,68 @@ private typealias StoredShortcut = cmux.StoredShortcut
 // package stroke is the intended type here (unlike StoredShortcut above).
 private typealias ShortcutStroke = CmuxSettings.ShortcutStroke
 
-final class KeyboardShortcutContextTests: XCTestCase {
+@Suite(.serialized)
+struct KeyboardShortcutContextTests {
+    private func XCTAssertEqual<T: Equatable>(
+        _ expression1: @autoclosure () throws -> T,
+        _ expression2: @autoclosure () throws -> T,
+        _ message: @autoclosure () -> String = ""
+    ) rethrows {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs != rhs {
+            Issue.record(assertionMessage("Expected \(lhs) to equal \(rhs)", message()))
+        }
+    }
+
+    private func XCTAssertNotEqual<T: Equatable>(
+        _ expression1: @autoclosure () throws -> T,
+        _ expression2: @autoclosure () throws -> T,
+        _ message: @autoclosure () -> String = ""
+    ) rethrows {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs == rhs {
+            Issue.record(assertionMessage("Expected \(lhs) to differ from \(rhs)", message()))
+        }
+    }
+
+    private func XCTAssertTrue(
+        _ expression: @autoclosure () throws -> Bool,
+        _ message: @autoclosure () -> String = ""
+    ) rethrows {
+        if try !expression() {
+            Issue.record(assertionMessage("Expected condition to be true", message()))
+        }
+    }
+
+    private func XCTAssertFalse(
+        _ expression: @autoclosure () throws -> Bool,
+        _ message: @autoclosure () -> String = ""
+    ) rethrows {
+        if try expression() {
+            Issue.record(assertionMessage("Expected condition to be false", message()))
+        }
+    }
+
+    private func XCTAssertNil<T>(
+        _ expression: @autoclosure () throws -> T?,
+        _ message: @autoclosure () -> String = ""
+    ) rethrows {
+        if let value = try expression() {
+            Issue.record(assertionMessage("Expected nil but got \(value)", message()))
+        }
+    }
+
+    private func XCTFail(_ message: @autoclosure () -> String = "") {
+        Issue.record(assertionMessage("Failure", message()))
+    }
+
+    private func assertionMessage(_ detail: String, _ message: String) -> String {
+        message.isEmpty ? detail : "\(detail): \(message)"
+    }
+
+    @Test
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
         let renameTabShortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
 
@@ -47,6 +108,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testRenameTabCanReassignCommandRAfterUnbindingWithoutBrowserReloadConflict() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -86,6 +148,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .browserReload), commandR)
     }
 
+    @Test
     func testSwapPathIgnoresNonOverlappingShortcutContexts() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -130,10 +193,12 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testRenameWorkspaceIsScopedOutsideBrowserPanels() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
     }
 
+    @Test
     func testShowNotificationsStaysGenerallyAvailableForCustomBrowserBindings() {
         // The Cmd+I italics collision is special-cased in the browser routing path,
         // not by scoping the whole action out of browser panes. Show Notifications
@@ -142,6 +207,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.Action.showNotifications.shortcutContext, .application)
     }
 
+    @Test
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
         let context = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.shortcutContext
 
@@ -156,10 +222,12 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertFalse(context.overlaps(KeyboardShortcutSettings.Action.renameTab.shortcutContext))
     }
 
+    @Test
     func testReactGrabStaysApplicationScopedForTerminalPastebackRouting() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.toggleReactGrab.shortcutContext, .application)
     }
 
+    @Test
     func testBrowserFocusModeToggleIsBrowserScopedAndDoesNotCollideWithSplitZoom() {
         let focusMode = KeyboardShortcutSettings.Action.toggleBrowserFocusMode
 
@@ -187,6 +255,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testMarkdownZoomIsScopedToFocusedMarkdownPanelAndDoesNotCollideWithBrowserZoom() {
         for action in [
             KeyboardShortcutSettings.Action.markdownZoomIn,
@@ -216,6 +285,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertTrue(nonBrowser.overlaps(markdown))
     }
 
+    @Test
     func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
         let surfaceDigits = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
         let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut
@@ -253,6 +323,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testNewBrowserWorkspaceSettingsPackageActionStaysAligned() {
         guard let settingsAction = ShortcutAction(
             rawValue: KeyboardShortcutSettings.Action.newBrowserWorkspace.rawValue
@@ -264,6 +335,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newBrowserWorkspace.label)
     }
 
+    @Test
     func testSettingsPackageDefaultWhenClausesMatchRuntimeShortcutContexts() {
         for action in KeyboardShortcutSettings.Action.allCases {
             guard let settingsAction = ShortcutAction(rawValue: action.rawValue) else {
@@ -287,6 +359,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
     // character "+"/"-" with no Shift flag and a keyCode that is not the US
     // kVK_ANSI_Equal (24) / kVK_ANSI_Minus (27). The Cmd-=/Cmd-- zoom chords must
     // still match from those keys. See https://github.com/manaflow-ai/cmux/pull/5163.
+    @Test
     func testMarkdownZoomMatchesDedicatedPlusMinusKeysOnNonUSLayout() {
         // German QWERTZ: dedicated "+" key sits at the US RightBracket position
         // (keyCode 30) and produces "+" with no Shift; "-" sits at the US Slash
@@ -314,6 +387,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testBrowserZoomMatchesDedicatedPlusMinusKeysOnNonUSLayout() {
         let zoomIn = KeyboardShortcutSettings.Action.browserZoomIn.defaultShortcut
         XCTAssertTrue(
@@ -342,6 +416,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
     // bare "_" (no Shift) from a layout where "_" is a dedicated key must match
     // the "-" zoom-out chord. Without this, a future refactor could re-gate "_"
     // behind Shift with no failing test to catch it.
+    @Test
     func testZoomOutMatchesBareUnderscoreOnNonUSLayout() {
         let markdownZoomOut = KeyboardShortcutSettings.Action.markdownZoomOut.defaultShortcut
         XCTAssertTrue(
@@ -366,6 +441,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testZoomInDoesNotMatchUnrelatedKeyOnNonUSLayout() {
         // Guard: the layout-aware "+" handling must not make Cmd-= match keys that
         // legitimately produce other characters (e.g. a bare letter key).
@@ -380,6 +456,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testFocusHistoryMenuShortcutsSuppressDuplicateBrowserHistoryKeys() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -422,6 +499,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .browserForward), KeyboardShortcutSettings.shortcut(for: .browserForward))
     }
 
+    @Test
     func testEmptyWhenClauseDoesNotSuppressMenuShortcut() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -459,6 +537,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testMenuShortcutsStandDownWhilePackageRecorderIsActive() {
         let button = RecorderHostButton(frame: .zero)
         defer {
@@ -476,6 +555,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), .unbound)
     }
 
+    @Test
     func testFocusHistoryTitlebarHintUsesConfiguredShortcutAndCanBeUnbound() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -520,6 +600,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testShortcutSettingsFilePreservesConfiguredShortcutWithoutGlobalConflictLookup() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -548,6 +629,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testShortcutSettingsFilePreservesUnboundShortcutWithoutGlobalConflictLookup() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }
@@ -573,6 +655,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertEqual(store.override(for: .newWindow), StoredShortcut.unbound)
     }
 
+    @Test
     func testSettingsFileWhenClauseLetsWorkspaceDigitsShareSidebarDigitShortcut() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
@@ -627,6 +710,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
+    @Test
     func testSettingsFileWhenClauseSupportsContextComparisons() throws {
         let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         let directoryURL = try makeTemporaryDirectory()
