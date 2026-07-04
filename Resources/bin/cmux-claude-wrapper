@@ -746,11 +746,9 @@ encode_launch_argv() {
 }
 
 # cmux computer use: attach the bundled cmux-computer-use MCP server so any
-# Claude session cmux launches can drive the local Mac with the same
-# AX-tree+screenshot engine as Codex Computer Use (codex agents have it
-# natively; see Resources/computer-use-mcp/README.md). Prints the --mcp-config
-# JSON, or returns nonzero to skip injection so sessions never see
-# always-failing tools when the standard Codex machinery is absent.
+# Claude session cmux launches can drive the local Mac through cmux's
+# AX-tree+screenshot provider. Prints the --mcp-config JSON, or returns
+# nonzero to skip injection so sessions never see always-failing tools.
 cmux_computer_use_json_escape() {
     local value="$1"
     value="${value//\\/\\\\}"
@@ -863,36 +861,6 @@ cmux_computer_use_resolve_node() {
     printf '%s' "$node_real"
 }
 
-# Resolve the codex binary for automatic computer-use injection. The wrapper
-# runs during ordinary agent startup, so it must not execute Codex just to check
-# support: current Codex.app help may do first-run setup. Auto-attach only pins
-# an absolute explicit CMUX_CU_CODEX path or the trusted Codex.app bundle; the
-# MCP server validates app-server support on first actual tool use.
-cmux_computer_use_canonical_executable() {
-    local candidate="$1"
-    [[ "$candidate" = /* && -x "$candidate" ]] || return 1
-    local candidate_dir="${candidate%/*}"
-    local candidate_base="${candidate##*/}"
-    local candidate_dir_real
-    candidate_dir_real="$(cd "$candidate_dir" 2>/dev/null && pwd -P)" || return 1
-    local resolved="$candidate_dir_real/$candidate_base"
-    [[ -x "$resolved" ]] || return 1
-    printf '%s' "$resolved"
-}
-
-cmux_computer_use_resolve_codex() {
-    if [[ -n "${CMUX_CU_CODEX:-}" ]]; then
-        local codex_real
-        codex_real="$(cmux_computer_use_canonical_executable "$CMUX_CU_CODEX")" || return 1
-        printf '%s' "$codex_real"
-        return 0
-    fi
-    local app_codex
-    app_codex="$(cmux_computer_use_canonical_executable "/Applications/Codex.app/Contents/Resources/codex")" || return 1
-    printf '%s' "$app_codex"
-    return 0
-}
-
 cmux_computer_use_mcp_config() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
@@ -907,21 +875,15 @@ cmux_computer_use_mcp_config() {
     done
     local node_binary
     node_binary="$(cmux_computer_use_resolve_node)" || return 1
-    local codex_home="${CODEX_HOME:-$HOME/.codex}"
-    [[ -f "$codex_home/auth.json" ]] || return 1
-    local codex_binary
-    codex_binary="$(cmux_computer_use_resolve_codex)" || return 1
     local self_dir candidate
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     for candidate in \
         "$self_dir/../cmux-computer-use-mcp.mjs" \
         "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
         if [[ -f "$candidate" ]]; then
-            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"],"env":{"CMUX_CU_CODEX":"%s","CODEX_HOME":"%s"}}}}' \
+            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"]}}}' \
                 "$(cmux_computer_use_json_escape "$node_binary")" \
-                "$(cmux_computer_use_json_escape "$candidate")" \
-                "$(cmux_computer_use_json_escape "$codex_binary")" \
-                "$(cmux_computer_use_json_escape "$codex_home")"
+                "$(cmux_computer_use_json_escape "$candidate")"
             return 0
         fi
     done

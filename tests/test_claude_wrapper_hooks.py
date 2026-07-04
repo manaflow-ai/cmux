@@ -17,13 +17,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
-APP_SERVER_CODEX_STUB = """#!/usr/bin/env bash
-if [[ "${1:-}" == "app-server" && "${2:-}" == "--help" ]]; then
-  echo "codex app-server"
-  exit 0
-fi
-exit 0
-"""
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -880,24 +873,15 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 # --- cmux computer use MCP injection ------------------------------------------
 #
 # The wrapper attaches the bundled computer-use MCP server via --mcp-config only
-# when the full Codex machinery is present. These fixtures build that machinery
-# hermetically inside the sandbox: the server script next to the wrapper (repo
-# layout), an explicit CMUX_CU_CODEX override, and CODEX_HOME with an auth.json
-# — so the tests do not depend on the runner's real codex install or ~/.codex.
-# (Existing tests never inject because the sandboxed wrapper has no sibling
-# server script.)
+# when the bundled provider script and a trusted node binary are available.
+# Existing tests never inject because the sandboxed wrapper has no sibling
+# server script unless these fixtures create one.
 
 
 def computer_use_sandbox(
     *,
     script: bool = True,
-    codex_on_path: bool = False,
-    codex_auth: bool = True,
-    codex_in_shim_dir_only: bool = False,
     disabled: bool = False,
-    codex_override: str | None = None,
-    legacy_codex_first: bool = False,
-    hanging_codex_first: bool = False,
     workspace_node_first: bool = False,
     workspace_node_outside_pwd: bool = False,
     untrusted_node_ancestor_first: bool = False,
@@ -910,52 +894,6 @@ def computer_use_sandbox(
             (script_dir / "cmux-computer-use-mcp.mjs").write_text(
                 "// test stub\n", encoding="utf-8"
             )
-        codex_home = tmp / "codex-home"
-        codex_home.mkdir(parents=True, exist_ok=True)
-        if codex_auth:
-            (codex_home / "auth.json").write_text("{}\n", encoding="utf-8")
-        env["CODEX_HOME"] = str(codex_home)
-        if codex_on_path:
-            codex_dir = tmp / "codex-bin"
-            codex_dir.mkdir(parents=True, exist_ok=True)
-            make_executable(codex_dir / "codex", APP_SERVER_CODEX_STUB)
-            env["PATH"] = f"{codex_dir}:{env['PATH']}"
-        if legacy_codex_first:
-            # A codex that rejects `app-server` (like a stray v0.2.x): the
-            # resolver must skip it and keep looking.
-            legacy_dir = tmp / "legacy-codex"
-            legacy_dir.mkdir(parents=True, exist_ok=True)
-            make_executable(legacy_dir / "codex", "#!/usr/bin/env bash\nexit 1\n")
-            env["PATH"] = f"{legacy_dir}:{env['PATH']}"
-        if hanging_codex_first:
-            # A codex whose probe hangs: the wrapper's 5s alarm must kill it
-            # and keep resolving instead of blocking the Claude launch.
-            hang_dir = tmp / "hanging-codex"
-            hang_dir.mkdir(parents=True, exist_ok=True)
-            make_executable(hang_dir / "codex", "#!/usr/bin/env bash\nsleep 60\n")
-            env["PATH"] = f"{hang_dir}:{env['PATH']}"
-        if codex_in_shim_dir_only:
-            shim_dir = tmp / "cmux-cli-shims" / "surface-test"
-            shim_dir.mkdir(parents=True, exist_ok=True)
-            make_executable(shim_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
-            # Hermetic shim-only PATH: drop every inherited entry that carries a
-            # real codex (the runner may have one, e.g. an nvm bin dir), while
-            # keeping node reachable via a node-only dir (nvm ships node and
-            # codex side by side, so filtering alone would lose node).
-            node_dir = tmp / "node-only"
-            node_dir.mkdir(parents=True, exist_ok=True)
-            node_real = shutil.which("node")
-            if node_real:
-                (node_dir / "node").symlink_to(node_real)
-            kept_entries = []
-            for entry in env["PATH"].split(":"):
-                if not entry:
-                    continue
-                candidate = Path(entry) / "codex"
-                if candidate.exists() and os.access(candidate, os.X_OK):
-                    continue
-                kept_entries.append(entry)
-            env["PATH"] = ":".join([str(shim_dir), str(node_dir), *kept_entries])
         if workspace_node_first:
             node_dir = tmp / "workspace-node-bin"
             node_dir.mkdir(parents=True, exist_ok=True)
@@ -1019,42 +957,6 @@ exit 88
             env["PATH"] = f"{helper_dir}:{env['PATH']}"
         if disabled:
             env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
-        if codex_override is not None:
-            if codex_override == "<sandbox-codex>":
-                override_dir = tmp / "codex-override"
-                override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(override_dir / "codex", APP_SERVER_CODEX_STUB)
-                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
-            elif codex_override == "<sandbox-codex-with-tab>":
-                override_dir = tmp / "codex\toverride"
-                override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(override_dir / "codex", APP_SERVER_CODEX_STUB)
-                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
-            elif codex_override == "<sandbox-legacy-codex>":
-                override_dir = tmp / "codex-override"
-                override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 1\n")
-                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
-            elif codex_override == "<sandbox-legacy-zero-codex>":
-                override_dir = tmp / "codex-override"
-                override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(
-                    override_dir / "codex",
-                    "#!/usr/bin/env bash\necho 'codex does not accept arguments: app-server'\nexit 0\n",
-                )
-                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
-            elif codex_override == "<sandbox-hanging-codex>":
-                override_dir = tmp / "codex-override"
-                override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(override_dir / "codex", "#!/usr/bin/env bash\nsleep 60\n")
-                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
-            elif codex_override == "<sandbox-relative-codex>":
-                override_dir = tmp / "codex-relative"
-                override_dir.mkdir(parents=True, exist_ok=True)
-                make_executable(override_dir / "codex", APP_SERVER_CODEX_STUB)
-                env["CMUX_CU_CODEX"] = "./codex-relative/codex"
-            else:
-                env["CMUX_CU_CODEX"] = codex_override
 
     return setup
 
@@ -1076,11 +978,11 @@ def extract_injected_mcp_config(argv: list[str]) -> dict | None:
     return json.loads(argv[index].split("=", 1)[1])
 
 
-def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(failures: list[str]) -> None:
+def test_live_socket_attaches_computer_use_mcp_when_provider_available(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>"),
+        setup_sandbox=computer_use_sandbox(),
     )
     expect(code == 0, f"computer use inject: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1106,18 +1008,9 @@ def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(fail
             f"computer use inject: expected the sandbox server script, got {config}",
             failures,
         )
-        # The wrapper pins the codex binary it resolved so the server cannot
-        # end up spawning a different one.
-        pinned = server.get("env", {}).get("CMUX_CU_CODEX", "")
         expect(
-            pinned.endswith("/codex-override/codex"),
-            f"computer use inject: expected the explicit sandbox codex pinned via env, got {config}",
-            failures,
-        )
-        codex_home = server.get("env", {}).get("CODEX_HOME", "")
-        expect(
-            codex_home.endswith("/codex-home"),
-            f"computer use inject: expected sandbox CODEX_HOME pinned via env, got {config}",
+            "env" not in server,
+            f"computer use inject: expected no external runtime env pinning, got {config}",
             failures,
         )
     inject_index = injected_mcp_config_index(real_argv)
@@ -1140,7 +1033,7 @@ def test_computer_use_probe_uses_absolute_system_helpers(failures: list[str]) ->
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>", path_helper_trap=True),
+        setup_sandbox=computer_use_sandbox(path_helper_trap=True),
     )
     expect(code == 0, f"computer use helper trap: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1150,25 +1043,33 @@ def test_computer_use_probe_uses_absolute_system_helpers(failures: list[str]) ->
     )
 
 
-def test_computer_use_mcp_skipped_without_codex_auth(failures: list[str]) -> None:
+def test_computer_use_mcp_does_not_require_external_runtime_auth(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_auth=False),
+        setup_sandbox=computer_use_sandbox(),
     )
-    expect(code == 0, f"computer use no-auth: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"computer use no external auth: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
     expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use no-auth: expected no injection without auth.json, got {real_argv}",
+        config is not None,
+        f"computer use no external auth: expected injection without external auth/runtime state, got {real_argv}",
         failures,
     )
+    if config is not None:
+        server = config.get("mcpServers", {}).get("cmux-computer-use", {})
+        expect(
+            "env" not in server,
+            f"computer use no external auth: expected no legacy env in injected config, got {config}",
+            failures,
+        )
 
 
 def test_computer_use_mcp_skips_workspace_node(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>", workspace_node_first=True),
+        setup_sandbox=computer_use_sandbox(workspace_node_first=True),
     )
     expect(code == 0, f"computer use workspace-node: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1183,7 +1084,6 @@ def test_computer_use_mcp_skips_workspace_root_node(failures: list[str]) -> None
         socket_state="live",
         argv=["hello"],
         setup_sandbox=computer_use_sandbox(
-            codex_override="<sandbox-codex>",
             workspace_node_outside_pwd=True,
         ),
     )
@@ -1200,7 +1100,6 @@ def test_computer_use_mcp_skips_untrusted_node_ancestor(failures: list[str]) -> 
         socket_state="live",
         argv=["hello"],
         setup_sandbox=computer_use_sandbox(
-            codex_override="<sandbox-codex>",
             untrusted_node_ancestor_first=True,
         ),
     )
@@ -1216,7 +1115,7 @@ def test_computer_use_mcp_skipped_for_strict_mcp_config(failures: list[str]) -> 
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["--strict-mcp-config", "--mcp-config", "{}", "-p", "hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>"),
+        setup_sandbox=computer_use_sandbox(),
     )
     expect(code == 0, f"computer use strict: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1255,166 +1154,6 @@ def test_computer_use_mcp_skipped_when_server_script_missing(failures: list[str]
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use no-script: expected no injection without the server script, got {real_argv}",
-        failures,
-    )
-
-
-def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
-    # An explicit CMUX_CU_CODEX decides availability alone: an executable
-    # absolute override injects even with nothing on PATH, without executing the
-    # override during ordinary Claude startup. Missing or relative overrides
-    # still fail closed; app-server protocol support is validated by the MCP
-    # server on first tool use.
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_on_path=False, codex_override="<sandbox-codex>"),
-    )
-    expect(code == 0, f"computer use override: wrapper exited {code}: {stderr}", failures)
-    config = extract_injected_mcp_config(real_argv)
-    expect(
-        config is not None,
-        f"computer use override: expected injection via CMUX_CU_CODEX, got {real_argv}",
-        failures,
-    )
-    if config is not None:
-        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
-        expect(
-            pinned.endswith("/codex-override/codex"),
-            f"computer use override: expected the override binary pinned via env, got {config}",
-            failures,
-        )
-
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_on_path=False, codex_override="<sandbox-codex-with-tab>"),
-    )
-    expect(code == 0, f"computer use escaped override: wrapper exited {code}: {stderr}", failures)
-    config = extract_injected_mcp_config(real_argv)
-    expect(
-        config is not None,
-        f"computer use escaped override: expected parseable --mcp-config JSON, got {real_argv}",
-        failures,
-    )
-    if config is not None:
-        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
-        expect(
-            "/codex\toverride/codex" in pinned,
-            f"computer use escaped override: expected tab-containing path round trip, got {config}",
-            failures,
-        )
-
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="/nonexistent/codex"),
-    )
-    expect(code == 0, f"computer use broken override: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use broken override: expected no injection, got {real_argv}",
-        failures,
-    )
-
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-relative-codex>"),
-    )
-    expect(code == 0, f"computer use relative override: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use relative override: expected no injection from relative CMUX_CU_CODEX, got {real_argv}",
-        failures,
-    )
-
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-legacy-zero-codex>"),
-    )
-    expect(code == 0, f"computer use legacy-zero override: wrapper exited {code}: {stderr}", failures)
-    config = extract_injected_mcp_config(real_argv)
-    expect(
-        config is not None,
-        f"computer use legacy-zero override: expected launch-time injection without probing the override, got {real_argv}",
-        failures,
-    )
-    if config is not None:
-        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
-        expect(
-            pinned.endswith("/codex-override/codex"),
-            f"computer use legacy-zero override: expected the override binary pinned via env, got {config}",
-            failures,
-        )
-
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-hanging-codex>"),
-    )
-    expect(code == 0, f"computer use hanging override: wrapper exited {code}: {stderr}", failures)
-    config = extract_injected_mcp_config(real_argv)
-    expect(
-        config is not None,
-        f"computer use hanging override: expected injection without executing the override, got {real_argv}",
-        failures,
-    )
-
-
-def test_computer_use_mcp_does_not_auto_probe_path_codex(failures: list[str]) -> None:
-    # PATH entries are workspace-controlled during ordinary Claude launches, so
-    # auto-attach must not execute `codex` from PATH. Only an explicit
-    # CMUX_CU_CODEX or the trusted Codex.app bundle may satisfy the gate. This is
-    # only meaningful on machines without Codex.app, where the bundle would
-    # legitimately satisfy availability.
-    if Path("/Applications/Codex.app/Contents/Resources/codex").exists():
-        return
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_on_path=True),
-    )
-    expect(code == 0, f"computer use path probe: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use path probe: expected no injection from PATH codex, got {real_argv}",
-        failures,
-    )
-
-    # An explicit executable override is pinned without running `app-server
-    # --help` during Claude startup; the MCP server owns the later capability
-    # failure if the binary is stale.
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-legacy-codex>"),
-    )
-    expect(code == 0, f"computer use legacy override: wrapper exited {code}: {stderr}", failures)
-    config = extract_injected_mcp_config(real_argv)
-    expect(
-        config is not None,
-        f"computer use legacy override: expected launch-time injection without probing the override, got {real_argv}",
-        failures,
-    )
-
-def test_computer_use_mcp_ignores_cmux_codex_shims(failures: list[str]) -> None:
-    # A per-surface cmux shim dir always carries a `codex` entry inside cmux
-    # terminals; it must not count as a codex install. Only meaningful on
-    # machines without Codex.app (the availability check consults it directly),
-    # so skip where Codex.app would legitimately satisfy the gate.
-    if Path("/Applications/Codex.app/Contents/Resources/codex").exists():
-        return
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_on_path=False, codex_in_shim_dir_only=True),
-    )
-    expect(code == 0, f"computer use shim-only: wrapper exited {code}: {stderr}", failures)
-    expect(
-        injected_mcp_config_index(real_argv) is None,
-        f"computer use shim-only: expected cmux codex shims to be ignored, got {real_argv}",
         failures,
     )
 
@@ -2420,18 +2159,15 @@ def main() -> int:
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
-    test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(failures)
+    test_live_socket_attaches_computer_use_mcp_when_provider_available(failures)
     test_computer_use_probe_uses_absolute_system_helpers(failures)
-    test_computer_use_mcp_skipped_without_codex_auth(failures)
+    test_computer_use_mcp_does_not_require_external_runtime_auth(failures)
     test_computer_use_mcp_skips_workspace_node(failures)
     test_computer_use_mcp_skips_workspace_root_node(failures)
     test_computer_use_mcp_skips_untrusted_node_ancestor(failures)
     test_computer_use_mcp_skipped_for_strict_mcp_config(failures)
     test_computer_use_mcp_skipped_when_disabled(failures)
     test_computer_use_mcp_skipped_when_server_script_missing(failures)
-    test_computer_use_mcp_honors_codex_override(failures)
-    test_computer_use_mcp_does_not_auto_probe_path_codex(failures)
-    test_computer_use_mcp_ignores_cmux_codex_shims(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)

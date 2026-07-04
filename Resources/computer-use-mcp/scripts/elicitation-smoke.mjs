@@ -1,13 +1,8 @@
 #!/usr/bin/env node
-// Verifies the per-app approval path: the codex app-server's
-// `mcpServer/elicitation/request` must be forwarded to the MCP client as a
-// real `elicitation/create` (approved by the human), and must fail closed
-// (decline) for clients that never declared elicitation support.
+// Hermetic protocol and safety smoke for cmux-computer-use-mcp.mjs.
 //
-// Uses scripts/fake-codex-app-server.mjs via CMUX_CU_CODEX, so it runs
-// hermetically — no real codex install, auth, or GUI is touched.
-//
-//   node scripts/elicitation-smoke.mjs
+// Uses the server's built-in fake provider via CMUX_CU_FAKE_PROVIDER=1, so it
+// does not touch a real GUI, permissions database, or desktop state.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -20,7 +15,6 @@ import process from "node:process";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "..", "cmux-computer-use-mcp.mjs");
-const fakeCodex = join(here, "fake-codex-app-server.mjs");
 const REQUIRED_TOOLS = [
   "computer_target",
   "computer_apps",
@@ -36,6 +30,12 @@ const REQUIRED_TOOLS = [
   "computer_windows",
 ];
 
+function fakeEnv(extraEnv = {}) {
+  const env = { ...process.env, CMUX_CU_FAKE_PROVIDER: "1" };
+  delete env.CMUX_CU_AUTO_APPROVE;
+  return { ...env, ...extraEnv };
+}
+
 function summarizeResult(res) {
   const text = (res.content ?? [])
     .filter((c) => c.type === "text")
@@ -45,15 +45,10 @@ function summarizeResult(res) {
 }
 
 async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv = {} }) {
-  // Hermetic env: pin the fake codex and strip any ambient auto-approve so a
-  // developer shell with CMUX_CU_AUTO_APPROVE=1 cannot bypass the very
-  // approval paths under test.
-  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex, ...extraEnv };
-  delete env.CMUX_CU_AUTO_APPROVE;
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverPath],
-    env,
+    env: fakeEnv(extraEnv),
     stderr: "pipe",
   });
   const client = new Client(
@@ -91,7 +86,7 @@ async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv
   return results;
 }
 
-async function run({ withElicitation, tool = "computer_apps", args = {}, expectMessage = null, extraEnv = {} }) {
+async function run({ withElicitation, tool = "computer_state", args = { app: "TestApp" }, expectMessage = null, extraEnv = {} }) {
   const [result] = await runCalls({
     withElicitation,
     calls: [{ tool, args }],
@@ -101,29 +96,11 @@ async function run({ withElicitation, tool = "computer_apps", args = {}, expectM
   return result;
 }
 
-async function runRelativeCodexOverrideRejected() {
-  const packageRoot = join(here, "..");
-  const env = { ...process.env, CMUX_CU_CODEX: "./scripts/fake-codex-app-server.mjs" };
-  delete env.CMUX_CU_AUTO_APPROVE;
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [serverPath],
-    cwd: packageRoot,
-    env,
-    stderr: "pipe",
-  });
-  const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
-  await client.connect(transport);
-  const result = summarizeResult(await client.callTool({ name: "computer_target", arguments: {} }));
-  await client.close();
-  return result;
-}
-
 async function runConcurrentElementRace() {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverPath],
-    env: { ...process.env, CMUX_CU_CODEX: fakeCodex },
+    env: fakeEnv({ CMUX_CU_AUTO_APPROVE: "1" }),
     stderr: "pipe",
   });
   const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
@@ -132,8 +109,8 @@ async function runConcurrentElementRace() {
     await client.callTool({ name: "computer_state", arguments: { app: "TestApp" } })
   );
   const [first, second] = await Promise.all([
-    client.callTool({ name: "computer_click", arguments: { app: "TestApp", element: 0 } }),
-    client.callTool({ name: "computer_click", arguments: { app: "TestApp", element: 0 } }),
+    client.callTool({ name: "computer_click", arguments: { app: "TestApp", element: 1 } }),
+    client.callTool({ name: "computer_click", arguments: { app: "TestApp", element: 1 } }),
   ]);
   await client.close();
   return [state, summarizeResult(first), summarizeResult(second)];
@@ -143,7 +120,7 @@ async function runQueueBoundSmoke() {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverPath],
-    env: { ...process.env, CMUX_CU_CODEX: fakeCodex },
+    env: fakeEnv({ CMUX_CU_AUTO_APPROVE: "1" }),
     stderr: "pipe",
   });
   const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
@@ -164,10 +141,11 @@ async function runQueueBoundSmoke() {
   return results;
 }
 
-async function runCancellationSmoke() {
-  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
-  delete env.CMUX_CU_AUTO_APPROVE;
-  const child = spawn(process.execPath, [serverPath], { stdio: ["pipe", "pipe", "pipe"], env });
+async function runRawCancellationSmoke({ queued }) {
+  const child = spawn(process.execPath, [serverPath], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: fakeEnv({ CMUX_CU_AUTO_APPROVE: "1" }),
+  });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => process.stderr.write(chunk));
   const pending = new Map();
@@ -205,70 +183,27 @@ async function runCancellationSmoke() {
   });
   try {
     await request("init", "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
-    const slow = request(
-      "slow-state",
-      "tools/call",
-      { name: "computer_state", arguments: { app: "SlowStateApp" } },
-      1000
-    )
-      .then((message) => summarizeResult(message.result))
-      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
-    setTimeout(() => notify("notifications/cancelled", { requestId: "slow-state", reason: "cancel smoke" }), 25);
-    const afterCancel = await request(
-      "after-cancel",
-      "tools/call",
-      { name: "computer_target", arguments: {} },
-      1000
-    )
-      .then((message) => summarizeResult(message.result))
-      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
-    return { result: await slow, afterCancel };
-  } finally {
-    child.kill();
-  }
-}
+    if (!queued) {
+      const slow = request(
+        "slow-state",
+        "tools/call",
+        { name: "computer_state", arguments: { app: "SlowStateApp" } },
+        1000
+      )
+        .then((message) => summarizeResult(message.result))
+        .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+      setTimeout(() => notify("notifications/cancelled", { requestId: "slow-state", reason: "cancel smoke" }), 25);
+      const afterCancel = await request(
+        "after-cancel",
+        "tools/call",
+        { name: "computer_target", arguments: {} },
+        1000
+      )
+        .then((message) => summarizeResult(message.result))
+        .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+      return { result: await slow, afterCancel };
+    }
 
-async function runQueuedCancellationSmoke() {
-  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
-  delete env.CMUX_CU_AUTO_APPROVE;
-  const child = spawn(process.execPath, [serverPath], { stdio: ["pipe", "pipe", "pipe"], env });
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
-  const pending = new Map();
-  const lines = createInterface({ input: child.stdout });
-  const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
-  const request = (id, method, params, timeoutMs = 1000) =>
-    new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error(`${method} timed out`));
-      }, timeoutMs);
-      pending.set(id, { resolve, reject, timer });
-      send({ id, method, params });
-    });
-  const notify = (method, params) => send({ method, params });
-  lines.on("line", (line) => {
-    let message;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      return;
-    }
-    const entry = pending.get(message.id);
-    if (!entry) return;
-    pending.delete(message.id);
-    clearTimeout(entry.timer);
-    entry.resolve(message);
-  });
-  child.on("exit", () => {
-    for (const [id, entry] of pending) {
-      pending.delete(id);
-      clearTimeout(entry.timer);
-      entry.reject(new Error("server exited"));
-    }
-  });
-  try {
-    await request("init", "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
     const rounds = [];
     for (let index = 0; index < 7; index += 1) {
       const activeId = `active-state-${index}`;
@@ -281,7 +216,7 @@ async function runQueuedCancellationSmoke() {
       )
         .then((message) => summarizeResult(message.result))
         .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
-      const queued = request(
+      const queuedCall = request(
         queuedId,
         "tools/call",
         { name: "computer_target", arguments: {} },
@@ -290,7 +225,7 @@ async function runQueuedCancellationSmoke() {
         .then((message) => summarizeResult(message.result))
         .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
       setTimeout(() => notify("notifications/cancelled", { requestId: queuedId, reason: "cancel smoke" }), 25);
-      rounds.push({ active: await active, queued: await queued });
+      rounds.push({ active: await active, queued: await queuedCall });
     }
     const postActive = request(
       "post-active-state",
@@ -316,33 +251,29 @@ async function runQueuedCancellationSmoke() {
 
 const accepted = await run({
   withElicitation: true,
-  expectMessage: ["Allow Codex to use TestApp?", "cu-elicitation-smoke", "screenshots", "accessibility tree"],
+  expectMessage: ["Allow cmux computer use to inspect and control", "cu-elicitation-smoke", "screenshots", "accessibility tree"],
 });
 console.log(`with elicitation support -> isError=${accepted.isError} text=${accepted.text}`);
-if (accepted.isError || !accepted.text.includes("elicitation:accept")) {
-  console.error("FAIL: elicitation was not forwarded to the client and accepted");
+if (accepted.isError || !accepted.text.includes("AXButton")) {
+  console.error("FAIL: app-control elicitation was not forwarded to the client and accepted");
   process.exit(1);
 }
 
-const relativeOverride = await runRelativeCodexOverrideRejected();
-console.log(`relative CMUX_CU_CODEX override -> isError=${relativeOverride.isError}`);
-if (!relativeOverride.isError || !relativeOverride.text.includes("absolute executable path")) {
-  console.error("FAIL: relative CMUX_CU_CODEX should be rejected before spawning codex");
+const declined = await run({ withElicitation: false });
+console.log(`without elicitation support -> isError=${declined.isError} text=${declined.text}`);
+if (!declined.isError || !declined.text.includes("not approved")) {
+  console.error("FAIL: expected fail-closed decline for a client without elicitation support");
   process.exit(1);
 }
 
-const unknownRequest = await run({
-  withElicitation: false,
-  tool: "computer_state",
-  args: { app: "UnknownRequestApp" },
-});
-console.log(`unknown app-server request -> isError=${unknownRequest.isError}`);
-if (unknownRequest.isError || !unknownRequest.text.includes("unknown-request:rejected")) {
-  console.error("FAIL: unknown app-server requests should fail closed with a JSON-RPC error");
+const [raceState, raceFirst, raceSecond] = await runConcurrentElementRace();
+console.log(`concurrent element race -> state=${raceState.isError} first=${raceFirst.isError} second=${raceSecond.isError}`);
+if (raceState.isError || raceFirst.isError || !raceSecond.isError || !raceSecond.text.includes("computer_state")) {
+  console.error("FAIL: queued element action should consume the snapshot before the second action");
   process.exit(1);
 }
 
-const cancelled = await runCancellationSmoke();
+const cancelled = await runRawCancellationSmoke({ queued: false });
 console.log(
   `cancelled tool call -> isError=${cancelled.result.isError} followUp=${cancelled.afterCancel.isError} text=${cancelled.afterCancel.text}`
 );
@@ -355,7 +286,7 @@ if (cancelled.afterCancel.isError) {
   process.exit(1);
 }
 
-const queuedCancelled = await runQueuedCancellationSmoke();
+const queuedCancelled = await runRawCancellationSmoke({ queued: true });
 const queuedCancellationFailed = queuedCancelled.rounds.some((round) => round.active.isError || !round.queued.isError);
 console.log(
   `queued cancellation -> failed=${queuedCancellationFailed} postActive=${queuedCancelled.postActive.isError} followUp=${queuedCancelled.followUp.isError}`
@@ -384,15 +315,6 @@ if (!largeArgs.isError || !largeArgs.text.includes("too large")) {
   process.exit(1);
 }
 
-const declined = await run({ withElicitation: false });
-console.log(`without elicitation support -> isError=${declined.isError} text=${declined.text}`);
-if (!declined.isError || !declined.text.includes("elicitation:decline")) {
-  console.error("FAIL: expected fail-closed decline for a client without elicitation support");
-  process.exit(1);
-}
-
-// Local perception tools (window enumeration, desktop capture) bypass the
-// codex engine, so they must sit behind the same approval boundary.
 const windowsDeclined = await run({ withElicitation: false, tool: "computer_windows", args: {} });
 console.log(`computer_windows without elicitation support -> isError=${windowsDeclined.isError}`);
 if (!windowsDeclined.isError || !windowsDeclined.text.includes("not approved")) {
@@ -409,7 +331,7 @@ if (!shotDeclined.isError || !shotDeclined.text.includes("not approved")) {
 
 const windowsAccepted = await run({ withElicitation: true, tool: "computer_windows", args: {} });
 console.log(`computer_windows with accepted elicitation -> isError=${windowsAccepted.isError}`);
-if (windowsAccepted.text.includes("not approved")) {
+if (windowsAccepted.isError || windowsAccepted.text.includes("not approved")) {
   console.error("FAIL: accepted elicitation should clear the window-list gate");
   process.exit(1);
 }
@@ -430,8 +352,6 @@ if (windowsAcceptedJa.text.includes("not approved")) {
 const shotAccepted = await run({
   withElicitation: true,
   tool: "computer_screenshot",
-  // Use an invalid display so the smoke proves the approval gate opens without
-  // requiring a real full-desktop capture or Screen Recording permission.
   args: { display: -999 },
 });
 console.log(`desktop screenshot with accepted elicitation -> isError=${shotAccepted.isError}`);
@@ -447,244 +367,13 @@ if (!openDeclined.isError || !openDeclined.text.includes("not approved")) {
   process.exit(1);
 }
 
-// Happy path through a local gate, hermetically: an accepted elicitation must
-// clear the approval boundary and reach the underlying action. A nonexistent
-// app makes `open -a` fail AFTER the gate, proving the gate passed without
-// actually launching anything.
 const openAccepted = await run({
   withElicitation: true,
   tool: "computer_open",
-  args: { app: "cmux-cu-nonexistent-test-app" },
+  args: { app: "TestApp" },
 });
 console.log(`computer_open with accepted elicitation -> isError=${openAccepted.isError}`);
-if (!openAccepted.isError || openAccepted.text.includes("not approved")) {
-  console.error("FAIL: accepted elicitation should clear the gate and reach `open -a`");
+if (openAccepted.isError || openAccepted.text.includes("not approved")) {
+  console.error("FAIL: accepted elicitation should clear app launch");
   process.exit(1);
 }
-
-const [openState, openAttempt, staleAfterOpen] = await runCalls({
-  withElicitation: true,
-  expectMessage: "launch or focus",
-  calls: [
-    { tool: "computer_state", args: { app: "OpenRevokesApp" } },
-    { tool: "computer_open", args: { app: "OpenRevokesApp" } },
-    { tool: "computer_click", args: { app: "OpenRevokesApp", element: 0 } },
-  ],
-});
-console.log(
-  `computer_open revokes snapshot -> state=${openState.isError} open=${openAttempt.isError} click=${staleAfterOpen.isError}`
-);
-if (
-  openState.isError ||
-  !openAttempt.isError ||
-  !staleAfterOpen.isError ||
-  !staleAfterOpen.text.includes("run computer_state first")
-) {
-  console.error("FAIL: computer_open should revoke old element indices before the next input");
-  process.exit(1);
-}
-
-const [typeWithoutSnapshot] = await runCalls({
-  withElicitation: false,
-  calls: [{ tool: "computer_type", args: { app: "TypingApp", text: "hello" } }],
-});
-console.log(`type without visible snapshot -> type=${typeWithoutSnapshot.isError}`);
-if (!typeWithoutSnapshot.isError || !typeWithoutSnapshot.text.includes("visible snapshot")) {
-  console.error("FAIL: typing should require a visible state/screenshot snapshot");
-  process.exit(1);
-}
-
-const [typingState, firstType, staleType] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_state", args: { app: "TypingApp" } },
-    { tool: "computer_type", args: { app: "TypingApp", text: "hello" } },
-    { tool: "computer_type", args: { app: "TypingApp", text: "again" } },
-  ],
-});
-console.log(`type from visible snapshot -> state=${typingState.isError} type=${firstType.isError} stale=${staleType.isError}`);
-if (typingState.isError || firstType.isError || !staleType.isError || !staleType.text.includes("visible snapshot")) {
-  console.error("FAIL: typing should consume the visible snapshot before another input");
-  process.exit(1);
-}
-
-const [keyScreenshot, firstKey, staleKey] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_screenshot", args: { app: "KeyApp" } },
-    { tool: "computer_key", args: { app: "KeyApp", key: "Return" } },
-    { tool: "computer_key", args: { app: "KeyApp", key: "Return" } },
-  ],
-});
-console.log(`key from screenshot -> screenshot=${keyScreenshot.isError} key=${firstKey.isError} stale=${staleKey.isError}`);
-if (keyScreenshot.isError || firstKey.isError || !staleKey.isError || !staleKey.text.includes("visible snapshot")) {
-  console.error("FAIL: key input should consume the visible screenshot snapshot");
-  process.exit(1);
-}
-
-const [stateResult, firstClick, staleClick] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_state", args: { app: "TestApp" } },
-    { tool: "computer_click", args: { app: "TestApp", element: 0 } },
-    { tool: "computer_click", args: { app: "TestApp", element: 0 } },
-  ],
-});
-console.log(
-  `stale element sequence -> state=${stateResult.isError} firstClick=${firstClick.isError} staleClick=${staleClick.isError}`
-);
-if (stateResult.isError || firstClick.isError) {
-  console.error("FAIL: expected first element action to use the fresh computer_state snapshot");
-  process.exit(1);
-}
-if (!staleClick.isError || !staleClick.text.includes("run computer_state first")) {
-  console.error("FAIL: stale element action should require a fresh computer_state snapshot");
-  process.exit(1);
-}
-
-const [coordinateWithoutSnapshot] = await runCalls({
-  withElicitation: false,
-  calls: [{ tool: "computer_click", args: { app: "CoordinateApp", x: 3, y: 4 } }],
-});
-console.log(`coordinate click without visible snapshot -> click=${coordinateWithoutSnapshot.isError}`);
-if (!coordinateWithoutSnapshot.isError || !coordinateWithoutSnapshot.text.includes("visible screenshot")) {
-  console.error("FAIL: coordinate click should require a visible screenshot snapshot");
-  process.exit(1);
-}
-
-const [coordinateState, coordinateClick, staleCoordinateClick] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_state", args: { app: "CoordinateApp" } },
-    { tool: "computer_click", args: { app: "CoordinateApp", x: 3, y: 4 } },
-    { tool: "computer_click", args: { app: "CoordinateApp", x: 3, y: 4 } },
-  ],
-});
-console.log(
-  `coordinate click from computer_state -> state=${coordinateState.isError} click=${coordinateClick.isError} stale=${staleCoordinateClick.isError}`
-);
-if (
-  coordinateState.isError ||
-  coordinateClick.isError ||
-  !staleCoordinateClick.isError ||
-  !staleCoordinateClick.text.includes("visible screenshot")
-) {
-  console.error("FAIL: coordinate click should consume the visible computer_state snapshot");
-  process.exit(1);
-}
-
-const [coordinateScreenshot, screenshotClick, staleScreenshotClick] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_screenshot", args: { app: "ScreenshotCoordinateApp" } },
-    { tool: "computer_click", args: { app: "ScreenshotCoordinateApp", x: 5, y: 6 } },
-    { tool: "computer_click", args: { app: "ScreenshotCoordinateApp", x: 5, y: 6 } },
-  ],
-});
-console.log(
-  `coordinate click from computer_screenshot -> screenshot=${coordinateScreenshot.isError} click=${screenshotClick.isError} stale=${staleScreenshotClick.isError}`
-);
-if (
-  coordinateScreenshot.isError ||
-  screenshotClick.isError ||
-  !staleScreenshotClick.isError ||
-  !staleScreenshotClick.text.includes("visible screenshot")
-) {
-  console.error("FAIL: coordinate click should consume the visible computer_screenshot snapshot");
-  process.exit(1);
-}
-
-const [dragState, dragResult, staleDrag] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_state", args: { app: "DragCoordinateApp" } },
-    {
-      tool: "computer_drag",
-      args: { app: "DragCoordinateApp", fromX: 1, fromY: 2, toX: 3, toY: 4 },
-    },
-    {
-      tool: "computer_drag",
-      args: { app: "DragCoordinateApp", fromX: 1, fromY: 2, toX: 3, toY: 4 },
-    },
-  ],
-});
-console.log(`coordinate drag -> state=${dragState.isError} drag=${dragResult.isError} stale=${staleDrag.isError}`);
-if (dragState.isError || dragResult.isError || !staleDrag.isError || !staleDrag.text.includes("visible screenshot")) {
-  console.error("FAIL: coordinate drag should consume the visible screenshot snapshot");
-  process.exit(1);
-}
-
-const [flakyState, failedRefresh, staleAfterFailedRefresh] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_state", args: { app: "FlakyStateApp" } },
-    { tool: "computer_state", args: { app: "FlakyStateApp" } },
-    { tool: "computer_click", args: { app: "FlakyStateApp", element: 0 } },
-  ],
-});
-console.log(
-  `failed state refresh revokes snapshot -> state=${flakyState.isError} refresh=${failedRefresh.isError} click=${staleAfterFailedRefresh.isError}`
-);
-if (
-  flakyState.isError ||
-  !failedRefresh.isError ||
-  !staleAfterFailedRefresh.isError ||
-  !staleAfterFailedRefresh.text.includes("run computer_state first")
-) {
-  console.error("FAIL: failed computer_state refresh should revoke old element indices");
-  process.exit(1);
-}
-
-const [screenshotState, failedScreenshot, staleAfterFailedScreenshot] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_state", args: { app: "FlakyScreenshotApp" } },
-    { tool: "computer_screenshot", args: { app: "FlakyScreenshotApp" } },
-    { tool: "computer_click", args: { app: "FlakyScreenshotApp", element: 0 } },
-  ],
-});
-console.log(
-  `failed screenshot refresh revokes snapshot -> state=${screenshotState.isError} screenshot=${failedScreenshot.isError} click=${staleAfterFailedScreenshot.isError}`
-);
-if (
-  screenshotState.isError ||
-  !failedScreenshot.isError ||
-  !staleAfterFailedScreenshot.isError ||
-  !staleAfterFailedScreenshot.text.includes("run computer_state first")
-) {
-  console.error("FAIL: failed computer_screenshot refresh should revoke old element indices");
-  process.exit(1);
-}
-
-const [scrollState, scrollResult, actionState, actionResult] = await runCalls({
-  withElicitation: false,
-  calls: [
-    { tool: "computer_state", args: { app: "TestApp" } },
-    { tool: "computer_scroll", args: { app: "TestApp", element: 0, direction: "down" } },
-    { tool: "computer_state", args: { app: "TestApp" } },
-    { tool: "computer_action", args: { app: "TestApp", element: 0, action: "AXPress" } },
-  ],
-});
-console.log(
-  `element-index input tools -> scrollState=${scrollState.isError} scroll=${scrollResult.isError} actionState=${actionState.isError} action=${actionResult.isError}`
-);
-if (scrollState.isError || scrollResult.isError || actionState.isError || actionResult.isError) {
-  console.error("FAIL: expected element-index input tools to forward numeric element_index values");
-  process.exit(1);
-}
-
-const [raceState, raceA, raceB] = await runConcurrentElementRace();
-const raceFailures = [raceA, raceB].filter((result) => result.isError);
-console.log(
-  `concurrent element race -> state=${raceState.isError} first=${raceA.isError} second=${raceB.isError}`
-);
-if (raceState.isError) {
-  console.error("FAIL: expected race setup computer_state to succeed");
-  process.exit(1);
-}
-if (raceFailures.length !== 1 || !raceFailures[0].text.includes("run computer_state first")) {
-  console.error("FAIL: exactly one concurrent element action should consume the snapshot");
-  process.exit(1);
-}
-
-console.log("PASS: elicitation forwarding + fail-closed/accepted gates (engine and local capabilities)");

@@ -8,7 +8,7 @@
 //   node scripts/smoke.mjs computer_apps        # ...plus call computer_apps
 //   node scripts/smoke.mjs computer_state '{"app":"Calculator"}'
 //
-// Env is passed through, so CMUX_CU_CODEX/CMUX_CU_TIMEOUT_MS apply.
+// Env is passed through, so CMUX_CU_TIMEOUT_MS and CMUX_CU_FAKE_PROVIDER apply.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
