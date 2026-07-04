@@ -176,8 +176,12 @@ jobs:
           # path is deterministic (capture-streamed uses /tmp/cmux-stream-<agent>).
           # Trust both path spellings: macOS resolves /tmp -> /private/tmp, and
           # claude keys the trust map by the realpath it sees (/private/tmp/...).
+          # theme=dark-ansi: the "dark" theme paints claude's own #1e1e1e bg, which
+          # overrides cmux's Monokai terminal default; dark-ansi uses the terminal's
+          # ANSI palette + background, so claude renders on cmux Monokai (#272822)
+          # like codex/pi do (codex/pi never paint a full-screen bg).
           cat > "$HOME/.claude.json" <<'JSON'
-          {"hasCompletedOnboarding": true, "theme": "dark", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}, "/private/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
+          {"hasCompletedOnboarding": true, "theme": "dark-ansi", "projects": {"/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}, "/private/tmp/cmux-stream-claude": {"hasTrustDialogAccepted": true}}}
           JSON
           echo "seeded ~/.claude.json"
           # Seed the recorded claude session into its on-disk store. Seed BOTH cwd
