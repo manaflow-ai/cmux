@@ -3180,8 +3180,7 @@ struct CMUXCLI {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
-            print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
-            return
+            throw unknownCommandError(command)
         }
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -5035,8 +5034,7 @@ struct CMUXCLI {
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
-            print(usage())
-            throw CLIError(message: "Unknown command: \(command)")
+            throw unknownCommandError(command)
         }
         } catch {
             if !capturesSocketErrorsInsideCommand {
@@ -5275,6 +5273,55 @@ struct CMUXCLI {
             return false
         }
         return FileManager.default.fileExists(atPath: resolvePath(arg))
+    }
+
+    private func unknownCommandError(_ command: String) -> CLIError {
+        var message = "Unknown command '\(command)'."
+        if let suggestion = suggestedCommandName(for: command) {
+            message += " Did you mean '\(suggestion)'?"
+        }
+        message += " Run 'cmux --help' for the full command list."
+        return CLIError(message: message, exitCode: 2)
+    }
+
+    private func suggestedCommandName(for command: String) -> String? {
+        var bestName: String?
+        var bestDistance = Int.max
+
+        for candidate in Self.topLevelCommandNames where !candidate.hasPrefix("__") {
+            let distance = editDistance(command, candidate)
+            guard distance > 0, distance <= 2, distance < candidate.count else { continue }
+            if distance < bestDistance || (distance == bestDistance && candidate < (bestName ?? candidate)) {
+                bestName = candidate
+                bestDistance = distance
+            }
+        }
+
+        return bestName
+    }
+
+    private func editDistance(_ lhs: String, _ rhs: String) -> Int {
+        let left = Array(lhs)
+        let right = Array(rhs)
+        if left.isEmpty { return right.count }
+        if right.isEmpty { return left.count }
+
+        var previous = Array(0...right.count)
+        var current = Array(repeating: 0, count: right.count + 1)
+
+        for (leftIndex, leftCharacter) in left.enumerated() {
+            current[0] = leftIndex + 1
+            for (rightIndex, rightCharacter) in right.enumerated() {
+                if leftCharacter == rightCharacter {
+                    current[rightIndex + 1] = previous[rightIndex]
+                } else {
+                    current[rightIndex + 1] = min(min(previous[rightIndex + 1], current[rightIndex]), previous[rightIndex]) + 1
+                }
+            }
+            swap(&previous, &current)
+        }
+
+        return previous[right.count]
     }
 
     private static let topLevelCommandNames: Set<String> = [
@@ -14060,7 +14107,7 @@ struct CMUXCLI {
             if let id = focused["id"] as? String { return id }
         }
 
-        throw CLIError(message: "Unable to resolve surface ID")
+        throw CLIError(message: "Couldn't resolve a surface ID. Pass --surface or run 'cmux list-pane-surfaces' to list surfaces.")
     }
 
     private func resolveSurfaceTargetInWindow(
@@ -34432,20 +34479,20 @@ export default CMUXSessionRestore;
           cmux <path>                Open a directory in a new workspace (launches cmux if needed)
           cmux [global-options] <command> [options]
 
-        Handle Inputs:
-          Use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes where commands accept window, workspace, pane, or surface inputs.
+        Targets:
+          Commands that accept a window, workspace, pane, or surface take a UUID, a short ref (window:1/workspace:2/pane:3/surface:4), or an index.
           `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Socket Auth:
-          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
+          --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
 
         Agent Help:
-          To change cmux settings, run `cmux docs settings` and `cmux settings path`; to add Dock controls, run `cmux docs dock`.
-          Back up any existing cmux.json file to a timestamped .bak copy before editing.
-          Use printed curl commands to fetch the latest docs/schema, and prefer Ghostty config for terminal behavior Ghostty already supports.
-          Ghostty config lives at ~/.config/ghostty/config (controls terminal transparency, blur, font, theme, keybinds, etc.).
-          `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json and refreshes terminals in place. No app restart needed.
+          Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
+          Before editing, back up any existing cmux.json file to a timestamped .bak copy.
+          Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
+          Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
+          `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
         Commands:
           welcome
