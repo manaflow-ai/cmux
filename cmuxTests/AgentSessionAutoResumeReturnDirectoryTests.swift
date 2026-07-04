@@ -71,46 +71,54 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
             defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let sessionDirectory = "/tmp/cmux-issue-7031-ignore-repo"
-            let sessionId = "ignore-issue-7031-session"
-            let registration = CmuxVaultAgentRegistration(
-                id: "acme-ignore",
-                name: "Acme Ignore",
-                detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
-                sessionIdSource: .argvOption("--session"),
-                resumeCommand: "acme-agent --session {{sessionId}}",
-                cwd: .ignore
+            let restored = try restoredCwdIgnorePanel(
+                sessionDirectory: sessionDirectory,
+                sessionId: "ignore-issue-7031-session",
+                defaults: defaults
             )
-            let source = Workspace(agentSessionAutoResumeDefaults: defaults)
-            let sourcePanelId = try #require(source.focusedPanelId)
-            source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
-            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
-            source.setRestoredAgentSnapshotForTesting(
-                SessionRestorableAgentSnapshot(
-                    kind: .custom(registration.id),
-                    sessionId: sessionId,
-                    workingDirectory: nil,
-                    launchCommand: AgentLaunchCommandSnapshot(
-                        processDetectedLauncher: registration.id,
-                        executablePath: "/usr/local/bin/acme-agent",
-                        arguments: ["/usr/local/bin/acme-agent", "--session", sessionId],
-                        workingDirectory: sessionDirectory,
-                        environment: [:]
-                    ),
-                    registration: registration
-                ),
-                panelId: sourcePanelId
-            )
-            let snapshot = source.sessionSnapshot(includeScrollback: false)
 
-            let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
-            restored.restoreSessionSnapshot(snapshot)
-            let restoredPanelId = try #require(restored.focusedPanelId)
-            let panel = try #require(restored.terminalPanel(for: restoredPanelId))
-            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
-
-            let script = try harness.resumeLauncherScript(from: panel)
+            #expect(restored.workspace.restoredResumeSessionWorkingDirectoriesByPanelId[restored.panelId] == nil)
             let outerCd = "{ cd -- '\(sessionDirectory)' 2>/dev/null || true; }"
+            let script = try harness.resumeLauncherScript(from: restored.panel)
             #expect(!script.contains(outerCd))
+            #expect(!script.contains("cd -- '\(sessionDirectory)'"))
+            #expect(script.contains("exec -l \"$_cmux_resume_shell\""))
+        }
+    }
+
+    @MainActor
+    @Test("cwd-ignore hook bindings do not return the shell to a saved session directory")
+    func cwdIgnoreBindingDoesNotReturnToSessionDirectory() throws {
+        try withIsolatedAutoResumeDefaults { defaults in
+            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let sessionDirectory = "/tmp/cmux-issue-7031-ignore-binding-repo"
+            let sessionId = "ignore-binding-issue-7031-session"
+            let restored = try restoredCwdIgnorePanel(
+                sessionDirectory: sessionDirectory,
+                sessionId: sessionId,
+                defaults: defaults,
+                makeSurfaceResumeBindingIndex: { workspaceId, panelId in
+                    SurfaceResumeBindingIndex(bindingsByPanel: [
+                        SurfaceResumeBindingIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): SurfaceResumeBindingSnapshot(
+                            name: "Acme Ignore",
+                            kind: "acme-ignore",
+                            command: "acme-agent --session \(sessionId)",
+                            cwd: nil,
+                            checkpointId: sessionId,
+                            source: "agent-hook",
+                            autoResume: true,
+                            updatedAt: 1_777_777_777
+                        ),
+                    ])
+                }
+            )
+
+            #expect(restored.workspace.restoredResumeSessionWorkingDirectoriesByPanelId[restored.panelId] == nil)
+            let outerCd = "{ cd -- '\(sessionDirectory)' 2>/dev/null || true; }"
+            let script = try harness.resumeLauncherScript(from: restored.panel)
+            #expect(!script.contains(outerCd))
+            #expect(!script.contains("cd -- '\(sessionDirectory)'"))
             #expect(script.contains("exec -l \"$_cmux_resume_shell\""))
         }
     }
@@ -155,6 +163,53 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
         return (restored, try #require(restored.terminalPanel(for: restoredPanelId)))
+    }
+
+    @MainActor
+    private func restoredCwdIgnorePanel(
+        sessionDirectory: String,
+        sessionId: String,
+        defaults: UserDefaults,
+        makeSurfaceResumeBindingIndex: ((UUID, UUID) -> SurfaceResumeBindingIndex?)? = nil
+    ) throws -> (workspace: Workspace, panel: TerminalPanel, panelId: UUID) {
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-ignore",
+            name: "Acme Ignore",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .ignore
+        )
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(
+            SessionRestorableAgentSnapshot(
+                kind: .custom(registration.id),
+                sessionId: sessionId,
+                workingDirectory: nil,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    processDetectedLauncher: registration.id,
+                    executablePath: "/usr/local/bin/acme-agent",
+                    arguments: ["/usr/local/bin/acme-agent", "--session", sessionId],
+                    workingDirectory: sessionDirectory,
+                    environment: [:]
+                ),
+                registration: registration
+            ),
+            panelId: sourcePanelId
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: makeSurfaceResumeBindingIndex?(source.id, sourcePanelId)
+        )
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restored.focusedPanelId)
+        let panel = try #require(restored.terminalPanel(for: restoredPanelId))
+        return (restored, panel, restoredPanelId)
     }
 
     @MainActor

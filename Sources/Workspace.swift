@@ -908,7 +908,7 @@ extension Workspace {
            RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
             return binding
         }
-
+        if restorableAgent.registration?.cwd == .ignore { return binding.retargetingWorkingDirectory(nil) }
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
         // and fall back to launch capture only for older snapshots.
         let snapshotRestorableWorkingDirectory =
@@ -1193,7 +1193,9 @@ extension Workspace {
                 snapshotRestorableAgent,
                 resumeBinding: resumeBinding
             )
-            let sessionReturnWorkingDirectory = resumeBinding?.cwd ?? snapshot.terminal?.workingDirectory ?? restorableAgent?.workingDirectory ?? snapshot.directory ?? currentDirectory
+            let sessionReturnWorkingDirectory = restorableAgent?.registration?.cwd == .ignore
+                ? nil
+                : resumeBinding?.cwd ?? snapshot.terminal?.workingDirectory ?? restorableAgent?.workingDirectory ?? snapshot.directory ?? currentDirectory
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
