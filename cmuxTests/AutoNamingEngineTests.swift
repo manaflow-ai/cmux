@@ -203,6 +203,35 @@ import Testing
         #expect(context.contains(String(longText.prefix(config.contextMessageMaxChars))))
     }
 
+    @Test func latestUserMessageAnchorsContextLanguage() throws {
+        // Regression for #6239: the user's most recent message — which carries
+        // the current topic and, crucially, the user's language — must always
+        // reach the summarizer, even when later assistant replies push it past
+        // the head/tail windows. Otherwise a late non-English prompt is dropped
+        // and only English assistant text remains, so the title comes out
+        // English (contradicting the documented "conversation's language").
+        let phrase = "ログイン画面のバグを直して"
+        let sharedExcerpt = phrase + String(
+            repeating: "あ",
+            count: max(0, config.contextMessageMaxChars - phrase.count)
+        )
+        var messages: [AutoNamingTranscriptMessage] = [
+            AutoNamingTranscriptMessage(role: "user", text: sharedExcerpt + " older request"),
+            AutoNamingTranscriptMessage(role: "user", text: "Add the initial config"),
+            AutoNamingTranscriptMessage(role: "user", text: sharedExcerpt + " latest request")
+        ]
+        // Enough assistant replies that the trailing window no longer reaches
+        // the Japanese user turn (its index falls before suffix(contextTail)).
+        for index in 0..<(config.contextTailMessages + 1) {
+            messages.append(AutoNamingTranscriptMessage(role: "assistant", text: "Investigating step \(index)"))
+        }
+
+        let context = try #require(engine.buildContext(from: messages))
+        #expect(context.contains(phrase))
+        let duplicateExcerptCount = context.components(separatedBy: "user: \(sharedExcerpt)").count - 1
+        #expect(duplicateExcerptCount == 2)
+    }
+
     // MARK: - Prompt
 
     @Test func promptCarriesCurrentTitleAndVerbatimInstruction() {
@@ -213,6 +242,20 @@ import Testing
 
         let untitled = engine.buildPrompt(currentTitle: nil, context: "user: hello")
         #expect(!untitled.contains("current title"))
+    }
+
+    @Test func promptAnchorsTitleLanguageOnUserSide() {
+        // Regression for #6239: the summarizer must follow the USER's language,
+        // not the whole excerpt's (usually dominated by English assistant
+        // replies, code, file paths, and logs). The old "same language as the
+        // conversation" wording let the model justify an English title for a
+        // Japanese conversation.
+        let prompt = engine.buildPrompt(
+            currentTitle: nil,
+            context: "user: ログイン画面のバグを直して\nassistant: Looking at the login flow"
+        )
+        #expect(prompt.contains("the user writes in"))
+        #expect(!prompt.contains("same language as the conversation"))
     }
 
     // MARK: - Sanitization

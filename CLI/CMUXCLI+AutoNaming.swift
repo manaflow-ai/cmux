@@ -230,17 +230,42 @@ struct AutoNamingEngine: Sendable {
     }
 
     /// Builds the summarization context: the first user messages anchor the
-    /// session's purpose, the trailing messages capture the current topic.
+    /// session's purpose, the trailing messages capture the current topic, and
+    /// the user's most recent message is always included so the title follows
+    /// the user's language.
     func buildContext(from messages: [AutoNamingTranscriptMessage]) -> String? {
         guard !messages.isEmpty else { return nil }
-        let headUser = messages
-            .filter { $0.role == "user" }
-            .prefix(config.contextHeadUserMessages)
-        let tail = messages.suffix(config.contextTailMessages)
+        var includedIndices = Set<Int>()
+        // The first user messages anchor the session's purpose.
+        var headUserCount = 0
+        for index in messages.indices where messages[index].role == "user" {
+            includedIndices.insert(index)
+            headUserCount += 1
+            if headUserCount >= config.contextHeadUserMessages { break }
+        }
+        // The trailing messages capture the current topic.
+        for index in messages.indices.suffix(config.contextTailMessages) {
+            includedIndices.insert(index)
+        }
+        // Always include the user's most recent message. It carries the current
+        // topic and, crucially, the user's language, which must anchor the title
+        // even when the trailing messages are assistant replies, code, or logs
+        // (typically English). Without this a late non-English prompt can be
+        // pushed out of the excerpt entirely, yielding an English title and
+        // contradicting the documented "conversation's language". (#6239)
+        let lastUserIndex = messages.lastIndex(where: { $0.role == "user" })
+        if let lastUserIndex {
+            includedIndices.insert(lastUserIndex)
+        }
         var seen = Set<String>()
         var parts: [String] = []
-        for message in Array(headUser) + Array(tail) {
+        for index in includedIndices.sorted() {
+            let message = messages[index]
             let excerpt = String(message.text.prefix(config.contextMessageMaxChars))
+            if let lastUserIndex, index == lastUserIndex {
+                parts.append("\(message.role): \(excerpt)")
+                continue
+            }
             let key = "\(message.role):\(excerpt)"
             guard seen.insert(key).inserted else { continue }
             parts.append("\(message.role): \(excerpt)")
@@ -349,7 +374,11 @@ struct AutoNamingEngine: Sendable {
         var lines: [String] = [
             "You name terminal workspace tabs for a developer running coding agents.",
             "Given a conversation excerpt, output ONLY a short title: 2-5 words,",
-            "in the same language as the conversation, no quotes, no trailing punctuation.",
+            "no quotes, no trailing punctuation.",
+            "Write the title in the same language the user writes in (the lines that",
+            "start with \"user:\"). Match the user's language even when the assistant's",
+            "replies, code, file paths, tool names, or logs are in another language",
+            "(usually English).",
             ""
         ]
         if let currentTitle, !currentTitle.isEmpty {
