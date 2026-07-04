@@ -51,7 +51,7 @@ is_allowed_binary_name() {
 
 looks_like_bun_standalone() {
   local path="$1"
-  strings -a "$path" 2>/dev/null | grep -Eq '(/\$bunfs/|StandaloneExecutable|Bun v[0-9]+\.[0-9]+\.[0-9]+)'
+  strings -a "$path" 2>/dev/null | grep -E '(/\$bunfs/|StandaloneExecutable|Bun v[0-9]+\.[0-9]+\.[0-9]+)' >/dev/null
 }
 
 is_checked_in_grok_wrapper() {
