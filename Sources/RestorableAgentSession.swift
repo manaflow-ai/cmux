@@ -1666,6 +1666,11 @@ struct RestorableAgentSessionIndex: Sendable {
     private enum ClaudeTranscriptLookupResult: Equatable, Sendable {
         // The direct `<projectRoot>/<sessionId>.jsonl` candidate. Deleting or renaming
         // it bumps the project root mtime, so this positive is stable under the stamp.
+        // Accepted edge: truncating the file to zero bytes IN PLACE changes no
+        // directory mtime, so the stale positive lasts until the next directory
+        // change or process restart. Re-detecting it would need the per-record file
+        // stat this cache exists to eliminate, and no agent writer truncates
+        // transcripts in place.
         case present(String)
         // No candidate file exists and neither does the `<projectRoot>/<sessionId>/`
         // subdirectory. A nested transcript can only appear by first creating that
@@ -1731,6 +1736,10 @@ struct RestorableAgentSessionIndex: Sendable {
     // nested `<sessionId>/messages/` layout (or on zero-byte files growing in place)
     // are marked `requiresPerLoadRecheck` and re-probed once per load instead of being
     // trusted across loads.
+    // Growth stays bounded: per-root session entries only exist for hook-store records
+    // the loader walks and are replaced wholesale when that directory's mtime changes,
+    // while caches for deleted project directories are pruned when the projects/
+    // listing is revalidated (deletion bumps the projects/ root mtime).
     private nonisolated static let claudeTranscriptSharedStore = OSAllocatedUnfairLock(
         initialState: ClaudeTranscriptSharedStore()
     )
@@ -1827,6 +1836,16 @@ struct RestorableAgentSessionIndex: Sendable {
                 projectDirs = []
             }
 
+            // Recomputing the listing is the eviction point for dead project roots:
+            // deleting a project directory (or the whole projects/ root) bumps the
+            // projects/ mtime, lands here, and drops the per-root lookup caches for
+            // directories that no longer exist. Per-root session entries are bounded
+            // by the hook-store records the loader walks and are replaced wholesale
+            // whenever that directory's own mtime changes.
+            let liveProjectRoots = Set(projectDirs.map { dirName in
+                ((projectsRoot as NSString).appendingPathComponent(dirName) as NSString).standardizingPath
+            })
+            let projectsRootPrefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
             RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
                 if let existing = store.projectDirsByConfigRoot[standardizedRoot],
                    existing.stamp != stamp {
@@ -1836,6 +1855,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     stamp: stamp,
                     projectDirs: projectDirs
                 )
+                let staleRoots = store.projectRootCaches.keys.filter { root in
+                    root.hasPrefix(projectsRootPrefix) && !liveProjectRoots.contains(root)
+                }
+                for staleRoot in staleRoots {
+                    store.projectRootCaches[staleRoot] = nil
+                }
             }
             return projectDirs
         }
