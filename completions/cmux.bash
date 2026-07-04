@@ -1,7 +1,7 @@
 # cmux shell completions (bash) -- AUTO-GENERATED, DO NOT EDIT.
 #
 # Regenerate with:  scripts/generate-cli-completions.py --write
-# Source of truth:  topLevelCommandNames in CLI/cmux.swift + its usage() help.
+# Source of truth:  topLevelCommandNames in CLI/CMUXCLI+CommandSuggestions.swift + CLI/cmux.swift usage() help.
 
 __cmux_compgen() {
     local wordlist="$1" current="$2" match

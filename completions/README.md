@@ -5,9 +5,9 @@ Tab-completion for the `cmux` CLI in **bash**, **zsh**, and **fish**.
 > **These files are generated. Do not edit them by hand.**
 > They are produced by [`scripts/generate-cli-completions.py`](../scripts/generate-cli-completions.py)
 > from the `topLevelCommandNames` registry and the `usage()` help text in
-> `CLI/cmux.swift`. `tests/test_cli_completions_contract.py` (run in CI) fails
-> if a command is added without regenerating, so completions stay in sync
-> automatically.
+> `CLI/CMUXCLI+CommandSuggestions.swift` and `CLI/cmux.swift`.
+> `tests/test_cli_completions_contract.py` (run in CI) fails if a command is
+> added without regenerating, so completions stay in sync automatically.
 
 ## What completes
 
@@ -48,8 +48,10 @@ cp completions/cmux.fish ~/.config/fish/completions/cmux.fish
 scripts/generate-cli-completions.py --write
 ```
 
-By default the generator reads the `usage()` heredoc from `CLI/cmux.swift`, so
-no built binary is required. To regenerate against a built binary instead:
+By default the generator reads the command registry from
+`CLI/CMUXCLI+CommandSuggestions.swift` and the `usage()` heredoc from
+`CLI/cmux.swift`, so no built binary is required. To regenerate against a built
+binary instead:
 
 ```bash
 scripts/generate-cli-completions.py --write --cmux-bin /path/to/cmux

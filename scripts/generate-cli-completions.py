@@ -4,11 +4,11 @@
 The completions are *derived*, never hand-maintained:
 
 - Command names come from the authoritative `topLevelCommandNames` registry in
-  `CLI/cmux.swift` (a flat `Set<String>` literal).
+  `CLI/CMUXCLI+CommandSuggestions.swift` (a flat `Set<String>` literal).
 - Per-command flags, subcommands, and enum values are parsed best-effort from
-  the `Commands:` section of the `usage()` help text in the same file (the same
-  text the help contract test in `tests/test_cli_contract_help.py` probes from
-  the built binary).
+  the `Commands:` section of the `usage()` help text in `CLI/cmux.swift` (the
+  same text the help contract test in `tests/test_cli_contract_help.py` probes
+  from the built binary).
 
 This split keeps command-name completion exact while letting flag completion
 ride on the human-curated help text. When `CLI/cmux.swift` migrates to Swift
@@ -43,6 +43,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SOURCE = REPO_ROOT / "CLI" / "cmux.swift"
+DEFAULT_REGISTRY_SOURCE = REPO_ROOT / "CLI" / "CMUXCLI+CommandSuggestions.swift"
 DEFAULT_OUT_DIR = REPO_ROOT / "completions"
 
 # Commands the registry lists but that are internal plumbing, not meant to be
@@ -359,7 +360,7 @@ def help_top_level_commands(help_text: str) -> list[str]:
     return sorted(names)
 
 
-def registry_coverage_gaps(source_path: Path) -> list[str]:
+def registry_coverage_gaps(registry_path: Path, help_source_path: Path) -> list[str]:
     """Commands documented in help but not offered for completion.
 
     Every top-level command documented in usage() must be completable, i.e. in
@@ -369,8 +370,8 @@ def registry_coverage_gaps(source_path: Path) -> list[str]:
     the committed scripts and the regeneration ride on the same generator.
     Returns the missing names so the contract test can fail loudly.
     """
-    visible = set(visible_commands(parse_registry(source_path)))
-    documented = help_top_level_commands(extract_usage_heredoc(source_path))
+    visible = set(visible_commands(parse_registry(registry_path)))
+    documented = help_top_level_commands(extract_usage_heredoc(help_source_path))
     return sorted(c for c in documented if c not in visible)
 
 
@@ -381,7 +382,7 @@ def registry_coverage_gaps(source_path: Path) -> list[str]:
 HEADER = """# cmux shell completions ({shell}) -- AUTO-GENERATED, DO NOT EDIT.
 #
 # Regenerate with:  scripts/generate-cli-completions.py --write
-# Source of truth:  topLevelCommandNames in CLI/cmux.swift + its usage() help.
+# Source of truth:  topLevelCommandNames in CLI/CMUXCLI+CommandSuggestions.swift + CLI/cmux.swift usage() help.
 """
 
 
@@ -541,7 +542,7 @@ EXTENSIONS = {"bash": "bash", "zsh": "zsh", "fish": "fish"}
 
 
 def build(args: argparse.Namespace) -> dict[str, str]:
-    registry = parse_registry(Path(args.source))
+    registry = parse_registry(Path(args.registry_source))
     commands = visible_commands(registry)
     help_text = load_help_text(args)
     specs = parse_help(help_text, set(commands))
@@ -550,7 +551,12 @@ def build(args: argparse.Namespace) -> dict[str, str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--source", default=str(DEFAULT_SOURCE), help="Path to CLI/cmux.swift")
+    ap.add_argument("--source", default=str(DEFAULT_SOURCE), help="Path to CLI/cmux.swift containing usage()")
+    ap.add_argument(
+        "--registry-source",
+        default=str(DEFAULT_REGISTRY_SOURCE),
+        help="Path to Swift file containing topLevelCommandNames",
+    )
     ap.add_argument("--cmux-bin", default=None, help="Probe `cmux help` from this built binary instead of the source heredoc")
     ap.add_argument("--help-file", default=None, help="Read `cmux help` text from a file instead of the source heredoc")
     ap.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR), help="Output directory for --write")
@@ -561,12 +567,12 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.list_commands:
-        for name in visible_commands(parse_registry(Path(args.source))):
+        for name in visible_commands(parse_registry(Path(args.registry_source))):
             print(name)
         return 0
 
     if args.check:
-        gaps = registry_coverage_gaps(Path(args.source))
+        gaps = registry_coverage_gaps(Path(args.registry_source), Path(args.source))
         if gaps:
             print(
                 "Commands documented in usage() but not completable (absent from "

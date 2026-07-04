@@ -2,7 +2,7 @@
 # cmux shell completions (zsh) -- AUTO-GENERATED, DO NOT EDIT.
 #
 # Regenerate with:  scripts/generate-cli-completions.py --write
-# Source of truth:  topLevelCommandNames in CLI/cmux.swift + its usage() help.
+# Source of truth:  topLevelCommandNames in CLI/CMUXCLI+CommandSuggestions.swift + CLI/cmux.swift usage() help.
 
 _cmux() {
     local -a commands
