@@ -624,6 +624,7 @@
 		7256B0010000000000000002 /* IssueInboxBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256B0010000000000000001 /* IssueInboxBridge.swift */; };
 		7256A0010000000000000002 /* IssueInboxPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256A0010000000000000001 /* IssueInboxPanel.swift */; };
 		7256B0010000000000000004 /* IssueInboxPanelWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256B0010000000000000003 /* IssueInboxPanelWebView.swift */; };
+		7256B0010000000000000006 /* IssueInboxURLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7256B0010000000000000005 /* IssueInboxURLSchemeHandler.swift */; };
 		C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B10000000000000002 /* JSONCParser.swift */; };
 		B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
@@ -1927,6 +1928,7 @@
 		7256B0010000000000000001 /* IssueInboxBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxBridge.swift; sourceTree = "<group>"; };
 		7256A0010000000000000001 /* IssueInboxPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxPanel.swift; sourceTree = "<group>"; };
 		7256B0010000000000000003 /* IssueInboxPanelWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxPanelWebView.swift; sourceTree = "<group>"; };
+		7256B0010000000000000005 /* IssueInboxURLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/IssueInboxURLSchemeHandler.swift; sourceTree = "<group>"; };
 		C0DEF0B10000000000000002 /* JSONCParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCParser.swift; sourceTree = "<group>"; };
 		B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
@@ -3405,6 +3407,7 @@
 				7256A0010000000000000001 /* IssueInboxPanel.swift */,
 				7256B0010000000000000001 /* IssueInboxBridge.swift */,
 				7256B0010000000000000003 /* IssueInboxPanelWebView.swift */,
+				7256B0010000000000000005 /* IssueInboxURLSchemeHandler.swift */,
 				A5C0DE0000000000000000B1 /* ProjectPanel.swift */,
 				A5C0DE0000000000000000B3 /* ProjectPanelView.swift */,
 				A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */,
@@ -4757,6 +4760,7 @@
 					7256B0010000000000000002 /* IssueInboxBridge.swift in Sources */,
 					7256A0010000000000000002 /* IssueInboxPanel.swift in Sources */,
 					7256B0010000000000000004 /* IssueInboxPanelWebView.swift in Sources */,
+					7256B0010000000000000006 /* IssueInboxURLSchemeHandler.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
 				A50012F5 /* KeyboardLayout.swift in Sources */,
 				C4A570020000000000000001 /* KeyboardShortcutActionContext.swift in Sources */,

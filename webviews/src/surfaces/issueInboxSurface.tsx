@@ -25,6 +25,7 @@ type ProviderFilter = IssueProvider | "all";
 const rowLimit = 500;
 const agentStorageKey = "cmux.issueInbox.agent";
 const agents: IssueSpawnAgent[] = ["claude", "codex", "none"];
+let memoryAgentChoice: IssueSpawnAgent | null = null;
 
 export function mountIssueInboxSurface(rootElement: HTMLElement): void {
   installWebviewStyles("issue-inbox", issueInboxStyles);
@@ -331,17 +332,33 @@ function useStateText<T>(initialValue: T): [T, (value: T) => void] {
 }
 
 function useAgentChoice(): [IssueSpawnAgent | null, (agent: IssueSpawnAgent) => void] {
-  const [agent, setAgentState] = React.useState<IssueSpawnAgent | null>(() => {
-    const saved = window.localStorage.getItem(agentStorageKey);
-    return agents.includes(saved as IssueSpawnAgent) ? (saved as IssueSpawnAgent) : null;
-  });
+  const [agent, setAgentState] = React.useState<IssueSpawnAgent | null>(readAgentChoice);
   return [
     agent,
     (next) => {
       setAgentState(next);
-      window.localStorage.setItem(agentStorageKey, next);
+      writeAgentChoice(next);
     },
   ];
+}
+
+function readAgentChoice(): IssueSpawnAgent | null {
+  try {
+    const saved = window.localStorage.getItem(agentStorageKey);
+    return agents.includes(saved as IssueSpawnAgent) ? (saved as IssueSpawnAgent) : memoryAgentChoice;
+  } catch {
+    return memoryAgentChoice;
+  }
+}
+
+function writeAgentChoice(agent: IssueSpawnAgent): void {
+  memoryAgentChoice = agent;
+  try {
+    window.localStorage.setItem(agentStorageKey, agent);
+  } catch {
+    // Custom WKURLSchemeHandler origins can reject storage. Keep the in-memory
+    // choice so the current surface still behaves consistently.
+  }
 }
 
 function agentLabel(labels: ReturnType<typeof createIssueInboxLabelResolver>, agent: IssueSpawnAgent): string {

@@ -55,6 +55,12 @@ final class IssueInboxBridge: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
         let configuration = WKWebViewConfiguration()
         configuration.suppressesIncrementalRendering = false
+        if configuration.urlSchemeHandler(forURLScheme: IssueInboxURLSchemeHandler.scheme) == nil {
+            configuration.setURLSchemeHandler(
+                IssueInboxURLSchemeHandler(),
+                forURLScheme: IssueInboxURLSchemeHandler.scheme
+            )
+        }
         configuration.userContentController.addScriptMessageHandler(
             self,
             contentWorld: .page,
@@ -81,10 +87,9 @@ final class IssueInboxBridge: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     func loadShellIfNeeded() {
         guard trustedShellURL == nil else { return }
         guard let webView, webView.window != nil else { return }
-        guard let resourceDirectoryURL = Bundle.main.resourceURL else { return }
-        let indexURL = Self.shellURL(resourceDirectoryURL: resourceDirectoryURL)
-        trustedShellURL = Self.normalizedTrustedFileURL(indexURL)
-        webView.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
+        let indexURL = Self.shellURL()
+        trustedShellURL = indexURL
+        webView.load(URLRequest(url: indexURL))
         hasFinishedNavigation = false
         hasCompletedVisiblePaintFlush = false
     }
@@ -161,13 +166,15 @@ final class IssueInboxBridge: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             decisionHandler(.allow)
             return
         }
+        if Self.isIssueInboxSchemeURL(url) {
+            decisionHandler(.allow)
+            return
+        }
         if isInPageFragment(url, currentURL: webView.url) {
             decisionHandler(.allow)
             return
         }
-        if navigationAction.navigationType == .linkActivated || navigationAction.targetFrame == nil {
-            NSWorkspace.shared.open(url)
-        }
+        NSWorkspace.shared.open(url)
         decisionHandler(.cancel)
     }
 
@@ -276,7 +283,7 @@ final class IssueInboxBridge: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     private func isTrustedBridgeFrame(_ frameInfo: WKFrameInfo) -> Bool {
         guard frameInfo.isMainFrame else { return false }
-        return Self.isTrustedShellURL(frameInfo.request.url, expected: trustedShellURL)
+        return Self.isIssueInboxSchemeURL(frameInfo.request.url)
     }
 
     private func isInPageFragment(_ url: URL, currentURL: URL?) -> Bool {
@@ -294,23 +301,22 @@ final class IssueInboxBridge: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             url.path == currentURL.path
     }
 
-    nonisolated static func shellURL(resourceDirectoryURL: URL) -> URL {
-        ["markdown-viewer", "webviews-app", "issue-inbox.html"].reduce(resourceDirectoryURL) {
-            $0.appendingPathComponent($1, isDirectory: false)
-        }
+    nonisolated static func shellURL() -> URL {
+        URL(string: "\(IssueInboxURLSchemeHandler.scheme)://\(IssueInboxURLSchemeHandler.host)/issue-inbox.html")!
     }
 
     nonisolated static func isTrustedShellURL(_ candidate: URL?, expected: URL?) -> Bool {
-        guard let candidate = normalizedTrustedFileURL(candidate),
-              let expected = normalizedTrustedFileURL(expected) else {
+        guard let candidate,
+              let expected else {
             return false
         }
-        return candidate == expected
+        return candidate.scheme?.lowercased() == expected.scheme?.lowercased() &&
+            candidate.host?.lowercased() == expected.host?.lowercased() &&
+            candidate.path == expected.path
     }
 
-    nonisolated static func normalizedTrustedFileURL(_ url: URL?) -> URL? {
-        guard let url, url.isFileURL else { return nil }
-        return url.standardizedFileURL.resolvingSymlinksInPath()
+    nonisolated static func isIssueInboxSchemeURL(_ url: URL?) -> Bool {
+        url?.scheme?.lowercased() == IssueInboxURLSchemeHandler.scheme
     }
 }
 
