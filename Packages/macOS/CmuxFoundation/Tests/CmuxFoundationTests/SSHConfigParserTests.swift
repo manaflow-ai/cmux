@@ -387,14 +387,18 @@ import Testing
     }
 
     @Test func includeCyclesAreBounded() {
-        // A resolver that always returns a self-including file must terminate.
-        let selfInclude = "Include loop\nHost leaf\n    HostName leaf.example.com\n"
+        // A resolver that always returns a duplicate self-including file must
+        // terminate without making exponential resolver calls.
+        let selfInclude = "Include loop loop\nHost leaf\n    HostName leaf.example.com\n"
+        var resolverCalls = 0
         let hosts = parser.hosts(configText: "Include loop\n") { argument in
+            resolverCalls += 1
             argument == "loop" ? [selfInclude] : []
         }
-        // Terminates (bounded depth) and collects the concrete host exactly
-        // once despite the cycle re-emitting it at every level (seenAliases
-        // dedups), so the output stays bounded.
+        // Terminates and collects the concrete host exactly once despite the
+        // cycle re-emitting it at every level (seenAliases dedups), so both the
+        // resolver work and output stay bounded.
+        #expect(resolverCalls <= SSHConfigParser.maxIncludeExpansions)
         #expect(hosts.filter { $0.alias == "leaf" }.count == 1)
     }
 

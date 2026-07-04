@@ -18,9 +18,12 @@ public struct SSHConfigParser: Sendable {
     /// number of configurations.
     public init() {}
 
-    /// Upper bound on `Include` nesting, mirroring OpenSSH, to bound work and
-    /// break include cycles.
+    /// Upper bound on `Include` nesting, mirroring OpenSSH.
     static let maxIncludeDepth = 16
+
+    /// Upper bound on resolver calls for one parse, preventing duplicate
+    /// include graphs from fanning out exponentially.
+    static let maxIncludeExpansions = 4096
 
     /// Parse `configText` into the concrete hosts it defines.
     ///
@@ -40,6 +43,8 @@ public struct SSHConfigParser: Sendable {
         var aliases: [String] = []
         var seenAliases = Set<String>()
         var directives: [ScopedDirective] = []
+        var includeExpansions = 0
+        var activeIncludePaths = Set<String>()
         collect(
             configText: configText,
             enclosingConditions: [],
@@ -47,7 +52,9 @@ public struct SSHConfigParser: Sendable {
             includeResolver: includeResolver,
             aliases: &aliases,
             seenAliases: &seenAliases,
-            directives: &directives
+            directives: &directives,
+            includeExpansions: &includeExpansions,
+            activeIncludePaths: &activeIncludePaths
         )
         return aliases.map { alias in
             resolve(alias: alias, directives: directives)
@@ -76,7 +83,9 @@ public struct SSHConfigParser: Sendable {
         includeResolver: (_ path: String) -> [String],
         aliases: inout [String],
         seenAliases: inout Set<String>,
-        directives: inout [ScopedDirective]
+        directives: inout [ScopedDirective],
+        includeExpansions: inout Int,
+        activeIncludePaths: inout Set<String>
     ) {
         let enclosingScope: Scope = .conditions(enclosingConditions)
         var currentScope = enclosingScope
@@ -112,6 +121,9 @@ public struct SSHConfigParser: Sendable {
                 // Multiple whitespace-separated paths are allowed and a path
                 // with spaces may be double-quoted, so tokenize and resolve each.
                 for path in tokenize(value) {
+                    guard includeExpansions < Self.maxIncludeExpansions else { continue }
+                    guard activeIncludePaths.insert(path).inserted else { continue }
+                    includeExpansions += 1
                     for includedText in includeResolver(path) {
                         collect(
                             configText: includedText,
@@ -120,9 +132,12 @@ public struct SSHConfigParser: Sendable {
                             includeResolver: includeResolver,
                             aliases: &aliases,
                             seenAliases: &seenAliases,
-                            directives: &directives
+                            directives: &directives,
+                            includeExpansions: &includeExpansions,
+                            activeIncludePaths: &activeIncludePaths
                         )
                     }
+                    activeIncludePaths.remove(path)
                 }
             default:
                 directives.append((scope: currentScope, key: key, value: value))
