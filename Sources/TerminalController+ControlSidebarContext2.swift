@@ -232,15 +232,24 @@ extension TerminalController {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
+        guard socketFastPathState.shouldPublishShellActivity(
+            workspaceId: scope.workspaceID,
+            panelId: scope.panelID,
+            state: state.rawValue
+        ) else {
+            return
+        }
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
             guard let self,
-                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope),
-                  self.socketFastPathState.shouldPublishShellActivity(
-                      workspaceId: tab.id,
-                      panelId: scope.panelID,
-                      state: state.rawValue
-                  ) else {
+                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
+            }
+            if tab.id != scope.workspaceID {
+                _ = self.socketFastPathState.shouldPublishShellActivity(
+                    workspaceId: tab.id,
+                    panelId: scope.panelID,
+                    state: state.rawValue
+                )
             }
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: scope.panelID, state: state)
         }
