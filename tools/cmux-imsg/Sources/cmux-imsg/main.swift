@@ -108,6 +108,9 @@ func runStatus() {
     }
 }
 
+// Recent pages ascending from the cursor so a burst larger than the page
+// limit continues on the next sync instead of skipping rows the max-ROWID
+// cursor would otherwise jump past.
 func runRecent(cursor: String?) {
     do {
         let db = try openChatDatabase()
@@ -121,7 +124,7 @@ func runRecent(cursor: String?) {
         JOIN chat c ON c.ROWID = cmj.chat_id
         LEFT JOIN handle h ON h.ROWID = m.handle_id
         WHERE m.ROWID > ? AND m.associated_message_type = 0 AND m.item_type = 0
-        ORDER BY m.ROWID DESC
+        ORDER BY m.ROWID ASC
         LIMIT 200
         """
         var statement: OpaquePointer?
