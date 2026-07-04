@@ -915,6 +915,7 @@
 		5E2701020000000000000003 /* SentryEventScrubber.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701020000000000000002 /* SentryEventScrubber.swift */; };
 		5E2701030000000000000001 /* SentryEventScrubberTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701030000000000000002 /* SentryEventScrubberTests.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
+		6595BEEF000000000000000B /* ServeWebOutputCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE000000000000000B /* ServeWebOutputCollector.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
@@ -1207,6 +1208,17 @@
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
+		6595BEEF0000000000000003 /* VSCodeCLILaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000003 /* VSCodeCLILaunchConfiguration.swift */; };
+		6595BEEF0000000000000004 /* VSCodeCLILaunchConfigurationBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000004 /* VSCodeCLILaunchConfigurationBuilder.swift */; };
+		6595BEEF0000000000000007 /* VSCodeConnectionToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000007 /* VSCodeConnectionToken.swift */; };
+		6595BEEF0000000000000008 /* VSCodeConnectionTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000008 /* VSCodeConnectionTokenStore.swift */; };
+		64CF86BD7D5F46F1943491B3 /* VSCodeServeWebController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC40A5879054B53BED68A02 /* VSCodeServeWebController.swift */; };
+		6595BEEF0000000000000002 /* VSCodeServeWebLauncherKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000002 /* VSCodeServeWebLauncherKind.swift */; };
+		6595BEEF0000000000000009 /* VSCodeServeWebLaunchOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000009 /* VSCodeServeWebLaunchOptions.swift */; };
+		6595BEEF000000000000000A /* VSCodeServeWebLaunchOptionsBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE000000000000000A /* VSCodeServeWebLaunchOptionsBuilder.swift */; };
+		6595BEEF0000000000000005 /* VSCodeServeWebRuntimeLocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000005 /* VSCodeServeWebRuntimeLocation.swift */; };
+		6595BEEF0000000000000006 /* VSCodeServeWebRuntimeLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000006 /* VSCodeServeWebRuntimeLocator.swift */; };
+		6595BEEF0000000000000001 /* VSCodeServeWebURLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6595C0DE0000000000000001 /* VSCodeServeWebURLBuilder.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
 		063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 		A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */; };
@@ -2222,6 +2234,7 @@
 		5E2701020000000000000002 /* SentryEventScrubber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryEventScrubber.swift; sourceTree = "<group>"; };
 		5E2701030000000000000002 /* SentryEventScrubberTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SentryEventScrubberTests.swift; sourceTree = "<group>"; };
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
+		6595C0DE000000000000000B /* ServeWebOutputCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ServeWebOutputCollector.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
@@ -2509,6 +2522,17 @@
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000003 /* VSCodeCLILaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeCLILaunchConfiguration.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000004 /* VSCodeCLILaunchConfigurationBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeCLILaunchConfigurationBuilder.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000007 /* VSCodeConnectionToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeConnectionToken.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000008 /* VSCodeConnectionTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeConnectionTokenStore.swift; sourceTree = "<group>"; };
+		8AC40A5879054B53BED68A02 /* VSCodeServeWebController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebController.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000002 /* VSCodeServeWebLauncherKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebLauncherKind.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000009 /* VSCodeServeWebLaunchOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebLaunchOptions.swift; sourceTree = "<group>"; };
+		6595C0DE000000000000000A /* VSCodeServeWebLaunchOptionsBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebLaunchOptionsBuilder.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000005 /* VSCodeServeWebRuntimeLocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebRuntimeLocation.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000006 /* VSCodeServeWebRuntimeLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebRuntimeLocator.swift; sourceTree = "<group>"; };
+		6595C0DE0000000000000001 /* VSCodeServeWebURLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebURLBuilder.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
 		BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 		A59170000000000000000002 /* WindowAppearanceSnapshotPaneBackgroundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotPaneBackgroundTests.swift; sourceTree = "<group>"; };
@@ -2996,6 +3020,18 @@
 				C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */,
 				9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */,
 				6B8E2E03F4A64C61B729CF19 /* TerminalDirectoryOpenSupport.swift */,
+				6595C0DE000000000000000B /* ServeWebOutputCollector.swift */,
+				6595C0DE0000000000000003 /* VSCodeCLILaunchConfiguration.swift */,
+				6595C0DE0000000000000004 /* VSCodeCLILaunchConfigurationBuilder.swift */,
+				6595C0DE0000000000000007 /* VSCodeConnectionToken.swift */,
+				6595C0DE0000000000000008 /* VSCodeConnectionTokenStore.swift */,
+				8AC40A5879054B53BED68A02 /* VSCodeServeWebController.swift */,
+				6595C0DE0000000000000009 /* VSCodeServeWebLaunchOptions.swift */,
+				6595C0DE000000000000000A /* VSCodeServeWebLaunchOptionsBuilder.swift */,
+				6595C0DE0000000000000002 /* VSCodeServeWebLauncherKind.swift */,
+				6595C0DE0000000000000005 /* VSCodeServeWebRuntimeLocation.swift */,
+				6595C0DE0000000000000006 /* VSCodeServeWebRuntimeLocator.swift */,
+				6595C0DE0000000000000001 /* VSCodeServeWebURLBuilder.swift */,
 				8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */,
 				47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */,
 				C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */,
@@ -4980,6 +5016,7 @@
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
 				5E2701020000000000000001 /* SentryEventScrubber.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
+				6595BEEF000000000000000B /* ServeWebOutputCollector.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
@@ -5179,6 +5216,17 @@
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
+				6595BEEF0000000000000003 /* VSCodeCLILaunchConfiguration.swift in Sources */,
+				6595BEEF0000000000000004 /* VSCodeCLILaunchConfigurationBuilder.swift in Sources */,
+				6595BEEF0000000000000007 /* VSCodeConnectionToken.swift in Sources */,
+				6595BEEF0000000000000008 /* VSCodeConnectionTokenStore.swift in Sources */,
+				64CF86BD7D5F46F1943491B3 /* VSCodeServeWebController.swift in Sources */,
+				6595BEEF0000000000000002 /* VSCodeServeWebLauncherKind.swift in Sources */,
+				6595BEEF0000000000000009 /* VSCodeServeWebLaunchOptions.swift in Sources */,
+				6595BEEF000000000000000A /* VSCodeServeWebLaunchOptionsBuilder.swift in Sources */,
+				6595BEEF0000000000000005 /* VSCodeServeWebRuntimeLocation.swift in Sources */,
+				6595BEEF0000000000000006 /* VSCodeServeWebRuntimeLocator.swift in Sources */,
+				6595BEEF0000000000000001 /* VSCodeServeWebURLBuilder.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,
