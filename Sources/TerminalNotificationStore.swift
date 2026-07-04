@@ -237,7 +237,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
-
+    static let authorizationStatusDidChangeNotification = Notification.Name("cmux.terminalNotificationAuthorizationStatusDidChange")
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
 
@@ -463,7 +463,7 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
+    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown { didSet { if authorizationState != oldValue { NotificationCenter.default.post(name: Self.authorizationStatusDidChangeNotification, object: nil) } } }
     private var suppressNotificationDiffPublishing = false
 
     private let center = UNUserNotificationCenter.current()

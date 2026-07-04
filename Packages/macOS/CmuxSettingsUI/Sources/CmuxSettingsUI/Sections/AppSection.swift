@@ -49,6 +49,7 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var desktopNotifications: DesktopNotificationAuthorizationModel
     @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
     @State private var agentTurnComplete: DefaultsValueModel<String>
     @State private var agentIdleReminder: DefaultsValueModel<Bool>
@@ -99,6 +100,7 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _desktopNotifications = State(initialValue: DesktopNotificationAuthorizationModel(hostActions: hostActions))
         _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
         _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
         _agentIdleReminder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentIdleReminder))
@@ -134,7 +136,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -604,36 +606,14 @@ public struct AppSection: View {
                     .controlSize(.small)
             }
 
-            // Desktop Notifications — legacy renders this row
-            // unconditionally with a permission-state status text +
-            // one dynamic action button + Send Test. Without a host
-            // signal for the permission state, the package falls
-            // back to the .notDetermined baseline: subtitle "Desktop
-            // notifications are not enabled yet.", "Enable" action
-            // (which maps to requestNotificationAuthorization), and
-            // Send Test. Buttons disable when no host is wired.
+            // Desktop Notifications
             SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .action,
-                searchAnchorID: "setting:app:desktop-notifications",
-                String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"),
-                subtitle: String(localized: "settings.notifications.desktop.subtitle.notDetermined", defaultValue: "Desktop notifications are not enabled yet.")
-            ) {
-                HStack(spacing: 6) {
-                    Text(String(localized: "settings.notifications.desktop.status.unknown", defaultValue: "Permission unknown"))
-                        .cmuxFont(size: 11, weight: .semibold)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 98, alignment: .trailing)
-                    Button(String(localized: "settings.notifications.desktop.action.enable", defaultValue: "Enable")) {
-                        hostActions.requestNotificationAuthorization()
-                    }
-                    .controlSize(.small)
-                    Button(String(localized: "settings.notifications.desktop.sendTest", defaultValue: "Send Test")) {
-                        hostActions.sendTestNotification()
-                    }
-                    .controlSize(.small)
-                }
-            }
+            DesktopNotificationsSettingsRow(
+                state: desktopNotifications.current,
+                requestAuthorization: { hostActions.requestNotificationAuthorization() },
+                openSystemSettings: { hostActions.openSystemNotificationSettings() },
+                sendTest: { hostActions.sendTestNotification() }
+            )
             SettingsCardDivider()
 
             // Notification Sound — Picker over NSSound names with
