@@ -3251,10 +3251,8 @@ class TerminalController {
     // MARK: - V2 Workspace Methods
 
     @MainActor
-
     private func v2ExtensionSidebarRootPath(for workspace: Workspace) -> String? {
-        let trimmed = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        workspace.presentedCurrentDirectory?.nilIfEmpty
     }
 
     /// `workspace.set_auto_title`: applies an AI-generated title to a workspace
@@ -4630,7 +4628,8 @@ class TerminalController {
                 let paneId = mapped?.paneId
                 let treeVisible = mapped?.bonsplitTabId != nil && paneId != nil
                 let ttyName = workspace?.surfaceTTYNames[panelId]
-                let currentDirectory = nonEmpty(workspace?.panelDirectories[panelId] ?? mapped?.terminalPanel.directory)
+                let currentDirectory = workspace.flatMap { $0.reportedPanelDirectory(panelId: panelId) ?? ($0.allowsLocalDirectoryFallback(panelId: panelId) ? nonEmpty(mapped?.terminalPanel.directory) : nil) } ?? nonEmpty(mapped?.terminalPanel.directory)
+                let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
 
@@ -4699,7 +4698,7 @@ class TerminalController {
                     "portal_host_area": v2OrNull(portalHostLease.area.map(Double.init)),
                     "tty": v2OrNull(ttyName),
                     "current_directory": v2OrNull(currentDirectory),
-                    "requested_working_directory": v2OrNull(nonEmpty(terminalSurface.requestedWorkingDirectory)),
+                    "requested_working_directory": v2OrNull(requestedWorkingDirectory),
                     "initial_command": v2OrNull(nonEmpty(terminalSurface.debugInitialCommand())),
                     "tmux_start_command": v2OrNull(nonEmpty(terminalSurface.debugTmuxStartCommand())),
                     "git_branch": v2OrNull(nonEmpty(gitBranchState?.branch)),
@@ -13084,9 +13083,9 @@ class TerminalController {
 
     private func agentLifecycleRegistryWorkingDirectory(tab: Tab, panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { tab.panelDirectories[$0] },
-            tab.focusedPanelId.flatMap { tab.panelDirectories[$0] },
-            tab.currentDirectory,
+            panelId.flatMap { tab.reportedPanelDirectory(panelId: $0) ?? (tab.allowsLocalDirectoryFallback(panelId: $0) ? tab.panelDirectories[$0] : nil) },
+            tab.focusedPanelId.flatMap { tab.reportedPanelDirectory(panelId: $0) ?? (tab.allowsLocalDirectoryFallback(panelId: $0) ? tab.panelDirectories[$0] : nil) },
+            tab.isRemoteWorkspace ? tab.presentedCurrentDirectory : tab.currentDirectory,
         ]
         return candidates.compactMap(normalizedOptionValue).first
     }

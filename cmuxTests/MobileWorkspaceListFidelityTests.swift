@@ -245,6 +245,16 @@ struct MobileWorkspaceListFidelityTests {
         #expect(trustedPayload["current_directory"] as? String == remoteDirectory)
         #expect(trustedTerminal["current_directory"] as? String == remoteDirectory)
 
+        workspace.disconnectRemoteConnection()
+        let disconnectedPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let disconnectedTerminals = try #require(disconnectedPayload["terminals"] as? [[String: Any]])
+        #expect(disconnectedPayload["current_directory"] is NSNull)
+        #expect(try #require(disconnectedTerminals.first)["current_directory"] is NSNull)
+
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         let clearedHash = MobileWorkspaceListObserver.summaryHashForTesting(
             tabs: manager.tabs,

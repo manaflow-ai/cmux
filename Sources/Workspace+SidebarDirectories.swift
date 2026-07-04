@@ -27,11 +27,15 @@ extension Workspace {
     }
 
     func reportedPanelDirectory(panelId: UUID) -> String? {
-        if isRemoteWorkspace,
-           (remoteDirectoryTrustRequiredPanelIds.contains(panelId) || isRemoteTerminalSurface(panelId)) {
+        if !allowsLocalDirectoryFallback(panelId: panelId) {
             guard remoteDirectoryReportPanelIds.contains(panelId) else { return nil }
         }
         return normalizedSidebarDirectory(panelDirectories[panelId])
+    }
+
+    func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
+        !isRemoteWorkspace ||
+            (!remoteDirectoryTrustRequiredPanelIds.contains(panelId) && !isRemoteTerminalSurface(panelId))
     }
 
     func currentDirectoryChangeRevisionPublisher() -> AnyPublisher<UInt64, Never> {

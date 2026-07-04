@@ -9462,8 +9462,8 @@ struct ContentView: View {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let rawDirectory: String = {
             if let focusedPanelId = workspace.focusedPanelId {
-                guard !workspace.isRemoteTerminalSurface(focusedPanelId) else { return "" }
-                if let directory = workspace.panelDirectories[focusedPanelId] {
+                guard workspace.allowsLocalDirectoryFallback(panelId: focusedPanelId) else { return "" }
+                if let directory = workspace.reportedPanelDirectory(panelId: focusedPanelId) {
                     return directory
                 }
                 if let requestedDirectory = workspace.terminalPanel(for: focusedPanelId)?.requestedWorkingDirectory {
