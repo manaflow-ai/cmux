@@ -1370,38 +1370,38 @@ final class CmuxSettingsFileStore {
         var didMutateStoredValue = false
         switch backup {
         case .absent:
-            if defaults.object(forKey: defaultsKey) != nil {
-                defaults.removeObject(forKey: defaultsKey)
+            if userDefaults.object(forKey: defaultsKey) != nil {
+                userDefaults.removeObject(forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .bool(let value):
-            if defaults.object(forKey: defaultsKey) as? Bool != value {
-                defaults.set(value, forKey: defaultsKey)
+            if userDefaults.object(forKey: defaultsKey) as? Bool != value {
+                userDefaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .int(let value):
-            if defaults.object(forKey: defaultsKey) as? Int != value {
-                defaults.set(value, forKey: defaultsKey)
+            if userDefaults.object(forKey: defaultsKey) as? Int != value {
+                userDefaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .double(let value):
-            if defaults.object(forKey: defaultsKey) as? Double != value {
-                defaults.set(value, forKey: defaultsKey)
+            if userDefaults.object(forKey: defaultsKey) as? Double != value {
+                userDefaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .string(let value):
-            if defaults.string(forKey: defaultsKey) != value {
-                defaults.set(value, forKey: defaultsKey)
+            if userDefaults.string(forKey: defaultsKey) != value {
+                userDefaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .stringArray(let value):
-            if defaults.array(forKey: defaultsKey) as? [String] != value {
-                defaults.set(value, forKey: defaultsKey)
+            if userDefaults.array(forKey: defaultsKey) as? [String] != value {
+                userDefaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .stringDictionary(let value):
-            if defaults.dictionary(forKey: defaultsKey) as? [String: String] != value {
-                defaults.set(value, forKey: defaultsKey)
+            if userDefaults.dictionary(forKey: defaultsKey) as? [String: String] != value {
+                userDefaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         }
