@@ -75,6 +75,12 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// A per-workspace avatar override set on the Mac (opaque string: a bundled
+    /// logo id as `"logo:<id>"`, an SF Symbol name, or an emoji). Takes
+    /// precedence over the owning Mac's ``machineCustomIcon`` when rendering the
+    /// row avatar. `nil` when the workspace has no override or the Mac is old
+    /// enough not to emit it (the avatar then falls back to the machine icon).
+    public var avatar: String? = nil
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
@@ -125,7 +131,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        avatar: String? = nil
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -140,5 +147,6 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.avatar = avatar
     }
 }

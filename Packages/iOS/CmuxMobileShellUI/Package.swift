@@ -50,6 +50,9 @@ let package = Package(
                 "CmuxMobileWorkspace",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
+            resources: [
+                .process("Resources/AgentLogos.xcassets"),
+            ],
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
                 .swiftLanguageMode(.v6),
