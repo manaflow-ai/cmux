@@ -17,14 +17,19 @@ public struct LocalIMessageHelperClient: IMessageHelperClient {
         self.runner = runner
     }
 
-    /// Candidate helper binary locations for local development and bundled builds.
+    /// Candidate helper binary locations. Release builds use only the bundled
+    /// helper: preferring paths relative to the process working directory
+    /// would execute whatever binary a user-controlled directory places at
+    /// `tools/cmux-imsg/...`, so the dev-checkout paths are DEBUG-only.
     public static func defaultHelperPaths() -> [URL] {
+        var paths: [URL] = []
+        #if DEBUG
         let current = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        return [
-            current.appendingPathComponent("tools/cmux-imsg/cmux-imsg"),
-            current.appendingPathComponent("tools/cmux-imsg/.build/release/cmux-imsg"),
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/cmux-imsg"),
-        ]
+        paths.append(current.appendingPathComponent("tools/cmux-imsg/cmux-imsg"))
+        paths.append(current.appendingPathComponent("tools/cmux-imsg/.build/release/cmux-imsg"))
+        #endif
+        paths.append(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/cmux-imsg"))
+        return paths
     }
 
     /// Returns helper status or a missing-helper status.
