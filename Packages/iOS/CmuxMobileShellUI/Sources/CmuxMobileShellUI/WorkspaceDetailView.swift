@@ -67,7 +67,9 @@ struct WorkspaceDetailView: View {
     @Environment(\.scenePhase) var scenePhase
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
-    private var activeBrowser: BrowserSurfaceState? {
+    /// Non-private so the toolbar title label (WorkspaceDetailView+Toolbar.swift)
+    /// can read it.
+    var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
 
@@ -114,98 +116,8 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    #if os(iOS)
-    @ToolbarContentBuilder
-    private var workspaceDetailToolbar: some ToolbarContent {
-        ToolbarItem(id: "workspace-toolbar", placement: .principal) {
-            workspaceToolbarContainer
-        }
-    }
-
-    @ViewBuilder
-    private var workspaceToolbarContainer: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer {
-                workspaceToolbarLayout
-            }
-        } else {
-            workspaceToolbarLayout
-        }
-    }
-
-    private var workspaceToolbarLayout: some View {
-        HStack(spacing: workspaceToolbarIslandSpacing) {
-            if backButtonConfiguration != nil {
-                workspaceBackToolbarIsland
-            }
-
-            workspaceTitleToolbarMenu
-                .layoutPriority(0)
-
-            Spacer(minLength: 0)
-
-            workspaceTrailingToolbarIsland
-                .layoutPriority(1)
-        }
-        // Fill the width the navigation bar grants the principal item (already
-        // inset by the bar's leading/trailing layout margins), so the back and
-        // trailing islands keep their native edge insets instead of clipping.
-        // The title truncates within the leftover space via its lower priority.
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var workspaceBackToolbarIsland: some View {
-        workspaceBackToolbarButton
-            .mobileGlassCircle()
-            .layoutPriority(1)
-    }
-
-    @ViewBuilder
-    private var workspaceTrailingToolbarIsland: some View {
-        if #available(iOS 26.0, *) {
-            toolbarTrailingCluster
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .capsule)
-        } else {
-            toolbarTrailingCluster
-        }
-    }
-
-    private var workspaceToolbarIslandSpacing: CGFloat { 10 }
-
-    private var workspaceTitleToolbarMenu: some View {
-        WorkspaceTitleMenu(
-            isEnabled: hasTitleMenuActions,
-            menuContent: { titleMenuContent }
-        ) {
-            toolbarTitleLabel
-        }
-    }
-
-    @ViewBuilder
-    private var toolbarTitleLabel: some View {
-        if isChatMode,
-           let session = chosenChatSession,
-           let conversation = chatConversationStores[session.id] {
-            ChatSessionHeaderView(
-                descriptor: conversation.descriptor,
-                agentState: conversation.agentState,
-                isConnected: conversation.isConnected,
-                titleOverride: workspace.name,
-                subtitle: tabName(for: session),
-                style: .toolbarCompact
-            )
-        } else if let browser = activeBrowser {
-            Text(browser.title ?? workspace.name)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.foreground)
-        } else {
-            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
-        }
-    }
-    #endif
+    // The top-bar toolbar (`workspaceDetailToolbar` and its islands) lives in
+    // WorkspaceDetailView+Toolbar.swift.
 
     @ViewBuilder
     private var detailSurfaceContent: some View {
@@ -344,8 +256,10 @@ struct WorkspaceDetailView: View {
 
     #if os(iOS)
     /// Leading back-button island; iOS 26 supplies toolbar glass.
+    /// Non-private so the toolbar layout (WorkspaceDetailView+Toolbar.swift) can
+    /// wrap it in a glass island.
     @ViewBuilder
-    private var workspaceBackToolbarButton: some View {
+    var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
             WorkspaceBackButton(
                 unreadCount: backButtonConfiguration.unreadCount,
