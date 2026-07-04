@@ -91,6 +91,7 @@ struct TerminalPanelView: View {
                 showsInactiveOverlay: isSplit && !isFocused,
                 showsActivePaneBoundary: isSplit && isFocused && isVisibleInUI && appearance.activePaneBoundaryNSColor != nil,
                 activePaneBoundaryColor: appearance.activePaneBoundaryNSColor ?? .clear,
+                activePaneBoundaryIncludesBottomEdge: !panel.isTextBoxActive,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,

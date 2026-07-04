@@ -1341,11 +1341,6 @@ final class WindowBrowserSlotView: NSView {
         dropZoneOverlayView.layer?.borderWidth = 2
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
-        activePaneBoundaryOverlayView.wantsLayer = true
-        activePaneBoundaryOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
-        activePaneBoundaryOverlayView.layer?.borderWidth = WindowBrowserSlotActivePaneBoundaryMetrics.lineWidth
-        activePaneBoundaryOverlayView.layer?.borderColor = NSColor.clear.cgColor
-        activePaneBoundaryOverlayView.isHidden = true
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         addSubview(activePaneBoundaryOverlayView, positioned: .above, relativeTo: nil)
     }
@@ -1426,8 +1421,11 @@ final class WindowBrowserSlotView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         activePaneBoundaryOverlayView.frame = bounds
-        activePaneBoundaryOverlayView.layer?.borderColor = color.cgColor
-        activePaneBoundaryOverlayView.isHidden = !visible
+        activePaneBoundaryOverlayView.setBoundary(
+            visible: visible,
+            color: color,
+            includesTopEdge: paneTopChromeHeight <= 0
+        )
         CATransaction.commit()
         bringInteractionLayersToFrontIfNeeded()
     }

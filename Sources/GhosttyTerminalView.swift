@@ -7939,6 +7939,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
     private let activePaneBoundaryOverlayView: GhosttyFlashOverlayView
     private let activePaneBoundaryLayer: CAShapeLayer
+    private var activePaneBoundaryIncludesBottomEdge = true
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
@@ -9013,14 +9014,17 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
-    func setActivePaneBoundary(visible: Bool, color: NSColor) {
+    func setActivePaneBoundary(visible: Bool, color: NSColor, includesBottomEdge: Bool = true) {
         let targetHidden = !visible
         let targetOpacity: Float = visible ? 1 : 0
+        let edgeChanged = activePaneBoundaryIncludesBottomEdge != includesBottomEdge
+        activePaneBoundaryIncludesBottomEdge = includesBottomEdge
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         activePaneBoundaryLayer.strokeColor = color.cgColor
         activePaneBoundaryOverlayView.isHidden = targetHidden
         activePaneBoundaryLayer.opacity = targetOpacity
+        if edgeChanged { updateActivePaneBoundaryPath() }
         CATransaction.commit()
     }
 
@@ -11043,13 +11047,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateActivePaneBoundaryPath() {
         activePaneBoundaryLayer.frame = activePaneBoundaryOverlayView.bounds
-        let inset = GhosttySurfaceActivePaneBoundaryMetrics.inset
-        let bounds = activePaneBoundaryOverlayView.bounds
-        guard bounds.width > inset * 2, bounds.height > inset * 2 else {
-            activePaneBoundaryLayer.path = nil
-            return
-        }
-        activePaneBoundaryLayer.path = CGPath(rect: bounds.insetBy(dx: inset, dy: inset), transform: nil)
+        activePaneBoundaryLayer.path = activePaneBoundaryOverlayView.bounds
+            .ghosttyActivePaneBoundaryPath(includesBottomEdge: activePaneBoundaryIncludesBottomEdge)
     }
 
     private func updateFlashPath(style: FlashStyle) {
@@ -11784,7 +11783,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var isVisibleInUI: Bool = true
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
-    var showsActivePaneBoundary: Bool = false
+    var showsActivePaneBoundary = false, activePaneBoundaryIncludesBottomEdge = true
     var activePaneBoundaryColor: NSColor = .clear
     var showsUnreadNotificationRing: Bool = false
     var inactiveOverlayColor: NSColor = .clear
@@ -11877,7 +11876,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
-        var desiredShowsActivePaneBoundary: Bool = false
+        var desiredShowsActivePaneBoundary = false, desiredActivePaneBoundaryIncludesBottomEdge = true
         var desiredActivePaneBoundaryColor: NSColor = .clear
         var desiredShowsUnreadNotificationRing: Bool = false
         var desiredPortalZPriority: Int = 0
@@ -11955,6 +11954,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredIsVisibleInUI = isVisibleInUI
         coordinator.desiredShowsActivePaneBoundary = showsActivePaneBoundary
         coordinator.desiredActivePaneBoundaryColor = activePaneBoundaryColor
+        coordinator.desiredActivePaneBoundaryIncludesBottomEdge = activePaneBoundaryIncludesBottomEdge
         coordinator.desiredShowsUnreadNotificationRing = showsUnreadNotificationRing
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
@@ -12008,8 +12008,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 visible: showsInactiveOverlay
             )
             hostedView.setActivePaneBoundary(
-                visible: showsActivePaneBoundary,
-                color: activePaneBoundaryColor
+                visible: showsActivePaneBoundary, color: activePaneBoundaryColor,
+                includesBottomEdge: activePaneBoundaryIncludesBottomEdge
             )
             hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
             hostedView.setSearchOverlay(searchState: searchState)
@@ -12078,8 +12078,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setActivePaneBoundary(
-                    visible: coordinator.desiredShowsActivePaneBoundary,
-                    color: coordinator.desiredActivePaneBoundaryColor
+                    visible: coordinator.desiredShowsActivePaneBoundary, color: coordinator.desiredActivePaneBoundaryColor,
+                    includesBottomEdge: coordinator.desiredActivePaneBoundaryIncludesBottomEdge
                 )
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
@@ -12119,8 +12119,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setActivePaneBoundary(
-                        visible: coordinator.desiredShowsActivePaneBoundary,
-                        color: coordinator.desiredActivePaneBoundaryColor
+                        visible: coordinator.desiredShowsActivePaneBoundary, color: coordinator.desiredActivePaneBoundaryColor,
+                        includesBottomEdge: coordinator.desiredActivePaneBoundaryIncludesBottomEdge
                     )
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
                 }
