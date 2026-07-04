@@ -71,13 +71,8 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
 }
 
 extension Workspace {
-    /// Whether any terminal panel in this workspace may be mid-command. This deliberately reuses
-    /// the close-confirmation path, which treats unknown shell state and remote tmux activity as
-    /// blocking rather than relying only on shell-integration `.commandRunning`.
+    /// Whether any panel or dock split in this workspace would block close/restart.
     var blocksUpdateRestart: Bool {
-        panels.contains { panelId, panel in
-            guard panel is TerminalPanel else { return false }
-            return panelNeedsConfirmClose(panelId: panelId)
-        }
+        needsConfirmClose()
     }
 }
