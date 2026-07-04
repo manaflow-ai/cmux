@@ -10,7 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.serialized)
 struct SidebarWidthPolicyTests {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
