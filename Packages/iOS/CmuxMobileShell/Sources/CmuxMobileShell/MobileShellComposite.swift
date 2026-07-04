@@ -974,26 +974,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
-
-    isolated deinit {
-        presenceTask?.cancel()
-        networkPathObservationTask?.cancel()
-        terminalEventListenerTask?.cancel()
-        terminalSubscriptionStartTask?.cancel()
-        renderGridLivenessTimer?.cancel()
-        renderGridLivenessProbeTask?.cancel()
-        terminalSubscriptionRefreshTask?.cancel()
-        createWorkspaceTask?.cancel()
-        createTerminalTask?.cancel()
-        workspaceListRefreshTask?.cancel()
-        pullToRefreshTask?.cancel()
-        cancelAllTerminalReplayTasks()
-        teardownSecondaryMacSubscriptions()
-        if let remoteClient {
-            Task { await remoteClient.disconnect() }
+    deinit {
+        MainActor.assumeIsolated {
+            presenceTask?.cancel()
+            networkPathObservationTask?.cancel()
+            terminalEventListenerTask?.cancel()
+            terminalSubscriptionStartTask?.cancel()
+            renderGridLivenessTimer?.cancel()
+            renderGridLivenessProbeTask?.cancel()
+            terminalSubscriptionRefreshTask?.cancel()
+            createWorkspaceTask?.cancel()
+            createTerminalTask?.cancel()
+            workspaceListRefreshTask?.cancel()
+            pullToRefreshTask?.cancel()
+            cancelAllTerminalReplayTasks()
+            teardownSecondaryMacSubscriptions()
+            if let remoteClient {
+                Task { await remoteClient.disconnect() }
+            }
         }
     }
-
     public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
         CMUXMobileShellStore(
             runtime: runtime,
