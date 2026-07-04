@@ -92,6 +92,27 @@ struct SessionPromptMarkReplayTests {
         )
     }
 
+    @Test func doesNotMarkColoredBlockquoteWithoutPromptRow() {
+        let esc = "\u{001B}"
+        let message = "deploy the release"
+        let scrollback = [
+            "\(esc)[33m> deploy the release\(esc)[0m",
+            "\(esc)[32m● done\(esc)[0m",
+        ].joined(separator: "\n")
+
+        let marked = SessionScrollbackReplayStore.reinjectingLastPromptMark(
+            into: scrollback,
+            lastUserMessage: message
+        )
+
+        #expect(marked == scrollback)
+        #expect(!marked.contains("\(esc)]133;A"))
+        #expect(
+            SessionScrollbackReplayStore.persistablePromptMatchKey(forScrollback: scrollback, lastUserMessage: message)
+                == nil
+        )
+    }
+
     @Test func marksSinglePromptThroughInterleavedSGR() {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"

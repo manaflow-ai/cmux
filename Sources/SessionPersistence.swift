@@ -2189,11 +2189,10 @@ enum SessionScrollbackReplayStore {
               let promptIndex = line.firstIndex(of: ">") else {
             return false
         }
-        if line[..<promptIndex].contains("\u{001B}") {
-            return true
-        }
+        guard line[..<promptIndex].contains("\u{001B}") else { return false }
         let afterPrompt = line[line.index(after: promptIndex)...]
-        return afterPrompt.prefix(16).contains("\u{001B}[0m")
+        let textStart = afterPrompt.firstIndex { !$0.isWhitespace } ?? afterPrompt.endIndex
+        return afterPrompt[textStart...].hasPrefix("\u{001B}[0m")
     }
 
     /// Whether `needle` matches the compacted row text starting at
