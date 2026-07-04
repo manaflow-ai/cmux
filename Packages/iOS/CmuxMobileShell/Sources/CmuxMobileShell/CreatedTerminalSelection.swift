@@ -16,6 +16,8 @@ struct CreatedTerminalSelection: Equatable {
         return Self.normalizedMacDeviceID(workspace.macDeviceID) == macDeviceID
     }
 
+    mutating func adoptMacDeviceID(_ macDeviceID: String) { self.macDeviceID = Self.normalizedMacDeviceID(macDeviceID) }
+
     private static func normalizedMacDeviceID(_ macDeviceID: String?) -> String? {
         guard let macDeviceID, !macDeviceID.isEmpty else { return nil }
         return macDeviceID
