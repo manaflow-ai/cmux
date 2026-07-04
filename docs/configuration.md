@@ -61,6 +61,13 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `terminal.reflowCopy`
+
+When `terminal.reflowCopy` is `true`, Cmd+C rejoins hard-wrapped terminal copy
+selections into continuous text. Raw terminal copy remains available as
+`shortcuts.bindings.copyRaw`, defaulting to Cmd+Shift+C. Set
+`terminal.reflowCopy` to `false` to make Cmd+C copy selections verbatim.
+
 ## `terminal.agentHibernation`
 
 Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.

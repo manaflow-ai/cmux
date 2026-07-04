@@ -5175,22 +5175,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
     }
 
-    /// Copies the selection verbatim, bypassing reflow. Wired to the "Copy Raw"
-    /// context-menu item so a raw copy is available even when reflow is the
-    /// default Copy behavior.
-    @IBAction func copyRaw(_ sender: Any?) {
-        guard let surface else {
-            _ = performBindingAction("copy_to_clipboard")
-            return
-        }
+    func copyRawSelectionToClipboard() -> Bool {
+        guard let surface else { return performBindingAction("copy_to_clipboard") }
+        guard hasCopyableTerminalSelection(surface: surface) else { return false }
         if keyboardCopyModeVisualLineActive {
-            if let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) {
-                GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
-            }
-            return
+            guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
+            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+            return true
         }
-        _ = copyCurrentGhosttySelectionToClipboard(surface: surface, reflow: false)
+        return copyCurrentGhosttySelectionToClipboard(surface: surface, reflow: false)
     }
+
+    @IBAction func copyRaw(_ sender: Any?) { _ = copyRawSelectionToClipboard() }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
         guard let terminalSurface else { return }
@@ -5252,7 +5248,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
-        case #selector(copy(_:)):
+        case #selector(copy(_:)), #selector(copyRaw(_:)):
             guard let surface = surface else { return false }
             return hasCopyableTerminalSelection(surface: surface)
         case #selector(paste(_:)):
@@ -7299,6 +7295,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     keyEquivalent: ""
                 )
                 rawItem.target = self
+                applyConfiguredMenuShortcut(KeyboardShortcutSettings.menuShortcut(for: .copyRaw), to: rawItem)
             }
         }
         let pasteItem = menu.addItem(

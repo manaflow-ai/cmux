@@ -13231,7 +13231,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
             _ = toggleSidebarInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
@@ -13253,7 +13252,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // New Window: Cmd+Shift+N
         // Handled here instead of relying on SwiftUI's CommandGroup menu item because
         // after a browser panel has been shown, SwiftUI's menu dispatch can silently
         // consume the key equivalent without firing the action closure.
@@ -13262,7 +13260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Open Folder: Cmd+O
         // Handled here to prevent AppKit's default NSDocumentController from opening
         // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
         if matchConfiguredShortcut(event: event, action: .openFolder) {
@@ -13270,7 +13267,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Check Show Notifications shortcut
         if matchConfiguredShortcut(event: event, action: .showNotifications) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
             return true
@@ -13362,7 +13358,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
             (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
             return true
@@ -13380,9 +13375,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "\(debugShortcutRouteSnapshot(event: event))"
             )
 #endif
-            // Only consume when a focused terminal actually handled the toggle.
-            // Otherwise allow the event to continue through the responder chain.
             return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .copyRaw),
+           let ghosttyView = cmuxOwningGhosttyView(for: shortcutRoutingFirstResponder(preferredWindow: mainWindowForShortcutEvent(event) ?? event.window ?? shortcutRoutingActiveWindow)) {
+            return ghosttyView.copyRawSelectionToClipboard()
         }
 
         if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
@@ -15393,7 +15391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .showHideAllWindows
-            && action != .globalSearch
+            && action != .globalSearch && action != .copyRaw
             && action != .clearScreenKeepScrollback
             && action != .fileExplorerOpenSelection
             && action != .fileExplorerOpenSelectionFinderAlias

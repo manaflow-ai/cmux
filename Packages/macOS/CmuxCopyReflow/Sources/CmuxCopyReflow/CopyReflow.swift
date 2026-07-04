@@ -407,7 +407,7 @@ private extension ReflowOptions {
         guard let last = line.reversed().first(where: { $0 != " " && $0 != "\t" }) else {
             return false
         }
-        return sentenceTerminators.contains(last)
+        return last == "\\" || sentenceTerminators.contains(last)
     }
 }
 

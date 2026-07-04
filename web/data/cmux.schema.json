@@ -1401,6 +1401,7 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "copyRaw",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
