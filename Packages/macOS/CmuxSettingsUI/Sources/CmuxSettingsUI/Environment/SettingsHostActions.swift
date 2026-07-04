@@ -222,30 +222,39 @@ public extension SettingsHostActions {
         (1...65535).contains(port) ? .savedForLater(port: port) : .invalid(requestedPort: port)
     }
 
+    /// Default sidebar font-size snapshot for package previews and tests.
     func sidebarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12.5, minimum: 10, maximum: 20, defaultValue: 12.5)
     }
 
+    /// Default terminal font family for package previews and tests.
     func terminalFontFamily() -> String {
         "Menlo"
     }
 
+    /// Default successful terminal font-family save for package previews and tests.
     func setTerminalFontFamily(_ family: String) async -> Bool { true }
 
+    /// Default terminal font-size snapshot for package previews and tests.
     func terminalFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 12, minimum: 6, maximum: 72, defaultValue: 12)
     }
 
+    /// Default successful terminal font-size save for package previews and tests.
     func setTerminalFontSize(_ points: Double) async -> Bool { true }
 
+    /// Default successful sidebar font-size save for package previews and tests.
     func setSidebarFontSize(_ points: Double) async -> Bool { true }
 
+    /// Default surface-tab-bar font-size snapshot for package previews and tests.
     func surfaceTabBarFontSize() -> SettingsFontSize {
         SettingsFontSize(points: 11, minimum: 8, maximum: 14, defaultValue: 11)
     }
 
+    /// Default successful surface-tab-bar font-size save for package previews and tests.
     func setSurfaceTabBarFontSize(_ points: Double) async -> Bool { true }
 
+    /// Formats a font size for display in package previews and tests.
     func formattedFontSize(_ points: Double) -> String {
         let scaled = (points * 100).rounded()
         let whole = Int(scaled / 100)

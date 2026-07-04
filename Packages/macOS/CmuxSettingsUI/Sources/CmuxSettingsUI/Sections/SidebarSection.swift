@@ -30,6 +30,7 @@ public struct SidebarSection: View {
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
 
+    /// Creates the Sidebar settings section.
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))

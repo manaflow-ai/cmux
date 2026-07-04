@@ -11,6 +11,7 @@ import Foundation
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    /// Appearance, terminal font, interface scale, sidebar background, and workspace color settings.
     case appearance
     case app
     case terminal

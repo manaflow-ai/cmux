@@ -1,7 +1,6 @@
 import AppKit
 import CmuxFoundation
 import CmuxSettings
-import CoreText
 import SwiftUI
 
 /// **Appearance** section: app theme, terminal font, UI text sizing, sidebar
@@ -41,6 +40,12 @@ public struct AppearanceSection: View {
     @State private var surfaceTabBarFontSaveGeneration = 0
     @State private var surfaceTabBarFontSaveTask: Task<Void, Never>?
 
+    /// Creates the Appearance settings section.
+    ///
+    /// - Parameters:
+    ///   - defaultsStore: Catalog-backed settings persistence.
+    ///   - catalog: Settings catalog keys rendered by this section.
+    ///   - hostActions: Host-owned actions for terminal font persistence.
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
@@ -60,6 +65,7 @@ public struct AppearanceSection: View {
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
     }
 
+    /// The rendered Appearance settings content.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.appearance", defaultValue: "Appearance"), section: .appearance)
@@ -124,7 +130,7 @@ public struct AppearanceSection: View {
     private func loadTerminalFontFamiliesIfNeeded() async {
         guard terminalFontFamilies.isEmpty else { return }
         let families = await Task.detached(priority: .userInitiated) {
-            Self.monospacedFontFamilies()
+            MonospacedFontFamilyCatalog().families()
         }.value
         guard !Task.isCancelled else { return }
         terminalFontFamilies = families
@@ -526,7 +532,7 @@ public struct AppearanceSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: Self.cmuxAccentColor(),
+                    fallback: cmuxAccentColor,
                     reconcileRevision: reconcileRevision,
                     onChange: onPickerChange
                 )
@@ -545,26 +551,7 @@ public struct AppearanceSection: View {
         }
     }
 
-    nonisolated private static func monospacedFontFamilies() -> [String] {
-        let families = (CTFontManagerCopyAvailableFontFamilyNames() as NSArray)
-            .compactMap { $0 as? String }
-        return families
-            .filter(isMonospacedFamily)
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    }
-
-    nonisolated private static func isMonospacedFamily(_ family: String) -> Bool {
-        let descriptor = CTFontDescriptorCreateWithAttributes([
-            kCTFontFamilyNameAttribute: family
-        ] as CFDictionary)
-        let matches = CTFontDescriptorCreateMatchingFontDescriptors(descriptor, nil) as? [CTFontDescriptor] ?? []
-        return matches.contains { descriptor in
-            let font = CTFontCreateWithFontDescriptor(descriptor, 12, nil)
-            return CTFontGetSymbolicTraits(font).contains(.traitMonoSpace)
-        }
-    }
-
-    private static func cmuxAccentColor() -> Color {
+    private var cmuxAccentColor: Color {
         let nsColor = NSColor(name: nil) { appearance in
             let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
             if bestMatch == .darkAqua {
