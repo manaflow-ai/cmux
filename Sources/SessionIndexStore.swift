@@ -497,8 +497,11 @@ final class SessionIndexStore: ObservableObject {
     }
 
     nonisolated private static func defaultAgentOrderSync(workingDirectory: String?) -> LoadedAgentOrder {
+        loadedAgentOrder(registry: CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory))
+    }
+
+    nonisolated private static func loadedAgentOrder(registry: CmuxVaultAgentRegistry) -> LoadedAgentOrder {
         let builtInIDs = Set(SessionAgent.builtInCases.map(\.rawValue))
-        let registry = CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
         let agents = SessionAgent.builtInCases + registry.registrations.compactMap {
             builtInIDs.contains($0.id) ? nil : .registered(RegisteredSessionAgent(registration: $0))
         }
@@ -508,6 +511,14 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
         await Task.detached(priority: .utility) {
             CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+        }.value
+    }
+
+    nonisolated private static func vaultAgentRegistry(workingDirectories: [String?]) async -> CmuxVaultAgentRegistry {
+        await Task.detached(priority: .utility) {
+            workingDirectories.reduce(CmuxVaultAgentRegistry(registrations: [])) { registry, workingDirectory in
+                registry.merging(CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory))
+            }
         }.value
     }
 
@@ -613,7 +624,10 @@ final class SessionIndexStore: ObservableObject {
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
         let baseClaudeVaultConfiguration = await claudeVaultConfiguration()
-        let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+        let order = await directoryScopeAgentOrder(
+            cwdFilter: cwdFilter,
+            basePathMappings: baseClaudeVaultConfiguration.pathMappings
+        )
         let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
         var merged = await Self.loadAgents(
             order.agents,
@@ -684,6 +698,46 @@ final class SessionIndexStore: ObservableObject {
             path.removeLast()
         }
         return path
+    }
+
+    private func directoryScopeAgentOrder(
+        cwdFilter: String?,
+        basePathMappings: [VaultPathMapping]
+    ) async -> LoadedAgentOrder {
+        let workingDirectories = directoryScopeRegistryWorkingDirectories(
+            cwdFilter: cwdFilter,
+            basePathMappings: basePathMappings
+        )
+        let registry = await Self.vaultAgentRegistry(workingDirectories: workingDirectories)
+        return Self.loadedAgentOrder(registry: registry)
+    }
+
+    private func directoryScopeRegistryWorkingDirectories(
+        cwdFilter: String?,
+        basePathMappings: [VaultPathMapping]
+    ) -> [String?] {
+        var directories: [String?] = []
+        var seen: Set<String> = []
+
+        func append(_ rawPath: String?) {
+            guard let normalized = normalizedDirectory(rawPath),
+                  seen.insert(normalized).inserted else { return }
+            directories.append(normalized)
+        }
+
+        append(currentDirectory)
+        let mappings = Self.uniqueVaultPathMappings(basePathMappings + vaultPathMappings)
+        for variant in Self.vaultPathVariants(cwdFilter, mappings: mappings) {
+            append(variant)
+        }
+        append(cwdFilter)
+
+        return directories.isEmpty ? [nil] : directories
+    }
+
+    nonisolated private static func uniqueVaultPathMappings(_ mappings: [VaultPathMapping]) -> [VaultPathMapping] {
+        var seen: Set<VaultPathMapping> = []
+        return mappings.filter { seen.insert($0).inserted }
     }
 
     nonisolated private static func normalizedVaultPath(_ value: String?) -> String? {
@@ -1332,7 +1386,10 @@ final class SessionIndexStore: ObservableObject {
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
-            let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+            let order = await directoryScopeAgentOrder(
+                cwdFilter: cwdFilter,
+                basePathMappings: baseClaudeVaultConfiguration.pathMappings
+            )
             let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
             var merged = await Self.loadAgents(
                 order.agents,

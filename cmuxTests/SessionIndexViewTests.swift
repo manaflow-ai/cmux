@@ -358,6 +358,57 @@ final class SessionIndexViewTests {
     }
 
 
+    @Test
+    func testDirectorySnapshotUsesProjectLocalVaultConfigurationForMappedClaudeCwd() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        let localCwd = project.appendingPathComponent("src", isDirectory: true)
+        try FileManager.default.createDirectory(at: localCwd, withIntermediateDirectories: true)
+
+        let configDir = root.appendingPathComponent("mounted-claude", isDirectory: true)
+        let remoteCwd = "/workspace/project/src"
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(RestorableAgentSessionIndex.encodeClaudeProjectDir(remoteCwd), isDirectory: true)
+            .appendingPathComponent("project-local-vault-directory-session.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {"cwd":"/workspace/project/src","type":"user","message":{"role":"user","content":"directorysnapshotvaultneedle"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        try """
+        {
+          "vault": {
+            "claudeSessionRoots": ["\(configDir.path)"],
+            "pathMappings": [
+              { "remotePrefix": "/workspace/project", "localPrefix": "\(project.path)" }
+            ]
+          }
+        }
+        """.write(to: project.appendingPathComponent("cmux.json"), atomically: true, encoding: .utf8)
+
+        let appConfigURL = root.appendingPathComponent("app-cmux.json", isDirectory: false)
+        try "{}".write(to: appConfigURL, atomically: true, encoding: .utf8)
+        let store = SessionIndexStore(vaultConfigStore: JSONConfigStore(fileURL: appConfigURL))
+        store.setCurrentDirectoryIfChanged(localCwd.path)
+
+        let snapshot = await store.loadDirectorySnapshot(cwd: remoteCwd)
+
+        XCTAssertTrue(
+            snapshot.entries.contains {
+                $0.sessionId == "project-local-vault-directory-session"
+                    && $0.cwd == remoteCwd
+            }
+        )
+    }
+
+
 
     @Test
     func testGrokResumeCommandPreservesSpecifics() {

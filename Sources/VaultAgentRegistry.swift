@@ -410,6 +410,14 @@ struct CmuxVaultAgentRegistry: Sendable {
         registrations.first { $0.id == id }
     }
 
+    func merging(_ other: CmuxVaultAgentRegistry) -> CmuxVaultAgentRegistry {
+        CmuxVaultAgentRegistry(
+            registrations: registrations + other.registrations,
+            claudeSessionRoots: claudeSessionRoots + other.claudeSessionRoots,
+            pathMappings: pathMappings + other.pathMappings
+        )
+    }
+
     func mergingProjectConfig(
         workingDirectory: String?,
         fileManager: FileManager = .default
