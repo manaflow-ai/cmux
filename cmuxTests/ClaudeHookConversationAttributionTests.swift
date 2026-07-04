@@ -3,32 +3,11 @@ import Dispatch
 import Foundation
 import Testing
 
-/// Regression coverage for
-/// https://github.com/manaflow-ai/cmux/issues/7132 — "Sidebar conversation
-/// subtitle attributed to the wrong workspace".
-///
-/// In iMessage mode the sidebar subtitle falls through to
-/// `Workspace.latestConversationMessage`, which the app records strictly by the
-/// `workspace_id` carried on the Claude `Stop` feed event
-/// (`TerminalController.v2ApplyIMessageModeSideEffects` →
-/// `handleAssistantFinalMessage`). The bug is upstream in the CLI: when a
-/// `Stop` hook cannot authoritatively resolve its own workspace (no mapped
-/// session, no TTY/PID binding, and no `CMUX_WORKSPACE_ID` — the detached /
-/// shared-daemon case, cf. #7100), `runClaudeHook` falls through to
-/// `workspace.current` (the *focused* workspace) and then stamps that focused
-/// id onto its feed telemetry — even though the very same event's visible
-/// status mutation is correctly suppressed because the resolved surface is
-/// non-authoritative. The feed telemetry then records one workspace's assistant
-/// message onto whichever workspace happens to be selected.
-///
-/// The generic-agent hook path (`runGenericAgentHook`) already returns `nil`
-/// (dropping the event) when workspace identity is unknown; these tests pin the
-/// Claude path to the same "attribute to the emitter or nowhere — never the
-/// focused workspace" contract, mirroring the surface-less notification rule in
-/// #7133.
-///
-/// Exercises the real bundled `cmux` CLI against a mock socket so the assertion
-/// is on the actual `feed.push` payload the app would receive.
+/// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7132.
+/// A Claude `Stop` hook with no authoritative workspace identity must attribute
+/// its sidebar conversation subtitle to nowhere, never to the focused workspace.
+/// Exercises the real bundled CLI against a mock socket and asserts on the
+/// actual `feed.push` payload the app would receive.
 @Suite(.serialized)
 struct ClaudeHookConversationAttributionTests {
     private final class BundleToken {}
@@ -43,26 +22,24 @@ struct ClaudeHookConversationAttributionTests {
     /// resolution, exactly like a detached/re-hosted session's leaked env.
     private static let strayEnvSurfaceId = "55555555-5555-5555-5555-555555555555"
 
-    /// A `Stop` hook whose emitting workspace cannot be authoritatively resolved
-    /// must NOT attribute its conversation message to the focused workspace.
-    @Test func stopWithoutIdentityDoesNotAttributeToFocusedWorkspace() throws {
+    @Test func stopWithoutIdentityDoesNotAttributeToFocusedWorkspaceOrPersistFallback() throws {
         let capture = try runClaudeStopHook(
             callerWorkspaceId: nil,
-            surfaceEnvId: Self.strayEnvSurfaceId
+            surfaceEnvId: Self.strayEnvSurfaceId,
+            repeatCount: 2
         )
-        let event = try #require(
-            capture.feedEvent,
-            Comment(rawValue: "Expected the Stop hook to emit a feed.push, saw \(capture.commands)")
-        )
-        let attributed = event["workspace_id"] as? String
-        // Pre-fix the resolver falls through to `workspace.current`
-        // (`focusedWorkspaceId`) and stamps it here; the fix drops attribution
-        // entirely so the message is never mis-homed onto the selected workspace.
         #expect(
-            attributed == nil,
-            Comment(rawValue: "Stop feed telemetry must omit workspace_id when the emitting workspace is unknown; got \(String(describing: attributed)) (focused=\(Self.focusedWorkspaceId))")
+            capture.feedEvents.count == 2,
+            Comment(rawValue: "Expected two Stop feed.push events, saw \(capture.commands)")
         )
-        #expect(attributed != Self.focusedWorkspaceId)
+        for event in capture.feedEvents {
+            let attributed = event["workspace_id"] as? String
+            #expect(
+                attributed == nil,
+                Comment(rawValue: "Stop feed telemetry must omit unknown workspace_id; got \(String(describing: attributed))")
+            )
+            #expect(attributed != Self.focusedWorkspaceId)
+        }
     }
 
     /// The caller's own `CMUX_WORKSPACE_ID` stays an authoritative attribution
@@ -133,13 +110,15 @@ struct ClaudeHookConversationAttributionTests {
     // MARK: - Harness
 
     private struct FeedCapture {
-        let feedEvent: [String: Any]?
+        let feedEvents: [[String: Any]]
+        var feedEvent: [String: Any]? { feedEvents.last }
         let commands: [String]
     }
 
     private func runClaudeStopHook(
         callerWorkspaceId: String?,
-        surfaceEnvId: String
+        surfaceEnvId: String,
+        repeatCount: Int = 1
     ) throws -> FeedCapture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-7132-\(UUID().uuidString)", isDirectory: true)
@@ -190,27 +169,28 @@ struct ClaudeHookConversationAttributionTests {
         }
 
         let sessionId = "claude-7132-\(UUID().uuidString)"
-        let stdin = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
-
-        let result = Self.runProcess(
-            executablePath: try Self.bundledCLIPath(),
-            arguments: ["hooks", "claude", "stop"],
-            environment: cliEnvironment(
-                root: root,
-                socketPath: socketPath,
-                callerWorkspaceId: callerWorkspaceId,
-                surfaceEnvId: surfaceEnvId
-            ),
-            standardInput: stdin,
-            timeout: 10
-        )
-        #expect(!result.timedOut, Comment(rawValue: "hooks claude stop timed out; stderr=\(result.stderr)"))
+        for _ in 0..<repeatCount {
+            let stdin = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: ["hooks", "claude", "stop"],
+                environment: cliEnvironment(
+                    root: root,
+                    socketPath: socketPath,
+                    callerWorkspaceId: callerWorkspaceId,
+                    surfaceEnvId: surfaceEnvId
+                ),
+                standardInput: stdin,
+                timeout: 10
+            )
+            #expect(!result.timedOut, Comment(rawValue: "hooks claude stop timed out; stderr=\(result.stderr)"))
+        }
 
         // Feed telemetry is delivered best-effort on a separate one-way socket
         // connection; the CLI writes it before exiting but the mock records it
         // asynchronously, so poll the recorded commands for the Stop event.
-        let event = Self.pollForStopFeedEvent(state: state, timeout: 5)
-        return FeedCapture(feedEvent: event, commands: state.snapshot())
+        let events = Self.pollForStopFeedEvents(state: state, expectedCount: repeatCount, timeout: 5)
+        return FeedCapture(feedEvents: events, commands: state.snapshot())
     }
 
     private static func surfaces(forWorkspace workspaceId: String?) -> [[String: Any]] {
@@ -223,18 +203,24 @@ struct ClaudeHookConversationAttributionTests {
         return []
     }
 
-    private static func pollForStopFeedEvent(state: MockServerState, timeout: TimeInterval) -> [String: Any]? {
+    private static func pollForStopFeedEvents(
+        state: MockServerState,
+        expectedCount: Int,
+        timeout: TimeInterval
+    ) -> [[String: Any]] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let event = stopFeedEvent(in: state.snapshot()) {
-                return event
+            let events = stopFeedEvents(in: state.snapshot())
+            if events.count >= expectedCount {
+                return events
             }
             usleep(50_000)
         }
-        return stopFeedEvent(in: state.snapshot())
+        return stopFeedEvents(in: state.snapshot())
     }
 
-    private static func stopFeedEvent(in commands: [String]) -> [String: Any]? {
+    private static func stopFeedEvents(in commands: [String]) -> [[String: Any]] {
+        var events: [[String: Any]] = []
         for line in commands {
             guard let payload = jsonObject(line),
                   payload["method"] as? String == "feed.push",
@@ -243,9 +229,9 @@ struct ClaudeHookConversationAttributionTests {
                   (event["hook_event_name"] as? String) == "Stop" else {
                 continue
             }
-            return event
+            events.append(event)
         }
-        return nil
+        return events
     }
 
     private func cliEnvironment(

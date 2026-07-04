@@ -23225,10 +23225,10 @@ struct CMUXCLI {
                     resolvedFeedWorkspace == workspaceId &&
                     (try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])) != nil
                 ) || callerTTYBindingProvider?()?.workspaceId == workspaceId
-                sendClaudeFeedTelemetry(
-                    workspaceId: hasAuthoritativeWorkspace ? workspaceId : nil,
-                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil, defaultToWorkspaceArg: false
-                )
+                sendClaudeFeedTelemetry(workspaceId: hasAuthoritativeWorkspace ? workspaceId : nil,
+                                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                                        defaultToWorkspaceArg: false)
+                guard hasAuthoritativeWorkspace else { telemetry.breadcrumb("claude-hook.stop.unknown-workspace"); print("OK"); return }
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
