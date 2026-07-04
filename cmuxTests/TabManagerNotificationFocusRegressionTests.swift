@@ -84,7 +84,7 @@ struct TabManagerNotificationFocusRegressionTests {
             workspace.bonsplitController.createTab(
                 title: plainSplit.displayTitle,
                 icon: plainSplit.displayIcon,
-                kind: SurfaceKind.terminal.rawValue,
+                kind: "terminal",
                 isDirty: plainSplit.isDirty,
                 inPane: paneId
             )
@@ -98,16 +98,14 @@ struct TabManagerNotificationFocusRegressionTests {
         )
         #expect(
             !workspace.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: plainSplit.id),
-            "A split with no command of its own must not be kept open after child exit, "
-                + "even when it inherited wait-after-command from its source pane"
+            "A split with no command of its own must not be kept open after child exit, even when it inherited wait-after-command from its source pane"
         )
 
         let panelsBeforePlainClose = workspace.panels.count
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: plainSplit.id)
         #expect(
             workspace.panels[plainSplit.id] == nil,
-            "A command-less split must collapse when its child process exits, "
-                + "even with an inherited wait-after-command bit"
+            "A command-less split must collapse when its child process exits, even with an inherited wait-after-command bit"
         )
         #expect(workspace.panels.count == panelsBeforePlainClose - 1, "Only the command-less split should be removed")
 
