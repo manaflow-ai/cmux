@@ -76,12 +76,14 @@ public actor IntegrationHub {
         return statuses.sorted { $0.id < $1.id }
     }
 
-    /// Syncs one source or all sources.
+    /// Syncs one source or all sources. Failures are persisted to the account
+    /// row so a transient error stays visible after this call returns.
     /// - Parameter source: Optional source to sync.
     public func sync(source: InboxSource? = nil) async -> [InboxConnectorStatus] {
         var statuses: [InboxConnectorStatus] = []
         for connector in connectors.values where source == nil || connector.source == source {
-            let accountID = await connector.status().accountID ?? "default"
+            let connectorStatus = await connector.status()
+            let accountID = connectorStatus.accountID ?? "default"
             let cursor = try? await store.syncCursor(source: connector.source, accountID: accountID)
             do {
                 let result = try await connector.sync(cursor: cursor)
@@ -94,11 +96,24 @@ public actor IntegrationHub {
                 statuses.append(result.status)
                 notify(.items)
             } catch {
+                let message = Self.userSafeMessage(for: error)
                 statuses.append(InboxConnectorStatus(
                     source: connector.source,
                     accountID: accountID,
                     status: .error,
-                    message: String(describing: error),
+                    message: message,
+                    capabilities: connector.capabilities
+                ))
+                // Persist the failure; otherwise the next status() call
+                // recomputes from credentials alone and silently reports the
+                // stale healthy state. The store upsert preserves the user's
+                // notifications preference.
+                try? await store.upsertAccount(InboxAccount(
+                    source: connector.source,
+                    accountID: accountID,
+                    displayName: connectorStatus.displayName ?? connector.source.rawValue,
+                    status: .error,
+                    statusMessage: message,
                     capabilities: connector.capabilities
                 ))
             }
@@ -184,6 +199,14 @@ public actor IntegrationHub {
         )
     }
 
+    /// Maps an error to a user-safe message. ``InboxError`` descriptions are
+    /// already user-shaped; anything else becomes a generic connector failure
+    /// so raw Swift error dumps never reach persisted or UI-visible fields.
+    private static func userSafeMessage(for error: Error) -> String {
+        if let error = error as? InboxError { return error.description }
+        return "Connector request failed"
+    }
+
     /// Maps the `"default"` account-id sentinel to the connector's canonical
     /// account id so token storage and connector token reads share one slot.
     private static func resolvedAccountID(
@@ -208,10 +231,26 @@ public actor IntegrationHub {
         try await store.search(query, limit: limit)
     }
 
-    /// Marks a local item or thread read or unread.
+    /// Marks a local item or thread read or unread. The local store is
+    /// authoritative; connectors that advertise ``InboxConnectorCapability/markRead``
+    /// receive a best-effort remote propagation afterwards.
     public func markRead(itemID: String? = nil, threadID: String? = nil, unread: Bool = false) async throws {
         try await store.markRead(itemID: itemID, threadID: threadID, unread: unread)
         notify(.items)
+        await propagateMarkRead(itemID: itemID, threadID: threadID)
+    }
+
+    /// Best-effort remote mark-read for capable connectors. Local-first: a
+    /// remote failure never rolls back the local state; a later sync
+    /// reconciles from the service.
+    private func propagateMarkRead(itemID: String?, threadID: String?) async {
+        var item: InboxItem?
+        if let itemID { item = try? await store.item(id: itemID) }
+        guard let resolvedThreadID = threadID ?? item?.threadID,
+              let thread = try? await store.thread(id: resolvedThreadID),
+              let connector = connectors[thread.source],
+              connector.capabilities.contains(.markRead) else { return }
+        try? await connector.markRead(thread: thread, item: item)
     }
 
     /// Creates a local draft using the owning connector when available.
@@ -255,7 +294,7 @@ public actor IntegrationHub {
             draft.errorMessage = nil
         } catch {
             draft.status = .failed
-            draft.errorMessage = String(describing: error)
+            draft.errorMessage = Self.userSafeMessage(for: error)
         }
         try await store.upsertDraft(draft)
         notify(.items)

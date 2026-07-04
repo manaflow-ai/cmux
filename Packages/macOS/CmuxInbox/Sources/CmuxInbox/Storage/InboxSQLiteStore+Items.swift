@@ -78,6 +78,25 @@ extension InboxSQLiteStore {
         return try itemRows(statement)
     }
 
+    /// Looks up one item by local id.
+    /// - Parameter itemID: Local item id.
+    /// - Returns: Item when present.
+    public func item(id itemID: String) throws -> InboxItem? {
+        let statement = try database.prepare("""
+        SELECT item_id, thread_id, source, account_id, external_message_id,
+               sender_name, sender_address, timestamp, body_preview, body,
+               metadata_json, unread, actionable, draft_id, external_url
+        FROM items
+        WHERE item_id = ?;
+        """)
+        defer { sqlite3_finalize(statement) }
+        try database.bind(statement: statement, parameters: [.text(itemID)])
+        let step = sqlite3_step(statement)
+        if step == SQLITE_DONE { return nil }
+        guard step == SQLITE_ROW else { throw InboxError.stepFailed(step, database.lastErrorMessage()) }
+        return try item(from: statement)
+    }
+
     /// Returns recent context items for a thread.
     /// - Parameters:
     ///   - threadID: Local thread id.

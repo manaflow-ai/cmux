@@ -60,6 +60,7 @@ actor StubConnector: InboxConnector {
     private let statusValue: InboxConnectorStatus
     private var sentDraftIDs: [String] = []
     private var sentBodies: [String] = []
+    private var markReadThreadIDs: [String] = []
 
     init(source: InboxSource, capabilities: Set<InboxConnectorCapability>) {
         self.source = source
@@ -91,6 +92,10 @@ actor StubConnector: InboxConnector {
         sentBodies.append(draft.body)
     }
 
+    func markRead(thread: InboxThread?, item: InboxItem?) async throws {
+        markReadThreadIDs.append(thread?.threadID ?? item?.threadID ?? "")
+    }
+
     func sentCount() -> Int {
         sentDraftIDs.count
     }
@@ -98,6 +103,40 @@ actor StubConnector: InboxConnector {
     func sentBodyList() -> [String] {
         sentBodies
     }
+
+    func markReadCount() -> Int {
+        markReadThreadIDs.count
+    }
+}
+
+actor ThrowingSyncConnector: InboxConnector {
+    nonisolated let source: InboxSource
+    nonisolated let capabilities: Set<InboxConnectorCapability> = [.backfill]
+
+    init(source: InboxSource) {
+        self.source = source
+    }
+
+    func status() async -> InboxConnectorStatus {
+        InboxConnectorStatus(
+            source: source,
+            accountID: "default",
+            displayName: source.rawValue,
+            status: .connected,
+            credentialState: .present,
+            capabilities: capabilities
+        )
+    }
+
+    func sync(cursor: String?) async throws -> InboxConnectorSyncResult {
+        throw InboxError.connectorUnavailable("upstream is down")
+    }
+
+    func draftReply(thread: InboxThread, recentItems: [InboxItem], instruction: String?) async throws -> String {
+        instruction ?? ""
+    }
+
+    func sendApprovedReply(draft: InboxDraft, thread: InboxThread) async throws {}
 }
 
 struct StubIMessageHelperClient: IMessageHelperClient {

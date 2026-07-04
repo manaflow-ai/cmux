@@ -110,6 +110,43 @@ import CmuxInbox
         #expect(await connector.sentBodyList() == ["Edited final body"])
     }
 
+    @Test func syncFailurePersistsErrorStatusWithUserSafeMessage() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let hub = IntegrationHub(store: store, connectors: [ThrowingSyncConnector(source: .generic)])
+
+        let statuses = await hub.sync(source: .generic)
+        #expect(statuses.first?.status == .error)
+        #expect(statuses.first?.message == "upstream is down")
+
+        // The failure must survive past the call so status() cannot silently
+        // revert to a stale healthy row.
+        let account = try #require(try await hub.accounts().first)
+        #expect(account.status == .error)
+        #expect(account.statusMessage == "upstream is down")
+    }
+
+    @Test func markReadPropagatesOnlyToConnectorsAdvertisingTheCapability() async throws {
+        let capableStore = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let capable = StubConnector(source: .generic, capabilities: [.backfill, .markRead])
+        let capableHub = IntegrationHub(store: capableStore, connectors: [capable])
+        let thread = fixtures.thread(source: .generic)
+        let item = fixtures.item(source: .generic, threadID: thread.threadID)
+        try await capableHub.push(account: fixtures.account(source: .generic), thread: thread, item: item)
+
+        try await capableHub.markRead(itemID: item.itemID)
+        #expect(await capable.markReadCount() == 1)
+        try await capableHub.markRead(threadID: thread.threadID, unread: true)
+        #expect(await capable.markReadCount() == 2)
+
+        let localOnlyStore = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let localOnly = StubConnector(source: .generic, capabilities: [.backfill])
+        let localOnlyHub = IntegrationHub(store: localOnlyStore, connectors: [localOnly])
+        try await localOnlyHub.push(account: fixtures.account(source: .generic), thread: thread, item: item)
+
+        try await localOnlyHub.markRead(itemID: item.itemID)
+        #expect(await localOnly.markReadCount() == 0)
+    }
+
     @Test func syncStatusUpsertPreservesNotificationsOptOut() async throws {
         let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
         let tokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
