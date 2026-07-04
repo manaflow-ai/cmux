@@ -23017,7 +23017,7 @@ struct CMUXCLI {
                 didResolveCallerTTYBinding = true
                 let ttyBinding = resolveCallerTerminalBindingByTTY(
                     client: client,
-                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
+                    includeAmbientTTY: workspaceArg == nil && (surfaceArg == nil || hookSurfaceFlag != nil)
                 )
                 if let ttyBinding,
                    claudeHookSurfaceIsListed(ttyBinding.surfaceId, workspaceId: ttyBinding.workspaceId, client: client) {
@@ -23040,7 +23040,7 @@ struct CMUXCLI {
             }
             return callerTTYBindingCache
         }
-        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
+        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = hookWsFlag == nil ? callerTTYBinding : nil
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
