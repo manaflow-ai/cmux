@@ -235,7 +235,7 @@ final class IssueInboxBridge: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         }
     }
 
-    private func v2Value(_ result: V2CallResult) throws -> Any {
+    private func v2Value(_ result: TerminalController.V2CallResult) throws -> Any {
         switch result {
         case .ok(let payload):
             return payload
