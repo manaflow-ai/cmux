@@ -186,13 +186,17 @@ is the production registry. See `Tests/CmuxSettingsTests/` for patterns.
 evaluates it against a `ShortcutContext` value — no app, AppKit, or filesystem
 needed. Build a context by hand and assert evaluation:
 
+Known boolean keys are `sidebarFocus`, `browserFocus`, `markdownFocus`,
+`filePreviewTextEditorFocus`, `terminalFocus`, `commandPaletteVisible`,
+`terminalFindVisible`, and `workspaceCanvasLayout`.
+
 ```swift
 var context = ShortcutContext()
-context.setBool(ShortcutContextKnownKey.commandPaletteVisible.rawValue, true)
+context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
 context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, "find")
 context.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
 
-let clause = ShortcutWhenClause.parse("commandPaletteVisible && paneCount > 1")
+let clause = ShortcutWhenClause.parse("workspaceCanvasLayout && paneCount > 1")
 #expect(clause?.evaluate(context) == true)
 ```
 

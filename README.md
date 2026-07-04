@@ -90,6 +90,8 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
+- **Keyboard shortcuts** — [Extensive shortcuts](https://cmux.com/docs/keyboard-shortcuts) for workspaces, splits, browser, and more
+- **Open source** — Free and GPL-licensed
 
 ## Install
 
@@ -329,7 +331,7 @@ macOS only, for now. cmux is a native Swift + AppKit app.
 
 ### Is there an iOS app?
 
-Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. See the [iOS docs](https://cmux.com/docs/ios).
+Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition). See the [iOS docs](https://cmux.com/docs/ios).
 
 ### What coding agents does cmux work with?
 
@@ -381,7 +383,7 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 ### How can I support cmux?
 
-cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](#founders-edition).
+cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
 
 ### I have a feature request or found a bug?
 
@@ -414,6 +416,11 @@ Ways to get involved:
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> Scan the QR code to join the community.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
+</p>
 
 ## Founder's Edition
 

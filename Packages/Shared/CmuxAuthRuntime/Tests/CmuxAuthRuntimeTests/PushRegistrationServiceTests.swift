@@ -47,6 +47,7 @@ struct FakeTokenProvider: TokenProviding {
         guard let access else { throw AuthError.unauthorized }
         return access
     }
+    func storedAccessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
     func forceRefreshAccessToken() async throws -> String {
         guard let access else { throw AuthError.unauthorized }

@@ -187,14 +187,15 @@ extension TerminalController {
                 inPane: paneId,
                 focus: focus,
                 inheritWorkingDirectoryFallback: true,
-                workingDirectoryFallbackSourcePanelId: surfaceId
+                workingDirectoryFallbackSourcePanelId: surfaceId,
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 return finish(.created(newPanel.id))
             case .routedToRemote:
-                // Routed to the remote tmux mirror as `new-window`; the tab
-                // arrives via %window-add (tmux appends, so no local reorder).
+                // Routed to the remote tmux mirror as `new-window`; the tab arrives
+                // via %window-add and the mirror positions it, so no local reorder here.
                 return finish(.routedToRemote)
             case .failed:
                 return .createFailed

@@ -69,6 +69,30 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
     )
 
+    /// Opt-in throttle for high-frequency terminal title changes. Default-off
+    /// so existing title freshness stays unchanged unless users choose the
+    /// performance tradeoff.
+    public let titleUpdateCoalescingEnabled = DefaultsKey<Bool>(
+        id: "terminal.titleUpdates.coalescing.enabled",
+        defaultValue: false,
+        userDefaultsKey: "terminal.titleUpdates.coalescing.enabled"
+    )
+
+    /// Delay used when title-update coalescing is enabled.
+    public let titleUpdateCoalescingMilliseconds = DefaultsKey<Int>(
+        id: "terminal.titleUpdates.coalescing.delayMilliseconds",
+        defaultValue: 500,
+        userDefaultsKey: "terminal.titleUpdates.coalescing.delayMilliseconds",
+        legacyUserDefaultsKeys: ["terminal.titleUpdates.coalescingMilliseconds"]
+    )
+
+    /// Enables DEBUG title-update enqueue/flush diagnostics.
+    public let titleUpdateDiagnostics = DefaultsKey<Bool>(
+        id: "terminal.titleUpdates.diagnostics",
+        defaultValue: false,
+        userDefaultsKey: "terminal.titleUpdates.diagnostics"
+    )
+
     public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(
         id: "terminal.showTextBoxOnNewTerminals",
         defaultValue: false,
@@ -85,6 +109,20 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.textBoxMaxLines",
         defaultValue: 10,
         userDefaultsKey: "terminal.textBoxMaxLines"
+    )
+
+    /// Default TextBox submit action used when a terminal is eligible to launch a new agent session.
+    public let textBoxDefaultSubmitAction = DefaultsKey<String>(
+        id: "terminal.textBoxDefaultSubmitAction",
+        defaultValue: "text-entry",
+        userDefaultsKey: "terminal.textBoxDefaultSubmitAction"
+    )
+
+    /// Configured TextBox submit action catalog encoded as JSON.
+    public let textBoxSubmitActions = DefaultsKey<String>(
+        id: "terminal.textBoxSubmitActions",
+        defaultValue: "",
+        userDefaultsKey: "terminal.textBoxSubmitActions"
     )
 
     public let resumeCommands = JSONKey<[String]>(

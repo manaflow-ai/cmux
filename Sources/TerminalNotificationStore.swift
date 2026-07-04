@@ -1054,7 +1054,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
-            hooks: cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
+            hooks: cmuxConfigStore?.notificationHooks(startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
@@ -2178,21 +2178,6 @@ final class SidebarUnreadModel: ObservableObject {
     @Published private(set) var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
     @Published private(set) var focusedReadIndicatorByWorkspaceId: [UUID: UUID] = [:]
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = []
-    /// Workspaces with at least one pane over the runaway-memory threshold.
-    /// Mirrored here so the sidebar re-renders the warning badge through the
-    /// same coalesced observation path as unread state (snapshot-boundary rule).
-    private(set) var memoryWarningWorkspaceIds: Set<UUID> = []
-
-    func setMemoryWarningWorkspaceIds(_ ids: Set<UUID>) {
-        if memoryWarningWorkspaceIds != ids {
-            objectWillChange.send()
-            memoryWarningWorkspaceIds = ids
-        }
-    }
-
-    func hasMemoryWarning(forWorkspaceId id: UUID) -> Bool {
-        memoryWarningWorkspaceIds.contains(id)
-    }
 
     func apply(
         totalUnreadCount: Int,

@@ -118,6 +118,9 @@ enum TerminalTextBoxInputSettings {
     static let defaultMaxLines = 10
     static let minimumMaxLines = 1
     static let maximumMaxLines = 20
+    static let submitActionsKey = "terminal.textBoxSubmitActions"
+    static let defaultSubmitActionKey = "terminal.textBoxDefaultSubmitAction"
+    static let defaultSubmitActionID = TextBoxSubmitAction.textEntryAction.id
 
     static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showOnNewTerminalsKey) == nil {
@@ -143,6 +146,7 @@ enum TerminalTextBoxInputSettings {
         }
         return resolvedMaxLines(value)
     }
+
 }
 
 enum TerminalCopyOnSelectSettings {
@@ -157,14 +161,14 @@ enum TerminalCopyOnSelectSettings {
     static func storedValue(defaults: UserDefaults = .standard) -> Bool? {
         defaults.object(forKey: copyOnSelectKey) as? Bool
     }
-
-    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard) -> String? {
+    /// Returns the Ghostty `copy-on-select` value; `emitsFalse: false` lets Ghostty config/defaults remain authoritative.
+    static func ghosttyCopyOnSelectValue(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
         guard let enabled = storedValue(defaults: defaults) else { return nil }
-        return enabled ? "clipboard" : "false"
+        return enabled ? "clipboard" : (emitsFalse ? "false" : nil)
     }
 
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
-        guard let value = ghosttyCopyOnSelectValue(defaults: defaults) else { return nil }
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsFalse: Bool = true) -> String? {
+        guard let value = ghosttyCopyOnSelectValue(defaults: defaults, emitsFalse: emitsFalse) else { return nil }
         return "copy-on-select = \(value)"
     }
 
@@ -200,9 +204,9 @@ enum TerminalCopyOnSelectSettings {
 }
 
 enum TerminalManagedGhosttySettings {
-    static func ghosttyConfigContents(defaults: UserDefaults = .standard) -> String? {
+    static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
         let lines = [
-            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults),
+            TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults, emitsFalse: emitsCopyOnSelectFalse),
         ].compactMap { $0 }
         guard !lines.isEmpty else { return nil }
         return lines.joined(separator: "\n")

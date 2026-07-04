@@ -16,7 +16,7 @@ extension BrowserPanel {
     static let mediaPlaybackContentWorld = WKContentWorld.world(name: mediaPlaybackMessageHandlerName)
 
     /// Injected document-start hook that reports whether the current frame has
-    /// any actively-playing `<video>`/`<audio>` element.
+    /// actively-playing and audible `<video>`/`<audio>` elements.
     ///
     /// Runs in every frame (main frame and cross-origin iframes) so an embedded
     /// player (a news site embedding a YouTube/Vimeo/Twitch iframe, etc.) keeps
@@ -26,9 +26,10 @@ extension BrowserPanel {
     /// (https://github.com/manaflow-ai/cmux/issues/5409).
     ///
     /// Reports only on change (debounced via `lastReported`) and on `pagehide`.
-    /// Uses `paused`/`ended`, so playback that the user has muted still counts as
-    /// "playing media" and can render the muted activity glyph. Uses only public
-    /// DOM APIs, so it is stable across WebKit/macOS versions.
+    /// The broad `playing` state uses `paused`/`ended`, so muted playback still
+    /// keeps a hidden pane alive. The narrower `audible` state additionally
+    /// requires an unmuted element with non-zero volume and a detectable audio
+    /// source, so the speaker glyph is not shown for muted or video-only media.
     ///
     /// The script is purely passive (capture-phase listeners only; no console,
     /// prototype, or enumerable-global tampering) so it does not trip the
@@ -50,7 +51,8 @@ extension BrowserPanel {
           return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
         })();
 
-        let lastReported = null;
+        let lastReported = { playing: null, audible: null };
+        let lastElementState = new WeakMap();
         let mediaObserver = null;
 
         const isElementPlaying = (el) => {
@@ -61,21 +63,62 @@ extension BrowserPanel {
           }
         };
 
-        const anyPlaying = () => {
+        const hasAudioSource = (el) => {
           try {
-            const media = document.querySelectorAll("video, audio");
-            for (let i = 0; i < media.length; i++) {
-              if (isElementPlaying(media[i])) return true;
+            const tagName = (el.tagName || "").toLowerCase();
+            if (tagName === "audio") return true;
+            const tracks = el.audioTracks;
+            if (tracks && typeof tracks.length === "number") {
+              let sawEnabledState = false;
+              for (let i = 0; i < tracks.length; i++) {
+                const track = tracks[i];
+                if (!track || typeof track.enabled !== "boolean") continue;
+                sawEnabledState = true;
+                if (track.enabled) return true;
+              }
+              if (sawEnabledState) return false;
+            }
+            if (typeof el.webkitAudioDecodedByteCount === "number" && el.webkitAudioDecodedByteCount > 0) {
+              return true;
             }
           } catch (_) {}
           return false;
         };
 
-        const post = (playing) => {
+        const isElementAudible = (el) => {
+          try {
+            return isElementPlaying(el)
+              && !el.muted
+              && el.volume > 0
+              && hasAudioSource(el);
+          } catch (_) {
+            return false;
+          }
+        };
+
+        const currentPlaybackState = () => {
+          const state = { playing: false, audible: false };
+          try {
+            const media = document.querySelectorAll("video, audio");
+            for (let i = 0; i < media.length; i++) {
+              const el = media[i];
+              if (!isElementPlaying(el)) continue;
+              state.playing = true;
+              if (isElementAudible(el)) {
+                state.audible = true;
+                break;
+              }
+            }
+          } catch (_) {}
+          return state;
+        };
+
+        const post = (playing, audible) => {
           try {
             window.webkit.messageHandlers["\(mediaPlaybackMessageHandlerName)"].postMessage({
               frameID: frameID,
-              playing: playing
+              playing: playing,
+              audible: audible
             });
           } catch (_) {}
         };
@@ -132,28 +175,51 @@ extension BrowserPanel {
         }
 
         function report() {
-          const playing = anyPlaying();
-          syncObserver(playing);
-          if (playing === lastReported) return;
-          lastReported = playing;
-          post(playing);
+          const state = currentPlaybackState();
+          syncObserver(state.playing);
+          if (state.playing === lastReported.playing && state.audible === lastReported.audible) return;
+          lastReported.playing = state.playing;
+          lastReported.audible = state.audible;
+          post(state.playing, state.audible);
+        }
+
+        function reportIfTargetStateChanged(event) {
+          try {
+            const el = event && event.target;
+            if (!el || !el.matches || !el.matches("video, audio")) {
+              report();
+              return;
+            }
+            const next = {
+              playing: isElementPlaying(el),
+              audible: isElementAudible(el)
+            };
+            const previous = lastElementState.get(el);
+            if (previous && previous.playing === next.playing && previous.audible === next.audible) return;
+            lastElementState.set(el, next);
+            report();
+          } catch (_) {
+            report();
+          }
         }
 
         // Media events do not bubble, but capture-phase listeners on `document`
         // still observe them as the event travels down to the target element.
         const events = [
           "play", "playing", "pause", "ended", "emptied",
-          "waiting", "stalled", "suspend", "abort", "loadeddata"
+          "waiting", "stalled", "suspend", "abort", "loadeddata",
+          "volumechange", "timeupdate"
         ];
         for (let i = 0; i < events.length; i++) {
-          document.addEventListener(events[i], report, true);
+          document.addEventListener(events[i], reportIfTargetStateChanged, true);
         }
 
         window.addEventListener("pagehide", () => {
           disconnectObserver();
-          if (lastReported === false) return;
-          lastReported = false;
-          post(false);
+          if (lastReported.playing === false && lastReported.audible === false) return;
+          lastReported.playing = false;
+          lastReported.audible = false;
+          post(false, false);
         }, true);
 
         document.addEventListener("DOMContentLoaded", report, true);
@@ -194,12 +260,13 @@ extension BrowserPanel {
         fromWebViewInstanceID instanceID: UUID
     ) {
         guard instanceID == webViewInstanceID else { return }
-        applyMediaPlaybackReport(frameID: report.frameID, isPlaying: report.isPlaying)
+        applyMediaPlaybackReport(frameID: report.frameID, isPlaying: report.isPlaying, isAudible: report.isAudible)
 #if DEBUG
         cmuxDebugLog(
             "browser.media.playback panel=\(id.uuidString.prefix(5)) " +
             "frame=\(report.frameID.prefix(5)) playing=\(report.isPlaying ? 1 : 0) " +
-            "anyPlaying=\(isPlayingMedia ? 1 : 0)"
+            "audible=\(report.isAudible ? 1 : 0) anyPlaying=\(isPlayingMedia ? 1 : 0) " +
+            "anyAudible=\(isPlayingAudio ? 1 : 0)"
         )
 #endif
     }
