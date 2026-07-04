@@ -12429,7 +12429,8 @@ struct VerticalTabsSidebar: View {
             syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
             onDragStart: onDragStart,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-            visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
+            visibleWorkspaceRowIndex: renderContext.visibleWorkspaceRowIds.firstIndex(of: tab.id),
+            visibleWorkspaceRowCount: renderContext.visibleWorkspaceRowIds.count,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
@@ -13261,7 +13262,8 @@ struct TabItemView: View, Equatable {
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
-        lhs.visibleWorkspaceRowIds == rhs.visibleWorkspaceRowIds &&
+        lhs.visibleWorkspaceRowIndex == rhs.visibleWorkspaceRowIndex &&
+        lhs.visibleWorkspaceRowCount == rhs.visibleWorkspaceRowCount &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
@@ -13280,14 +13282,6 @@ struct TabItemView: View, Equatable {
     let tabManager: TabManager
     let notificationStore: TerminalNotificationStore
     @Environment(\.colorScheme) private var colorScheme
-    // Global font magnification percent, read once per row instead of through a
-    // per-label `CmuxFontModifier`. Each `.cmuxFont(...)` is a custom
-    // `@Environment`-reading `ViewModifier`; with 100+ workspaces continuously
-    // re-rendering rows under agent churn, ~20 of those per row multiplied the
-    // SwiftUI `DynamicBody`/environment node count the sidebar must re-evaluate
-    // on every render pass (issue #6612, regression from #6554). Reading the
-    // percent here and applying a primitive `.font(...)` keeps magnification
-    // working while dropping those per-label modifier bodies.
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
 #if DEBUG
     // Plain-value environment probe (closure struct, not an object reference):
@@ -13309,12 +13303,8 @@ struct TabItemView: View, Equatable {
     @Binding var lastSidebarSelectionIndex: Int?
     let showsModifierShortcutHints: Bool
     let dragAutoScrollController: SidebarDragAutoScrollController
-    // Row receives precomputed drag/drop snapshot values + action closures
-    // instead of an `@Observable` store reference. This keeps TabItemView in
-    // compliance with the snapshot-boundary rule for views under a LazyVStack
-    // (see CLAUDE.md). When drag state changes, the parent recomputes these
-    // per-row snapshots and `==` skips re-render for rows whose snapshot is
-    // unchanged.
+    // Precomputed drag/drop snapshots keep TabItemView inside the LazyVStack
+    // snapshot-boundary rule; `==` skips rows whose snapshot is unchanged.
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
@@ -13324,17 +13314,15 @@ struct TabItemView: View, Equatable {
     let syncSidebarSelectionAfterBonsplitDrop: @MainActor () -> Void
     let onDragStart: () -> NSItemProvider
     let contextMenuWorkspaceIds: [UUID]
-    let visibleWorkspaceRowIds: [UUID]
+    let visibleWorkspaceRowIndex: Int?
+    let visibleWorkspaceRowCount: Int
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
-    /// Called from this row's contextMenu.onAppear so the parent can freeze
-    /// `showsModifierShortcutHints` to the value it last passed in. Prevents
-    /// modifier-key transitions from flipping the badges on the row sitting
-    /// behind the open context menu.
+    /// Freezes shortcut hints while this row's context menu is open.
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
@@ -14422,12 +14410,12 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveBy(-1)
         }
-        .disabled(index == 0)
+        .disabled((visibleWorkspaceRowIndex ?? 0) <= 0)
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveBy(1)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled((visibleWorkspaceRowIndex ?? visibleWorkspaceRowCount) >= visibleWorkspaceRowCount - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             tabManager.moveTabsToTop(Set(targetIds))
@@ -14472,17 +14460,17 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherTabs(targetIds)
         }
-        .disabled(visibleWorkspaceRowIds.count <= 1 || targetIds.count == visibleWorkspaceRowIds.count)
+        .disabled(visibleWorkspaceRowCount <= 1 || targetIds.count == visibleWorkspaceRowCount)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeTabsBelow(tabId: tab.id)
         }
-        .disabled(visibleWorkspaceRowIds.last == tab.id)
+        .disabled((visibleWorkspaceRowIndex ?? visibleWorkspaceRowCount) >= visibleWorkspaceRowCount - 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeTabsAbove(tabId: tab.id)
         }
-        .disabled(visibleWorkspaceRowIds.first == tab.id)
+        .disabled((visibleWorkspaceRowIndex ?? 0) <= 0)
 
         Divider()
 
@@ -14564,9 +14552,14 @@ struct TabItemView: View, Equatable {
     }
 
     private func moveBy(_ delta: Int) {
-        let targetIndex = index + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
+        let visibleIds = currentVisibleWorkspaceRowIds
+        guard delta != 0, let visibleIndex = visibleIds.firstIndex(of: tab.id),
+              visibleIds.indices.contains(visibleIndex + delta) else { return }
+        let peerId = visibleIds[visibleIndex + delta]
+        let moved = delta < 0
+            ? tabManager.reorderWorkspace(tabId: tab.id, before: peerId)
+            : tabManager.reorderWorkspace(tabId: tab.id, after: peerId)
+        guard moved else { return }
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
@@ -14662,20 +14655,29 @@ struct TabItemView: View, Equatable {
 
     private func closeOtherTabs(_ targetIds: [UUID]) {
         let keepIds = Set(targetIds)
-        let idsToClose = visibleWorkspaceRowIds.filter { !keepIds.contains($0) }
+        let idsToClose = currentVisibleWorkspaceRowIds.filter { !keepIds.contains($0) }
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsBelow(tabId: UUID) {
-        guard let anchorIndex = visibleWorkspaceRowIds.firstIndex(of: tabId) else { return }
-        let idsToClose = Array(visibleWorkspaceRowIds.suffix(from: anchorIndex + 1))
+        let visibleIds = currentVisibleWorkspaceRowIds
+        guard let anchorIndex = visibleIds.firstIndex(of: tabId) else { return }
+        let idsToClose = Array(visibleIds.suffix(from: anchorIndex + 1))
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
-        guard let anchorIndex = visibleWorkspaceRowIds.firstIndex(of: tabId) else { return }
-        let idsToClose = Array(visibleWorkspaceRowIds.prefix(upTo: anchorIndex))
+        let visibleIds = currentVisibleWorkspaceRowIds
+        guard let anchorIndex = visibleIds.firstIndex(of: tabId) else { return }
+        let idsToClose = Array(visibleIds.prefix(upTo: anchorIndex))
         closeTabs(idsToClose, allowPinned: true)
+    }
+
+    private var currentVisibleWorkspaceRowIds: [UUID] {
+        SidebarWorkspaceRenderItem.rowWorkspaceIds(
+            tabs: tabManager.tabs.filter { $0.workstreamId == tabManager.drilledInWorkstreamId },
+            groupsById: Dictionary(uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0) })
+        )
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {

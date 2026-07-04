@@ -91,4 +91,8 @@ enum SidebarWorkspaceRenderItem {
         }
         return items
     }
+
+    static func rowWorkspaceIds(tabs: [Workspace], groupsById: [UUID: WorkspaceGroup]) -> [UUID] {
+        renderItems(tabs: tabs, groupsById: groupsById).map(\.rowWorkspaceId)
+    }
 }
