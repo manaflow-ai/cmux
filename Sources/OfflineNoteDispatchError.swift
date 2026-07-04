@@ -14,12 +14,12 @@ enum OfflineNoteDispatchError: LocalizedError, Equatable {
         case .noActiveWorkspace:
             return String(
                 localized: "offlineNotes.dispatch.error.noActiveWorkspace",
-                defaultValue: "Open a cmux window to send this note to an agent."
+                defaultValue: "Open a cmux window to stage this note for review."
             )
         case .noComposerTarget:
             return String(
                 localized: "offlineNotes.dispatch.error.noComposerTarget",
-                defaultValue: "Focus a terminal so cmux can send this note to its agent."
+                defaultValue: "Focus a terminal so cmux can stage this note in its composer."
             )
         }
     }

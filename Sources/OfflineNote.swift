@@ -1,7 +1,7 @@
 import Foundation
 
 /// A note captured by the user — typically while offline — and queued so cmux
-/// can turn it into an agent task once connectivity is restored.
+/// can stage it in the workspace composer once connectivity is restored.
 ///
 /// Notes are value types persisted as a JSON array so they survive app
 /// restarts. Each note records enough state to render its status and support
@@ -9,13 +9,13 @@ import Foundation
 struct OfflineNote: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var text: String
-    /// Workspace this note was captured in; delivery targets it (not whatever is
+    /// Workspace this note was captured in; staging targets it (not whatever is
     /// active at flush time), so a note never lands in an unrelated workspace.
     var workspaceID: UUID?
     var status: OfflineNoteStatus
     var createdAt: Date
     var updatedAt: Date
-    /// When the note was successfully delivered to an agent.
+    /// Legacy timestamp for notes marked sent by older builds.
     var sentAt: Date?
     /// Number of dispatch attempts so far (drives retry display / backoff).
     var attemptCount: Int

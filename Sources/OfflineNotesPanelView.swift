@@ -2,13 +2,13 @@ import AppKit
 import SwiftUI
 
 /// Right-sidebar "Notes" view: capture notes (typically while offline) and
-/// watch them turn into agent tasks once connectivity returns.
+/// stage them in the workspace composer once connectivity returns.
 ///
 /// Rows receive immutable ``OfflineNote`` snapshots plus closure action bundles
 /// only — no view below the list holds the store (snapshot-boundary rule).
 struct OfflineNotesPanelView: View {
-    /// The workspace a captured note is bound to, so it is later delivered back
-    /// to this workspace's agent rather than whatever is active at flush time.
+    /// The workspace a captured note is bound to, so it is later staged in this
+    /// workspace rather than whatever is active at flush time.
     let workspaceID: UUID?
 
     /// The app-wide `@Observable` store; SwiftUI tracks the properties read in
@@ -57,8 +57,8 @@ struct OfflineNotesPanelView: View {
             }
             if store.pendingCount > 0 {
                 pillButton(
-                    title: String(localized: "offlineNotes.action.sendAll", defaultValue: "Send"),
-                    symbol: "paperplane",
+                    title: String(localized: "offlineNotes.action.sendAll", defaultValue: "Stage"),
+                    symbol: "text.bubble",
                     disabled: !store.isOnline
                 ) {
                     Task { await store.flush() }
@@ -148,7 +148,7 @@ struct OfflineNotesPanelView: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "offlineNotes.empty.subtitle",
-                defaultValue: "Jot things down while offline. They'll be sent to an agent once you're back online."
+                defaultValue: "Jot things down while offline. They'll be staged for review once you're back online."
             ))
             .font(.system(size: 11))
             .foregroundStyle(.tertiary)

@@ -3,8 +3,8 @@ import Foundation
 
 /// Default ``OfflineNoteDispatching`` used by the running app.
 ///
-/// When connectivity returns, each queued note is handed off to an agent by
-/// staging its text into the **workspace it was captured in** (the macOS
+/// When connectivity returns, each queued note is staged for review in the
+/// **workspace it was captured in** (the macOS
 /// TextBox composer of that workspace's focused terminal). Binding to the
 /// capture workspace — rather than whatever workspace happens to be active at
 /// flush time — keeps a note from landing in an unrelated workspace's composer
@@ -16,11 +16,11 @@ import Foundation
 /// We deliberately stage into the composer rather than auto-submitting (e.g. via
 /// the TextBox send path): this flush runs automatically in the background on
 /// reconnect, and submitting note text into whatever terminal is focused could
-/// run it unreviewed (e.g. as a shell command). Staging keeps delivery safe and
+/// run it unreviewed (e.g. as a shell command). Staging keeps the handoff safe and
 /// visible — the user reviews and submits. Directly injecting a prompt into a
 /// freshly-created agent session would need the web-renderer session handshake
 /// and is out of scope. The store talks to this type only through the protocol,
-/// so delivery can be upgraded later (e.g. opt-in auto-submit) without touching
+/// so staging can be upgraded later (e.g. opt-in auto-submit) without touching
 /// the queue.
 @MainActor
 final class OfflineNoteAgentDispatcher: OfflineNoteDispatching {

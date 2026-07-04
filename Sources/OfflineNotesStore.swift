@@ -1,16 +1,16 @@
 import Foundation
 import Observation
 
-/// Persisted queue of user-captured notes that become agent tasks once the
+/// Persisted queue of user-captured notes that are staged for review once the
 /// machine is back online.
 ///
 /// Responsibilities:
 /// - Capture notes locally and persist them (survives app restarts).
-/// - Track each note's status (pending / sending / sent / failed).
+/// - Track each note's status (pending / sending / staged / sent / failed).
 /// - Drain pending notes through an ``OfflineNoteDispatching`` seam whenever
 ///   connectivity is (re)gained, plus on explicit user request.
 ///
-/// State is `@Observable` (no Combine) and connectivity plus the agent hand-off
+/// State is `@Observable` (no Combine) and connectivity plus composer staging
 /// are injected, so the queue logic is exercised deterministically in tests.
 /// The single app-wide instance is ``shared`` (one queue ⇒ one backing file);
 /// it is created lazily the first time the Notes panel is opened.
@@ -98,7 +98,7 @@ final class OfflineNotesStore {
 
     /// Begins connectivity monitoring. Idempotent. Flushes immediately if we are
     /// already online so notes left pending from a previous offline session are
-    /// delivered once the app relaunches with a connection.
+    /// staged once the app relaunches with a connection.
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
@@ -120,9 +120,9 @@ final class OfflineNotesStore {
         }
     }
 
-    /// Shared trigger for "the set of deliverable workspaces may have changed"
-    /// events — app reactivation and workspace selection. A note is delivered
-    /// only when its captured workspace is the visible selection, so selecting a
+    /// Shared trigger for "the set of stageable workspaces may have changed"
+    /// events — app reactivation and workspace selection. A note is staged only
+    /// when its captured workspace is the visible selection, so selecting a
     /// workspace (or reactivating the app) is exactly when notes deferred while
     /// that workspace was backgrounded should be retried.
     ///
@@ -153,7 +153,7 @@ final class OfflineNotesStore {
         let note = OfflineNote(text: capped, workspaceID: workspaceID)
         notes.append(note)
         persist()
-        // Already online → hand off now (the `isFlushing` guard prevents duplicates).
+        // Already online -> stage now (the `isFlushing` guard prevents duplicates).
         scheduleFlush()
         return note
     }
@@ -166,7 +166,8 @@ final class OfflineNotesStore {
         persist()
     }
 
-    /// Drops every successfully-sent note.
+    /// Drops every successfully-sent note. Staged notes are not sent yet and are
+    /// preserved until the user deletes them.
     func clearSent() {
         let before = notes.count
         notes.removeAll { $0.status == .sent }
@@ -213,13 +214,14 @@ final class OfflineNotesStore {
         Task { await flush() }
     }
 
-    /// Delivers every pending note to an agent, oldest first, one at a time.
+    /// Stages every pending note into its workspace composer, oldest first, one
+    /// at a time.
     ///
     /// No-ops while offline or when another flush is already running. Failed
     /// notes are left in the ``OfflineNoteStatus/failed`` state (not retried in
     /// the same pass) so a persistently-failing dispatcher cannot spin.
     ///
-    /// Each note's terminal state is persisted (off the main actor, awaited via
+    /// Each note's terminal queue state is persisted (off the main actor, awaited via
     /// ``waitForPendingPersist()``) before the next note is dispatched, so a crash
     /// mid-flush can't replay a note that was already staged. The transient
     /// ``OfflineNoteStatus/sending`` state is not persisted; it is recovered as
@@ -247,12 +249,12 @@ final class OfflineNotesStore {
 
             do {
                 try await dispatcher.dispatch(note)
-                if var delivered = self.note(id: note.id) {
-                    delivered.status = .sent
-                    delivered.sentAt = Date()
-                    delivered.lastError = nil
-                    delivered.updatedAt = Date()
-                    applyInMemory(delivered)
+                if var staged = self.note(id: note.id) {
+                    staged.status = .staged
+                    staged.sentAt = nil
+                    staged.lastError = nil
+                    staged.updatedAt = Date()
+                    applyInMemory(staged)
                 }
             } catch OfflineNoteDispatchError.noActiveWorkspace {
                 // The note's captured workspace isn't deliverable-and-visible right
@@ -327,7 +329,7 @@ final class OfflineNotesStore {
         }
         return String(
             localized: "offlineNotes.dispatch.error.generic",
-            defaultValue: "Couldn't send this note to an agent. It will stay queued for retry."
+            defaultValue: "Couldn't stage this note for review. It will stay queued for retry."
         )
     }
 
@@ -366,7 +368,7 @@ final class OfflineNotesStore {
         writeQueue.async { OfflineNotesStore.writeToDisk(snapshot, to: fileURL) }
     }
 
-    /// Awaits all writes enqueued so far. Used by ``flush()`` so each hand-off is
+    /// Awaits all writes enqueued so far. Used by ``flush()`` so each staged note is
     /// durable before the next note is dispatched. Returns immediately when no
     /// writes are pending (e.g. tests with no backing file).
     func waitForPendingPersist() async {

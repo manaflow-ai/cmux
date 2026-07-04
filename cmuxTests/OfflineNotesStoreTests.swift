@@ -135,7 +135,7 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
-    func regainingConnectivityFlushesPendingNotes() async throws {
+    func regainingConnectivityStagesPendingNotes() async throws {
         let dispatcher = FakeDispatcher()
         let reachability = FakeReachability(isOnline: false)
         let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
@@ -144,11 +144,11 @@ struct OfflineNotesStoreTests {
 
         reachability.setOnline(true) // triggers the auto-flush on reconnect
 
-        await waitUntil { store.notes.allSatisfy { $0.status == .sent } }
+        await waitUntil { store.notes.allSatisfy { $0.status == .staged } }
         #expect(dispatcher.dispatched.count == 2)
-        #expect(store.sentCount == 2)
+        #expect(store.sentCount == 0)
         #expect(store.pendingCount == 0)
-        #expect(store.notes.first?.sentAt != nil)
+        #expect(store.notes.first?.sentAt == nil)
     }
 
     @Test
@@ -160,9 +160,9 @@ struct OfflineNotesStoreTests {
 
         store.addNote("captured while online")
 
-        await waitUntil { store.notes.first?.status == .sent }
+        await waitUntil { store.notes.first?.status == .staged }
         #expect(dispatcher.dispatched.count == 1)
-        #expect(store.notes.first?.status == .sent)
+        #expect(store.notes.first?.status == .staged)
     }
 
     // MARK: - Failure + retry
@@ -187,9 +187,9 @@ struct OfflineNotesStoreTests {
         // Recover and retry.
         dispatcher.shouldFail = false
         store.retry(id: id)
-        await waitUntil { store.notes.first?.status == .sent }
+        await waitUntil { store.notes.first?.status == .staged }
 
-        #expect(store.notes.first?.status == .sent)
+        #expect(store.notes.first?.status == .staged)
         #expect(store.notes.first?.attemptCount == 2)
         #expect(dispatcher.dispatched.count == 2)
     }
@@ -237,9 +237,9 @@ struct OfflineNotesStoreTests {
         // eligible again and is delivered.
         dispatcher.shouldFail = false
         await store.flush()
-        await waitUntil { store.notes.first?.status == .sent }
-        #expect(store.notes.first?.status == .sent)
-        #expect(store.sentCount == 1)
+        await waitUntil { store.notes.first?.status == .staged }
+        #expect(store.notes.first?.status == .staged)
+        #expect(store.sentCount == 0)
         #expect(store.pendingCount == 0)
     }
 
@@ -259,28 +259,32 @@ struct OfflineNotesStoreTests {
         async let secondFlush: Void = store.flush()
         _ = await (firstFlush, secondFlush)
 
-        await waitUntil { store.notes.allSatisfy { $0.status == .sent } }
+        await waitUntil { store.notes.allSatisfy { $0.status == .staged } }
         #expect(dispatcher.dispatched.count == 2)
     }
 
     // MARK: - Housekeeping
 
     @Test
-    func clearSentRemovesOnlySentNotes() async throws {
-        let dispatcher = FakeDispatcher()
-        let reachability = FakeReachability(isOnline: false)
-        let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
-        store.addNote("will send")
-        reachability.setOnline(true)
-        await waitUntil { store.sentCount == 1 }
+    func clearSentRemovesOnlySentNotes() throws {
+        let url = tempFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let persisted = [
+            OfflineNote(text: "already sent", status: .sent, sentAt: Date()),
+            OfflineNote(text: "staged for review", status: .staged),
+            OfflineNote(text: "still pending", status: .pending),
+        ]
+        let data = try OfflineNotesStore.makeEncoder().encode(persisted)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: url)
 
-        reachability.setOnline(false)
-        store.addNote("still pending")
-
+        let store = makeStore(fileURL: url, reachability: FakeReachability(isOnline: false), autostart: false)
         store.clearSent()
-        #expect(store.notes.count == 1)
-        #expect(store.notes.first?.text == "still pending")
-        #expect(store.notes.first?.status == .pending)
+        #expect(store.notes.map(\.text) == ["staged for review", "still pending"])
+        #expect(store.notes.map(\.status) == [.staged, .pending])
     }
 
     // MARK: - Bounded growth
@@ -457,26 +461,21 @@ struct OfflineNotesStoreTests {
     }
 
     @Test
-    func sentNotesArePrunedToCapPreservingOldestEviction() async throws {
+    func stagedNotesAreNotPrunedAsSent() async throws {
         let dispatcher = FakeDispatcher()
         let reachability = FakeReachability(isOnline: false)
         let store = makeStore(fileURL: nil, dispatcher: dispatcher, reachability: reachability)
 
         let total = OfflineNotesStore.maxRetainedSentNotes + 5
-        var oldestID: UUID?
         for index in 0..<total {
-            let note = store.addNote("note \(index)")
-            if index == 0 { oldestID = note?.id }
+            store.addNote("note \(index)")
         }
 
         reachability.setOnline(true)
-        await waitUntil(timeout: 8.0) { store.sentCount == OfflineNotesStore.maxRetainedSentNotes }
+        await waitUntil(timeout: 8.0) { store.notes.allSatisfy { $0.status == .staged } }
 
         #expect(dispatcher.dispatched.count == total)
-        #expect(store.sentCount == OfflineNotesStore.maxRetainedSentNotes)
-        #expect(store.notes.count == OfflineNotesStore.maxRetainedSentNotes)
-        // The oldest sent note is the one evicted.
-        let evicted = try #require(oldestID)
-        #expect(!store.notes.contains { $0.id == evicted })
+        #expect(store.sentCount == 0)
+        #expect(store.notes.count == total)
     }
 }

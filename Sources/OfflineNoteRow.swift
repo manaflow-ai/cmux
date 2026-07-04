@@ -89,7 +89,9 @@ private extension OfflineNoteStatus {
         case .pending:
             return String(localized: "offlineNotes.badge.pending", defaultValue: "Pending")
         case .sending:
-            return String(localized: "offlineNotes.badge.sending", defaultValue: "Sending")
+            return String(localized: "offlineNotes.badge.sending", defaultValue: "Staging")
+        case .staged:
+            return String(localized: "offlineNotes.badge.staged", defaultValue: "Staged")
         case .sent:
             return String(localized: "offlineNotes.badge.sent", defaultValue: "Sent")
         case .failed:
@@ -100,7 +102,8 @@ private extension OfflineNoteStatus {
     var symbolName: String {
         switch self {
         case .pending: return "clock"
-        case .sending: return "paperplane"
+        case .sending: return "text.bubble"
+        case .staged: return "text.bubble"
         case .sent: return "checkmark.circle.fill"
         case .failed: return "exclamationmark.triangle.fill"
         }
@@ -110,6 +113,7 @@ private extension OfflineNoteStatus {
         switch self {
         case .pending: return .secondary
         case .sending: return .blue
+        case .staged: return .purple
         case .sent: return .green
         case .failed: return .red
         }
