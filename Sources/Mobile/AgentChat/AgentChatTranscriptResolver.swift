@@ -68,10 +68,24 @@ struct AgentChatTranscriptResolver: Sendable {
     /// This is intentionally cheap enough for main-actor call sites; it does not
     /// run any agent-specific fallback scan.
     func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
-        let fileManager = FileManager.default
         guard let recorded = record.transcriptPath else { return nil }
         let expanded = (recorded as NSString).expandingTildeInPath
-        return fileManager.fileExists(atPath: expanded) ? expanded : nil
+        return FileManager.default.fileExists(atPath: expanded) ? expanded : nil
+    }
+
+    /// Resolves only paths that are cheap to check from the main-actor mobile
+    /// session list path. Codex stays limited to recorded paths so cmux never
+    /// binds a pane by scanning rollout directories.
+    func boundedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
+        if let recorded = recordedTranscriptPath(for: record) {
+            return recorded
+        }
+        switch record.agentKind {
+        case .claude:
+            return claudeFallbackPath(record: record)
+        case .codex, .other:
+            return nil
+        }
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
@@ -81,7 +95,7 @@ struct AgentChatTranscriptResolver: Sendable {
         let path = claudeConfigRoot
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectDir, isDirectory: true)
-            .appendingPathComponent("\(record.sessionID).jsonl", isDirectory: false)
+            .appendingPathComponent("\(record.hookStoreLookupSessionID).jsonl", isDirectory: false)
             .path
         return fileManager.fileExists(atPath: path) ? path : nil
     }
