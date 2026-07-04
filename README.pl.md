@@ -397,6 +397,11 @@ Sposoby zaangażowania się:
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> Zeskanuj kod QR, aby dołączyć do społeczności.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="Kod QR WeChat do dołączenia do społeczności cmux" width="240" />
+</p>
+
 ## Edycja Założycielska
 
 cmux jest darmowy, open source i zawsze taki będzie. Jeśli chcesz wesprzeć rozwój i uzyskać wczesny dostęp do nadchodzących funkcji:
