@@ -692,39 +692,6 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertTrue(bare.contains(exec), bare)
     }
 
-    // Regression: the resume command carries a POSIX `{ cd …; } && …` cwd-guard, but a fish
-    // (or csh/tcsh) login shell cannot parse `{ …; }` command grouping. The launcher must hand
-    // those shells a single external `/bin/sh -c '<command>'` invocation so they only ever parse
-    // one external command; zsh/bash parse the POSIX command natively and keep running it under
-    // `-lic`. https://github.com/manaflow-ai/cmux/issues/6285
-    func testResumeLauncherWrapsCommandForNonPOSIXLoginShells() {
-        let command = "{ cd -- '/tmp/x' 2>/dev/null || [ ! -d '/tmp/x' ]; } && 'claude' '--resume' 'abc'"
-        let lines = TerminalStartupReturnShellScript.commandThenReturnLines(command: command)
-
-        func caseBranch(_ marker: String) -> String {
-            lines.first { $0.contains(marker) && $0.contains("$_cmux_resume_shell") } ?? ""
-        }
-
-        let fishBranch = caseBranch("*)")
-        let cshBranch = caseBranch("csh|tcsh)")
-        let posixBranch = caseBranch("zsh|bash)")
-
-        XCTAssertFalse(fishBranch.isEmpty, "expected a fish/default case branch; script:\n\(lines.joined(separator: "\n"))")
-        XCTAssertFalse(cshBranch.isEmpty, "expected a csh/tcsh case branch; script:\n\(lines.joined(separator: "\n"))")
-        XCTAssertFalse(posixBranch.isEmpty, "expected a zsh/bash case branch; script:\n\(lines.joined(separator: "\n"))")
-
-        // fish / csh / tcsh: dispatch a single external `/bin/sh -c '<command>'`, never the raw
-        // POSIX `{ …; }` grouping that those shells reject.
-        XCTAssertTrue(fishBranch.contains("-c '/bin/sh -c "), "fish branch must wrap via /bin/sh -c:\n\(fishBranch)")
-        XCTAssertTrue(cshBranch.contains("-c '/bin/sh -c "), "csh/tcsh branch must wrap via /bin/sh -c:\n\(cshBranch)")
-        XCTAssertFalse(fishBranch.contains("-c '{ "), "fish branch must not hand the raw `{ …; }` grouping to fish:\n\(fishBranch)")
-        XCTAssertFalse(cshBranch.contains("-c '{ "), "csh/tcsh branch must not hand the raw `{ …; }` grouping to csh:\n\(cshBranch)")
-
-        // zsh / bash parse the POSIX command natively, so they keep running it directly.
-        XCTAssertTrue(posixBranch.contains("-lic '{ "), "zsh/bash must keep running the POSIX command natively:\n\(posixBranch)")
-        XCTAssertFalse(posixBranch.contains("/bin/sh -c"), "zsh/bash must not be wrapped:\n\(posixBranch)")
-    }
-
     private func withRestoredDefaults<T>(
         key: String,
         defaults: UserDefaults = .standard,

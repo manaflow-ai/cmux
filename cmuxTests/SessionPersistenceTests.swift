@@ -2108,9 +2108,10 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 + "alias claude \(shellQuotedForTest(sandbox.realClaudeURL.path))\n"
         ).write(to: sandbox.homeURL.appendingPathComponent(".tcshrc"), atomically: true, encoding: .utf8)
 
-        // No working directory: keeps the command free of the POSIX `{ cd …; } &&` guard so the
-        // assertion isolates the claude executable token itself. The guard-bearing command is
-        // exercised separately by testClaudeResumeCommandWithWorkingDirectoryExecutesThroughWrapperInsideTcshLauncher.
+        // No working directory: keeps the command free of the POSIX `{ cd …; } &&` guard
+        // (csh/tcsh cannot parse that prefix with or without this fix, a pre-existing
+        // limitation shared by every agent kind) so the assertion isolates the claude
+        // executable token itself.
         let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: nil)
         let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
 
@@ -2127,56 +2128,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(
             recorded.contains("--settings"),
             "tcsh-dispatched resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
-        )
-    }
-
-    /// Regression for #6285: cwd-bearing resume commands are POSIX sh syntax and can include
-    /// constructs that non-POSIX login shells do not parse. The restore launcher must hand those
-    /// shells a single external `/bin/sh -c '<command>'` invocation so the guarded resume still
-    /// reaches the cmux wrapper. tcsh is on every macOS runner, so it exercises the wrapped
-    /// non-POSIX dispatch end-to-end. https://github.com/manaflow-ai/cmux/issues/6285
-    func testClaudeResumeCommandWithWorkingDirectoryExecutesThroughWrapperInsideTcshLauncher() throws {
-        let tcshURL = URL(fileURLWithPath: "/bin/tcsh")
-        try XCTSkipUnless(
-            FileManager.default.isExecutableFile(atPath: tcshURL.path),
-            "/bin/tcsh is required to exercise the csh|tcsh restore-launcher dispatch"
-        )
-
-        let sandbox = try makeClaudeResumeWrapperShimSandbox()
-        defer { sandbox.removeSandbox() }
-        // Hostile tcsh profile: rebuild PATH (dropping any inherited shim dir) and alias claude to
-        // the user's real binary, matching the no-cwd tcsh and fish launcher tests.
-        try (
-            "set path = (\(shellQuotedForTest(sandbox.realBinDirectoryURL.path)) /usr/bin /bin)\n"
-                + "alias claude \(shellQuotedForTest(sandbox.realClaudeURL.path))\n"
-        ).write(to: sandbox.homeURL.appendingPathComponent(".tcshrc"), atomically: true, encoding: .utf8)
-
-        // A working directory makes resumeCommand carry the cwd guard that must be parsed by sh,
-        // not by the non-POSIX login shell.
-        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
-        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
-        XCTAssertTrue(
-            resumeCommand.contains("cd -- "),
-            "this regression requires the cwd guard to be present; resumeCommand: \(resumeCommand)"
-        )
-        XCTAssertFalse(
-            resumeCommand.contains("{ cd -- "),
-            "the cwd guard should use the brace-free portable form; resumeCommand: \(resumeCommand)"
-        )
-
-        let recorded = try runClaudeResumeCommand(
-            resumeCommand,
-            shellURL: tcshURL,
-            arguments: ["-c"],
-            sandbox: sandbox
-        )
-        XCTAssertTrue(
-            recorded.hasPrefix("wrapper "),
-            "tcsh-dispatched guard-bearing resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
-        )
-        XCTAssertTrue(
-            recorded.contains("--settings"),
-            "tcsh-dispatched guard-bearing resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
         )
     }
 
@@ -2373,15 +2324,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     ) throws -> String {
         let process = Process()
         process.executableURL = shellURL
-        // Model the restore launcher's dispatch
-        // (`TerminalStartupReturnShellScript.commandThenReturnLines`): zsh/bash parse the POSIX
-        // resume command natively, while fish/csh/tcsh receive it wrapped in `/bin/sh -c '…'` so
-        // they only parse a single external command. https://github.com/manaflow-ai/cmux/issues/6285
-        let shellLeaf = shellURL.lastPathComponent
-        let dispatchedCommand = (shellLeaf == "zsh" || shellLeaf == "bash")
-            ? resumeCommand
-            : TerminalStartupReturnShellScript.posixShellDispatchCommand(resumeCommand)
-        process.arguments = arguments + [dispatchedCommand]
+        process.arguments = arguments + [resumeCommand]
         var environment = [
             "HOME": sandbox.homeURL.path,
             "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path
