@@ -581,4 +581,175 @@ struct GhosttyTerminalStartupEnvironmentTests {
             "http://subrouter-team:31415/v1"
         )
     }
+
+    // MARK: - Locale sanitization (https://github.com/manaflow-ai/cmux/issues/7152)
+    //
+    // A cmux-spawned shell must not inherit a malformed `LC_ALL`/`LC_CTYPE` — a
+    // Foundation CLDR/BCP-47 `Locale.current.identifier` such as
+    // `en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx`.
+    // libc cannot resolve it, so every `LC_*` category (including `LC_CTYPE`)
+    // collapses to `C`, corrupting UTF-8 text on clipboard/pipeline paths even
+    // though `LANG=en_US.UTF-8`. The spawned environment must clear such a value
+    // so the valid `LANG` (which Ghostty derives from the macOS region) governs.
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedInheritedLCAll() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx",
+            ]
+        )
+        expectEqual(merged["LC_ALL"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedKeywordLCAll() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en_US@calendar=gregorian;collation=standard;currency=USD",
+            ]
+        )
+        expectEqual(merged["LC_ALL"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedInheritedLCCtype() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_CTYPE": "en-US-u-ca-gregory-cu-usd-fw-sun-ms-ussystem",
+            ]
+        )
+        expectEqual(merged["LC_CTYPE"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentNeutralizesMalformedLCAllFromSurfaceOverride() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [
+                "LC_ALL": "en-US-u-ca-gregory-cu-usd"
+            ],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [:]
+        )
+        expectEqual(merged["LC_ALL"], "")
+    }
+
+    @Test
+    func testMergedStartupEnvironmentPreservesValidInheritedLocale() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "ja_JP.UTF-8",
+                "LC_CTYPE": "fr_FR.UTF-8",
+            ]
+        )
+        // Valid POSIX locales are inherited untouched (no override injected).
+        expectNil(merged["LC_ALL"])
+        expectNil(merged["LC_CTYPE"])
+    }
+
+    @Test
+    func testMergedStartupEnvironmentPreservesExplicitCLocale() {
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: [
+                "LC_ALL": "C"
+            ]
+        )
+        // A user who explicitly chose C/POSIX keeps it.
+        expectNil(merged["LC_ALL"])
+    }
+
+    @Test
+    func testSpawnedShellStaysUTF8DespiteMalformedInheritedLCAll() throws {
+        // Mirrors Ghostty's env merge: surface env_vars layered over the inherited
+        // process environment. Without sanitization the child's LC_CTYPE collapses
+        // to C (charmap US-ASCII); with it the child keeps LANG's UTF-8 charmap.
+        let ambient = [
+            "LANG": "en_US.UTF-8",
+            "LC_ALL": "en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx",
+        ]
+        let overrides = TerminalSurface.mergedStartupEnvironment(
+            base: [:],
+            protectedKeys: [],
+            additionalEnvironment: [:],
+            initialEnvironmentOverrides: [:],
+            ambientEnvironment: ambient
+        )
+        var childEnvironment = ambient
+        for (key, value) in overrides { childEnvironment[key] = value }
+        childEnvironment["PATH"] = "/usr/bin:/bin"
+
+        let charmap = try Self.spawnedShellLocaleCharmap(environment: childEnvironment)
+        expectEqual(charmap, "UTF-8")
+    }
+
+    @Test
+    func testIsPOSIXCompatibleLocaleNameAcceptsValidPOSIXLocales() {
+        for value in [
+            "en_US.UTF-8", "en_US", "ja_JP.UTF-8", "de_DE.UTF-8", "zh_CN.UTF-8",
+            "en_US.ISO8859-1", "en_US.US-ASCII", "fr_FR.UTF-8@euro",
+            "C", "C.UTF-8", "POSIX", "",
+        ] {
+            expectTrue(
+                TerminalSurface.isPOSIXCompatibleLocaleName(value),
+                "expected \(value) to be POSIX-compatible"
+            )
+        }
+    }
+
+    @Test
+    func testIsPOSIXCompatibleLocaleNameRejectsCLDRIdentifiers() {
+        for value in [
+            "en-US-u-ca-gregory-co-standard-cu-usd-fw-sun-hc-h12-ms-ussystem-tz-usphx",
+            "en-US-u-ca-gregory-cu-usd-fw-sun-ms-ussystem",
+            "en_US@calendar=gregorian;collation=standard;currency=USD",
+            "en-US",
+            "garbage with spaces",
+        ] {
+            expectFalse(
+                TerminalSurface.isPOSIXCompatibleLocaleName(value),
+                "expected \(value) to be rejected as non-POSIX"
+            )
+        }
+    }
+
+    private static func spawnedShellLocaleCharmap(environment: [String: String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-c", "locale charmap"]
+        process.environment = environment
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
