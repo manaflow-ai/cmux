@@ -88,11 +88,21 @@ extension SurfaceResumeBindingSnapshot {
     }
 
     private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
-        guard repairPortableAgentExecutable, isAgentHookBinding else {
+        guard isAgentHookBinding else {
             return startupCommand
         }
-        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+        let suppressed = SurfaceResumeCommandCanonicalizer.insertingCodexUpdateCheckSuppression(
             in: startupCommand,
+            kind: kind
+        )
+        guard repairPortableAgentExecutable else {
+            return suppressed
+        }
+        // Suppression insertion runs before executable repair: repair can wrap a
+        // stale-executable command in `/bin/sh -c '…'`, whose single-word body no
+        // longer parses as a codex resume argv.
+        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
+            in: suppressed,
             kind: kind
         )
     }
@@ -118,10 +128,28 @@ extension SurfaceResumeCommandCanonicalizer {
         }
 
         if executableName == "claude" {
-            return replacingStaleClaudeExecutable(
+            return replacingStaleWrapperRoutedExecutable(
                 in: command,
                 words: words,
-                executableIndex: executableIndex
+                executableIndex: executableIndex,
+                executableName: "claude",
+                wrapperToken: AgentResumeArgv.claudeWrapperShellExecutableToken,
+                renderPortable: { AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: $0, quote: $1) },
+                wrapInPortableShell: { AgentResumeArgv.portableClaudeResumeShellCommand(posixCommand: $0) }
+            )
+        } else if executableName == "codex" {
+            // Mirror claude: route a stale codex executable (a PATH-managed path
+            // whose file is gone) through the codex wrapper token instead of a
+            // bare `codex`, so the restored codex surface keeps cmux hooks.
+            // https://github.com/manaflow-ai/cmux/issues/5639
+            return replacingStaleWrapperRoutedExecutable(
+                in: command,
+                words: words,
+                executableIndex: executableIndex,
+                executableName: "codex",
+                wrapperToken: AgentResumeArgv.codexWrapperShellExecutableToken,
+                renderPortable: { AgentResumeArgv.renderedPortableCodexResumeShellCommand(parts: $0, quote: $1) },
+                wrapInPortableShell: { AgentResumeArgv.portableCodexResumeShellCommand(posixCommand: $0) }
             )
         } else {
             return replacingExecutableOnly(
@@ -212,10 +240,14 @@ extension SurfaceResumeCommandCanonicalizer {
         path.withCString { access($0, X_OK) == 0 }
     }
 
-    private static func replacingStaleClaudeExecutable(
+    private static func replacingStaleWrapperRoutedExecutable(
         in command: String,
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
-        executableIndex: Int
+        executableIndex: Int,
+        executableName: String,
+        wrapperToken: String,
+        renderPortable: ([String], (String) -> String) -> String,
+        wrapInPortableShell: (String) -> String
     ) -> String {
         let commandStartIndex = commandStartWordIndex(in: words)
         guard commandStartIndex < words.count,
@@ -228,50 +260,51 @@ extension SurfaceResumeCommandCanonicalizer {
             command: command,
             commandStartIndex: commandStartIndex
         ) else {
-            return replacingStaleClaudeExecutableWithWrapperShellCommand(
+            return replacingStaleExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
                 commandStartIndex: commandStartIndex,
-                executableIndex: executableIndex
+                executableIndex: executableIndex,
+                wrapperToken: wrapperToken,
+                wrapInPortableShell: wrapInPortableShell
             )
         }
-        guard canRenderStaleClaudeCommandAsPortableArgv(
+        guard canRenderStaleCommandAsPortableArgv(
             words: words,
             command: command,
             commandStartIndex: commandStartIndex,
             executableIndex: executableIndex
         ) else {
-            return replacingStaleClaudeExecutableWithWrapperShellCommand(
+            return replacingStaleExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
                 commandStartIndex: commandStartIndex,
-                executableIndex: executableIndex
+                executableIndex: executableIndex,
+                wrapperToken: wrapperToken,
+                wrapInPortableShell: wrapInPortableShell
             )
         }
-        parts[executableIndex - commandStartIndex] = "claude"
-        let renderedCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
-            parts: parts,
-            quote: shellQuoted
-        )
+        parts[executableIndex - commandStartIndex] = executableName
+        let renderedCommand = renderPortable(parts, shellQuoted)
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
     }
 
-    private static func replacingStaleClaudeExecutableWithWrapperShellCommand(
+    private static func replacingStaleExecutableWithWrapperShellCommand(
         in command: String,
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         commandStartIndex: Int,
-        executableIndex: Int
+        executableIndex: Int,
+        wrapperToken: String,
+        wrapInPortableShell: (String) -> String
     ) -> String {
         let renderedParts = words[commandStartIndex...].indices.map { index in
             if index == executableIndex {
-                return AgentResumeArgv.claudeWrapperShellExecutableToken
+                return wrapperToken
             }
             return renderedPortableShellWord(words[index], in: command)
         }
-        let renderedCommand = AgentResumeArgv.portableClaudeResumeShellCommand(
-            posixCommand: renderedParts.joined(separator: " ")
-        )
+        let renderedCommand = wrapInPortableShell(renderedParts.joined(separator: " "))
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
     }
@@ -303,7 +336,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return "\(name)=\(shellQuoted(String(word.value[valueStart...])))"
     }
 
-    private static func canRenderStaleClaudeCommandAsPortableArgv(
+    private static func canRenderStaleCommandAsPortableArgv(
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String,
         commandStartIndex: Int,
@@ -379,7 +412,7 @@ extension SurfaceResumeCommandCanonicalizer {
         return false
     }
 
-    private static func commandExecutableWordIndex(
+    static func commandExecutableWordIndex(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
         command: String
     ) -> Int? {
