@@ -310,18 +310,29 @@ public final class UpdateController {
                 if Task.isCancelled { return }
             }
             self.log.append("checkForUpdatesWhenReady timed out")
+            if self.attemptCoordinator.isMonitoring {
+                self.log.append("updater readiness timed out during install attempt")
+                self.attemptCoordinator.cancel()
+                self.installWatchdog.disarm()
+                self.setUpdaterNotReadyError(retry: { [weak self] in self?.attemptUpdate() })
+                return
+            }
             if case .checking = self.model.state {
-                self.model.setState(.error(.init(
-                    error: NSError(
-                        domain: UpdateStateModel.updateErrorDomain,
-                        code: UpdateStateModel.updaterNotReadyCode,
-                        userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
-                    ),
-                    retry: { [weak self] in self?.checkForUpdates() },
-                    dismiss: { [weak self] in self?.model.setState(.idle) }
-                )))
+                self.setUpdaterNotReadyError(retry: { [weak self] in self?.checkForUpdates() })
             }
         }
+    }
+
+    private func setUpdaterNotReadyError(retry: @escaping () -> Void) {
+        model.setState(.error(.init(
+            error: NSError(
+                domain: UpdateStateModel.updateErrorDomain,
+                code: UpdateStateModel.updaterNotReadyCode,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
+            ),
+            retry: retry,
+            dismiss: { [weak self] in self?.model.setState(.idle) }
+        )))
     }
 
     private func cancelReadinessRetry() {
