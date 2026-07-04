@@ -426,6 +426,25 @@ if (!largeArgs.isError || !largeArgs.text.includes("too large")) {
   process.exit(1);
 }
 
+const appsDeclined = await run({ withElicitation: false, tool: "computer_apps", args: {} });
+console.log(`computer_apps without elicitation support -> isError=${appsDeclined.isError}`);
+if (!appsDeclined.isError || !appsDeclined.text.includes("not approved")) {
+  console.error("FAIL: expected fail-closed decline for app inventory");
+  process.exit(1);
+}
+
+const appsAccepted = await run({
+  withElicitation: true,
+  tool: "computer_apps",
+  args: {},
+  expectMessage: "running controllable apps",
+});
+console.log(`computer_apps with accepted elicitation -> isError=${appsAccepted.isError}`);
+if (appsAccepted.isError || !appsAccepted.text.includes("TestApp")) {
+  console.error("FAIL: accepted elicitation should clear the app-inventory gate");
+  process.exit(1);
+}
+
 const windowsDeclined = await run({ withElicitation: false, tool: "computer_windows", args: {} });
 console.log(`computer_windows without elicitation support -> isError=${windowsDeclined.isError}`);
 if (!windowsDeclined.isError || !windowsDeclined.text.includes("not approved")) {

@@ -92,6 +92,9 @@ const MESSAGE_CATALOG = {
     appControlApproval: (app) =>
       `Allow cmux computer use to inspect and control "${app}"? This can share screenshots, the accessibility tree, and control results with the current MCP client.`,
     appControlNotApproved: (app) => `app control for "${app}" was not approved`,
+    appsListApproval:
+      "Allow cmux computer use to list running controllable apps (names, bundle IDs, process IDs)?",
+    appsListNotApproved: "app listing was not approved",
     appRequiredInput: "`app` is required and must be a non-empty string for input actions",
     appsDescription: "List the controllable apps on the target machine.",
     clickDescription:
@@ -166,6 +169,9 @@ const MESSAGE_CATALOG = {
     appControlApproval: (app) =>
       `cmux computer use に「${app}」の調査と操作を許可しますか？スクリーンショット、アクセシビリティツリー、操作結果が現在の MCP クライアントに共有される可能性があります。`,
     appControlNotApproved: (app) => `「${app}」の操作は承認されませんでした`,
+    appsListApproval:
+      "cmux computer use に実行中の操作可能なアプリ（名前、バンドル ID、プロセス ID）の一覧取得を許可しますか？",
+    appsListNotApproved: "アプリ一覧取得は承認されませんでした",
     appRequiredInput: "入力操作には空でない文字列の `app` が必要です",
     appsDescription: "対象マシンで操作可能なアプリを一覧表示します。",
     clickDescription:
@@ -281,7 +287,7 @@ async function captureWindowScreenshot(windowId) {
   activeCaptureDirs.add(dir);
   const path = join(dir, "screenshot.png");
   try {
-    await execFileTool("/usr/sbin/screencapture", ["-x", "-l", String(windowId), path], {
+    await execFileTool("/usr/sbin/screencapture", ["-x", "-o", "-l", String(windowId), path], {
       timeout: TIMEOUT_MS,
       env: childEnv(),
     });
@@ -499,6 +505,25 @@ func appRoot(_ app: NSRunningApplication, windowIndex: Int?) -> (AXUIElement, St
     return (root, "app", nil)
 }
 
+func waitForFrontmost(_ app: NSRunningApplication, timeoutMS: Int) -> Bool {
+    let deadline = Date().addingTimeInterval(Double(timeoutMS) / 1000.0)
+    repeat {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+            return true
+        }
+        usleep(20_000)
+    } while Date() < deadline
+    return NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+}
+
+func ensureFrontmostForKeyboardInput(_ app: NSRunningApplication) {
+    if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return }
+    _ = app.activate(options: [.activateIgnoringOtherApps])
+    guard waitForFrontmost(app, timeoutMS: 1200) else {
+        fail("target app did not become frontmost for keyboard input")
+    }
+}
+
 func elementAtPath(root: AXUIElement, path: [Int]) -> AXUIElement? {
     var current = root
     for index in path {
@@ -681,8 +706,11 @@ if op == "state" {
 guard AXIsProcessTrusted() else {
     fail("Accessibility permission is required for cmux computer use.")
 }
-app.activate(options: [.activateIgnoringOtherApps])
-usleep(80_000)
+if op == "type_text" || op == "press_key" {
+    ensureFrontmostForKeyboardInput(app)
+} else {
+    _ = app.activate(options: [.activateIgnoringOtherApps])
+}
 let (root, _, _) = appRoot(app, windowIndex: (inputObject["windowIndex"] as? NSNumber)?.intValue)
 let element = elementAtPath(root: root, path: pathInput())
 
@@ -898,6 +926,9 @@ function providerError(error) {
 }
 
 async function listProviderApps() {
+  if (!(await approveLocalCapability("app-list", localizedMessage("appsListApproval")))) {
+    return err(localizedMessage("appsListNotApproved"));
+  }
   try {
     const s = await session();
     const apps = await s.provider.listApps();
@@ -1549,6 +1580,17 @@ function cancelToolRequest(requestId) {
   }
 }
 
+function abortActiveToolCalls() {
+  for (const token of activeToolCalls.values()) {
+    token.canceled = true;
+    rejectOutboundForToken(token);
+    for (const controller of token.abortControllers) {
+      controller.abort();
+    }
+    token.abortControllers.clear();
+  }
+}
+
 function mcpClientRequest(method, params) {
   return new Promise((resolve, reject) => {
     const id = `cu-${nextOutboundId++}`;
@@ -1705,6 +1747,7 @@ async function handleRequest(message) {
 }
 
 function shutdown() {
+  abortActiveToolCalls();
   // Synchronous scrub of any in-flight desktop-capture dirs before exit — the
   // async finally in desktopScreenshot may not run once we exit the process.
   for (const dir of activeCaptureDirs) {
