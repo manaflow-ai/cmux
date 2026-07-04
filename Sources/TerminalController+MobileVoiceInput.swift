@@ -37,6 +37,21 @@ extension TerminalController {
                 data: nil
             )
         }
+        if let expectedWorkspaceID = params["expected_workspace_id"] as? String,
+           let expectedSurfaceID = params["expected_surface_id"] as? String,
+           (expectedWorkspaceID != workspace.id.uuidString || expectedSurfaceID != terminalPanel.id.uuidString) {
+            return .err(
+                code: "target_changed",
+                message: String(
+                    localized: "mobile.voice.input.targetChanged",
+                    defaultValue: "The focused pane changed. Check the target and speak again."
+                ),
+                data: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": terminalPanel.id.uuidString,
+                ]
+            )
+        }
 
         let submit = (params["submit"] as? Bool) ?? false
         let payload = submit ? text + "\r" : text

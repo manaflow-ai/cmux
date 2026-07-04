@@ -1395,6 +1395,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
                 params: [
                     "text": "echo voice",
                     "submit": true,
+                    "expected_workspace_id": workspace.id.uuidString,
+                    "expected_surface_id": panel.id.uuidString,
                 ],
                 auth: nil
             )
@@ -1413,6 +1415,39 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertGreaterThan(pending.items, before.items)
         XCTAssertGreaterThan(pending.inputTextItems, before.inputTextItems)
         XCTAssertGreaterThan(pending.bytes, before.bytes)
+    }
+
+    func testMobileVoiceInputRejectsChangedExpectedTarget() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let before = panel.surface.debugPendingSocketInputForTesting()
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "voice-input-target-changed",
+                method: "mobile.voice.input",
+                params: [
+                    "text": "echo wrong\r",
+                    "expected_workspace_id": workspace.id.uuidString,
+                    "expected_surface_id": UUID().uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected changed mobile voice target to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "target_changed")
+        XCTAssertEqual(panel.surface.debugPendingSocketInputForTesting().bytes, before.bytes)
     }
 
     func testMobileVoiceInputRejectsNonTerminalFocus() async throws {

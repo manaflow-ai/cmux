@@ -304,11 +304,13 @@ struct VoiceModeView: View {
     }
 
     private func sendFinal(_ text: String) {
+        let expectedFocusSnapshot = store.voiceFocusSnapshot
         Task { @MainActor in
             do {
                 let response = try await store.sendVoiceInput(
                     text: text,
-                    submit: voiceSettings.voiceModeAutoSubmit
+                    submit: voiceSettings.voiceModeAutoSubmit,
+                    expectedFocusSnapshot: expectedFocusSnapshot
                 )
                 let title = response.surfaceTitle ?? L10n.string("mobile.voiceMode.terminal", defaultValue: "Terminal")
                 sendConfirmation = String.localizedStringWithFormat(
@@ -328,8 +330,15 @@ struct VoiceModeView: View {
     private static func sendErrorMessage(_ error: any Error) -> String {
         if let connectionError = error as? MobileShellConnectionError {
             switch connectionError {
-            case .rpcError(_, let message),
-                 .authorizationFailed(let message),
+            case .rpcError(let code, let message):
+                if code == "target_changed" {
+                    return L10n.string(
+                        "mobile.voiceMode.targetChanged",
+                        defaultValue: "The focused pane changed. Check the target and speak again."
+                    )
+                }
+                return message
+            case .authorizationFailed(let message),
                  .accountMismatch(let message):
                 return message
             default:

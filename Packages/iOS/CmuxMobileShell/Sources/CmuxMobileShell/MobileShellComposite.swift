@@ -6032,7 +6032,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Insert finalized Voice Mode text into the Mac's currently focused terminal.
-    public func sendVoiceInput(text: String, submit: Bool) async throws -> MobileVoiceInputResponse {
+    public func sendVoiceInput(
+        text: String,
+        submit: Bool,
+        expectedFocusSnapshot: MobileFocusSnapshot?
+    ) async throws -> MobileVoiceInputResponse {
+        guard let expectedFocusSnapshot,
+              expectedFocusSnapshot.isTerminal,
+              let expectedWorkspaceID = expectedFocusSnapshot.workspaceID,
+              let expectedSurfaceID = expectedFocusSnapshot.surfaceID else {
+            throw MobileShellConnectionError.rpcError(
+                "no_focused_terminal",
+                L10n.string("mobile.voiceMode.clickTerminal", defaultValue: "Click a terminal pane on your Mac.")
+            )
+        }
         guard let client = remoteClient else {
             throw MobileShellConnectionError.connectionClosed
         }
@@ -6044,6 +6057,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "text": text,
                     "submit": submit,
                     "client_id": clientID,
+                    "expected_workspace_id": expectedWorkspaceID,
+                    "expected_surface_id": expectedSurfaceID,
                 ]
             )
         )

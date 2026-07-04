@@ -10133,6 +10133,23 @@
         }
       }
     },
+    "mobile.voice.transcription.startupTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice transcription is still loading. Try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声の文字起こしをまだ読み込み中です。少し待ってからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.voiceMode.audioUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -10231,6 +10248,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac に送信できませんでした。接続を確認してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.voiceMode.targetChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused pane changed. Check the target and speak again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカス中のペインが変わりました。送信先を確認してもう一度話してください。"
           }
         }
       }
