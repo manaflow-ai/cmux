@@ -133,7 +133,7 @@ struct ClaudeHookConversationAttributionTests {
         }
 
         let state = MockServerState()
-        _ = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+        Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -161,26 +161,18 @@ struct ClaudeHookConversationAttributionTests {
             }
         }
 
-        var environment: [String: String] = [
-            "HOME": root.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "CMUX_SOCKET_PATH": socketPath,
-            "CMUX_SURFACE_ID": surfaceEnvId,
-            "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
-        ]
-        if let callerWorkspaceId {
-            environment["CMUX_WORKSPACE_ID"] = callerWorkspaceId
-        }
-
         let sessionId = "claude-7132-\(UUID().uuidString)"
         let stdin = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
 
         let result = Self.runProcess(
             executablePath: try Self.bundledCLIPath(),
             arguments: ["hooks", "claude", "stop"],
-            environment: environment,
+            environment: cliEnvironment(
+                root: root,
+                socketPath: socketPath,
+                callerWorkspaceId: callerWorkspaceId,
+                surfaceEnvId: surfaceEnvId
+            ),
             standardInput: stdin,
             timeout: 10
         )
@@ -226,6 +218,37 @@ struct ClaudeHookConversationAttributionTests {
             return event
         }
         return nil
+    }
+
+    private func cliEnvironment(
+        root: URL,
+        socketPath: String,
+        callerWorkspaceId: String?,
+        surfaceEnvId: String
+    ) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        for key in [
+            "CMUX_SOCKET",
+            "CMUX_SOCKET_PASSWORD",
+            "CMUX_SOCKET_PATH",
+            "CMUX_SURFACE_ID",
+            "CMUX_TAB_ID",
+            "CMUX_PANEL_ID",
+            "CMUX_WINDOW_ID",
+            "CMUX_WORKSPACE_ID",
+        ] {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = surfaceEnvId
+        environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root.appendingPathComponent("claude-hook-sessions.json").path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        if let callerWorkspaceId {
+            environment["CMUX_WORKSPACE_ID"] = callerWorkspaceId
+        }
+        return environment
     }
 
     private final class MockServerState: @unchecked Sendable {
@@ -305,8 +328,7 @@ struct ClaudeHookConversationAttributionTests {
         listenerFD: Int32,
         state: MockServerState,
         handler: @escaping @Sendable (String) -> String
-    ) -> DispatchSemaphore {
-        let handled = DispatchSemaphore(value: 0)
+    ) {
         DispatchQueue.global(qos: .userInitiated).async {
             while true {
                 var clientAddr = sockaddr_un()
@@ -324,7 +346,6 @@ struct ClaudeHookConversationAttributionTests {
                 DispatchQueue.global(qos: .userInitiated).async {
                     defer {
                         Darwin.close(clientFD)
-                        handled.signal()
                     }
 
                     func writeResponse(_ response: String) {
@@ -356,7 +377,6 @@ struct ClaudeHookConversationAttributionTests {
                 }
             }
         }
-        return handled
     }
 
     private static func v2Response(

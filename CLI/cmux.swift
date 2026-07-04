@@ -23049,7 +23049,6 @@ struct CMUXCLI {
                 "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
             ]
         )
-
         var didSendFeedTelemetry = false
         func sendClaudeFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil) {
             didSendFeedTelemetry = true
@@ -23067,7 +23066,6 @@ struct CMUXCLI {
                 sendClaudeFeedTelemetry()
             }
         }
-
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
@@ -23223,8 +23221,13 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
-
+                let hasAuthoritativeWorkspace = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId) != nil ||
+                    nonEmptyClaudeHookIdentifier(workspaceArg) != nil ||
+                    callerTTYBindingProvider?() != nil
+                sendClaudeFeedTelemetry(
+                    workspaceId: hasAuthoritativeWorkspace ? workspaceId : nil,
+                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil
+                )
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
@@ -23236,19 +23239,16 @@ struct CMUXCLI {
                     print("OK")
                     return
                 }
-
                 guard !suppressVisibleMutations else {
                     telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
                     print("OK")
                     return
                 }
-
                 // Whether this turn ended with unfinished background work (a running
                 // background task or a pending cron). Cached on the session record so
                 // the ~60s-later idle_prompt Notification can consult it, and forwarded
                 // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
-
                 // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
                     parsedInput: parsedInput,
