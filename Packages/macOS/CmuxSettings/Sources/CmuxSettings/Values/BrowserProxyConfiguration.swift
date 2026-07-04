@@ -155,8 +155,8 @@ public struct BrowserProxyConfiguration: Sendable, Equatable, Codable {
     public func resolved(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> BrowserProxyConfiguration {
-        guard let raw = environment[environmentVariableName],
-              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let raw = environment[Self.environmentVariableName],
+              !raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty else {
             return self
         }
         return BrowserProxyConfiguration(environmentValue: raw) ?? self
