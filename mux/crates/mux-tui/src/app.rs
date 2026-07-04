@@ -39,7 +39,7 @@ pub enum AppEvent {
 /// map every draw, so hit-testing always matches what is on screen.
 /// Left-click performs the action; right-click opens the matching context
 /// menu where one exists (workspace rows, panes).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
     /// Sidebar workspace entry.
     Workspace {
@@ -236,9 +236,9 @@ pub struct App {
     /// Per-pane tab-bar scroll offset (first visible tab index), for
     /// panes whose tabs overflow the bar. Presentation state only.
     pub tab_scroll: HashMap<PaneId, usize>,
-    /// Pane currently under the mouse (its border box renders a hover
-    /// highlight).
-    pub hover_pane: Option<PaneId>,
+    /// Last mouse position; tab-bar controls (+, ‹, ›) under it render
+    /// a hover highlight.
+    pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
     pub selection: Option<Selection>,
@@ -336,7 +336,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
-        hover_pane: None,
+        hover: None,
         menu: None,
         prompt: None,
         selection: None,
@@ -866,8 +866,9 @@ impl App {
         }
     }
 
-    /// Mouse-move: highlight the hovered menu item, and track which pane
-    /// the mouse is over so its border box renders a hover state.
+    /// Mouse-move: highlight the hovered menu item, and track the mouse
+    /// position so tab-bar controls (+, ‹, ›) render a hover state. Only
+    /// redraws when the hovered control actually changes.
     fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
         if let Some(menu) = self.menu.as_mut() {
             if let Some(item) = menu.item_at(x, y) {
@@ -878,12 +879,14 @@ impl App {
                 return Ok(false);
             }
         }
-        let hovered = self.pane_area_at(x, y).map(|a| a.pane);
-        if hovered != self.hover_pane {
-            self.hover_pane = hovered;
-            return Ok(true);
-        }
-        Ok(false)
+        let hoverable = |pos: Option<(u16, u16)>| {
+            pos.and_then(|(px, py)| self.hit_at(px, py))
+                .filter(|hit| matches!(hit, Hit::NewTab { .. } | Hit::TabScroll { .. }))
+        };
+        let before = hoverable(self.hover);
+        let after = hoverable(Some((x, y)));
+        self.hover = Some((x, y));
+        Ok(before != after)
     }
 
     fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {

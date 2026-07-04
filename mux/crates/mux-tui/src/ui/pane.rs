@@ -14,14 +14,13 @@ use ratatui::Frame;
 use super::truncate;
 use crate::app::{App, Hit, PaneArea, Selection};
 
-/// Border style for a pane box: active gets the accent color, hovered
-/// gets a brighter grey, idle stays dim. Notification flashing will
-/// slot in here as a fourth state later.
-fn border_style(focused: bool, hovered: bool) -> Style {
+/// Border style for a pane box: active gets the accent color, idle
+/// stays dim. Notification flashing will slot in here as another state
+/// later. (No hover state: mousing across terminals should not light up
+/// their borders.)
+fn border_style(focused: bool) -> Style {
     if focused {
         Style::default().fg(Color::Indexed(110))
-    } else if hovered {
-        Style::default().fg(Color::Indexed(246))
     } else {
         Style::default().fg(Color::Indexed(238))
     }
@@ -35,10 +34,9 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let mut cursor = None;
     for area in &areas {
         let focused = Some(area.pane) == active_pane;
-        let hovered = app.hover_pane == Some(area.pane);
-        draw_box(app, frame, area, focused, hovered);
+        draw_box(app, frame, area, focused);
         if area.bar.is_some() {
-            draw_tab_bar(app, frame, area, focused, hovered);
+            draw_tab_bar(app, frame, area, focused);
         }
         if let Some(c) = draw_content(app, frame, area, focused) {
             cursor = Some(c);
@@ -50,14 +48,14 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
 
 /// The pane's border box. The top row is left to the tab bar; here we
 /// draw the left/right/bottom edges and the corners.
-fn draw_box(_app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool, hovered: bool) {
+fn draw_box(_app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let rect = area.rect;
     if area.bar.is_none() || rect.width < 2 || rect.height < 2 {
         return;
     }
     let screen = frame.area();
     let buf = frame.buffer_mut();
-    let style = border_style(focused, hovered);
+    let style = border_style(focused);
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     if x1 >= screen.width || y1 >= screen.height {
@@ -79,24 +77,34 @@ fn draw_box(_app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool, h
 /// The top border row: `┌` + tabs + `+` + `─...─` + `┐`, with `‹`/`›`
 /// overflow arrows when the tabs don't fit. Always visible so a new tab
 /// is always one click away.
-fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool, hovered: bool) {
+fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let Some(bar) = area.bar else { return };
     let Some(screen_view) = app.tree.active_screen() else { return };
     let Some(pane) = screen_view.pane(area.pane) else { return };
     let tabs: Vec<String> = pane.tabs.iter().enumerate().map(|(i, t)| t.display_title(i)).collect();
     let active_tab = pane.active_tab;
     let pane_id = area.pane;
+    let hover = app.hover;
 
     let screen = frame.area();
     if bar.width < 2 || bar.y >= screen.height {
         return;
     }
-    let style = border_style(focused, hovered);
+    let style = border_style(focused);
     let base = Style::default().fg(Color::Indexed(246));
     let active_style = if focused {
         Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Indexed(250))
+    };
+    // Hover highlight for the bar's controls (+, ‹, ›).
+    let hovered_ctrl = |rect: Rect| hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
+    let ctrl_style = |rect: Rect| {
+        if hovered_ctrl(rect) {
+            Style::default().fg(Color::Indexed(255)).add_modifier(Modifier::BOLD)
+        } else {
+            base
+        }
     };
 
     // Fill the whole top row with the border line first; tabs overlay it.
@@ -140,7 +148,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let max_x = x1; // exclusive
     if scroll > 0 {
         let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
-        buf.set_stringn(x, bar.y, "‹", 1, base);
+        buf.set_stringn(x, bar.y, "‹", 1, ctrl_style(rect));
         hits.push((rect, Hit::TabScroll { pane: pane_id, delta: -1 }));
         x += arrow_w;
     }
@@ -162,13 +170,13 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     }
     if overflow && x + arrow_w <= max_x {
         let rect = Rect { x, y: bar.y, width: arrow_w, height: 1 };
-        buf.set_stringn(x, bar.y, "›", 1, base);
+        buf.set_stringn(x, bar.y, "›", 1, ctrl_style(rect));
         hits.push((rect, Hit::TabScroll { pane: pane_id, delta: 1 }));
         x += arrow_w;
     }
     if x + plus_w <= max_x {
         let rect = Rect { x, y: bar.y, width: plus_w, height: 1 };
-        buf.set_stringn(x, bar.y, " + ", plus_w as usize, base);
+        buf.set_stringn(x, bar.y, " + ", plus_w as usize, ctrl_style(rect));
         hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
     app.hits.extend(hits);
