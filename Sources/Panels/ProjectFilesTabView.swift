@@ -20,6 +20,9 @@ struct ProjectFilesTabView: View {
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
+    /// Drives keyboard focus into the files filter field for Cmd+F.
+    @FocusState private var searchFieldFocused: Bool
+
     var body: some View {
         let rows = flattenedRows
         VStack(alignment: .leading, spacing: 0) {
@@ -37,6 +40,22 @@ struct ProjectFilesTabView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // `onAppear` covers a find requested before this tab mounted (the panel
+        // was still loading, or another tab was active); `onChange` covers a find
+        // requested while this tab is already on screen.
+        .onAppear { applyPendingFindFocusIfNeeded() }
+        .onChange(of: panel.findFocus.request) { _, _ in applyPendingFindFocusIfNeeded() }
+        .onChange(of: panel.findFocus.resignToken) { _, _ in
+            searchFieldFocused = false
+        }
+    }
+
+    /// Moves keyboard focus into the filter field when a find request targets
+    /// the Files tab, then clears the one-shot request.
+    private func applyPendingFindFocusIfNeeded() {
+        guard panel.findFocus.request == .files else { return }
+        searchFieldFocused = true
+        panel.findFocus.request = nil
     }
 
     @ViewBuilder
@@ -47,6 +66,7 @@ struct ProjectFilesTabView: View {
             TextField("Filter files (e.g. AppDelegate)", text: $panel.filesSearchText)
                 .textFieldStyle(.plain)
                 .cmuxFont(size: 12)
+                .focused($searchFieldFocused)
             if !panel.filesSearchText.isEmpty {
                 Button {
                     panel.filesSearchText = ""

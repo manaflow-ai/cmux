@@ -4480,3 +4480,53 @@ private final class FilePreviewPointerObserverView: NSView {
         nil
     }
 }
+
+
+// MARK: - Find support
+
+extension FilePreviewPanel: FindablePanel {
+    /// Text previews can seed the find query from a non-empty selection.
+    var hasSelectionForFind: Bool {
+        previewMode == .text && (textView?.selectedRange.length ?? 0) > 0
+    }
+
+    /// Reflects whether the `NSTextView` find bar is on screen.
+    var isFindVisible: Bool {
+        previewMode == .text && (textView?.enclosingScrollView?.isFindBarVisible ?? false)
+    }
+
+    /// Opens the `NSTextView` find bar when the file is shown as text.
+    /// - Returns: `true` when a text preview handled the request; `false` for
+    ///   non-text previews (PDF, image, media, Quick Look) so Cmd+F falls through.
+    @discardableResult
+    func startFind() -> Bool {
+        guard previewMode == .text, let textView else { return false }
+        textView.window?.makeFirstResponder(textView)
+        textView.performTextFinderAction(NSTextFinder.Action.showFindInterface.menuItemSender)
+        return true
+    }
+
+    /// Advances to the next match in the text preview.
+    func findNext() {
+        guard previewMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.nextMatch.menuItemSender)
+    }
+
+    /// Moves to the previous match in the text preview.
+    func findPrevious() {
+        guard previewMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.previousMatch.menuItemSender)
+    }
+
+    /// Hides the `NSTextView` find bar in the text preview.
+    func hideFind() {
+        guard previewMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.hideFindInterface.menuItemSender)
+    }
+
+    /// Seeds the find query from the current text selection.
+    func useSelectionForFind() {
+        guard previewMode == .text, let textView else { return }
+        textView.performTextFinderAction(NSTextFinder.Action.setSearchString.menuItemSender)
+    }
+}
