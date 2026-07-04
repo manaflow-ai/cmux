@@ -340,15 +340,6 @@ final class ClaudeHookSessionStore {
         var lastTitle: String?
     }
 
-    struct ClaudeConversationTitleApplyDecision {
-        var shouldRenameWorkspace: Bool
-        var shouldRenameTab: Bool
-
-        var shouldApply: Bool {
-            shouldRenameWorkspace || shouldRenameTab
-        }
-    }
-
     /// Atomically evaluates the auto-naming throttle for a session and, when
     /// the decision is to proceed, records the in-flight marker inside the
     /// same locked transaction so a concurrent Stop hook sees it and skips.
