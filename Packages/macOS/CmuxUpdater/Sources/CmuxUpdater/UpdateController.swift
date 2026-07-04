@@ -324,15 +324,12 @@ public final class UpdateController {
     }
 
     private func setUpdaterNotReadyError(retry: @escaping () -> Void) {
-        model.setState(.error(.init(
-            error: NSError(
-                domain: UpdateStateModel.updateErrorDomain,
-                code: UpdateStateModel.updaterNotReadyCode,
-                userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
-            ),
-            retry: retry,
-            dismiss: { [weak self] in self?.model.setState(.idle) }
-        )))
+        let error = NSError(
+            domain: UpdateStateModel.updateErrorDomain,
+            code: UpdateStateModel.updaterNotReadyCode,
+            userInfo: [NSLocalizedDescriptionKey: String(localized: "update.error.notReady", defaultValue: "Updater is still starting. Try again in a moment.")]
+        )
+        model.setState(.error(.init(error: error, retry: retry, dismiss: { [weak self] in self?.model.setState(.idle) })))
     }
 
     private func cancelReadinessRetry() {
