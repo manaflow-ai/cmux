@@ -200,21 +200,6 @@ import Testing
 
     // MARK: - Restart when idle (controller loop)
 
-    /// A clock whose sleeps return immediately after yielding, so the poll loop advances
-    /// without real waiting.
-    private struct YieldClock: UpdateClock {
-        func sleep(for duration: Duration) async throws {
-            await Task.yield()
-        }
-    }
-
-    private final class IdleStubDelegate: UpdateActionDelegate {
-        var isSafeToRestart = false
-        func updaterRequestsRetryCheckForUpdates() {}
-        func updaterWillRelaunchApplication() {}
-        func updaterIsSafeToRestartNow() -> Bool { isSafeToRestart }
-    }
-
     private func makeController(clock: any UpdateClock) throws -> UpdateController {
         UpdateController(
             log: NoopUpdateLog(),
@@ -323,14 +308,14 @@ import Testing
     // MARK: - Transient network error classification
 
     @Test func classifiesTransientNetworkErrors() {
-        #expect(UpdateStateModel.isTransientNetworkError(
+        #expect(isTransientUpdateNetworkError(
             NSError(domain: NSURLErrorDomain, code: NSURLErrorTimedOut)
         ))
-        #expect(UpdateStateModel.isTransientNetworkError(
+        #expect(isTransientUpdateNetworkError(
             NSError(domain: SUSparkleErrorDomain, code: 2001)  // SUDownloadError (CDN 504, #5632)
         ))
         // A download error wrapping an NSURLError is still transient.
-        #expect(UpdateStateModel.isTransientNetworkError(
+        #expect(isTransientUpdateNetworkError(
             NSError(domain: SUSparkleErrorDomain, code: 2001, userInfo: [
                 NSUnderlyingErrorKey: NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost),
             ])
@@ -338,13 +323,13 @@ import Testing
     }
 
     @Test func doesNotClassifyIntegrityOrInstallerFailuresAsTransient() {
-        #expect(!UpdateStateModel.isTransientNetworkError(
+        #expect(!isTransientUpdateNetworkError(
             NSError(domain: SUSparkleErrorDomain, code: 3001)  // SUSignatureError
         ))
-        #expect(!UpdateStateModel.isTransientNetworkError(
+        #expect(!isTransientUpdateNetworkError(
             NSError(domain: SUSparkleErrorDomain, code: 4005)  // SUInstallationError
         ))
-        #expect(!UpdateStateModel.isTransientNetworkError(
+        #expect(!isTransientUpdateNetworkError(
             NSError(domain: "cmux.update", code: 1)
         ))
     }

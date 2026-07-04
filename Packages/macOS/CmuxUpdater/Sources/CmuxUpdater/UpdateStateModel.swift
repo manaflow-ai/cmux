@@ -216,7 +216,7 @@ public final class UpdateStateModel {
         if let mutedUntil = updateReadyToastMutedUntil, now() < mutedUntil {
             return nil
         }
-        if let versionKey = Self.toastVersionKey(for: installing) {
+        if let versionKey = toastVersionKey(for: installing) {
             guard dismissedUpdateReadyToastVersion != versionKey else {
                 return nil
             }
@@ -253,7 +253,7 @@ public final class UpdateStateModel {
     /// different version is staged.
     public func dismissUpdateReadyToast() {
         guard case .installing(let installing) = effectiveState else { return }
-        if let versionKey = Self.toastVersionKey(for: installing) {
+        if let versionKey = toastVersionKey(for: installing) {
             dismissedUpdateReadyToastVersion = versionKey
         } else {
             dismissedUnknownVersionUpdateReadyToast = true
@@ -265,11 +265,6 @@ public final class UpdateStateModel {
         guard isRestartWhenIdleArmed != armed else { return }
         isRestartWhenIdleArmed = armed
         notifyStateChanged()
-    }
-
-    private static func toastVersionKey(for installing: UpdateState.Installing) -> String? {
-        guard let stagedVersion = installing.stagedVersion, !stagedVersion.isEmpty else { return nil }
-        return stagedVersion
     }
 
     // MARK: - Derived display state

@@ -32,7 +32,7 @@ extension UpdateStateModel {
     /// A short, user-facing title for an update error.
     public static func userFacingErrorTitle(for error: any Swift.Error) -> String {
         let nsError = error as NSError
-        if let networkError = networkError(from: nsError) {
+        if let networkError = updateNetworkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
                 return String(localized: "update.error.noInternet.title", defaultValue: "No Internet Connection")
@@ -83,7 +83,7 @@ extension UpdateStateModel {
     /// A user-facing explanatory message for an update error.
     public static func userFacingErrorMessage(for error: any Swift.Error) -> String {
         let nsError = error as NSError
-        if let networkError = networkError(from: nsError) {
+        if let networkError = updateNetworkError(from: nsError) {
             switch networkError.code {
             case NSURLErrorNotConnectedToInternet:
                 return String(localized: "update.error.noInternet.message", defaultValue: "cmux can’t reach the update server. Check your internet connection and try again.")
@@ -206,129 +206,130 @@ extension UpdateStateModel {
         return lines.joined(separator: "\n")
     }
 
-    /// Whether an update error is a transient network failure worth silently retrying
-    /// (offline, timeout, dropped connection, or a download/feed fetch that failed mid-flight —
-    /// GitHub's release CDN intermittently 504s individual objects, #5632). Signature,
-    /// configuration, and installer failures are not transient and must surface instead.
-    public nonisolated static func isTransientNetworkError(_ error: any Swift.Error) -> Bool {
-        let nsError = error as NSError
-        if let networkError = networkError(from: nsError) {
-            switch networkError.code {
-            case NSURLErrorNotConnectedToInternet,
-                 NSURLErrorTimedOut,
-                 NSURLErrorCannotFindHost,
-                 NSURLErrorCannotConnectToHost,
-                 NSURLErrorNetworkConnectionLost,
-                 NSURLErrorDNSLookupFailed,
-                 NSURLErrorResourceUnavailable,
-                 NSURLErrorBadServerResponse:
-                return true
-            default:
-                break
-            }
-        }
-        guard nsError.domain == SUSparkleErrorDomain else { return false }
-        switch nsError.code {
-        case Self.sparkleAppcastCode,
-             Self.sparkleResumeAppcastCode,
-             Self.sparkleDownloadCode:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// The canonical direct-download URL for the latest stable release artifact, used as the
     /// manual fallback when Sparkle's in-app install path fails.
     private static let manualDownloadURLString = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg"
 
-    /// Whether an error reflects Sparkle's updater helper agent never connecting.
-    ///
-    /// The login session's launchd domain can wedge into on-demand-only mode after a very long
-    /// uptime, so launchd refuses to spawn Sparkle's installer/progress agent and the install
-    /// times out ("agent connection was never initiated"). This surfaces as
-    /// ``SUAgentInvalidationError`` (4010), or as ``SUInstallationError`` (4005) wrapping Sparkle's
-    /// internal IPC-timeout error (code 10) or carrying the agent-connection text in its trace.
-    /// Restarting the Mac recreates the session domain and clears the wedge, so the user-facing
-    /// copy points there rather than at the misleading "move into Applications" guidance.
-    ///
-    /// The match is deliberately narrow: a 4005 wrapping a different installer cause (e.g.
-    /// ``SUAuthenticationFailure`` 4001 or ``SURelaunchError`` 4004) is not a restart-fixable
-    /// agent failure, so it falls through to the generic "couldn't install" path.
-    private static func isUpdaterAgentConnectionFailure(_ error: NSError) -> Bool {
-        guard error.domain == SUSparkleErrorDomain else { return false }
-        if error.code == Self.sparkleAgentInvalidationCode { return true }
-        guard error.code == Self.sparkleInstallationCode else { return false }
-        let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
-        // Sparkle's internal "agent connection was never initiated" timeout is code 10 in its own
-        // domain; that is the precise wedged-launchd signal.
-        if let underlying,
-           underlying.domain == SUSparkleErrorDomain,
-           underlying.code == Self.sparkleInternalAgentConnectionTimeoutCode {
+}
+
+/// Whether an update error is a transient network failure worth silently retrying
+/// (offline, timeout, dropped connection, or a download/feed fetch that failed mid-flight —
+/// GitHub's release CDN intermittently 504s individual objects, #5632). Signature,
+/// configuration, and installer failures are not transient and must surface instead.
+public func isTransientUpdateNetworkError(_ error: any Swift.Error) -> Bool {
+    let nsError = error as NSError
+    if let networkError = updateNetworkError(from: nsError) {
+        switch networkError.code {
+        case NSURLErrorNotConnectedToInternet,
+             NSURLErrorTimedOut,
+             NSURLErrorCannotFindHost,
+             NSURLErrorCannotConnectToHost,
+             NSURLErrorNetworkConnectionLost,
+             NSURLErrorDNSLookupFailed,
+             NSURLErrorResourceUnavailable,
+             NSURLErrorBadServerResponse:
             return true
+        default:
+            break
         }
-        return mentionsAgentConnectionFailure(error)
-            || (underlying.map(mentionsAgentConnectionFailure) ?? false)
     }
-
-    /// Whether an error's user-facing text names the updater agent / remote-port connection drop.
-    private static func mentionsAgentConnectionFailure(_ error: NSError) -> Bool {
-        let text = [
-            error.localizedDescription,
-            (error.userInfo[NSLocalizedFailureReasonErrorKey] as? String) ?? "",
-            (error.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String) ?? "",
-        ].joined(separator: "\n").lowercased()
-        return text.contains("agent connection") || text.contains("remote port")
+    guard nsError.domain == SUSparkleErrorDomain else { return false }
+    switch nsError.code {
+    case UpdateStateModel.sparkleAppcastCode,
+         UpdateStateModel.sparkleResumeAppcastCode,
+         UpdateStateModel.sparkleDownloadCode:
+        return true
+    default:
+        return false
     }
+}
 
-    private nonisolated static func networkError(from error: NSError) -> NSError? {
-        if error.domain == NSURLErrorDomain {
-            return error
-        }
-        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
-           underlying.domain == NSURLErrorDomain {
-            return underlying
-        }
+private func updateNetworkError(from error: NSError) -> NSError? {
+    if error.domain == NSURLErrorDomain {
+        return error
+    }
+    if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError,
+       underlying.domain == NSURLErrorDomain {
+        return underlying
+    }
+    return nil
+}
+
+private func sparkleErrorCodeName(for code: Int) -> String? {
+    switch code {
+    case 1: return "SUNoPublicDSAFoundError"
+    case 2: return "SUInsufficientSigningError"
+    case 3: return "SUInsecureFeedURLError"
+    case 4: return "SUInvalidFeedURLError"
+    case 5: return "SUInvalidUpdaterError"
+    case 6: return "SUInvalidHostBundleIdentifierError"
+    case 7: return "SUInvalidHostVersionError"
+    case 1000: return "SUAppcastParseError"
+    case 1001: return "SUNoUpdateError"
+    case 1002: return "SUAppcastError"
+    case 1003: return "SURunningFromDiskImageError"
+    case 1004: return "SUResumeAppcastError"
+    case 1005: return "SURunningTranslocated"
+    case 1006: return "SUWebKitTerminationError"
+    case 1007: return "SUReleaseNotesError"
+    case 2000: return "SUTemporaryDirectoryError"
+    case 2001: return "SUDownloadError"
+    case 3000: return "SUUnarchivingError"
+    case 3001: return "SUSignatureError"
+    case 3002: return "SUValidationError"
+    case 4000: return "SUFileCopyFailure"
+    case 4001: return "SUAuthenticationFailure"
+    case 4002: return "SUMissingUpdateError"
+    case 4003: return "SUMissingInstallerToolError"
+    case 4004: return "SURelaunchError"
+    case 4005: return "SUInstallationError"
+    case 4006: return "SUDowngradeError"
+    case 4007: return "SUInstallationCanceledError"
+    case 4008: return "SUInstallationAuthorizeLaterError"
+    case 4009: return "SUNotValidUpdateError"
+    case 4010: return "SUAgentInvalidationError"
+    case 4012: return "SUInstallationWriteNoPermissionError"
+    case 5000: return "SUIncorrectAPIUsageError"
+    default:
         return nil
     }
+}
 
-    private static func sparkleErrorCodeName(for code: Int) -> String? {
-        switch code {
-        case 1: return "SUNoPublicDSAFoundError"
-        case 2: return "SUInsufficientSigningError"
-        case 3: return "SUInsecureFeedURLError"
-        case 4: return "SUInvalidFeedURLError"
-        case 5: return "SUInvalidUpdaterError"
-        case 6: return "SUInvalidHostBundleIdentifierError"
-        case 7: return "SUInvalidHostVersionError"
-        case 1000: return "SUAppcastParseError"
-        case 1001: return "SUNoUpdateError"
-        case 1002: return "SUAppcastError"
-        case 1003: return "SURunningFromDiskImageError"
-        case 1004: return "SUResumeAppcastError"
-        case 1005: return "SURunningTranslocated"
-        case 1006: return "SUWebKitTerminationError"
-        case 1007: return "SUReleaseNotesError"
-        case 2000: return "SUTemporaryDirectoryError"
-        case 2001: return "SUDownloadError"
-        case 3000: return "SUUnarchivingError"
-        case 3001: return "SUSignatureError"
-        case 3002: return "SUValidationError"
-        case 4000: return "SUFileCopyFailure"
-        case 4001: return "SUAuthenticationFailure"
-        case 4002: return "SUMissingUpdateError"
-        case 4003: return "SUMissingInstallerToolError"
-        case 4004: return "SURelaunchError"
-        case 4005: return "SUInstallationError"
-        case 4006: return "SUDowngradeError"
-        case 4007: return "SUInstallationCanceledError"
-        case 4008: return "SUInstallationAuthorizeLaterError"
-        case 4009: return "SUNotValidUpdateError"
-        case 4010: return "SUAgentInvalidationError"
-        case 4012: return "SUInstallationWriteNoPermissionError"
-        case 5000: return "SUIncorrectAPIUsageError"
-        default:
-            return nil
-        }
+/// Whether an error reflects Sparkle's updater helper agent never connecting.
+///
+/// The login session's launchd domain can wedge into on-demand-only mode after a very long
+/// uptime, so launchd refuses to spawn Sparkle's installer/progress agent and the install
+/// times out ("agent connection was never initiated"). This surfaces as
+/// ``SUAgentInvalidationError`` (4010), or as ``SUInstallationError`` (4005) wrapping Sparkle's
+/// internal IPC-timeout error (code 10) or carrying the agent-connection text in its trace.
+/// Restarting the Mac recreates the session domain and clears the wedge, so the user-facing
+/// copy points there rather than at the misleading "move into Applications" guidance.
+///
+/// The match is deliberately narrow: a 4005 wrapping a different installer cause (e.g.
+/// ``SUAuthenticationFailure`` 4001 or ``SURelaunchError`` 4004) is not a restart-fixable
+/// agent failure, so it falls through to the generic "couldn't install" path.
+private func isUpdaterAgentConnectionFailure(_ error: NSError) -> Bool {
+    guard error.domain == SUSparkleErrorDomain else { return false }
+    if error.code == UpdateStateModel.sparkleAgentInvalidationCode { return true }
+    guard error.code == UpdateStateModel.sparkleInstallationCode else { return false }
+    let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+    // Sparkle's internal "agent connection was never initiated" timeout is code 10 in its own
+    // domain; that is the precise wedged-launchd signal.
+    if let underlying,
+       underlying.domain == SUSparkleErrorDomain,
+       underlying.code == UpdateStateModel.sparkleInternalAgentConnectionTimeoutCode {
+        return true
     }
+    return mentionsAgentConnectionFailure(error)
+        || (underlying.map(mentionsAgentConnectionFailure) ?? false)
+}
+
+/// Whether an error's user-facing text names the updater agent / remote-port connection drop.
+private func mentionsAgentConnectionFailure(_ error: NSError) -> Bool {
+    let text = [
+        error.localizedDescription,
+        (error.userInfo[NSLocalizedFailureReasonErrorKey] as? String) ?? "",
+        (error.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String) ?? "",
+    ].joined(separator: "\n").lowercased()
+    return text.contains("agent connection") || text.contains("remote port")
 }

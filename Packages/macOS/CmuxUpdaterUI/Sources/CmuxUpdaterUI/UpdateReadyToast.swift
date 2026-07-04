@@ -3,27 +3,6 @@ public import SwiftUI
 public import CmuxUpdater
 import AppKit
 
-/// Hosts ``UpdateReadyToast`` in the sidebar, directly above the footer. Renders nothing (and
-/// hit-tests nothing) while no toast is due or no actions host exists.
-public struct UpdateReadyToastOverlay: View {
-    private let model: UpdateStateModel
-    private let actions: (any UpdateActionsHost)?
-
-    /// Creates the overlay. `actions` is optional so call sites can pass a not-yet-wired host.
-    public init(model: UpdateStateModel, actions: (any UpdateActionsHost)?) {
-        self.model = model
-        self.actions = actions
-    }
-
-    public var body: some View {
-        if let actions {
-            UpdateReadyToast(model: model, actions: actions)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
-        }
-    }
-}
-
 /// A transient toast shown in the sidebar when an update has been downloaded and staged in the
 /// background: one click on "Restart" finishes the install.
 ///
@@ -50,6 +29,7 @@ public struct UpdateReadyToast: View {
         (String(localized: "update.toast.mute.oneWeek", defaultValue: "For 1 Week"), "UpdateReadyToastMuteOneWeek", 7 * 24 * 60 * 60),
     ]
 
+    /// The toast body, visible only while the model exposes a staged automatic update.
     public var body: some View {
         ZStack {
             if let installing = model.updateReadyToastInstalling {
