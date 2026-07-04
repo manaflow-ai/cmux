@@ -61,6 +61,25 @@ if [ -n "${GITHUB_ENV:-}" ]; then
   echo "DEVELOPER_DIR=$BEST_DIR" >> "$GITHUB_ENV"
 fi
 export DEVELOPER_DIR="$BEST_DIR"
+
+# Also point the *system* xcode-select default at the selected toolchain. Tools
+# that ignore DEVELOPER_DIR resolve `xcodebuild` via the xcode-select default,
+# notably Apple's `/usr/bin/git` shim (`xcodebuild -find git`). The xctest host
+# spawns git subprocesses that do NOT inherit our DEVELOPER_DIR, so on runner VMs
+# whose default is the old Xcode symlink, `git` runs the old `xcodebuild`, which
+# dlopen()s a libxcodebuildLoader ABI-incompatible with the newer-Xcode-built test
+# host and crashes ("Symbol not found"), failing git-shell-out tests
+# (e.g. ExtensionWorktreePrototypeTests) before they can assert — nondeterministic
+# per which VM a shard lands on. Aligning the default removes that divergence.
+# Best-effort: never hard-fail a runner that disallows the switch.
+if xcode-select -s "$BEST_DIR" 2>/dev/null; then
+  echo "xcode-select default -> $BEST_DIR"
+elif command -v sudo >/dev/null 2>&1 && sudo -n xcode-select -s "$BEST_DIR" 2>/dev/null; then
+  echo "xcode-select default (via sudo) -> $BEST_DIR"
+else
+  echo "WARN: could not switch xcode-select default to $BEST_DIR (continuing; DEVELOPER_DIR is still set for steps that honor it)" >&2
+fi
+
 xcodebuild -version
 # Diagnostic: resolve the SDK with DEVELOPER_DIR set in-process. The workflow
 # step that calls this script gets DEVELOPER_DIR only via GITHUB_ENV, which

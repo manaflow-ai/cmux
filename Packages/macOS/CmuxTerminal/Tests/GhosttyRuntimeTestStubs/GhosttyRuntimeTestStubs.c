@@ -5,24 +5,6 @@ bool ghostty_surface_clear_selection(void *surface) {
     return false;
 }
 
-bool ghostty_surface_select_screen_rows(void *surface,
-                                        unsigned int top_y,
-                                        unsigned int bottom_y) {
-    (void)surface;
-    (void)top_y;
-    (void)bottom_y;
-    return false;
-}
-
-bool ghostty_surface_selection_screen_rows(void *surface,
-                                           unsigned int *top_y,
-                                           unsigned int *bottom_y) {
-    (void)surface;
-    (void)top_y;
-    (void)bottom_y;
-    return false;
-}
-
 void ghostty_config_diagnostics_count(void) {}
 void ghostty_config_get_diagnostic(void) {}
 void ghostty_string_free(void) {}

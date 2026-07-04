@@ -40,7 +40,7 @@ permissions:
 
 jobs:
   detect-ios-changes:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -86,7 +86,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -146,6 +146,13 @@ jobs:
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
           swift test --package-path Packages/Shared/CmuxSyncStore
+
+      - name: Run CmuxMobileShell package tests
+        run: |
+          # iOS shell replay/liveness regressions live in this package target.
+          # Keep them under the iOS package gate so PR CI enforces the mobile
+          # terminal mirror behavior without relying on local-only SwiftPM runs.
+          swift test --package-path Packages/iOS/CmuxMobileShell
 
   ios-simulator:
     needs: detect-ios-changes
@@ -384,7 +391,7 @@ jobs:
       - mobile-core-package
       - ios-simulator
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

@@ -195,6 +195,255 @@ struct WorkspaceCoordinatorTests {
         #expect(model.tabs.allSatisfy { !$0.isPinned })
     }
 
+    @Test
+    func explicitGroupDropJoinsTargetGroupAtBoundarySlot() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 3,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == groupId)
+        #expect(model.tabs.map(\.id) == [
+            group.anchorWorkspaceId,
+            child1.id,
+            child2.id,
+            dragged.id,
+            outside.id,
+        ])
+    }
+
+    @Test
+    func explicitGroupDropAppliesMembershipWhenIndexDoesNotMove() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, dragged, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let draggedIndex = try #require(model.tabs.firstIndex { $0.id == dragged.id })
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: draggedIndex,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == groupId)
+    }
+
+    @Test
+    func explicitGroupDropOfSelectedWorkspaceExpandsCollapsedTargetGroupWhenIndexDoesNotMove() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child, dragged, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child.id,
+        ]))
+        groups.setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: true)
+        model.selectedTabId = dragged.id
+        let draggedIndex = try #require(model.tabs.firstIndex { $0.id == dragged.id })
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: draggedIndex,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == groupId)
+        #expect(model.selectedTabId == dragged.id)
+        #expect(model.workspaceGroups.first { $0.id == groupId }?.isCollapsed == false)
+    }
+
+    @Test
+    func staleExplicitGroupDropDoesNotInferMembership() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child1, child2, dragged, outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let draggedIndex = try #require(model.tabs.firstIndex { $0.id == dragged.id })
+        let previousOrder = model.tabs.map(\.id)
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: draggedIndex,
+            isDragOperation: true,
+            explicitGroupId: UUID()
+        )
+
+        #expect(!moved)
+        #expect(dragged.groupId == nil)
+        #expect(model.tabs.map(\.id) == previousOrder)
+    }
+
+    @Test
+    func explicitGroupDropFromAnotherGroupPreservesTargetGroupSlot() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let sourcePeer = CoordinatorStubTab()
+        let targetChild1 = CoordinatorStubTab()
+        let targetChild2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, sourcePeer, targetChild1, targetChild2, outside]
+        _ = try #require(groups.createWorkspaceGroup(name: "Source", childWorkspaceIds: [
+            dragged.id,
+            sourcePeer.id,
+        ]))
+        let targetGroupId = try #require(groups.createWorkspaceGroup(name: "Target", childWorkspaceIds: [
+            targetChild1.id,
+            targetChild2.id,
+        ]))
+        let targetGroup = try #require(model.workspaceGroups.first { $0.id == targetGroupId })
+        let targetLastIndex = try #require(model.tabs.indices.last { model.tabs[$0].groupId == targetGroupId })
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: targetLastIndex,
+            isDragOperation: true,
+            explicitGroupId: targetGroupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == targetGroupId)
+        #expect(model.tabs.filter { $0.groupId == targetGroupId }.map(\.id) == [
+            targetGroup.anchorWorkspaceId,
+            targetChild1.id,
+            targetChild2.id,
+            dragged.id,
+        ])
+    }
+
+    @Test
+    func boundaryDropWithoutExplicitGroupStaysTopLevel() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 3,
+            isDragOperation: true
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == nil)
+        #expect(model.tabs.map(\.id) == [
+            group.anchorWorkspaceId,
+            child1.id,
+            child2.id,
+            dragged.id,
+            outside.id,
+        ])
+    }
+
+    @Test
+    func topLevelDropOverGroupMemberDoesNotInferMembership() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: 1,
+            isDragOperation: true,
+            usesTopLevelRows: true
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == nil)
+        #expect(model.tabs.map(\.id) == [
+            group.anchorWorkspaceId,
+            child1.id,
+            child2.id,
+            dragged.id,
+            outside.id,
+        ])
+    }
+
+    @Test
+    func explicitGroupLegalRangeConstrainsBoundaryPlanningToGroup() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let dragged = CoordinatorStubTab()
+        let child1 = CoordinatorStubTab()
+        let child2 = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [dragged, child1, child2, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child1.id,
+            child2.id,
+        ]))
+        let memberIndices = model.tabs.indices.filter { model.tabs[$0].groupId == groupId }
+        let firstMemberIndex = try #require(memberIndices.first)
+        let lastMemberIndex = try #require(memberIndices.last)
+
+        let unconstrainedRange = reorder.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: dragged.id,
+            targetWorkspaceId: outside.id
+        )
+        let explicitGroupRange = reorder.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: dragged.id,
+            targetWorkspaceId: outside.id,
+            explicitGroupId: groupId
+        )
+
+        #expect(unconstrainedRange == nil)
+        #expect(explicitGroupRange == (firstMemberIndex + 1)...(lastMemberIndex + 1))
+    }
+
     // MARK: Groups
 
     @Test

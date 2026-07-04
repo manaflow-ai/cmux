@@ -331,25 +331,18 @@ public struct KeyboardShortcutsSection: View {
         case .always:
             return nil
         case .atom(.sidebarFocus):
-            return String(
-                localized: "shortcut.when.caption.sidebarFocus",
-                defaultValue: "Only while the right sidebar is focused"
-            )
+            return String(localized: "shortcut.when.caption.sidebarFocus", defaultValue: "Only while the right sidebar is focused")
         case .atom(.browserFocus):
-            return String(
-                localized: "shortcut.when.caption.browserFocus",
-                defaultValue: "Only while a browser pane is focused"
-            )
+            return String(localized: "shortcut.when.caption.browserFocus", defaultValue: "Only while a browser pane is focused")
+        case .atom(.filePreviewTextEditorFocus):
+            return String(localized: "shortcut.when.caption.filePreviewTextEditorFocus", defaultValue: "Only while a text file preview is focused")
+        case .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus)),
+             .or(.atom(.filePreviewTextEditorFocus), .atom(.browserFocus)):
+            return String(localized: "shortcut.when.caption.browserOrFilePreviewTextEditorFocus", defaultValue: "Only while a browser pane or text file preview is focused")
         case .atom(.markdownFocus):
-            return String(
-                localized: "shortcut.when.caption.markdownFocus",
-                defaultValue: "Only while a markdown preview is focused"
-            )
+            return String(localized: "shortcut.when.caption.markdownFocus", defaultValue: "Only while a markdown preview is focused")
         default:
-            return String(
-                localized: "shortcut.when.caption.terminalFocus",
-                defaultValue: "Only while a terminal pane is focused"
-            )
+            return String(localized: "shortcut.when.caption.terminalFocus", defaultValue: "Only while a terminal pane is focused")
         }
     }
 
@@ -358,9 +351,7 @@ public struct KeyboardShortcutsSection: View {
         for other in ShortcutAction.allCases where other != action {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
-            // cannot decide the overlap. Context-disjoint clauses (e.g.
-            // `!sidebarFocus` workspace digits vs the sidebar's own digits)
-            // coexist, and a pre-routed action (sidebar modes) wins its context
+            // cannot decide the overlap. Context-disjoint clauses coexist.
             // outright so the factory Select Surface ⌃1…9 coexists with the
             // sidebar's ⌃1…5 — matching the app target's authoritative check.
             guard ShortcutWhenClause.bindingsCollide(

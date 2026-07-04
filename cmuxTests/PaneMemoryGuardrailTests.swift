@@ -421,37 +421,4 @@ struct PaneMemoryGuardrailTests {
         #expect(selectedWorkspaceIds.contains(firstWorkspace.id))
         #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
     }
-
-    @MainActor
-    @Test
-    func appDelegateGuardrailCloseRoutesThroughOwningWindowManager() throws {
-        let app = AppDelegate()
-        let bootstrapManager = TabManager()
-        let owningManager = TabManager()
-        app.tabManager = bootstrapManager
-
-        let windowId = app.registerMainWindowContextForTesting(tabManager: owningManager)
-        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
-
-        let workspace = try #require(owningManager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-
-        #expect(app.closePaneForMemoryGuardrail(workspaceId: workspace.id, panelId: panelId))
-        #expect(workspace.panels[panelId] == nil)
-        #expect(bootstrapManager.selectedWorkspace?.panels[panelId] == nil)
-    }
-
-    @MainActor
-    @Test
-    func guardrailBannerScopesWarningToOwningTabManager() throws {
-        let owningManager = TabManager()
-        let otherManager = TabManager()
-        let workspace = try #require(owningManager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let warning = sample(workspace: workspace.id, pane: panelId, memoryGB: 9).warning
-
-        #expect(owningManager.ownsPaneMemoryGuardrailWarning(warning))
-        #expect(!otherManager.ownsPaneMemoryGuardrailWarning(warning))
-        #expect(!owningManager.ownsPaneMemoryGuardrailWarning(nil))
-    }
 }

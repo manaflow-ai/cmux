@@ -167,16 +167,6 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             placement: placement,
             referenceWorkspaceId: referenceWorkspaceId
         )
-        // Expand the group when the new workspace is being focused. The
-        // selectedTabId auto-expand hook fires inside the host's workspace
-        // creation BEFORE assignGroup, so it can't see the new workspace's
-        // membership. Without this, clicking `+` on a collapsed group selects
-        // a workspace that's visually hidden in the sidebar.
-        if select,
-           let idx = model.workspaceGroups.firstIndex(where: { $0.id == groupId }),
-           model.workspaceGroups[idx].isCollapsed {
-            model.workspaceGroups[idx].isCollapsed = false
-        }
         model.normalizeWorkspaceGroupContiguity()
         host.workspaceOrderDidChange(movedWorkspaceIds: [newWorkspace.id])
         return newWorkspace
@@ -267,15 +257,6 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         if isAnchorOfOtherGroup { return }
         let originalTopLevelIds = model.sidebarTopLevelWorkspaceIds()
         model.assignGroup(workspaceId: workspaceId, groupId: groupId)
-        // selectedTabId may not change here (the workspace was already
-        // selected), so the existing didSet hook won't fire. Expand manually
-        // when the added workspace is the focused one so it doesn't end up
-        // hidden inside a collapsed section.
-        if model.selectedTabId == workspaceId,
-           let groupIndex = model.workspaceGroups.firstIndex(where: { $0.id == groupId }),
-           model.workspaceGroups[groupIndex].isCollapsed {
-            model.workspaceGroups[groupIndex].isCollapsed = false
-        }
         model.normalizeWorkspaceGroupContiguity(
             preservingTopLevelIds: originalTopLevelIds.filter { $0 != workspaceId }
         )
