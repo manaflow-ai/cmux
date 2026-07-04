@@ -5,6 +5,7 @@ import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { WaitlistCallout } from "./components/waitlist-callout";
+import { FaqPlatformAnswer } from "./components/faq-platform-answer";
 import { SiteHeader } from "./components/site-header";
 import { BrandLogoLink } from "./components/brand-logo-link";
 import {
@@ -218,7 +219,7 @@ function HomeContent() {
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqPlatformQ")}</p>
-              <p className="text-muted">{t("faqPlatformA")}</p>
+              <FaqPlatformAnswer linkClass={linkClass} />
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
