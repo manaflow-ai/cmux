@@ -765,7 +765,7 @@ const TOOLS = [
     },
     run: async ({ app, element, x, y }) => {
       const args = { app, mouse_button: "left", click_count: 1 };
-      if (element != null) args.element_index = String(element);
+      if (element != null) args.element_index = element;
       else if (x != null && y != null) {
         args.x = x;
         args.y = y;
@@ -814,7 +814,7 @@ const TOOLS = [
       passthrough(
         await callInputTool("scroll", {
           app,
-          element_index: String(element),
+          element_index: element,
           direction,
           pages: pages ?? 1,
         }),
@@ -860,7 +860,7 @@ const TOOLS = [
       passthrough(
         await callInputTool("perform_secondary_action", {
           app,
-          element_index: String(element),
+          element_index: element,
           action,
         }),
         "action sent"

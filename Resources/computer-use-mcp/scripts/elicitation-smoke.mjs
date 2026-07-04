@@ -183,6 +183,23 @@ if (!staleClick.isError || !staleClick.text.includes("run computer_state first")
   process.exit(1);
 }
 
+const [scrollState, scrollResult, actionState, actionResult] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_scroll", args: { app: "TestApp", element: 0, direction: "down" } },
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_action", args: { app: "TestApp", element: 0, action: "AXPress" } },
+  ],
+});
+console.log(
+  `element-index input tools -> scrollState=${scrollState.isError} scroll=${scrollResult.isError} actionState=${actionState.isError} action=${actionResult.isError}`
+);
+if (scrollState.isError || scrollResult.isError || actionState.isError || actionResult.isError) {
+  console.error("FAIL: expected element-index input tools to forward numeric element_index values");
+  process.exit(1);
+}
+
 const [raceState, raceA, raceB] = await runConcurrentElementRace();
 const raceFailures = [raceA, raceB].filter((result) => result.isError);
 console.log(

@@ -19,6 +19,18 @@ if (process.argv.includes("--help")) {
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let pendingToolCallId = null;
 
+function rejectStringElementIndex(message) {
+  if (typeof message.params?.arguments?.element_index === "number") return false;
+  send({
+    id: message.id,
+    result: {
+      content: [{ type: "text", text: "element_index must be a number" }],
+      isError: true,
+    },
+  });
+  return true;
+}
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   let message;
   try {
@@ -46,10 +58,22 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return;
     }
     if (message.params?.tool === "click") {
+      if (rejectStringElementIndex(message)) return;
       send({
         id: message.id,
         result: {
           content: [{ type: "text", text: "clicked" }],
+          isError: false,
+        },
+      });
+      return;
+    }
+    if (message.params?.tool === "scroll" || message.params?.tool === "perform_secondary_action") {
+      if (rejectStringElementIndex(message)) return;
+      send({
+        id: message.id,
+        result: {
+          content: [{ type: "text", text: `${message.params.tool}:ok` }],
           isError: false,
         },
       });
