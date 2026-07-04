@@ -10197,7 +10197,6 @@ struct VerticalTabsSidebar: View {
     }
 
     private func sidebarDropIndicatorRowIds(
-        draggedWorkspaceId: UUID,
         scope: SidebarWorkspaceReorderDropIndicatorScope,
         tabs: [Workspace],
         workspaceGroups: [WorkspaceGroup],
@@ -10207,10 +10206,7 @@ struct VerticalTabsSidebar: View {
         case .raw:
             return tabs.map(\.id)
         case .topLevel:
-            return tabManager.sidebarReorderWorkspaceIds(
-                forDraggedWorkspaceId: draggedWorkspaceId,
-                usesTopLevelRows: true
-            )
+            return visibleWorkspaceRowIds
         case .group(let groupId):
             guard workspaceGroups.contains(where: { $0.id == groupId }) else { return [] }
             let visibleIds = Set(visibleWorkspaceRowIds)
@@ -10343,6 +10339,7 @@ struct VerticalTabsSidebar: View {
 
     struct WorkspaceListRenderContext {
         let tabs: [Workspace]
+        let reorderTabs: [Workspace]
         let tabIds: [UUID]
         let sidebarReorderIds: [UUID]
         let workspaceCount: Int
@@ -10442,15 +10439,15 @@ struct VerticalTabsSidebar: View {
         let dropIndicatorScope = dragState.dropIndicatorScope
         let sidebarReorderIds = draggedSidebarTabId.map {
             sidebarDropIndicatorRowIds(
-                draggedWorkspaceId: $0,
                 scope: dropIndicatorScope,
-                tabs: tabs,
+                tabs: visibleTabs,
                 workspaceGroups: workspaceGroups,
                 visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
+            reorderTabs: visibleTabs,
             tabIds: tabIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
@@ -12105,7 +12102,7 @@ struct VerticalTabsSidebar: View {
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return false
         }
-        return performWorkspaceReorderPlan(plan)
+        return performWorkspaceReorderPlan(plan, renderContext: renderContext)
     }
 
     private func workspaceReorderPlan(
@@ -12114,19 +12111,22 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceReorderDropPlan? {
         guard let draggedTabId = dragState.draggedTabId else { return nil }
+        let reorderTabIds = Set(renderContext.reorderTabs.map(\.id))
+        let reorderGroups = renderContext.workspaceGroups.filter { reorderTabIds.contains($0.anchorWorkspaceId) }
+        let reorderGroupIds = Set(reorderGroups.map(\.id))
         return SidebarWorkspaceReorderDropResolver().plan(
             for: SidebarWorkspaceReorderDropRequest(
                 point: point,
                 draggedWorkspaceId: draggedTabId,
                 foreignDraggedIsPinned: dragState.foreignDraggedIsPinned,
-                workspaces: renderContext.tabs.map {
+                workspaces: renderContext.reorderTabs.map {
                     SidebarWorkspaceReorderWorkspaceSnapshot(
                         id: $0.id,
                         isPinned: $0.isPinned,
-                        groupId: $0.groupId
+                        groupId: $0.groupId.flatMap { reorderGroupIds.contains($0) ? $0 : nil }
                     )
                 },
-                groups: renderContext.workspaceGroups.map {
+                groups: reorderGroups.map {
                     SidebarWorkspaceReorderGroupSnapshot(
                         id: $0.id,
                         anchorWorkspaceId: $0.anchorWorkspaceId,
@@ -12145,9 +12145,25 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+    private func performWorkspaceReorderPlan(
+        _ plan: SidebarWorkspaceReorderDropPlan,
+        renderContext: WorkspaceListRenderContext
+    ) -> Bool {
         switch plan.action {
         case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
+            let scopedRowIds = usesTopLevelRows ? renderContext.visibleWorkspaceRowIds : renderContext.reorderTabs.map(\.id)
+            let destinationRowIds = usesTopLevelRows
+                ? tabManager.sidebarReorderWorkspaceIds(
+                    forDraggedWorkspaceId: plan.draggedWorkspaceId,
+                    usesTopLevelRows: true
+                )
+                : tabManager.tabs.map(\.id)
+            let resolvedTargetIndex = SidebarDropPlanner().remappedTargetIndex(
+                scopedTargetIndex: targetIndex,
+                draggedTabId: plan.draggedWorkspaceId,
+                scopedTabIds: scopedRowIds,
+                destinationTabIds: destinationRowIds
+            ) ?? targetIndex
             let selectionBeforeReorder = selectedTabIds
             let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
                 existingAnchorIndex: lastSidebarSelectionIndex,
@@ -12155,7 +12171,7 @@ struct VerticalTabsSidebar: View {
             )
             let didReorder = tabManager.reorderSidebarWorkspace(
                 tabId: plan.draggedWorkspaceId,
-                toIndex: targetIndex,
+                toIndex: resolvedTargetIndex,
                 isDragOperation: true,
                 usesTopLevelRows: usesTopLevelRows,
                 explicitGroupId: explicitGroupId

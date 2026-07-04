@@ -4188,9 +4188,6 @@ class TabManager: ObservableObject {
            !workstreams.contains(where: { $0.id == workstreamId }) {
             workspace.workstreamId = nil
         }
-        if drilledInWorkstreamId != workspace.workstreamId {
-            drilledInWorkstreamId = workspace.workstreamId
-        }
         // Renormalize restored group members after reinserting at their old index.
         let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(

@@ -116,6 +116,41 @@ public struct SidebarDropPlanner {
         return resolvedTargetIndex(from: fromIndex, insertionPosition: legalInsertionPosition, totalCount: tabIds.count)
     }
 
+    /// Converts a target index planned in a scoped row list into a destination row-space index.
+    ///
+    /// Use this when drag hit-testing sees only a filtered subset of rows, but
+    /// the commit coordinator expects indexes in the full backing row space.
+    public func remappedTargetIndex(
+        scopedTargetIndex: Int,
+        draggedTabId: UUID,
+        scopedTabIds: [UUID],
+        destinationTabIds: [UUID]
+    ) -> Int? {
+        guard let sourceIndex = destinationTabIds.firstIndex(of: draggedTabId),
+              let scopedSourceIndex = scopedTabIds.firstIndex(of: draggedTabId) else {
+            return nil
+        }
+        var finalScopedIds = scopedTabIds
+        let dragged = finalScopedIds.remove(at: scopedSourceIndex)
+        finalScopedIds.insert(dragged, at: max(0, min(scopedTargetIndex, finalScopedIds.count)))
+        guard let finalScopedIndex = finalScopedIds.firstIndex(of: draggedTabId) else { return nil }
+        let insertionPosition: Int
+        if finalScopedIndex + 1 < finalScopedIds.count,
+           let nextIndex = destinationTabIds.firstIndex(of: finalScopedIds[finalScopedIndex + 1]) {
+            insertionPosition = nextIndex
+        } else if finalScopedIndex > 0,
+                  let previousIndex = destinationTabIds.firstIndex(of: finalScopedIds[finalScopedIndex - 1]) {
+            insertionPosition = previousIndex + 1
+        } else {
+            insertionPosition = sourceIndex
+        }
+        return resolvedTargetIndex(
+            from: sourceIndex,
+            insertionPosition: insertionPosition,
+            totalCount: destinationTabIds.count
+        )
+    }
+
     /// Where a workspace dragged in from *another window* should land in this
     /// window's sidebar, plus the indicator to render while it hovers.
     ///

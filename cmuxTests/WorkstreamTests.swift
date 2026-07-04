@@ -327,7 +327,7 @@ struct WorkstreamTests {
         #expect(closeTargets.isEmpty)
     }
 
-    @Test func restoringClosedWorkspaceReconcilesDrillInToRestoredWorkstream() throws {
+    @Test func restoringClosedWorkspacePreservesCurrentDrillIn() throws {
         let manager = makeTabManager()
         let restoredWorkstream = manager.createWorkstream(name: "Restored")
         let otherWorkstream = manager.createWorkstream(name: "Other")
@@ -344,9 +344,9 @@ struct WorkstreamTests {
 
         let restoredWorkspace = try #require(manager.selectedWorkspace)
         #expect(restoredWorkspace.workstreamId == restoredWorkstream)
-        #expect(manager.drilledInWorkstreamId == restoredWorkstream)
+        #expect(manager.drilledInWorkstreamId == otherWorkstream)
         let visible = manager.tabs.filter { $0.workstreamId == manager.drilledInWorkstreamId }
-        #expect(visible.contains { $0.id == restoredWorkspace.id })
+        #expect(!visible.contains { $0.id == restoredWorkspace.id })
     }
 
     // MARK: - Persistence round-trip
