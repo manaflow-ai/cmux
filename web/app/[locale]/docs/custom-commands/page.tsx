@@ -201,6 +201,7 @@ export default function CustomCommandsPage() {
         <li><code>&quot;command&quot;</code>: {t("actionTypeCommand")}</li>
         <li><code>&quot;agent&quot;</code>: {t("actionTypeAgent")}</li>
         <li><code>&quot;workspaceCommand&quot;</code>: {t("actionTypeWorkspaceCommand")}</li>
+        <li><code>&quot;workspace&quot;</code>: {t("actionTypeWorkspace")}</li>
       </ul>
       <DocsHeading level={3} id="action-fields">{t("actionFields")}</DocsHeading>
       <ul>
@@ -211,6 +212,7 @@ export default function CustomCommandsPage() {
         <li><code>shortcut</code>: {t("actionFieldShortcut")}</li>
         <li><code>target</code>: {t("actionFieldTarget")}</li>
         <li><code>confirm</code>: {t("actionFieldConfirm")}</li>
+        <li><code>newWorkspaceMenu</code>: {t("actionFieldNewWorkspaceMenu")}</li>
       </ul>
       <DocsHeading level={3} id="command-palette-behavior">{t("commandPaletteBehavior")}</DocsHeading>
       <p>
@@ -316,6 +318,64 @@ export default function CustomCommandsPage() {
         })}
       </p>
 
+      <DocsHeading level={2} id="workspace-actions">{t("workspaceActions")}</DocsHeading>
+      <p>
+        {t.rich("workspaceActionsDesc", {
+          workspace: (chunks) => <code>{chunks}</code>,
+          commands: (chunks) => <code>{chunks}</code>,
+          setup: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "actions": {
+    "review-setup": {
+      "type": "workspace",
+      "title": "Review Setup",
+      "icon": { "type": "symbol", "name": "rectangle.stack.badge.plus" },
+      "restart": "confirm",
+      "workspace": {
+        "name": "Review",
+        "cwd": "~/code/app",
+        "setup": "git fetch --all --prune",
+        "layout": {
+          "direction": "horizontal",
+          "split": 0.5,
+          "children": [
+            {
+              "pane": {
+                "surfaces": [
+                  { "type": "terminal", "name": "Claude", "command": "claude", "focus": true }
+                ]
+              }
+            },
+            {
+              "pane": {
+                "surfaces": [
+                  { "type": "terminal", "name": "OpenCode", "command": "opencode" }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("workspaceActionsMenuDesc", {
+          newWorkspaceMenu: (chunks) => <code>{chunks}</code>,
+          falseValue: (chunks) => <code>{chunks}</code>,
+          trueValue: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t.rich("workspaceActionsSaveDesc", {
+          saveAction: (chunks) => <strong>{chunks}</strong>,
+          customize: (chunks) => <strong>{chunks}</strong>,
+          configPath: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
       <DocsHeading level={2} id="simple-commands">{t("simpleCommands")}</DocsHeading>
       <p>{t("simpleCommandsDesc")}</p>
       <CodeBlock title="cmux.json" lang="json">{`{
@@ -390,6 +450,8 @@ export default function CustomCommandsPage() {
         <li><code>name</code>: {t("wsFieldName")}</li>
         <li><code>cwd</code>: {t("wsFieldCwd")}</li>
         <li><code>color</code>: {t("wsFieldColor")}</li>
+        <li><code>env</code>: {t("wsFieldEnv")}</li>
+        <li><code>setup</code>: {t("wsFieldSetup")}</li>
         <li><code>layout</code>: {t("wsFieldLayout")}</li>
       </ul>
 

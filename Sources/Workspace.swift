@@ -1738,7 +1738,7 @@ extension Workspace {
 
 extension Workspace {
 
-    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String) {
+    func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String, setupCommand: String? = nil) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
 
         var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
@@ -1748,8 +1748,15 @@ extension Workspace {
         // subsequent leaves were created via newTerminalSplit which also seeds
         // a placeholder terminal.
         var focusPanelId: UUID?
+        var pendingSetup = setupCommand
         for leaf in leaves {
-            populateCustomPane(leaf.paneId, surfaces: leaf.surfaces, baseCwd: baseCwd, focusPanelId: &focusPanelId)
+            populateCustomPane(
+                leaf.paneId,
+                surfaces: leaf.surfaces,
+                baseCwd: baseCwd,
+                focusPanelId: &focusPanelId,
+                pendingSetup: &pendingSetup
+            )
         }
 
         let liveRoot = bonsplitController.treeSnapshot()
@@ -1758,6 +1765,24 @@ extension Workspace {
         if let focusPanelId {
             focusPanel(focusPanelId)
         }
+    }
+
+    /// Sends a config-defined workspace `setup` command to the first terminal
+    /// panel. Used by workspace actions/commands that define no custom layout.
+    func sendConfigSetupCommand(_ command: String) {
+        let firstTerminal: TerminalPanel? = focusedTerminalPanel ?? {
+            for paneId in bonsplitController.allPaneIds {
+                for tab in bonsplitController.tabs(inPane: paneId) {
+                    if let panelId = panelIdFromSurfaceId(tab.id),
+                       let terminal = terminalPanel(for: panelId) {
+                        return terminal
+                    }
+                }
+            }
+            return nil
+        }()
+        guard let firstTerminal else { return }
+        sendInputWhenReady(command + "\n", to: firstTerminal)
     }
 
     private func buildCustomLayoutTree(
@@ -1808,7 +1833,8 @@ extension Workspace {
         _ paneId: PaneID,
         surfaces: [CmuxSurfaceDefinition],
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        pendingSetup: inout String?
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1823,7 +1849,8 @@ extension Workspace {
                 inPane: paneId,
                 surface: firstSurface,
                 baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
+                focusPanelId: &focusPanelId,
+                pendingSetup: &pendingSetup
             )
         }
 
@@ -1832,9 +1859,28 @@ extension Workspace {
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
                 baseCwd: baseCwd,
-                focusPanelId: &focusPanelId
+                focusPanelId: &focusPanelId,
+                pendingSetup: &pendingSetup
             )
         }
+    }
+
+    /// Consumes the workspace-level setup command on the first terminal surface it
+    /// reaches, sequencing it ahead of that surface's own `command`.
+    private static func dequeueInitialTerminalInput(
+        pendingSetup: inout String?,
+        command: String?
+    ) -> String? {
+        var lines: [String] = []
+        if let setup = pendingSetup {
+            lines.append(setup)
+            pendingSetup = nil
+        }
+        if let command {
+            lines.append(command)
+        }
+        guard !lines.isEmpty else { return nil }
+        return lines.map { $0 + "\n" }.joined()
     }
 
     private func configureExistingSurface(
@@ -1842,7 +1888,8 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        pendingSetup: inout String?
     ) {
         switch surface.type {
         case .terminal where surface.cwd != nil || surface.env != nil:
@@ -1857,14 +1904,17 @@ extension Workspace {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
+                if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
+                    sendInputWhenReady(input, to: panel)
+                }
             }
 
         case .terminal:
             if let name = surface.name { setPanelCustomTitle(panelId: panelId, title: name) }
             if surface.focus == true { focusPanelId = panelId }
-            if let command = surface.command, let terminal = terminalPanel(for: panelId) {
-                sendInputWhenReady(command + "\n", to: terminal)
+            if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command),
+               let terminal = terminalPanel(for: panelId) {
+                sendInputWhenReady(input, to: terminal)
             }
 
         case .browser:
@@ -1897,7 +1947,8 @@ extension Workspace {
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
         baseCwd: String,
-        focusPanelId: inout UUID?
+        focusPanelId: inout UUID?,
+        pendingSetup: inout String?
     ) {
         switch surface.type {
         case .terminal:
@@ -1910,7 +1961,9 @@ extension Workspace {
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
-                if let command = surface.command { sendInputWhenReady(command + "\n", to: panel) }
+                if let input = Self.dequeueInitialTerminalInput(pendingSetup: &pendingSetup, command: surface.command) {
+                    sendInputWhenReady(input, to: panel)
+                }
             }
 
         case .browser:
@@ -12968,7 +13021,8 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        if let workspaceCommand = executable.workspaceCommand {
+        let inlineWorkspaceCommand = executable.button.inlineWorkspaceSyntheticCommand
+        if executable.workspaceCommand != nil || inlineWorkspaceCommand != nil {
             bonsplitController.focusPane(pane)
             if let selectedTab = bonsplitController.selectedTab(inPane: pane) {
                 applyTabSelection(tabId: selectedTab.id, inPane: pane)
@@ -12987,13 +13041,24 @@ extension Workspace: BonsplitDelegate {
             let trimmedCwd = rawCwd.trimmingCharacters(in: .whitespacesAndNewlines)
             let baseCwd = trimmedCwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : trimmedCwd
             guard let tabManager = owningTabManager else { return }
+            let command: CmuxCommandDefinition
+            let configSourcePath: String?
+            if let workspaceCommand = executable.workspaceCommand {
+                command = workspaceCommand.command
+                configSourcePath = workspaceCommand.sourcePath
+            } else if let inlineWorkspaceCommand {
+                command = inlineWorkspaceCommand
+                configSourcePath = executable.button.actionSourcePath ?? surfaceTabBarButtonSourcePath
+            } else {
+                return
+            }
             _ = CmuxConfigExecutor.execute(
-                command: workspaceCommand.command,
+                command: command,
                 tabManager: tabManager,
                 baseCwd: baseCwd,
-                configSourcePath: workspaceCommand.sourcePath,
+                configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
-                displayTitle: executable.button.title ?? executable.button.tooltip ?? workspaceCommand.command.name,
+                displayTitle: executable.button.title ?? executable.button.tooltip ?? command.name,
                 actionID: executable.button.id,
                 icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
                 iconSourcePath: executable.button.iconSourcePath,

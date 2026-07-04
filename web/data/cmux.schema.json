@@ -32,19 +32,19 @@
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Workspace actions are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Action\" in the plus-button menu writes entries here.",
       "type": "object",
       "additionalProperties": true
     },
     "ui": {
       "title": "ui",
-      "description": "UI action wiring, including surface tab bar buttons and plus-button behavior.",
+      "description": "UI action wiring, including surface tab bar buttons and plus-button behavior. The plus-button context menu shows ui.newWorkspace.contextMenu (or the default items) followed by actions that opt in via newWorkspaceMenu.",
       "type": "object",
       "additionalProperties": true
     },
     "commands": {
       "title": "commands",
-      "description": "Custom shell commands and workspace layout definitions.",
+      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, and setup (a bootstrap command sent to the first terminal before its own command).",
       "type": "array",
       "items": {
         "type": "object",

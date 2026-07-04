@@ -76,6 +76,29 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
+        if let inline = action.action.inlineWorkspace {
+            // Inline `type: "workspace"` actions reuse the named-command path via a
+            // synthetic definition so trust, restart, and layout behavior stay identical.
+            let syntheticCommand = CmuxCommandDefinition(
+                name: action.title,
+                restart: inline.restart,
+                workspace: inline.definition
+            )
+            return execute(
+                command: syntheticCommand,
+                tabManager: tabManager,
+                baseCwd: baseCwd,
+                configSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
+                actionID: action.id,
+                icon: action.icon,
+                iconSourcePath: action.iconSourcePath,
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
+            )
+        }
+
         if let commandName = action.workspaceCommandName,
            let command = commands.first(where: { $0.name == commandName }) {
             guard command.workspace != nil else { return false }
@@ -421,6 +444,17 @@ struct CmuxConfigExecutor {
             )
         }
 
+        if let inlineWorkspaceCommand = button.inlineWorkspaceSyntheticCommand {
+            return workspaceTrustDescriptor(
+                command: inlineWorkspaceCommand,
+                actionID: button.id,
+                configSourcePath: configSourcePath,
+                icon: resolvedIcon,
+                iconSourcePath: iconSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        }
+
         guard let terminalCommand = button.terminalCommand else {
             return nil
         }
@@ -512,7 +546,9 @@ struct CmuxConfigExecutor {
         }
 
         if let layout = wsDef.layout {
-            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
+            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd, setupCommand: wsDef.setup)
+        } else if let setup = wsDef.setup {
+            newWorkspace.sendConfigSetupCommand(setup)
         }
         return true
     }
