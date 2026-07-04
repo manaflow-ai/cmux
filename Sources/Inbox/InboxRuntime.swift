@@ -30,6 +30,7 @@ final class InboxRuntime {
     var isSyncing = false
 
     @ObservationIgnored private var changeTask: Task<Void, Never>?
+    @ObservationIgnored private var periodicSyncTask: Task<Void, Never>?
     @ObservationIgnored private var feedMirror: InboxFeedMirror?
     @ObservationIgnored private var hasSeededNotificationState = false
     @ObservationIgnored private var seenUnreadItemIDs = Set<String>()
@@ -81,6 +82,24 @@ final class InboxRuntime {
         }
         feedMirror = InboxFeedMirror(hub: hub)
         feedMirror?.start()
+        // Background freshness: linked external sources re-sync on a fixed
+        // cadence so new activity arrives without pressing Sync. Inherits the
+        // main actor; the sleeps suspend and each sync is a hub actor hop.
+        // The hub change stream drives the UI refresh afterwards.
+        periodicSyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(180))
+                guard let self, !Task.isCancelled else { break }
+                let linked = Set(
+                    self.accounts
+                        .filter { $0.status != .disconnected && $0.source != .agent && $0.source != .generic }
+                        .map(\.source)
+                )
+                for source in linked {
+                    _ = await self.hub.sync(source: source)
+                }
+            }
+        }
         Task { await refresh(seedNotifications: true) }
     }
 
