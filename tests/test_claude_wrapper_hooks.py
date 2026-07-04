@@ -1024,6 +1024,11 @@ exit 88
                     "#!/usr/bin/env bash\necho 'codex does not accept arguments: app-server'\nexit 0\n",
                 )
                 env["CMUX_CU_CODEX"] = str(override_dir / "codex")
+            elif codex_override == "<sandbox-relative-codex>":
+                override_dir = tmp / "codex-relative"
+                override_dir.mkdir(parents=True, exist_ok=True)
+                make_executable(override_dir / "codex", APP_SERVER_CODEX_STUB)
+                env["CMUX_CU_CODEX"] = "./codex-relative/codex"
             else:
                 env["CMUX_CU_CODEX"] = codex_override
 
@@ -1261,6 +1266,18 @@ def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use broken override: expected no injection, got {real_argv}",
+        failures,
+    )
+
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-relative-codex>"),
+    )
+    expect(code == 0, f"computer use relative override: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use relative override: expected no injection from relative CMUX_CU_CODEX, got {real_argv}",
         failures,
     )
 

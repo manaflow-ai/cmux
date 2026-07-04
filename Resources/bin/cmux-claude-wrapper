@@ -884,16 +884,30 @@ cmux_computer_use_codex_supports_app_server() {
     [[ "$supported" -eq 1 && "$rejected" -eq 0 ]]
 }
 
+cmux_computer_use_canonical_executable() {
+    local candidate="$1"
+    [[ "$candidate" = /* && -x "$candidate" ]] || return 1
+    local candidate_dir="${candidate%/*}"
+    local candidate_base="${candidate##*/}"
+    local candidate_dir_real
+    candidate_dir_real="$(cd "$candidate_dir" 2>/dev/null && pwd -P)" || return 1
+    local resolved="$candidate_dir_real/$candidate_base"
+    [[ -x "$resolved" ]] || return 1
+    printf '%s' "$resolved"
+}
+
 cmux_computer_use_resolve_codex() {
     if [[ -n "${CMUX_CU_CODEX:-}" ]]; then
-        [[ -x "$CMUX_CU_CODEX" ]] || return 1
-        cmux_computer_use_codex_supports_app_server "$CMUX_CU_CODEX" || return 1
-        printf '%s' "$CMUX_CU_CODEX"
+        local codex_real
+        codex_real="$(cmux_computer_use_canonical_executable "$CMUX_CU_CODEX")" || return 1
+        cmux_computer_use_codex_supports_app_server "$codex_real" || return 1
+        printf '%s' "$codex_real"
         return 0
     fi
-    if [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]] &&
-        cmux_computer_use_codex_supports_app_server "/Applications/Codex.app/Contents/Resources/codex"; then
-        printf '%s' "/Applications/Codex.app/Contents/Resources/codex"
+    local app_codex
+    app_codex="$(cmux_computer_use_canonical_executable "/Applications/Codex.app/Contents/Resources/codex")" || return 1
+    if cmux_computer_use_codex_supports_app_server "$app_codex"; then
+        printf '%s' "$app_codex"
         return 0
     fi
     return 1

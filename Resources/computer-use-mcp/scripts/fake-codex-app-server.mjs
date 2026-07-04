@@ -18,6 +18,7 @@ if (process.argv.includes("--help")) {
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let pendingToolCallId = null;
+let pendingUnknownRequestToolCallId = null;
 const stateCallsByApp = new Map();
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
@@ -75,6 +76,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     if (!params) return;
     if (params.tool === "get_app_state") {
       const app = params.arguments?.app;
+      if (app === "UnknownRequestApp") {
+        pendingUnknownRequestToolCallId = message.id;
+        send({
+          id: "unknown-request-1",
+          method: "item/newApprovalKind",
+          params: {},
+        });
+        return;
+      }
       const calls = (stateCallsByApp.get(app) ?? 0) + 1;
       stateCallsByApp.set(app, calls);
       if ((app === "FlakyStateApp" || app === "FlakyScreenshotApp") && calls >= 2) {
@@ -143,6 +153,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         requestedSchema: { type: "object", properties: {} },
       },
     });
+    return;
+  }
+  if (message.id === "unknown-request-1" && message.method === undefined) {
+    const rejected = !!message.error;
+    send({
+      id: pendingUnknownRequestToolCallId,
+      result: {
+        content: [{ type: "text", text: rejected ? "unknown-request:rejected" : "unknown-request:accepted" }],
+        isError: !rejected,
+      },
+    });
+    pendingUnknownRequestToolCallId = null;
     return;
   }
   if (message.id === "elicit-1" && message.method === undefined) {

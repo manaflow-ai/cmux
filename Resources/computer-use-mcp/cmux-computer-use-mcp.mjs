@@ -26,10 +26,10 @@
 
 import { spawn, execFile } from "node:child_process";
 import { constants as fsConstants, rmSync } from "node:fs";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import process from "node:process";
 
@@ -88,6 +88,40 @@ const MAX_TREE = positiveIntegerEnv("CMUX_CU_MAX_TREE", 60000);
 const AUTO_APPROVE = process.env.CMUX_CU_AUTO_APPROVE === "1";
 const CODEX_APP_BINARY = "/Applications/Codex.app/Contents/Resources/codex";
 
+const MESSAGE_CATALOG = {
+  en: {
+    desktopScreenshotApproval:
+      "Allow cmux computer use to capture the entire desktop (all apps and screens)?",
+    engineApprovalFallback: "The computer-use engine requests approval.",
+    openAndComplete: (url) => `Open and complete: ${url}`,
+    openAppApproval: (app) => `Allow cmux computer use to launch or focus "${app}"?`,
+    windowListApproval:
+      "Allow cmux computer use to list every on-screen window (apps, titles, positions)?",
+  },
+  ja: {
+    desktopScreenshotApproval:
+      "cmux computer use にデスクトップ全体（すべてのアプリと画面）のキャプチャを許可しますか？",
+    engineApprovalFallback: "computer-use エンジンが承認を要求しています。",
+    openAndComplete: (url) => `開いて完了してください: ${url}`,
+    openAppApproval: (app) => `cmux computer use に「${app}」の起動またはフォーカスを許可しますか？`,
+    windowListApproval:
+      "cmux computer use に画面上のすべてのウィンドウ（アプリ、タイトル、位置）の一覧取得を許可しますか？",
+  },
+};
+
+function messageLocale() {
+  const raw = process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || "";
+  const language = raw.split(".")[0].split("_")[0].split("-")[0].toLowerCase();
+  return language === "ja" ? "ja" : "en";
+}
+
+const ACTIVE_MESSAGES = MESSAGE_CATALOG[messageLocale()];
+
+function localizedMessage(key, ...args) {
+  const entry = ACTIVE_MESSAGES[key] ?? MESSAGE_CATALOG.en[key];
+  return typeof entry === "function" ? entry(...args) : entry;
+}
+
 async function isExecutable(path) {
   try {
     await access(path, fsConstants.X_OK);
@@ -95,6 +129,22 @@ async function isExecutable(path) {
   } catch {
     return false;
   }
+}
+
+async function resolveAbsoluteExecutable(path, label) {
+  if (!isAbsolute(path)) {
+    throw new Error(`${label} must be an absolute executable path: ${path}`);
+  }
+  let resolved;
+  try {
+    resolved = await realpath(path);
+  } catch {
+    throw new Error(`${label} is set but does not exist: ${path}`);
+  }
+  if (!(await isExecutable(resolved))) {
+    throw new Error(`${label} is set but not executable: ${path}`);
+  }
+  return resolved;
 }
 
 // A codex only counts if it speaks the app-server protocol — legacy CLIs
@@ -146,16 +196,15 @@ function supportsAppServer(binary) {
 async function resolveCodexBinary() {
   const override = (process.env.CMUX_CU_CODEX || "").trim();
   if (override) {
-    if (!(await isExecutable(override))) {
-      throw new Error(`CMUX_CU_CODEX is set but not executable: ${override}`);
+    const resolved = await resolveAbsoluteExecutable(override, "CMUX_CU_CODEX");
+    if (!(await supportsAppServer(resolved))) {
+      throw new Error(`CMUX_CU_CODEX does not support \`codex app-server\`: ${resolved}`);
     }
-    if (!(await supportsAppServer(override))) {
-      throw new Error(`CMUX_CU_CODEX does not support \`codex app-server\`: ${override}`);
-    }
-    return override;
+    return resolved;
   }
-  if ((await isExecutable(CODEX_APP_BINARY)) && (await supportsAppServer(CODEX_APP_BINARY))) {
-    return CODEX_APP_BINARY;
+  if (await isExecutable(CODEX_APP_BINARY)) {
+    const resolved = await realpath(CODEX_APP_BINARY).catch(() => CODEX_APP_BINARY);
+    if (await supportsAppServer(resolved)) return resolved;
   }
   throw new Error(
     "no trusted codex with app-server support found. Install Codex.app or point CMUX_CU_CODEX at a current Codex CLI."
@@ -307,7 +356,11 @@ class AppServerSession {
           result = { decision: "decline", reason: "cmux computer use does not grant command/file approvals" };
           break;
         default:
-          break;
+          this.write({
+            id: message.id,
+            error: { code: -32601, message: `unsupported app-server request: ${message.method}` },
+          });
+          return;
       }
       this.write({ id: message.id, result });
       return;
@@ -578,7 +631,7 @@ async function desktopScreenshot(display) {
   if (
     !(await approveLocalCapability(
       "desktop-screenshot",
-      "Allow cmux computer use to capture the entire desktop (all apps and screens)?"
+      localizedMessage("desktopScreenshotApproval")
     ))
   ) {
     return err("full-desktop capture was not approved; pass `app` for per-app capture instead");
@@ -721,7 +774,7 @@ const TOOLS = [
       if (
         !(await approveLocalCapability(
           `open:${app}`,
-          `Allow cmux computer use to launch or focus "${app}"?`
+          localizedMessage("openAppApproval", app)
         ))
       ) {
         return err(`launching "${app}" was not approved`);
@@ -913,7 +966,7 @@ const TOOLS = [
       if (
         !(await approveLocalCapability(
           "window-list",
-          "Allow cmux computer use to list every on-screen window (apps, titles, positions)?"
+          localizedMessage("windowListApproval")
         ))
       ) {
         return err("window enumeration was not approved");
@@ -1002,9 +1055,9 @@ async function approveLocalCapability(key, message) {
 async function forwardElicitationToClient(params) {
   if (AUTO_APPROVE) return { action: "accept", content: {} };
   if (!clientSupportsElicitation) return { action: "decline" };
-  let message = String(params?.message ?? "The computer-use engine requests approval.");
+  let message = String(params?.message ?? localizedMessage("engineApprovalFallback"));
   if (params?.mode === "url" && params?.url) {
-    message = `${message}\n\nOpen and complete: ${params.url}`.trim();
+    message = `${message}\n\n${localizedMessage("openAndComplete", params.url)}`.trim();
   }
   const requestedSchema =
     (params?.mode === "form" || params?.mode === "openai/form") && params?.requestedSchema

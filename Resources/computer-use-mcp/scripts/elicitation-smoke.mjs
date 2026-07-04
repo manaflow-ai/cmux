@@ -28,11 +28,11 @@ function summarizeResult(res) {
   return { isError: !!res.isError, text };
 }
 
-async function runCalls({ withElicitation, calls, expectMessage = null }) {
+async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv = {} }) {
   // Hermetic env: pin the fake codex and strip any ambient auto-approve so a
   // developer shell with CMUX_CU_AUTO_APPROVE=1 cannot bypass the very
   // approval paths under test.
-  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
+  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex, ...extraEnv };
   delete env.CMUX_CU_AUTO_APPROVE;
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -62,12 +62,31 @@ async function runCalls({ withElicitation, calls, expectMessage = null }) {
   return results;
 }
 
-async function run({ withElicitation, tool = "computer_apps", args = {}, expectMessage = null }) {
+async function run({ withElicitation, tool = "computer_apps", args = {}, expectMessage = null, extraEnv = {} }) {
   const [result] = await runCalls({
     withElicitation,
     calls: [{ tool, args }],
     expectMessage,
+    extraEnv,
   });
+  return result;
+}
+
+async function runRelativeCodexOverrideRejected() {
+  const packageRoot = join(here, "..");
+  const env = { ...process.env, CMUX_CU_CODEX: "./scripts/fake-codex-app-server.mjs" };
+  delete env.CMUX_CU_AUTO_APPROVE;
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [serverPath],
+    cwd: packageRoot,
+    env,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
+  await client.connect(transport);
+  const result = summarizeResult(await client.callTool({ name: "computer_target", arguments: {} }));
+  await client.close();
   return result;
 }
 
@@ -98,6 +117,24 @@ if (accepted.isError || !accepted.text.includes("elicitation:accept")) {
   process.exit(1);
 }
 
+const relativeOverride = await runRelativeCodexOverrideRejected();
+console.log(`relative CMUX_CU_CODEX override -> isError=${relativeOverride.isError}`);
+if (!relativeOverride.isError || !relativeOverride.text.includes("absolute executable path")) {
+  console.error("FAIL: relative CMUX_CU_CODEX should be rejected before spawning codex");
+  process.exit(1);
+}
+
+const unknownRequest = await run({
+  withElicitation: false,
+  tool: "computer_state",
+  args: { app: "UnknownRequestApp" },
+});
+console.log(`unknown app-server request -> isError=${unknownRequest.isError}`);
+if (unknownRequest.isError || !unknownRequest.text.includes("unknown-request:rejected")) {
+  console.error("FAIL: unknown app-server requests should fail closed with a JSON-RPC error");
+  process.exit(1);
+}
+
 const declined = await run({ withElicitation: false });
 console.log(`without elicitation support -> isError=${declined.isError} text=${declined.text}`);
 if (!declined.isError || !declined.text.includes("elicitation:decline")) {
@@ -125,6 +162,19 @@ const windowsAccepted = await run({ withElicitation: true, tool: "computer_windo
 console.log(`computer_windows with accepted elicitation -> isError=${windowsAccepted.isError}`);
 if (windowsAccepted.text.includes("not approved")) {
   console.error("FAIL: accepted elicitation should clear the window-list gate");
+  process.exit(1);
+}
+
+const windowsAcceptedJa = await run({
+  withElicitation: true,
+  tool: "computer_windows",
+  args: {},
+  expectMessage: "ウィンドウ",
+  extraEnv: { LC_ALL: "ja_JP.UTF-8" },
+});
+console.log(`computer_windows with Japanese approval prompt -> isError=${windowsAcceptedJa.isError}`);
+if (windowsAcceptedJa.text.includes("not approved")) {
+  console.error("FAIL: localized accepted elicitation should clear the window-list gate");
   process.exit(1);
 }
 
