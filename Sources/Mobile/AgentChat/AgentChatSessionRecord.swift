@@ -26,6 +26,10 @@ struct AgentChatSessionRecord: Sendable {
     /// Live activity state derived from hook events.
     var state: ChatAgentState
 
+    /// When the record entered `.ended`. Best-effort process observations sampled
+    /// before this point must not revive it after a hook or exit watcher ended it.
+    var endedAt: Date?
+
     /// Timestamp of the most recent hook or transcript activity.
     var lastActivityAt: Date
 
@@ -35,10 +39,19 @@ struct AgentChatSessionRecord: Sendable {
     /// The agent process id, for liveness sweeps.
     var pid: Int?
 
+    /// Real hook-store key, when this record is surfaced under a pending alias.
+    var hookStoreSessionID: String?
+
     /// Monotonic revision stamped by the registry on every change, so clients
     /// can reconcile best-effort pushes against authoritative pulls. Owned by
     /// the registry; mutators do not set it directly.
     var version: Int = 0
+
+    var hookStoreLookupSessionID: String { hookStoreSessionID ?? sessionID }
+
+    mutating func rememberHookStoreSessionID(_ id: String) {
+        if id != sessionID { hookStoreSessionID = id }
+    }
 
     /// Adopts terminal/transcript bindings from a hook-store entry. The
     /// store is rewritten by every hook event, so its non-nil fields are
@@ -56,6 +69,7 @@ struct AgentChatSessionRecord: Sendable {
         from entry: AgentChatHookSessionStore.Entry,
         includingPID: Bool = true
     ) {
+        rememberHookStoreSessionID(entry.sessionID)
         surfaceID = entry.surfaceID ?? surfaceID
         workspaceID = entry.workspaceID ?? workspaceID
         transcriptPath = entry.transcriptPath ?? transcriptPath
@@ -63,6 +77,19 @@ struct AgentChatSessionRecord: Sendable {
         if includingPID {
             pid = entry.pid ?? pid
         }
+    }
+
+    /// Fills gaps from the hook store without replacing live cmux bindings.
+    mutating func adoptMissingBindings(
+        from entry: AgentChatHookSessionStore.Entry,
+        includingPID: Bool = true
+    ) {
+        rememberHookStoreSessionID(entry.sessionID)
+        if surfaceID == nil { surfaceID = entry.surfaceID }
+        if workspaceID == nil { workspaceID = entry.workspaceID }
+        if transcriptPath == nil { transcriptPath = entry.transcriptPath }
+        if workingDirectory == nil { workingDirectory = entry.workingDirectory }
+        if includingPID, pid == nil { pid = entry.pid }
     }
 
     /// The wire descriptor for this record.
