@@ -9967,9 +9967,28 @@ final class Workspace: Identifiable, ObservableObject {
         if let paneId = bonsplitController.focusedPaneId,
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
+            reconcilePortalVisibilityAfterFocusMove()
         }
 
     }
+
+    private func reconcilePortalVisibilityAfterFocusMove() {
+        let focusedPanelId = focusedPanelId
+        let terminalReconcileResult = reconcileTerminalPortalVisibilityForCurrentRenderedLayoutResult()
+        let browserVisibilityChanged = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: "workspace.moveFocus"
+        )
+
+        guard terminalReconcileResult.didChange || browserVisibilityChanged else { return }
+
+        beginEventDrivenLayoutFollowUp(
+            reason: "workspace.moveFocus",
+            browserPanelId: focusedPanelId.flatMap { browserPanel(for: $0)?.id },
+            terminalFocusPanelId: focusedPanelId.flatMap { terminalPanel(for: $0)?.id },
+            includeGeometry: terminalReconcileResult.requiresGeometryPass
+        )
+    }
+
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
@@ -10878,15 +10897,24 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayoutResult().didChange
+    }
+
+    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayoutResult() -> (
+        didChange: Bool,
+        requiresGeometryPass: Bool
+    ) {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
         // window, no main terminal should be (re)marked active even if it is still
         // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
         // a layout reconcile cannot steal focus back from the sidebar.
         let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
-        var didChange = agentHibernationAutoResumePresentationVisible
+        let didResumeVisibleHibernatedPanel = agentHibernationAutoResumePresentationVisible
             ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
             : false
+        var didChange = didResumeVisibleHibernatedPanel
+        var requiresGeometryPass = didResumeVisibleHibernatedPanel
 
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
@@ -10898,6 +10926,7 @@ final class Workspace: Identifiable, ObservableObject {
             if terminalPanel.hostedView.debugPortalVisibleInUI != shouldBeVisible {
                 terminalPanel.hostedView.setVisibleInUI(shouldBeVisible)
                 didChange = true
+                requiresGeometryPass = true
             }
             let shouldBeActive = shouldBeVisible && focusedPanelId == terminalPanel.id && !rightSidebarOwnsFocus
             if terminalPanel.hostedView.debugPortalActive != shouldBeActive {
@@ -10910,7 +10939,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
-        return didChange
+        return (didChange, requiresGeometryPass)
     }
 
     private func terminalPortalVisibilityNeedsFollowUp() -> Bool {

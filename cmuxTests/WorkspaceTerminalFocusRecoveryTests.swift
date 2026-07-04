@@ -13,6 +13,115 @@ import CmuxTerminal
 struct WorkspaceTerminalFocusRecoverySwiftTests {
 #if DEBUG
     @Test
+    func moveFocusRevealsHiddenDestinationTerminalPane() throws {
+        let workspace = Workspace()
+        let leftPanelId = try #require(workspace.focusedPanelId, "Expected focused panel in new workspace")
+        let leftPanel = try #require(
+            workspace.terminalPanel(for: leftPanelId),
+            "Expected initial focused panel to be a terminal"
+        )
+        let rightPanel = try #require(
+            workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+            "Expected split terminal panel"
+        )
+
+        workspace.focusPanel(leftPanel.id)
+        #expect(workspace.focusedPanelId == leftPanel.id)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        leftPanel.hostedView.setActive(true)
+        rightPanel.hostedView.setVisibleInUI(false)
+        rightPanel.hostedView.setActive(false)
+        #expect(!rightPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.moveFocus(direction: .right)
+
+        #expect(workspace.focusedPanelId == rightPanel.id)
+        #expect(
+            rightPanel.hostedView.debugPortalVisibleInUI,
+            "Keyboard pane focus should reveal a hidden destination terminal portal"
+        )
+        #expect(
+            rightPanel.hostedView.debugPortalActive,
+            "Keyboard pane focus should mark the destination terminal portal active"
+        )
+        #expect(
+            !leftPanel.hostedView.debugPortalActive,
+            "Keyboard pane focus should clear active state from the origin terminal portal"
+        )
+    }
+
+    @Test
+    func moveFocusRevealsHiddenDestinationBrowserPane() throws {
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId, "Expected focused panel in new workspace")
+        let sourcePaneId = try #require(
+            workspace.paneId(forPanelId: sourcePanelId),
+            "Expected source panel pane"
+        )
+        let leftPanel = try #require(
+            workspace.newBrowserSurface(inPane: sourcePaneId, focus: true),
+            "Expected browser panel in source pane"
+        )
+        let rightPanel = try #require(
+            workspace.newBrowserSplit(from: leftPanel.id, orientation: .horizontal),
+            "Expected split browser panel"
+        )
+        let window = makeWindow()
+        defer {
+            BrowserWindowPortalRegistry.detach(webView: leftPanel.webView)
+            BrowserWindowPortalRegistry.detach(webView: rightPanel.webView)
+            window.orderOut(nil)
+        }
+        let contentView = try #require(window.contentView, "Expected content view")
+
+        leftPanel.portalAnchorView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.portalAnchorView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.portalAnchorView)
+        contentView.addSubview(rightPanel.portalAnchorView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        BrowserWindowPortalRegistry.bind(
+            webView: leftPanel.webView,
+            to: leftPanel.portalAnchorView,
+            visibleInUI: true,
+            zPriority: 2
+        )
+        BrowserWindowPortalRegistry.bind(
+            webView: rightPanel.webView,
+            to: rightPanel.portalAnchorView,
+            visibleInUI: false,
+            zPriority: 0
+        )
+        BrowserWindowPortalRegistry.synchronizeForAnchor(leftPanel.portalAnchorView)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(rightPanel.portalAnchorView)
+
+        workspace.focusPanel(leftPanel.id)
+        #expect(workspace.focusedPanelId == leftPanel.id)
+        let hiddenSnapshot = try #require(BrowserWindowPortalRegistry.debugSnapshot(for: rightPanel.webView))
+        #expect(!hiddenSnapshot.visibleInUI)
+        #expect(
+            hiddenSnapshot.containerHidden,
+            "Precondition: destination browser portal should start hidden"
+        )
+
+        workspace.moveFocus(direction: .right)
+
+        #expect(workspace.focusedPanelId == rightPanel.id)
+        let revealedSnapshot = try #require(BrowserWindowPortalRegistry.debugSnapshot(for: rightPanel.webView))
+        #expect(
+            revealedSnapshot.visibleInUI,
+            "Keyboard pane focus should reveal a hidden destination browser portal"
+        )
+        #expect(
+            !revealedSnapshot.containerHidden,
+            "Keyboard pane focus should refresh the destination browser portal presentation"
+        )
+    }
+
+    @Test
     func hiddenTinyFirstResponderReappliesGhosttyFocusAfterGeometrySettles() throws {
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = originalAppDelegate ?? AppDelegate()
