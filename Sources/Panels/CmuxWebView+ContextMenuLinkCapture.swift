@@ -137,7 +137,7 @@ extension CmuxWebView {
         )
     }
 
-    private func capturedContextMenuLinkURLForCurrentMenu() -> URL? {
+    func capturedContextMenuLinkURLForCurrentMenu() -> URL? {
         guard let captured = contextMenuCapturedLink,
               let menuOpenUptime = lastContextMenuOpenUptime,
               let menuOpenEventTimestamp = lastContextMenuOpenEventTimestamp,
