@@ -46,6 +46,10 @@ Use a **Desktop** OAuth client (no secret required) from the Google Cloud
 console, with the Gmail API enabled. If no client id is configured, the sheet
 falls back to pasting a raw access token.
 
+Linking seeds the inbox with the 25 most recent unread messages; everything
+that arrives after that flows in completely through Gmail's history cursor.
+Older backlog beyond the seed is intentionally not imported.
+
 ### Slack
 
 1. Create a Slack app and add the bot scopes `channels:history`,

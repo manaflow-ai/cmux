@@ -32,6 +32,41 @@ struct SlackDiscoveryTests {
         }
     }
 
+    @Test func syncDrainsPagedHistoryBeforeAdvancingTheWatermark() async throws {
+        let tokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
+        // Page 1 (newest messages) reports has_more with a pagination cursor;
+        // page 2 finishes the floor..now interval.
+        let http = StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 200, data: Data(#"{"ok":true,"messages":[{"ts":"300.000000","text":"newest","user":"U1"}],"has_more":true,"response_metadata":{"next_cursor":"pageB"}}"#.utf8)),
+            InboxHTTPResponse(statusCode: 200, data: Data(#"{"ok":true,"messages":[{"ts":"200.000000","text":"middle","user":"U1"}],"has_more":false}"#.utf8)),
+        ])
+        let connector = SlackConnector(channelIDs: ["C1"], tokenStore: tokens, httpClient: http)
+
+        let result = try await connector.sync(cursor: #"{"C1":"100.000000"}"#)
+        #expect(result.items.map(\.bodyPreview).sorted() == ["middle", "newest"])
+        #expect(result.nextCursor == #"{"C1":"300.000000"}"#)
+        let urls = await http.requestedURLs()
+        #expect(urls.count == 2)
+        #expect(urls[1].contains("cursor=pageB"))
+        #expect(urls[1].contains("oldest=100.000000"))
+    }
+
+    @Test func syncKeepsTheFloorWhenTheIntervalIsNotFullyDrained() async throws {
+        let tokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
+        // Every page still reports more history; the watermark must not
+        // advance past pages that were never fetched.
+        let page = Data(#"{"ok":true,"messages":[{"ts":"300.000000","text":"newest","user":"U1"}],"has_more":true,"response_metadata":{"next_cursor":"again"}}"#.utf8)
+        let http = StubHTTPClient(responses: Array(
+            repeating: InboxHTTPResponse(statusCode: 200, data: page),
+            count: SlackConnector.historyPagesPerChannel
+        ))
+        let connector = SlackConnector(channelIDs: ["C1"], tokenStore: tokens, httpClient: http)
+
+        let result = try await connector.sync(cursor: #"{"C1":"100.000000"}"#)
+        #expect(result.nextCursor == #"{"C1":"100.000000"}"#)
+        #expect(await http.requestedURLs().count == SlackConnector.historyPagesPerChannel)
+    }
+
     @Test func syncWindowPrioritizesNeverSyncedConversations() {
         let channels = (1...20).map { "C\($0)" }
         let window = SlackConnector.syncWindow(channels: channels, cursors: [:], after: nil)
