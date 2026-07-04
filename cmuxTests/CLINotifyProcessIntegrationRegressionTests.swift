@@ -2300,6 +2300,64 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGeminiIdlessAfterAgentDropsWhenNoAuthoritativeSurface() throws {
+        let context = try makeClaudeHookContext(name: "gemini-idless-stop-no-surface")
+        defer { context.cleanup() }
+
+        let sessionId = "gemini-session-with-stale-surface-env"
+        let staleSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "gemini",
+            executable: "/usr/local/bin/gemini"
+        )
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+
+        let start = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        var staleSurfaceEnvironment = launchEnvironment
+        staleSurfaceEnvironment["CMUX_SURFACE_ID"] = staleSurfaceId
+        let stopCommandStart = context.state.commands.count
+        let staleSurfaceStop = runAgentHook(
+            context: context,
+            agent: "gemini",
+            subcommand: "stop",
+            standardInput: #"{"cwd":"\#(context.root.path)","hook_event_name":"AfterAgent","last_assistant_message":"done"}"#,
+            extraEnvironment: staleSurfaceEnvironment
+        )
+        XCTAssertFalse(staleSurfaceStop.timedOut, staleSurfaceStop.stderr)
+        XCTAssertEqual(staleSurfaceStop.status, 0, staleSurfaceStop.stderr)
+        let stopCommands = Array(context.state.commands.dropFirst(stopCommandStart))
+        XCTAssertFalse(
+            stopCommands.contains {
+                $0.hasPrefix("notify_target") || $0.hasPrefix("set_status gemini ") || $0.hasPrefix("set_agent_lifecycle gemini ")
+            },
+            "An id-less Gemini Stop without an authoritative surface must no-op instead of mutating the default pane, saw \(stopCommands)"
+        )
+
+        let storeURL = context.root.appendingPathComponent("gemini-hook-sessions.json")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        let original = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertNotEqual(
+            original["agentLifecycle"] as? String,
+            "idle",
+            "A stale ambient surface must not let an id-less Stop mark the original/default pane idle"
+        )
+        XCTAssertNil(
+            sessions[staleSurfaceId],
+            "A stale ambient surface must not create the surface-id fallback record"
+        )
+    }
+
     func testGeminiIdlessAfterAgentIgnoresStaleDuplicateOlderSessionStart() throws {
         let context = try makeClaudeHookContext(name: "gemini-idless-stop-ignores-stale-start")
         defer { context.cleanup() }

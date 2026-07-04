@@ -29710,36 +29710,48 @@ export default CMUXSessionRestore;
             }
             return (workspaceId, surfaceId)
         }
+        let shouldAdoptIdlessSurfaceSession = shouldAdoptSurfaceSessionForIdlessHook(action: action)
         var shouldDropIdlessHookAfterAdoptionMiss = false
-        if shouldAdoptSurfaceSessionForIdlessHook(action: action),
-           let target = idlessHookSurfaceLookupTarget() {
-            do {
-                if let existing = try store.lookupCurrentSession(
-                    workspaceId: target.workspaceId,
-                    surfaceId: target.surfaceId,
-                    matchingPID: inferredPID
-                ) {
-                    sessionId = existing.sessionId
-                } else if inferredPID != nil {
-                    telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.pid-miss")
+        if shouldAdoptIdlessSurfaceSession {
+            if let target = idlessHookSurfaceLookupTarget() {
+                do {
+                    if let existing = try store.lookupCurrentSession(
+                        workspaceId: target.workspaceId,
+                        surfaceId: target.surfaceId,
+                        matchingPID: inferredPID
+                    ) {
+                        sessionId = existing.sessionId
+                    } else if inferredPID != nil {
+                        telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.pid-miss")
+#if DEBUG
+                        agentHookDebugLog(
+                            "agentHook.idless.lookup.pidMiss agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) pid=\(inferredPID.map(String.init) ?? "nil")",
+                            socketPath: client.socketPath,
+                            env: env
+                        )
+#endif
+                        shouldDropIdlessHookAfterAdoptionMiss = true
+                    }
+                } catch {
+                    telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.failed")
 #if DEBUG
                     agentHookDebugLog(
-                        "agentHook.idless.lookup.pidMiss agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) pid=\(inferredPID.map(String.init) ?? "nil")",
+                        "agentHook.idless.lookup.failed agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) error=\(error)",
                         socketPath: client.socketPath,
                         env: env
                     )
 #endif
-                    shouldDropIdlessHookAfterAdoptionMiss = true
                 }
-            } catch {
-                telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.failed")
+            } else {
+                telemetry.breadcrumb("\(def.name)-hook.idless-session-lookup.no-target")
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.idless.lookup.failed agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) error=\(error)",
+                    "agentHook.idless.lookup.noTarget agent=\(def.name) subcommand=\(subcommand) workspace=\(agentHookDebugShort(resolvedDirectWorkspaceArg)) surface=\(agentHookDebugShort(resolvedDirectSurfaceArg))",
                     socketPath: client.socketPath,
                     env: env
                 )
 #endif
+                shouldDropIdlessHookAfterAdoptionMiss = true
             }
         }
 #if DEBUG
