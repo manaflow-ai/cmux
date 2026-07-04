@@ -9,12 +9,57 @@ import Testing
 
 @Suite(.serialized)
 struct ClaudeTranscriptSeedingTests {
+    @Test func encodedProjectDirectoryNameMatchesClaudeCwdRule() {
+        #expect(
+            ClaudeTranscriptSeeder.encodedProjectDirectoryName(for: "/Users/lawrence/fun/cmuxterm-hq/.claude")
+                == "-Users-lawrence-fun-cmuxterm-hq--claude"
+        )
+    }
+
+    @Test func helperCopiesTranscriptAndSidecarIntoTargetCwdProjectDir() throws {
+        let fileManager = FileManager.default
+        let fixture = try makeFixture(fileManager: fileManager)
+        defer { try? fileManager.removeItem(at: fixture.root) }
+
+        let didSeed = ClaudeTranscriptSeeder(fileManager: fileManager).seedTranscriptIfNeeded(
+            sessionId: fixture.sessionId,
+            targetWorkingDirectory: fixture.targetCwd.path,
+            sourceWorkingDirectory: fixture.sourceCwd.path,
+            environment: ["CLAUDE_CONFIG_DIR": fixture.configDir.path]
+        )
+
+        #expect(didSeed)
+        try assertSeededFixture(fixture, fileManager: fileManager)
+    }
+
     @Test func forkStartupInputSeedsClaudeTranscriptIntoTargetCwdProjectDir() throws {
         let fileManager = FileManager.default
+        let fixture = try makeFixture(fileManager: fileManager)
+        defer { try? fileManager.removeItem(at: fixture.root) }
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: fixture.sessionId,
+            workingDirectory: fixture.targetCwd.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude"],
+                workingDirectory: fixture.sourceCwd.path,
+                environment: ["CLAUDE_CONFIG_DIR": fixture.configDir.path],
+                capturedAt: 123,
+                source: "test"
+            )
+        )
+
+        #expect(snapshot.forkStartupInput(fileManager: fileManager, temporaryDirectory: fixture.root) != nil)
+
+        try assertSeededFixture(fixture, fileManager: fileManager)
+    }
+
+    private func makeFixture(fileManager: FileManager) throws -> ClaudeTranscriptSeedFixture {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-claude-transcript-seed-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
-
         let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
         let sourceCwd = root.appendingPathComponent("cmuxterm-hq", isDirectory: true)
         let targetCwd = root
@@ -39,34 +84,34 @@ struct ClaudeTranscriptSeedingTests {
         let sourceSidecar = sourceSidecarDir.appendingPathComponent("metadata.json", isDirectory: false)
         try #"{"sidecar":true}"#.write(to: sourceSidecar, atomically: true, encoding: .utf8)
 
-        let snapshot = SessionRestorableAgentSnapshot(
-            kind: .claude,
+        return ClaudeTranscriptSeedFixture(
+            root: root,
+            configDir: configDir,
+            sourceCwd: sourceCwd,
+            targetCwd: targetCwd,
             sessionId: sessionId,
-            workingDirectory: targetCwd.path,
-            launchCommand: AgentLaunchCommandSnapshot(
-                launcher: "claude",
-                executablePath: "/usr/local/bin/claude",
-                arguments: ["/usr/local/bin/claude"],
-                workingDirectory: sourceCwd.path,
-                environment: ["CLAUDE_CONFIG_DIR": configDir.path],
-                capturedAt: 123,
-                source: "test"
-            )
+            sourceTranscript: sourceTranscript,
+            targetProjectDir: targetProjectDir,
+            sourceTranscriptContents: sourceTranscriptContents
         )
+    }
 
-        #expect(snapshot.forkStartupInput(fileManager: fileManager, temporaryDirectory: root) != nil)
-
-        let targetTranscript = targetProjectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+    private func assertSeededFixture(
+        _ fixture: ClaudeTranscriptSeedFixture,
+        fileManager: FileManager
+    ) throws {
+        let targetTranscript = fixture.targetProjectDir
+            .appendingPathComponent("\(fixture.sessionId).jsonl", isDirectory: false)
         let copiedTranscript = try String(contentsOf: targetTranscript, encoding: .utf8)
-        #expect(copiedTranscript == sourceTranscriptContents)
+        #expect(copiedTranscript == fixture.sourceTranscriptContents)
 
-        let copiedSidecar = targetProjectDir
-            .appendingPathComponent(sessionId, isDirectory: true)
+        let copiedSidecar = fixture.targetProjectDir
+            .appendingPathComponent(fixture.sessionId, isDirectory: true)
             .appendingPathComponent("metadata.json", isDirectory: false)
         let copiedSidecarContents = try String(contentsOf: copiedSidecar, encoding: .utf8)
         #expect(copiedSidecarContents == #"{"sidecar":true}"#)
 
-        let sourceInode = try inodeNumber(at: sourceTranscript)
+        let sourceInode = try inodeNumber(at: fixture.sourceTranscript)
         let targetInode = try inodeNumber(at: targetTranscript)
         #expect(sourceInode != targetInode, "Transcript seeding must copy, not hardlink, the JSONL file.")
     }
@@ -87,4 +132,15 @@ struct ClaudeTranscriptSeedingTests {
         let value = try #require(attributes[.systemFileNumber] as? NSNumber)
         return value.uint64Value
     }
+}
+
+private struct ClaudeTranscriptSeedFixture {
+    var root: URL
+    var configDir: URL
+    var sourceCwd: URL
+    var targetCwd: URL
+    var sessionId: String
+    var sourceTranscript: URL
+    var targetProjectDir: URL
+    var sourceTranscriptContents: String
 }
