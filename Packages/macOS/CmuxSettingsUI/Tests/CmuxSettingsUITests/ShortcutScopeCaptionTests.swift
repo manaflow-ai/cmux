@@ -24,44 +24,45 @@ struct ShortcutScopeCaptionTests {
     private let terminalCaption = "Only while a terminal pane is focused"
     private let canvasCaption = "Only while the canvas layout is active"
 
+    private let resolver = ShortcutScopeCaptionResolver()
     private var canvasLayoutKey: String { ShortcutContextKnownKey.workspaceCanvasLayout.rawValue }
 
     @Test func alwaysClauseHasNoCaption() {
-        #expect(builtInScopeCaption(for: .always) == nil)
+        #expect(resolver.caption(for: .always) == nil)
     }
 
     @Test func focusAtomClausesMapToTheirCaption() {
-        #expect(builtInScopeCaption(for: .atom(.sidebarFocus)) == sidebarCaption)
-        #expect(builtInScopeCaption(for: .atom(.browserFocus)) == browserCaption)
-        #expect(builtInScopeCaption(for: .atom(.filePreviewTextEditorFocus)) == filePreviewTextEditorCaption)
-        #expect(builtInScopeCaption(for: .atom(.markdownFocus)) == markdownCaption)
+        #expect(resolver.caption(for: .atom(.sidebarFocus)) == sidebarCaption)
+        #expect(resolver.caption(for: .atom(.browserFocus)) == browserCaption)
+        #expect(resolver.caption(for: .atom(.filePreviewTextEditorFocus)) == filePreviewTextEditorCaption)
+        #expect(resolver.caption(for: .atom(.markdownFocus)) == markdownCaption)
     }
 
     @Test func browserOrFilePreviewTextEditorClauseMapsToCombinedCaption() {
         let browserFirst = ShortcutWhenClause.or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
         let filePreviewFirst = ShortcutWhenClause.or(.atom(.filePreviewTextEditorFocus), .atom(.browserFocus))
 
-        #expect(builtInScopeCaption(for: browserFirst) == browserOrFilePreviewTextEditorCaption)
-        #expect(builtInScopeCaption(for: filePreviewFirst) == browserOrFilePreviewTextEditorCaption)
+        #expect(resolver.caption(for: browserFirst) == browserOrFilePreviewTextEditorCaption)
+        #expect(resolver.caption(for: filePreviewFirst) == browserOrFilePreviewTextEditorCaption)
     }
 
     @Test func terminalPredicateMapsToTerminalCaption() {
         // Rename Tab/Workspace, Send Ctrl-F, Clear Screen gate on
         // `!browser && !sidebar`.
         let clause = ShortcutWhenClause.and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
-        #expect(builtInScopeCaption(for: clause) == terminalCaption)
+        #expect(resolver.caption(for: clause) == terminalCaption)
     }
 
     @Test func canvasLayoutClausesMapToCanvasCaption() {
         // Plain canvas-layout actions (Canvas: Zoom In/Out, Tidy, Align, …).
-        #expect(builtInScopeCaption(for: .key(canvasLayoutKey)) == canvasCaption)
+        #expect(resolver.caption(for: .key(canvasLayoutKey)) == canvasCaption)
         // `Canvas: Actual Size` gates on `canvas && !browser && !markdown` so it
         // never collides with the browser/markdown ⌘0 zoom-reset bindings.
         let compound = ShortcutWhenClause.and(
             .key(canvasLayoutKey),
             .and(.not(.atom(.browserFocus)), .not(.atom(.markdownFocus)))
         )
-        #expect(builtInScopeCaption(for: compound) == canvasCaption)
+        #expect(resolver.caption(for: compound) == canvasCaption)
     }
 
     /// The canvas key must be recognized as a required `&&` conjunct regardless
@@ -69,18 +70,18 @@ struct ShortcutScopeCaptionTests {
     /// silently fall back to the terminal caption (the bug this PR fixes).
     @Test func canvasLayoutKeyIsMatchedRegardlessOfConjunctPosition() {
         let rightPlaced = ShortcutWhenClause.and(.not(.atom(.browserFocus)), .key(canvasLayoutKey))
-        #expect(builtInScopeCaption(for: rightPlaced) == canvasCaption)
+        #expect(resolver.caption(for: rightPlaced) == canvasCaption)
 
         let nested = ShortcutWhenClause.and(
             .not(.atom(.markdownFocus)),
             .and(.not(.atom(.browserFocus)), .key(canvasLayoutKey))
         )
-        #expect(builtInScopeCaption(for: nested) == canvasCaption)
+        #expect(resolver.caption(for: nested) == canvasCaption)
 
         // A *negated* canvas predicate is not a canvas requirement, so it must
         // not borrow the canvas caption.
         let negated = ShortcutWhenClause.and(.not(.key(canvasLayoutKey)), .not(.atom(.sidebarFocus)))
-        #expect(builtInScopeCaption(for: negated) == terminalCaption)
+        #expect(resolver.caption(for: negated) == terminalCaption)
     }
 
     /// Regression for issue #5810: the ⌘= / ⌘- / ⌘0 zoom shortcuts ship the same
@@ -89,17 +90,17 @@ struct ShortcutScopeCaptionTests {
     /// canvas layout, not be mislabeled "Only while a terminal pane is focused".
     @Test func zoomFamilyActionsCarryTheirOwnScopeCaption() {
         for action in [ShortcutAction.browserZoomIn, .browserZoomOut, .browserZoomReset] {
-            #expect(builtInScopeCaption(for: action.defaultFocusWhenClause) == browserOrFilePreviewTextEditorCaption)
+            #expect(resolver.caption(for: action.defaultFocusWhenClause) == browserOrFilePreviewTextEditorCaption)
         }
         for action in [ShortcutAction.markdownZoomIn, .markdownZoomOut, .markdownZoomReset] {
-            #expect(builtInScopeCaption(for: action.defaultFocusWhenClause) == markdownCaption)
+            #expect(resolver.caption(for: action.defaultFocusWhenClause) == markdownCaption)
         }
         for action in [ShortcutAction.canvasZoomIn, .canvasZoomOut, .canvasZoomReset] {
-            #expect(builtInScopeCaption(for: action.defaultFocusWhenClause) == canvasCaption)
+            #expect(resolver.caption(for: action.defaultFocusWhenClause) == canvasCaption)
         }
         // The specific mislabel this issue fixes: canvas must not fall through to
         // the terminal caption.
-        #expect(builtInScopeCaption(for: ShortcutAction.canvasZoomReset.defaultFocusWhenClause) != terminalCaption)
+        #expect(resolver.caption(for: ShortcutAction.canvasZoomReset.defaultFocusWhenClause) != terminalCaption)
     }
 
     /// The duplicate default chords are intentional: each pair shares one

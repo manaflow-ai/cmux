@@ -317,8 +317,8 @@ public struct KeyboardShortcutsSection: View {
     /// description of the action's built-in focus scope. `nil` for ordinary
     /// always-on shortcuts so unscoped rows stay uncluttered.
     ///
-    /// The built-in scope mapping lives in ``builtInScopeCaption(for:)`` so it can
-    /// be unit-tested directly; it labels context-scoped duplicate defaults
+    /// The built-in scope mapping lives in ``ShortcutScopeCaptionResolver`` so it
+    /// can be unit-tested directly; it labels context-scoped duplicate defaults
     /// (e.g. the ⌘=/⌘-/⌘0 zoom family shared across browser, markdown, and canvas)
     /// so they read as deliberately context-separated rather than as a conflict
     /// (issue #5810).
@@ -333,7 +333,7 @@ public struct KeyboardShortcutsSection: View {
             let format = String(localized: "shortcut.when.caption.override", defaultValue: "When: %@")
             return String.localizedStringWithFormat(format, raw)
         }
-        return builtInScopeCaption(for: action.defaultFocusWhenClause)
+        return ShortcutScopeCaptionResolver().caption(for: action.defaultFocusWhenClause)
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
