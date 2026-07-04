@@ -120,13 +120,12 @@ extension RestorableAgentSessionIndex {
                 ? registration.defaultExecutable
                 : (normalized(observed.arguments.first) ?? normalized(process.path) ?? registration.defaultExecutable)
             var arguments = useDefaultExecutable
-                ? [executablePath]
+                ? registration.detect.alternateLaunchArguments(for: observed, defaultExecutable: executablePath)
                 : (observed.arguments.isEmpty ? [executablePath] : observed.arguments)
-            if registration == CmuxVaultAgentRegistration.builtInCampfire {
-                arguments = normalizedCampfireLaunchArguments(
-                    observed.arguments,
+            if registration.id == CmuxVaultAgentRegistration.builtInCampfire.id {
+                arguments = CampfireLaunchArgumentNormalizer(
                     defaultExecutable: registration.defaultExecutable
-                )
+                ).normalized(arguments: observed.arguments)
                 executablePath = arguments.first ?? registration.defaultExecutable
             }
             let snapshot = SessionRestorableAgentSnapshot(
@@ -152,55 +151,6 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
-    }
-
-    private static func normalizedCampfireLaunchArguments(
-        _ arguments: [String],
-        defaultExecutable: String
-    ) -> [String] {
-        guard !arguments.isEmpty else { return [defaultExecutable] }
-        if campfireArgumentLooksLikeExecutable(arguments[0]) {
-            if arguments.count > 1, campfireArgumentLooksLikeBunfsEntry(arguments[1]) {
-                return [arguments[0]] + Array(arguments.dropFirst(2))
-            }
-            return arguments
-        }
-        if campfireArgumentLooksLikeJavaScriptRuntime(arguments[0]),
-           let scriptIndex = campfireScriptArgumentIndex(in: arguments) {
-            return [defaultExecutable] + Array(arguments.dropFirst(scriptIndex + 1))
-        }
-        return [defaultExecutable] + Array(arguments.dropFirst())
-    }
-
-    private static func campfireScriptArgumentIndex(in arguments: [String]) -> Int? {
-        guard arguments.count > 1 else { return nil }
-        return arguments.indices.dropFirst().first { campfireArgumentLooksLikeScript(arguments[$0]) }
-    }
-
-    private static func campfireArgumentLooksLikeBunfsEntry(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/")
-        return normalized.contains("$bunfs")
-            || normalized.contains("~BUN")
-            || normalized.contains("%7EBUN")
-    }
-
-    private static func campfireArgumentLooksLikeExecutable(_ value: String) -> Bool {
-        URL(fileURLWithPath: value).lastPathComponent.compare(
-            "campfire",
-            options: [.caseInsensitive, .literal]
-        ) == .orderedSame && !campfireArgumentLooksLikeBunfsEntry(value)
-    }
-
-    private static func campfireArgumentLooksLikeScript(_ value: String) -> Bool {
-        let normalized = value.replacingOccurrences(of: "\\", with: "/").lowercased()
-        let base = URL(fileURLWithPath: normalized).lastPathComponent
-        return ["campfire.ts", "campfire.js", "campfire"].contains(base)
-            && (normalized.contains("/campfire") || normalized.contains("packages/session"))
-    }
-
-    private static func campfireArgumentLooksLikeJavaScriptRuntime(_ value: String) -> Bool {
-        let base = URL(fileURLWithPath: value).lastPathComponent.lowercased()
-        return ["node", "bun", "deno", "tsx", "ts-node"].contains(base)
     }
 
     static func processLooksLikeOpenCode(
@@ -904,7 +854,17 @@ private extension CmuxVaultAgentDetectRule {
 
     func usesAlternateMatchWithoutPrimaryMatch(_ process: VaultObservedAgentProcess) -> Bool {
         let expectedNames = primaryProcessNames
-        return alternateMatches(process) && !primaryMatches(process, expectedNames: expectedNames)
+        let hasPrimaryCriteria = !expectedNames.isEmpty || !argvContains.isEmpty
+        return alternateMatches(process)
+            && !(hasPrimaryCriteria && primaryMatches(process, expectedNames: expectedNames))
+    }
+
+    func alternateLaunchArguments(for process: VaultObservedAgentProcess, defaultExecutable: String) -> [String] {
+        guard !process.arguments.isEmpty else { return [defaultExecutable] }
+        if let entrypointIndex = alternateEntrypointIndex(in: process.arguments) {
+            return [defaultExecutable] + Array(process.arguments.dropFirst(entrypointIndex + 1))
+        }
+        return [defaultExecutable] + Array(process.arguments.dropFirst())
     }
 
     private var primaryProcessNames: [String] {
@@ -941,6 +901,30 @@ private extension CmuxVaultAgentDetectRule {
             && alternateProcessNameMatch
             && process.argumentsContainAny(alternateArgvContainsAny)
         return alternateArgvContainsMatch || alternateArgvContainsAnyMatch
+    }
+
+    private func alternateEntrypointIndex(in arguments: [String]) -> Int? {
+        let needles = alternateArgvContains + alternateArgvContainsAny
+        return arguments.indices.first { index in
+            needles.contains { argument(arguments[index], containsNeedle: $0) }
+        }
+    }
+
+    private func argument(_ argument: String, containsNeedle needle: String) -> Bool {
+        guard !needle.isEmpty else { return false }
+        if needle.contains("/") {
+            let normalizedArgument = argument.replacingOccurrences(of: "\\", with: "/")
+            let normalizedNeedle = needle.replacingOccurrences(of: "\\", with: "/")
+            return normalizedArgument.range(
+                of: normalizedNeedle,
+                options: [.caseInsensitive, .literal]
+            ) != nil
+        }
+        return argument.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+            || (argument as NSString).lastPathComponent.range(
+                of: needle,
+                options: [.caseInsensitive, .literal]
+            ) != nil
     }
 }
 

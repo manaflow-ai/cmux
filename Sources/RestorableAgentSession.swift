@@ -489,7 +489,8 @@ enum AgentResumeCommandBuilder {
 
         if case .custom = kind {
             guard let customRegistration else { return nil }
-            if customRegistration == CmuxVaultAgentRegistration.builtInCampfire {
+            if customRegistration.id == CmuxVaultAgentRegistration.builtInCampfire.id,
+               customRegistration.resumeCommand == CmuxVaultAgentRegistration.builtInCampfire.resumeCommand {
                 return AgentResumeArgv().builtInKind(
                     kind: "campfire",
                     sessionId: sessionId,

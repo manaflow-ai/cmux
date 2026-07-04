@@ -244,6 +244,12 @@ struct OmpSupportTests {
         #expect(detected.kind == RestorableAgentKind.custom("omp"))
         #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
         #expect(detected.workingDirectory == workspace.path)
+        #expect(detected.launchCommand?.executablePath == "omp")
+        #expect(detected.launchCommand?.arguments == [
+            "omp",
+            "--model",
+            "anthropic/claude-sonnet-4-5",
+        ])
     }
 
     @Test func hostedOmpIgnoresRuntimePreloadFlagsBeforeAgentScript() throws {
@@ -281,6 +287,8 @@ struct OmpSupportTests {
         #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
         #expect(detected.sessionId != "/tmp/preload-session-module.js")
         #expect(detected.workingDirectory == workspace.path)
+        #expect(detected.launchCommand?.executablePath == "omp")
+        #expect(detected.launchCommand?.arguments == ["omp"])
     }
 
     @Test func hostedOmpParsesSessionSelectorsAfterAgentScript() throws {
@@ -325,6 +333,12 @@ struct OmpSupportTests {
         #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(explicit.path))
         #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(latest.path))
         #expect(detected.workingDirectory == workspace.path)
+        #expect(detected.launchCommand?.executablePath == "omp")
+        #expect(detected.launchCommand?.arguments == [
+            "omp",
+            "--session",
+            "omp-hosted-explicit-session",
+        ])
     }
 
     @Test func taskManagerClassifiesOmpBeforeLegacyPiPackageNeedles() throws {

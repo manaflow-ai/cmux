@@ -173,7 +173,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
                     "packages/session/dist/campfire",
                 ]
             ),
-            sessionIdSource: .piSessionFile,
+            sessionIdSource: .argvOption("--session"),
             resumeCommand: "{{executable}} --session {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.campfire/agent/sessions"

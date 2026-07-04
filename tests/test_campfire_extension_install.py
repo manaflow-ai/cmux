@@ -388,6 +388,12 @@ printf 'end %s\n' "$*" >> "$FAKE_CMUX_ORDER_LOG"
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
         check_env["FAKE_CMUX_ORDER_LOG"] = str(fake_order_log)
         check_env["CAMPFIRE_SESSION_ROLE"] = "host"
+        check_env["CMUX_AGENT_LAUNCH_KIND"] = "claude"
+        check_env["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/claude"
+        check_env["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64.b64encode(
+            b"/usr/local/bin/claude\0--resume\0stale-parent-session\0"
+        ).decode("ascii")
+        check_env["CMUX_AGENT_LAUNCH_CWD"] = "/tmp/stale-parent-project"
         check_source = """
 const extensionPath = process.env.CMUX_TEST_CAMPFIRE_EXTENSION_PATH;
 const mod = await import(extensionPath);

@@ -40,9 +40,9 @@ struct CampfireHookNotificationTests {
         let notificationCommands = Array(context.state.snapshot().dropFirst(notificationStart))
         #expect(
             notificationCommands.contains {
-                $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Campfire|Permission|Alice asked for permission to run a shell command")
+                $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Campfire|Permission|Alice asked for permission to run a shell command|c=needs-permission;p=0")
             },
-            "Campfire permission notification should be localized in Swift, saw \(notificationCommands)"
+            "Campfire permission notification should be localized and notification-gated in Swift, saw \(notificationCommands)"
         )
         #expect(
             notificationCommands.contains {

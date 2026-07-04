@@ -41,7 +41,7 @@ Pi Coding Agent, OMP, and Campfire are registered by default:
         "detect": {
           "processName": "campfire"
         },
-        "sessionIdSource": { "type": "piSessionFile" },
+        "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
         "resumeCommand": "{{executable}} --session {{sessionId}}",
         "cwd": "preserve",
         "sessionDirectory": "~/.campfire/agent/sessions"

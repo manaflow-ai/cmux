@@ -83,7 +83,7 @@ extension CMUXCLI {
         environment: [String: String]?
     ) -> [String] {
         guard let environment, !environment.isEmpty else { return [] }
-        let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment, kind: agent)
+        let selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: agent)
         var environmentParts: [String] = []
         var preservedClaudeKeys: [String] = []
         for key in selectedEnvironment.keys.sorted() {

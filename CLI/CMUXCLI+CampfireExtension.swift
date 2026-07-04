@@ -94,7 +94,13 @@ function base64NulSeparated(values: string[]): string {
 
 function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+  const launchKind = String(env.CMUX_AGENT_LAUNCH_KIND || "").toLowerCase();
+  const shouldCaptureLaunch =
+    launchKind !== "campfire" ||
+    !env.CMUX_AGENT_LAUNCH_EXECUTABLE ||
+    !env.CMUX_AGENT_LAUNCH_ARGV_B64 ||
+    !env.CMUX_AGENT_LAUNCH_CWD;
+  if (shouldCaptureLaunch) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "campfire";
     env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("campfire");
@@ -336,7 +342,7 @@ export default function cmuxCampfireSessionExtension(api: ExtensionAPI) {
                 ),
                 url.path
             )
-            throw CLIError(message: "\(message): \(String(describing: error))")
+            throw CLIError(message: message)
         }
     }
 

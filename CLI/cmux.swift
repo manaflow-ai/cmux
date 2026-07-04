@@ -26080,7 +26080,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.waiting", defaultValue: "Waiting"),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
-                isFallback: false
+                isFallback: false,
+                notifyCategory: .needsPermission
             )
         case "permission.asked":
             let name = displayName ?? String(localized: "agent.campfire.notification.participantFallback", defaultValue: "Someone")
@@ -26096,7 +26097,8 @@ struct CMUXCLI {
                 subtitle: String(localized: "agent.generic.notification.subtitle.permission", defaultValue: "Permission"),
                 body: truncate(body, maxLength: 180),
                 status: .needsInput,
-                isFallback: false
+                isFallback: false,
+                notifyCategory: .needsPermission
             )
         case "relay.error":
             return AgentHookNotificationSummary(

@@ -30,12 +30,12 @@ struct CampfireSupportTests {
             try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-            let explicit = try Self.writeSessionFile(
+            _ = try Self.writeSessionFile(
                 id: "explicit-campfire-session",
                 in: projectSessions,
                 modifiedAt: Date(timeIntervalSince1970: 1_000)
             )
-            let latest = try Self.writeSessionFile(
+            _ = try Self.writeSessionFile(
                 id: "latest-campfire-session",
                 in: projectSessions,
                 modifiedAt: Date(timeIntervalSince1970: 2_000)
@@ -51,13 +51,12 @@ struct CampfireSupportTests {
             ), selectorComment)
 
             #expect(detected.kind == RestorableAgentKind.custom("campfire"), selectorComment)
-            #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(explicit.path), selectorComment)
-            #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(latest.path), selectorComment)
+            #expect(detected.sessionId == "explicit-campfire-session", selectorComment)
             #expect(detected.workingDirectory == workspace.path, selectorComment)
         }
     }
 
-    @Test func directProcessDetectionUsesCampfireAgentDirectorySessionsWhenNoSessionDirectoryIsSet() throws {
+    @Test func directProcessDetectionIgnoresCampfireAgentDirectoryWithoutSessionSelector() throws {
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-agent-dir-")
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
@@ -69,30 +68,27 @@ struct CampfireSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "campfire-agent-dir-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
         )
 
-        let detected = try #require(Self.detectedCampfireSnapshot(
+        let detected = Self.detectedCampfireSnapshot(
             arguments: ["/Users/example/.local/bin/campfire"],
             environment: [
                 "PWD": workspace.path,
                 "CAMPFIRE_CODING_AGENT_DIR": agentRoot.path,
             ]
-        ))
+        )
 
-        #expect(detected.kind == RestorableAgentKind.custom("campfire"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
-        #expect(detected.workingDirectory == workspace.path)
+        #expect(detected == nil)
     }
 
-    @Test func directProcessDetectionIgnoresPiSessionDirForCampfire() throws {
+    @Test func directProcessDetectionIgnoresSessionDirectoriesForExplicitCampfireId() throws {
         // Campfire embeds Pi, so a Campfire process can inherit
         // PI_CODING_AGENT_SESSION_DIR from the user's Pi configuration. Session
-        // detection must still resolve Campfire sessions against the
-        // Campfire-specific directory, not the Pi one.
+        // detection must not bind either directory by latest-file heuristic.
         let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-pi-precedence-")
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
@@ -118,7 +114,7 @@ struct CampfireSupportTests {
         )
 
         let detected = try #require(Self.detectedCampfireSnapshot(
-            arguments: ["/Users/example/.local/bin/campfire"],
+            arguments: ["/Users/example/.local/bin/campfire", "--session", "campfire-session"],
             environment: [
                 "PWD": workspace.path,
                 "PI_CODING_AGENT_SESSION_DIR": piSessionsRoot.path,
@@ -127,7 +123,8 @@ struct CampfireSupportTests {
         ))
 
         #expect(detected.kind == RestorableAgentKind.custom("campfire"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(campfireSession.path))
+        #expect(detected.sessionId == "campfire-session")
+        #expect(detected.sessionId != campfireSession.path)
         #expect(Self.normalizedPath(detected.sessionId) != Self.normalizedPath(piSession.path))
         #expect(detected.workingDirectory == workspace.path)
     }
@@ -142,7 +139,7 @@ struct CampfireSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "campfire-dev-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
@@ -154,6 +151,8 @@ struct CampfireSupportTests {
             arguments: [
                 "/opt/homebrew/bin/bun",
                 "/Users/example/campfire/packages/session/bin/campfire.ts",
+                "--session",
+                "campfire-dev-session",
             ],
             environment: [
                 "PWD": workspace.path,
@@ -162,7 +161,7 @@ struct CampfireSupportTests {
         ))
 
         #expect(detected.kind == RestorableAgentKind.custom("campfire"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.sessionId == "campfire-dev-session")
         #expect(detected.workingDirectory == workspace.path)
         #expect(detected.launchCommand?.executablePath == "campfire")
         #expect(detected.resumeCommand?.contains("'campfire' '--session'") == true)
@@ -179,7 +178,7 @@ struct CampfireSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "campfire-bunfs-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
@@ -191,6 +190,8 @@ struct CampfireSupportTests {
             arguments: [
                 "/Users/example/.local/bin/campfire",
                 "/$bunfs/root/campfire",
+                "--session",
+                "campfire-bunfs-session",
                 "--relay",
                 "wss://relay.example/ws",
             ],
@@ -201,9 +202,11 @@ struct CampfireSupportTests {
         ))
 
         #expect(detected.kind == RestorableAgentKind.custom("campfire"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.sessionId == "campfire-bunfs-session")
         #expect(detected.launchCommand?.arguments == [
             "/Users/example/.local/bin/campfire",
+            "--session",
+            "campfire-bunfs-session",
             "--relay",
             "wss://relay.example/ws",
         ])
@@ -221,7 +224,7 @@ struct CampfireSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "campfire-runtime-prefix-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
@@ -235,6 +238,8 @@ struct CampfireSupportTests {
                 "--import",
                 "./loader.mjs",
                 "/Users/example/campfire/packages/session/bin/campfire.ts",
+                "--session",
+                "campfire-runtime-prefix-session",
                 "--relay",
                 "wss://relay.example/ws",
             ],
@@ -244,9 +249,11 @@ struct CampfireSupportTests {
             ]
         ))
 
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.sessionId == "campfire-runtime-prefix-session")
         #expect(detected.launchCommand?.arguments == [
             "campfire",
+            "--session",
+            "campfire-runtime-prefix-session",
             "--relay",
             "wss://relay.example/ws",
         ])
@@ -265,7 +272,7 @@ struct CampfireSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "campfire-override-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
@@ -277,6 +284,8 @@ struct CampfireSupportTests {
             arguments: [
                 "/Users/example/.local/bin/campfire",
                 "/$bunfs/root/campfire",
+                "--session",
+                "campfire-override-session",
                 "--relay",
                 "wss://relay.example/ws",
             ],
@@ -287,9 +296,57 @@ struct CampfireSupportTests {
             registration: registration
         ))
 
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.sessionId == "campfire-override-session")
         #expect(detected.resumeCommand?.contains("'custom-campfire' 'restore'") == true)
         #expect(detected.resumeCommand?.contains("'campfire' '--session'") == false)
+    }
+
+    @Test func campfireRegistrationOverrideStillNormalizesRuntimeLaunchArguments() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-override-runtime-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+
+        _ = try Self.writeSessionFile(
+            id: "campfire-override-runtime-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+        var registration = CmuxVaultAgentRegistration.builtInCampfire
+        registration.resumeCommand = "custom-campfire restore {{sessionId}}"
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            processName: "node",
+            processPath: "/opt/homebrew/bin/node",
+            arguments: [
+                "/opt/homebrew/bin/node",
+                "/Users/example/campfire/packages/session/bin/campfire.ts",
+                "--session",
+                "campfire-override-runtime-session",
+                "--relay",
+                "wss://relay.example/ws",
+            ],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ],
+            registration: registration
+        ))
+
+        #expect(detected.sessionId == "campfire-override-runtime-session")
+        #expect(detected.launchCommand?.arguments == [
+            "campfire",
+            "--session",
+            "campfire-override-runtime-session",
+            "--relay",
+            "wss://relay.example/ws",
+        ])
+        #expect(detected.resumeCommand?.contains("/opt/homebrew/bin/node") == false)
+        #expect(detected.resumeCommand?.contains("packages/session/bin/campfire.ts") == false)
     }
 
     @Test func directProcessDetectionClassifiesCampfireDistInvocation() throws {
@@ -302,7 +359,7 @@ struct CampfireSupportTests {
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
 
-        let latest = try Self.writeSessionFile(
+        _ = try Self.writeSessionFile(
             id: "campfire-dist-session",
             in: projectSessions,
             modifiedAt: Date(timeIntervalSince1970: 2_000)
@@ -314,6 +371,8 @@ struct CampfireSupportTests {
             arguments: [
                 "/opt/homebrew/bin/bun",
                 "/Users/example/campfire/packages/session/dist/campfire",
+                "--session",
+                "campfire-dist-session",
             ],
             environment: [
                 "PWD": workspace.path,
@@ -322,7 +381,7 @@ struct CampfireSupportTests {
         ))
 
         #expect(detected.kind == RestorableAgentKind.custom("campfire"))
-        #expect(Self.normalizedPath(detected.sessionId) == Self.normalizedPath(latest.path))
+        #expect(detected.sessionId == "campfire-dist-session")
         #expect(detected.workingDirectory == workspace.path)
     }
 
@@ -481,6 +540,7 @@ struct CampfireSupportTests {
         let registration = CmuxVaultAgentRegistration.builtInCampfire
         #expect(registration.id == "campfire")
         #expect(registration.resumeCommand == "{{executable}} --session {{sessionId}}")
+        #expect(registration.sessionIdSource == .argvOption("--session"))
         #expect(registration.sessionDirectory == "~/.campfire/agent/sessions")
     }
 
@@ -500,6 +560,70 @@ struct CampfireSupportTests {
             arguments: ["/opt/homebrew/bin/node", "some-other-script.js"],
             environment: ["PWD": "/tmp"],
             registration: registration
+        )
+
+        #expect(detected == nil)
+    }
+
+    @Test func alternateOnlyDetectRuleUsesDefaultExecutableForRestore() throws {
+        var registration = CmuxVaultAgentRegistration.builtInCampfire
+        registration.detect = CmuxVaultAgentDetectRule(
+            alternateArgvContainsAny: ["packages/session/bin/campfire.ts"]
+        )
+
+        let detected = try #require(Self.detectedCampfireSnapshot(
+            processName: "node",
+            processPath: "/opt/homebrew/bin/node",
+            arguments: [
+                "/opt/homebrew/bin/node",
+                "/Users/example/campfire/packages/session/bin/campfire.ts",
+                "--session",
+                "campfire-alternate-only-session",
+                "--relay",
+                "wss://relay.example/ws",
+            ],
+            environment: [
+                "PWD": "/tmp/repo",
+            ],
+            registration: registration
+        ))
+
+        #expect(detected.sessionId == "campfire-alternate-only-session")
+        #expect(detected.launchCommand?.executablePath == "campfire")
+        #expect(detected.launchCommand?.arguments == [
+            "campfire",
+            "--session",
+            "campfire-alternate-only-session",
+            "--relay",
+            "wss://relay.example/ws",
+        ])
+        #expect(detected.resumeCommand?.contains("'campfire' '--session'") == true)
+        #expect(detected.resumeCommand?.contains("/opt/homebrew/bin/node") == false)
+    }
+
+    @Test func processDetectedCampfireDoesNotInferLatestSessionFile() throws {
+        let root = try Self.makeTemporaryDirectory(prefix: "cmux-campfire-no-latest-fallback-")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
+        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        _ = try Self.writeSessionFile(
+            id: "unrelated-newer-campfire-session",
+            in: projectSessions,
+            modifiedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let detected = Self.detectedCampfireSnapshot(
+            processName: "campfire",
+            processPath: "/Users/example/.local/bin/campfire",
+            arguments: ["/Users/example/.local/bin/campfire"],
+            environment: [
+                "PWD": workspace.path,
+                "CAMPFIRE_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+            ]
         )
 
         #expect(detected == nil)

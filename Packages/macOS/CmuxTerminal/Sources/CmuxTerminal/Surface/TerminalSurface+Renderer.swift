@@ -109,7 +109,7 @@ extension TerminalSurface {
         // mailbox is full). If it dropped, keep `rendererRealized = true` so the
         // controller retries on its next pass rather than desyncing from
         // Ghostty's still-realized swap chain.
-        if GhosttyRuntimeCInterop.setRendererRealized(surface, false) {
+        if GhosttySurfaceRendererRealizer().setRealized(surface, false) {
             rendererRealized = false
         }
 #endif
@@ -136,7 +136,7 @@ extension TerminalSurface {
         // the push drops, `rendererRealized` stays false, and the controller's
         // pass re-realizes any visible-but-unrealized surface as the backstop. We
         // never block the main actor waiting on the renderer thread.
-        if GhosttyRuntimeCInterop.setRendererRealized(surface, true) {
+        if GhosttySurfaceRendererRealizer().setRealized(surface, true) {
             rendererRealized = true
         } else {
             // Enqueue dropped (full mailbox, i.e. the renderer thread is not

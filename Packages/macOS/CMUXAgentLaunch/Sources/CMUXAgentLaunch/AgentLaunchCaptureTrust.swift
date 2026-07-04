@@ -20,6 +20,7 @@ public enum AgentLaunchCaptureTrust {
 
     private static let nativeProcessAliasesByKind: [String: Set<String>] = [
         "antigravity": ["agy"],
+        "campfire": ["campfire"],
         "claude": ["claude"],
         "codex": ["codex"],
         "codebuddy": ["codebuddy"],
@@ -126,6 +127,13 @@ public enum AgentLaunchCaptureTrust {
                     || lowered.contains("/claude/versions/")
             }) {
                 descriptors.insert("claude")
+            }
+            if arguments.dropFirst().contains(where: { argument in
+                let lowered = argument.replacingOccurrences(of: "\\", with: "/").lowercased()
+                return lowered.contains("packages/session/bin/campfire.ts")
+                    || lowered.contains("packages/session/dist/campfire")
+            }) {
+                descriptors.insert("campfire")
             }
             return descriptors
         }
