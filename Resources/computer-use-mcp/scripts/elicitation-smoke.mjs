@@ -269,24 +269,46 @@ async function runQueuedCancellationSmoke() {
   });
   try {
     await request("init", "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
-    const active = request(
-      "active-state",
+    const rounds = [];
+    for (let index = 0; index < 7; index += 1) {
+      const activeId = `active-state-${index}`;
+      const queuedId = `queued-target-${index}`;
+      const active = request(
+        activeId,
+        "tools/call",
+        { name: "computer_state", arguments: { app: "QueueHoldApp" } },
+        1000
+      )
+        .then((message) => summarizeResult(message.result))
+        .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+      const queued = request(
+        queuedId,
+        "tools/call",
+        { name: "computer_target", arguments: {} },
+        1000
+      )
+        .then((message) => summarizeResult(message.result))
+        .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+      setTimeout(() => notify("notifications/cancelled", { requestId: queuedId, reason: "cancel smoke" }), 25);
+      rounds.push({ active: await active, queued: await queued });
+    }
+    const postActive = request(
+      "post-active-state",
       "tools/call",
       { name: "computer_state", arguments: { app: "QueueHoldApp" } },
       1000
     )
       .then((message) => summarizeResult(message.result))
       .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
-    const queued = request(
-      "queued-target",
+    const followUp = request(
+      "post-queued-target",
       "tools/call",
       { name: "computer_target", arguments: {} },
       1000
     )
       .then((message) => summarizeResult(message.result))
       .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
-    setTimeout(() => notify("notifications/cancelled", { requestId: "queued-target", reason: "cancel smoke" }), 25);
-    return { active: await active, queued: await queued };
+    return { rounds, postActive: await postActive, followUp: await followUp };
   } finally {
     child.kill();
   }
@@ -334,11 +356,12 @@ if (cancelled.afterCancel.isError) {
 }
 
 const queuedCancelled = await runQueuedCancellationSmoke();
+const queuedCancellationFailed = queuedCancelled.rounds.some((round) => round.active.isError || !round.queued.isError);
 console.log(
-  `queued cancellation -> active=${queuedCancelled.active.isError} queued=${queuedCancelled.queued.isError}`
+  `queued cancellation -> failed=${queuedCancellationFailed} postActive=${queuedCancelled.postActive.isError} followUp=${queuedCancelled.followUp.isError}`
 );
-if (queuedCancelled.active.isError || !queuedCancelled.queued.isError) {
-  console.error("FAIL: cancelling a queued tool call should not stop the active tool call");
+if (queuedCancellationFailed || queuedCancelled.postActive.isError || queuedCancelled.followUp.isError) {
+  console.error("FAIL: queued cancellations should clean up their tokens without stopping active or later calls");
   process.exit(1);
 }
 

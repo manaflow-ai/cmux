@@ -1364,21 +1364,27 @@ function enqueueToolCall(id, args, run) {
     abortControllers: new Set(),
   };
   activeToolCalls.set(key, token);
+  const cleanupToken = () => {
+    if (activeToolToken === token) activeToolToken = null;
+    activeToolCalls.delete(key);
+    canceledRequestIds.delete(key);
+  };
   const queued = toolCallQueue.then(
     async () => {
-      if (token.canceled) return err(localizedMessage("toolCallCancelled"));
-      activeToolToken = token;
       try {
+        if (token.canceled) return err(localizedMessage("toolCallCancelled"));
+        activeToolToken = token;
         const result = await run();
         if (token.canceled) return err(localizedMessage("toolCallCancelled"));
         return result;
       } finally {
-        if (activeToolToken === token) activeToolToken = null;
-        activeToolCalls.delete(key);
-        canceledRequestIds.delete(key);
+        cleanupToken();
       }
     },
-    async () => err("previous tool call failed before this request could run")
+    async () => {
+      cleanupToken();
+      return err("previous tool call failed before this request could run");
+    }
   );
   toolCallQueue = queued.catch(() => {});
   return queued;
