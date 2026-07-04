@@ -181,7 +181,8 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 |----------|--------|
 | ⌘ D | Split right |
 | ⌘ ⇧ D | Split down |
-| ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+| ⌘ [ / ⌘ ] | Focus pane left/right in split workspaces |
+| ⌥ ⌘ ↑ / ⌥ ⌘ ↓ | Focus pane up/down |
 | ⌘ ⇧ H | Flash focused panel |
 
 ### Browser

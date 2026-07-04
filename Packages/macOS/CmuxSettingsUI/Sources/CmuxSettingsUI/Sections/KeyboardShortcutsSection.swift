@@ -327,6 +327,18 @@ public struct KeyboardShortcutsSection: View {
             let format = String(localized: "shortcut.when.caption.override", defaultValue: "When: %@")
             return String.localizedStringWithFormat(format, raw)
         }
+        func isPaneCountGreaterThanOne(_ clause: ShortcutWhenClause) -> Bool {
+            guard case let .compare(key, op, operand) = clause else { return false }
+            return key == ShortcutContextKnownKey.paneCount.rawValue
+                && op == .greaterThan
+                && operand == .int(1)
+        }
+
+        func isSplitPaneNavigationClause(_ lhs: ShortcutWhenClause, _ rhs: ShortcutWhenClause) -> Bool {
+            (isPaneCountGreaterThanOne(lhs) && rhs == .not(.atom(.sidebarFocus)))
+                || (isPaneCountGreaterThanOne(rhs) && lhs == .not(.atom(.sidebarFocus)))
+        }
+
         switch action.defaultFocusWhenClause {
         case .always:
             return nil
@@ -341,6 +353,8 @@ public struct KeyboardShortcutsSection: View {
             return String(localized: "shortcut.when.caption.browserOrFilePreviewTextEditorFocus", defaultValue: "Only while a browser pane or text file preview is focused")
         case .atom(.markdownFocus):
             return String(localized: "shortcut.when.caption.markdownFocus", defaultValue: "Only while a markdown preview is focused")
+        case let .and(lhs, rhs) where isSplitPaneNavigationClause(lhs, rhs):
+            return String(localized: "shortcut.when.caption.splitPaneNavigation", defaultValue: "Only in split workspaces with more than one pane")
         default:
             return String(localized: "shortcut.when.caption.terminalFocus", defaultValue: "Only while a terminal pane is focused")
         }
@@ -351,14 +365,13 @@ public struct KeyboardShortcutsSection: View {
         for other in ShortcutAction.allCases where other != action {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
-            // cannot decide the overlap. Context-disjoint clauses coexist.
-            // outright so the factory Select Surface ⌃1…9 coexists with the
-            // sidebar's ⌃1…5 — matching the app target's authoritative check.
+            // cannot decide the overlap. Context-disjoint clauses coexist, and
+            // pair-specific priority mirrors the app target's authoritative check.
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,
-                lhsHasPriority: action.hasPriorityShortcutRouting,
+                lhsHasPriority: action.hasShortcutConflictPriority(over: other),
                 effectiveWhenClause(for: other),
-                rhsHasPriority: other.hasPriorityShortcutRouting
+                rhsHasPriority: other.hasShortcutConflictPriority(over: action)
             ) else { continue }
             let override = bindings[other.rawValue]
             let effective = override ?? other.defaultShortcut

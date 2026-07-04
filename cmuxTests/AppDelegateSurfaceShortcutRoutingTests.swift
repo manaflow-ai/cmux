@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCanvasUI
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -395,6 +396,39 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(firstFrame.width == secondFrame.width)
             #expect(firstFrame.height == secondFrame.height)
             #expect(workspace.bonsplitController.allPaneIds.count == originalBonsplitPaneCount)
+        }
+    }
+
+    @Test func paneNavigationShortcutContextCountsBonsplitPanesInsteadOfSurfaces() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+            let originalSurfaceCount = workspace.panels.count
+            let originalPaneCount = workspace.bonsplitController.allPaneIds.count
+
+            _ = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true))
+            #expect(workspace.panels.count == originalSurfaceCount + 1)
+            #expect(workspace.bonsplitController.allPaneIds.count == originalPaneCount)
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
+
+            let event = try #require(makeKeyDownEvent(
+                key: "[",
+                modifiers: [.command],
+                keyCode: 33,
+                windowNumber: window.windowNumber
+            ))
+            defer { appDelegate.clearShortcutEventFocusContextCache(for: event) }
+
+            let focusContext = appDelegate.shortcutEventFocusContext(event)
+            #expect(focusContext.shortcutContext.int(ShortcutContextKnownKey.paneCount.rawValue) == 1)
+            #expect(!KeyboardShortcutSettings.Action.focusLeft.shortcutContext.isAvailable(focusContext))
         }
     }
 

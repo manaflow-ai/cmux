@@ -9,6 +9,7 @@ extension KeyboardShortcutSettings.Action {
         case browserOrFilePreviewTextEditor
         case markdownPanel
         case rightSidebarFocus
+        case splitPaneNavigation
         case canvasLayout
         case canvasLayoutOutsideFocusedContent
 
@@ -28,6 +29,7 @@ extension KeyboardShortcutSettings.Action {
             focusedMarkdownPanel: Bool,
             focusedFilePreviewTextEditor: Bool = false,
             rightSidebarFocused: Bool,
+            workspaceHasSplits: Bool = false,
             workspaceCanvasLayout: Bool = false
         ) -> Bool {
             switch self {
@@ -37,6 +39,7 @@ extension KeyboardShortcutSettings.Action {
             case .browserOrFilePreviewTextEditor: return focusedBrowserPanel || focusedFilePreviewTextEditor
             case .markdownPanel: return focusedMarkdownPanel
             case .rightSidebarFocus: return rightSidebarFocused
+            case .splitPaneNavigation: return workspaceHasSplits && !rightSidebarFocused
             case .canvasLayout: return workspaceCanvasLayout
             case .canvasLayoutOutsideFocusedContent:
                 return workspaceCanvasLayout
@@ -52,6 +55,7 @@ extension KeyboardShortcutSettings.Action {
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
+                workspaceHasSplits: (context.shortcutContext.int(ShortcutContextKnownKey.paneCount.rawValue) ?? 0) > 1,
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
         }
@@ -62,6 +66,7 @@ extension KeyboardShortcutSettings.Action {
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
                 focusedFilePreviewTextEditor: context.bool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor),
                 rightSidebarFocused: false,
+                workspaceHasSplits: context.bool(CommandPaletteContextKeys.workspaceHasSplits),
                 workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
             )
         }
@@ -75,6 +80,11 @@ extension KeyboardShortcutSettings.Action {
                 return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
             case .markdownPanel: return .atom(.markdownFocus)
             case .rightSidebarFocus: return .atom(.sidebarFocus)
+            case .splitPaneNavigation:
+                return .and(
+                    .compare(key: ShortcutContextKnownKey.paneCount.rawValue, op: .greaterThan, operand: .int(1)),
+                    .not(.atom(.sidebarFocus))
+                )
             case .canvasLayout: return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             case .canvasLayoutOutsideFocusedContent:
                 return .and(
@@ -115,6 +125,9 @@ extension KeyboardShortcutSettings.Action {
                     && self != .markdownPanel
                     && other != .markdownPanel
             }
+            if self == .splitPaneNavigation || other == .splitPaneNavigation {
+                return self != .rightSidebarFocus && other != .rightSidebarFocus
+            }
             return false
         }
     }
@@ -123,6 +136,22 @@ extension KeyboardShortcutSettings.Action {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func hasShortcutConflictPriority(over other: KeyboardShortcutSettings.Action) -> Bool {
+        if hasPriorityShortcutRouting {
+            return true
+        }
+
+        switch (self, other) {
+        case (.focusLeft, .focusHistoryBack),
+             (.focusLeft, .browserBack),
+             (.focusRight, .focusHistoryForward),
+             (.focusRight, .browserForward):
             return true
         default:
             return false
@@ -147,6 +176,8 @@ extension KeyboardShortcutSettings.Action {
             return .browserOrFilePreviewTextEditor
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
+        case .focusLeft, .focusRight:
+            return .splitPaneNavigation
         case .canvasZoomReset:
             return .canvasLayoutOutsideFocusedContent
         case .canvasRevealFocusedPane, .canvasOverview, .canvasZoomIn, .canvasZoomOut,

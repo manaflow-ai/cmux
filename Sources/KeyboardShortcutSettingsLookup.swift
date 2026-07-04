@@ -42,6 +42,18 @@ extension KeyboardShortcutSettings {
 
         let shortcut = shortcut(for: action)
         switch action {
+        case .focusHistoryBack
+            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusLeft):
+            return .unbound
+        case .focusHistoryForward
+            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusRight):
+            return .unbound
+        case .browserBack
+            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusLeft):
+            return .unbound
+        case .browserForward
+            where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusRight):
+            return .unbound
         case .browserBack
             where !shortcut.isUnbound && shortcut == KeyboardShortcutSettings.shortcut(for: .focusHistoryBack):
             return .unbound

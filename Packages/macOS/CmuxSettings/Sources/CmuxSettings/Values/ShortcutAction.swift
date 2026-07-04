@@ -276,6 +276,11 @@ extension ShortcutAction {
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
         case .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+        case .focusLeft, .focusRight:
+            return .and(
+                .compare(key: ShortcutContextKnownKey.paneCount.rawValue, op: .greaterThan, operand: .int(1)),
+                .not(.atom(.sidebarFocus))
+            )
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
              .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
              .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
@@ -319,6 +324,26 @@ extension ShortcutAction {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether this action wins a shortcut conflict against `other` in runtime routing.
+    ///
+    /// Some priority is pair-specific: pane-focus shortcuts route before focus/browser
+    /// history, but not before every general shortcut action.
+    public func hasShortcutConflictPriority(over other: ShortcutAction) -> Bool {
+        if hasPriorityShortcutRouting {
+            return true
+        }
+
+        switch (self, other) {
+        case (.focusLeft, .focusHistoryBack),
+             (.focusLeft, .browserBack),
+             (.focusRight, .focusHistoryForward),
+             (.focusRight, .browserForward):
             return true
         default:
             return false

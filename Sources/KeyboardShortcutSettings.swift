@@ -424,9 +424,9 @@ enum KeyboardShortcutSettings {
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
-                return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusRight:
-                return StoredShortcut(key: "→", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
             case .focusUp:
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
@@ -646,9 +646,9 @@ enum KeyboardShortcutSettings {
             // with the sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
-                lhsHasPriority: hasPriorityShortcutRouting,
+                lhsHasPriority: hasShortcutConflictPriority(over: proposedAction),
                 KeyboardShortcutSettings.effectiveWhenClause(for: proposedAction),
-                rhsHasPriority: proposedAction.hasPriorityShortcutRouting
+                rhsHasPriority: proposedAction.hasShortcutConflictPriority(over: self)
             ) else {
                 return false
             }
