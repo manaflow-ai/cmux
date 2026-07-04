@@ -11966,7 +11966,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
     ) {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
-        coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
         // Avoid forcing ancestor AppKit layout while SwiftUI is still inside
         // the current update/layout turn. Reconcile the portal against the
         // already-current host geometry so terminal content tracks resize
@@ -11974,7 +11973,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
         guard case .synchronizeWithoutLayoutFlush = hostCallbackPortalGeometrySynchronizationAction(
             window: host.window
         ) else { return }
-        TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
+        if TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false) {
+            coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+        }
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -12104,7 +12105,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 ) else { return }
                 guard host.window != nil else { return }
                 guard portalBindingStillLive() else { return }
-                TerminalWindowPortalRegistry.bind(
+                let bindApplied = TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
                     to: host,
                     visibleInUI: coordinator.desiredIsVisibleInUI,
@@ -12116,8 +12117,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         coordinator?.attachGeneration == generation
                     }
                 )
-                coordinator.lastBoundHostId = ObjectIdentifier(host)
-                coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                if bindApplied {
+                    coordinator.lastBoundHostId = ObjectIdentifier(host)
+                    coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                }
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
@@ -12145,7 +12148,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
                     )
 #endif
-                    TerminalWindowPortalRegistry.bind(
+                    let bindApplied = TerminalWindowPortalRegistry.bind(
                         hostedView: hostedView,
                         to: host,
                         visibleInUI: coordinator.desiredIsVisibleInUI,
@@ -12157,7 +12160,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                             coordinator?.attachGeneration == generation
                         }
                     )
-                    coordinator.lastBoundHostId = hostId
+                    if bindApplied {
+                        coordinator.lastBoundHostId = hostId
+                    }
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                     hostedView.setActive(coordinator.desiredIsActive)
                     hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
@@ -12192,7 +12197,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         )
                     }
 #endif
-                    TerminalWindowPortalRegistry.bind(
+                    let bindApplied = TerminalWindowPortalRegistry.bind(
                         hostedView: hostedView,
                         to: host,
                         visibleInUI: coordinator.desiredIsVisibleInUI,
@@ -12204,8 +12209,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
                             coordinator?.attachGeneration == generation
                         }
                     )
-                    coordinator.lastBoundHostId = hostId
-                    coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+                    if bindApplied {
+                        coordinator.lastBoundHostId = hostId
+                        coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
+                    }
                 } else if portalBindingLive && coordinator.lastSynchronizedHostGeometryRevision != geometryRevision {
                     Self.synchronizePortalGeometry(
                         for: host,

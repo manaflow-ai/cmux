@@ -1838,14 +1838,6 @@ enum TerminalWindowPortalRegistry {
         hostWindowAttachmentDepth -= 1
     }
 
-    /// Decide whether a portal bind requested right now must be deferred because a terminal host
-    /// is mid window-attachment and AppKit is still enumerating the view tree.
-    static func shouldDeferHostWindowAttachmentBind(
-        hostWindowAttachmentInProgress: Bool
-    ) -> Bool {
-        hostWindowAttachmentInProgress
-    }
-
     static var isInteractiveGeometryResizeActive: Bool {
 #if DEBUG
         if Self.isPointerDragActiveForTesting { return true }
@@ -2019,6 +2011,7 @@ enum TerminalWindowPortalRegistry {
         return portalsByWindowId[ObjectIdentifier(window)]
     }
 
+    @discardableResult
     static func bind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -2033,9 +2026,7 @@ enum TerminalWindowPortalRegistry {
         // `_setWindow:` enumeration) would reparent the surface and corrupt the in-flight
         // view-tree walk. Defer the structural bind to the next MainActor turn instead.
         // See https://github.com/manaflow-ai/cmux/issues/5704.
-        if shouldDeferHostWindowAttachmentBind(
-            hostWindowAttachmentInProgress: isHostWindowAttachmentInProgress
-        ) {
+        if isHostWindowAttachmentInProgress {
             scheduleDeferredHostWindowAttachmentBind(
                 hostedView: hostedView,
                 to: anchorView,
@@ -2046,10 +2037,10 @@ enum TerminalWindowPortalRegistry {
                 deferLayoutSynchronization: deferLayoutSynchronization,
                 deferredBindStillCurrent: deferredBindStillCurrent
             )
-            return
+            return false
         }
 
-        guard let window = anchorView.window else { return }
+        guard let window = anchorView.window else { return false }
 
         let windowId = ObjectIdentifier(window)
         let hostedId = ObjectIdentifier(hostedView)
@@ -2078,7 +2069,7 @@ enum TerminalWindowPortalRegistry {
                 "actualState=\(guardState.state)"
             )
 #endif
-            return
+            return false
         }
 
         let nextPortal = portal(for: window, syncLayout: !deferLayoutSynchronization)
@@ -2097,6 +2088,7 @@ enum TerminalWindowPortalRegistry {
         )
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
+        return true
     }
 
     /// Re-issue a portal bind on the next MainActor turn, after AppKit has unwound the
@@ -2140,8 +2132,9 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
-    static func synchronizeForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
-        guard let window = anchorView.window else { return }
+    @discardableResult
+    static func synchronizeForAnchor(_ anchorView: NSView, syncLayout: Bool = true) -> Bool {
+        guard let window = anchorView.window else { return false }
         // `portal(for:)` can install the window portal for the first time and
         // `synchronizeHostedViewForAnchor` runs `ensureInstalled`, both of which `addSubview`
         // and reorder portal views. That structural mutation is unsafe while a terminal host is
@@ -2149,10 +2142,11 @@ enum TerminalWindowPortalRegistry {
         // MainActor turn just like `bind`. See https://github.com/manaflow-ai/cmux/issues/5704.
         if isHostWindowAttachmentInProgress {
             scheduleDeferredHostWindowAttachmentSynchronize(anchorView, syncLayout: syncLayout)
-            return
+            return false
         }
         let portal = portal(for: window, syncLayout: syncLayout)
         portal.synchronizeHostedViewForAnchor(anchorView, syncLayout: syncLayout)
+        return true
     }
 
     /// Re-issue an anchor geometry reconcile on the next MainActor turn, after AppKit has

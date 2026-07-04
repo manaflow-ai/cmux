@@ -1,3 +1,5 @@
+import AppKit
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -27,20 +29,81 @@ struct TerminalWindowPortalReentrancyGuardTests {
         }
     }
 
-    @Test func bindDefersWhileHostWindowAttachmentInProgress() {
-        #expect(
-            TerminalWindowPortalRegistry.shouldDeferHostWindowAttachmentBind(
-                hostWindowAttachmentInProgress: true
-            )
+    @Test func bindDefersAndAppliesAfterHostWindowAttachmentCompletes() throws {
+        resetDepth()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
+        defer {
+            resetDepth()
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(anchor)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        TerminalWindowPortalRegistry.beginHostWindowAttachment()
+        let bindApplied = TerminalWindowPortalRegistry.bind(
+            hostedView: hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+
+        #expect(!bindApplied)
+        #expect(!TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: anchor))
+
+        TerminalWindowPortalRegistry.endHostWindowAttachment()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        #expect(TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: anchor))
     }
 
-    @Test func bindIsImmediateOutsideHostWindowAttachment() {
-        #expect(
-            !TerminalWindowPortalRegistry.shouldDeferHostWindowAttachmentBind(
-                hostWindowAttachmentInProgress: false
-            )
+    @Test func bindAppliesImmediatelyOutsideHostWindowAttachment() throws {
+        resetDepth()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
         )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(anchor)
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let bindApplied = TerminalWindowPortalRegistry.bind(
+            hostedView: hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        #expect(bindApplied)
+        #expect(TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: anchor))
     }
 
     @Test func hostWindowAttachmentDepthTracksNestedBeginEnd() {
