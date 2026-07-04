@@ -79,7 +79,7 @@ public extension View {
     /// so the title remains a normal toolbar control without guessing a height.
     @ViewBuilder
     func mobileGlassCompactToolbarControl() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.glass)
@@ -96,7 +96,7 @@ public extension View {
     /// Non-interactive compact glass title backing.
     @ViewBuilder
     func mobileGlassCompactNavigationTitle() -> some View {
-        #if os(iOS)
+        #if compiler(>=6.2) && os(iOS)
         if #available(iOS 26.0, *) {
             Button {} label: {
                 self
