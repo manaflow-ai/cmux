@@ -151,6 +151,24 @@ public struct SidebarDropPlanner {
         )
     }
 
+    /// Converts an insertion slot from a scoped row list into the destination row space.
+    public func remappedInsertionIndex(
+        scopedInsertionIndex: Int,
+        scopedTabIds: [UUID],
+        destinationTabIds: [UUID]
+    ) -> Int {
+        let clamped = max(0, min(scopedInsertionIndex, scopedTabIds.count))
+        if clamped < scopedTabIds.count,
+           let nextIndex = destinationTabIds.firstIndex(of: scopedTabIds[clamped]) {
+            return nextIndex
+        }
+        if clamped > 0,
+           let previousIndex = destinationTabIds.firstIndex(of: scopedTabIds[clamped - 1]) {
+            return previousIndex + 1
+        }
+        return max(0, min(clamped, destinationTabIds.count))
+    }
+
     /// Where a workspace dragged in from *another window* should land in this
     /// window's sidebar, plus the indicator to render while it hovers.
     ///

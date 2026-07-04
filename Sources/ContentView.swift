@@ -12180,13 +12180,18 @@ struct VerticalTabsSidebar: View {
             )
             return didReorder
         case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
-            return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
+            return performCrossWindowWorkspaceDrop(
+                plan: plan,
+                proposedInsertionIndex: proposedInsertionIndex,
+                renderContext: renderContext
+            )
         }
     }
 
     private func performCrossWindowWorkspaceDrop(
         plan: SidebarWorkspaceReorderDropPlan,
-        proposedInsertionIndex: Int
+        proposedInsertionIndex: Int,
+        renderContext: WorkspaceListRenderContext
     ) -> Bool {
         guard let app = AppDelegate.shared,
               let destinationWindowId = app.windowId(for: tabManager),
@@ -12214,8 +12219,13 @@ struct VerticalTabsSidebar: View {
             let tierIds = movingIds.filter { (pinStateById[$0] ?? false) == isPinnedTier }
             guard !tierIds.isEmpty else { continue }
             let topLevelIds = crossWindowTopLevelWorkspaceIds()
+            let proposedSlot = SidebarDropPlanner().remappedInsertionIndex(
+                scopedInsertionIndex: proposedInsertionIndex,
+                scopedTabIds: renderContext.visibleWorkspaceRowIds,
+                destinationTabIds: topLevelIds
+            )
             let slot = clampedCrossWindowTopLevelSlot(
-                proposedInsertionIndex,
+                proposedSlot,
                 draggedIsPinned: isPinnedTier,
                 topLevelIds: topLevelIds,
                 pinnedTopLevelIds: crossWindowTopLevelPinnedWorkspaceIds()
@@ -15772,11 +15782,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         return sourceManager.workspaceGroups.contains { $0.anchorWorkspaceId == draggedTabId }
     }
 
-    /// The destination's top-level sidebar ids (each group is represented by its
-    /// anchor; members are folded into the run). A workspace moved in from
-    /// another window arrives ungrouped and `attachWorkspace` normalizes it to a
-    /// top-level boundary, so the planner and indicator reason in this space —
-    /// not raw `tabs` — to match where the workspace actually lands.
     private func crossWindowTopLevelTabIds() -> [UUID] {
         tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: nil,
@@ -15793,9 +15798,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         )
     }
 
-    /// Map the hovered destination row to its top-level representative: a group
-    /// member resolves to its group's anchor, since an incoming ungrouped
-    /// workspace lands at the group boundary, never inside the run.
     private func crossWindowTopLevelTarget() -> UUID? {
         guard let targetTabId else { return nil }
         if let groupId = tabManager.tabs.first(where: { $0.id == targetTabId })?.groupId,
@@ -15805,9 +15807,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         return targetTabId
     }
 
-    /// Translate a top-level insertion slot into a raw `tabs` index so the
-    /// attach lands the workspace just before that top-level item's run (or at
-    /// the end); `attachWorkspace` then normalizes the group runs around it.
     private func crossWindowRawInsertIndex(forTopLevelSlot slot: Int, topLevelIds: [UUID]) -> Int {
         guard slot < topLevelIds.count else { return tabManager.tabs.count }
         let topLevelId = topLevelIds[slot]

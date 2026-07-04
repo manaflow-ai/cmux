@@ -46,6 +46,21 @@ import Testing
             destinationTabIds: [first, hidden, second, third]
         ))
 
-        #expect(targetIndex == 1)
+        #expect(targetIndex == 2)
+    }
+
+    @Test func remappedInsertionIndexKeepsHiddenRowsOutOfScopedCrossWindowDrops() {
+        let first = UUID()
+        let hidden = UUID()
+        let second = UUID()
+        let planner = SidebarDropPlanner()
+
+        let insertionIndex = planner.remappedInsertionIndex(
+            scopedInsertionIndex: 1,
+            scopedTabIds: [first, second],
+            destinationTabIds: [first, hidden, second]
+        )
+
+        #expect(insertionIndex == 2)
     }
 }
