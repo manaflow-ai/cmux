@@ -11504,7 +11504,7 @@ class TerminalController {
         return result
     }
 
-    private func notifyTarget(_ args: String) -> String {
+    func notifyTarget(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Usage: notify_target <workspace_id> <surface_id> <title>|<subtitle>|<body>" }
@@ -11522,6 +11522,19 @@ class TerminalController {
            let panelId = UUID(uuidString: panelArg) {
             var result = "OK"
             v2MainSync {
+                if let target = AppDelegate.shared?.workspaceContainingPanel(
+                    panelId: panelId,
+                    preferredWorkspaceId: workspaceId
+                ) {
+                    deliverNotificationSynchronously(
+                        tabId: target.workspace.id,
+                        surfaceId: panelId,
+                        title: title,
+                        subtitle: subtitle,
+                        body: body
+                    )
+                    return
+                }
                 guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
                     result = "ERROR: Tab not found"
                     return
@@ -11553,6 +11566,12 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
+            // Name/index selectors are resolved live at command time, so the
+            // panel must belong to the explicitly selected workspace. Only the
+            // UUID path above re-resolves a (possibly stale) moved-surface
+            // workspace; re-resolving here would let `notify_target <name> <panel>`
+            // deliver to whatever workspace currently owns the panel, silently
+            // ignoring the selected workspace.
             guard let panelId = UUID(uuidString: panelArg),
                   tab.panels[panelId] != nil else {
                 result = "ERROR: Panel not found"
