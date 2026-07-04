@@ -6,7 +6,8 @@ MCP agent cmux launches drive the local Mac through a cmux-owned macOS provider.
 The tool surface is grounded in two signals:
 
 - accessibility trees with short-lived element indices,
-- screenshots returned as MCP image content.
+- screenshots returned as MCP image content, with the native macOS cursor
+  included by default so agents can see the current pointer target.
 
 The server keeps the latest snapshot table inside the MCP session. Element-index
 actions are accepted only after the agent has received a fresh `computer_state`
@@ -44,6 +45,8 @@ The MCP server also asks the user before sharing or controlling an app:
 - `CMUX_CU_TIMEOUT_MS` — per-command timeout, default `180000`.
 - `CMUX_CU_MAX_TREE` — max AX-tree characters returned by `computer_state`,
   default `60000`.
+- `CMUX_CU_SCREENSHOT_CURSOR=0` — omit the native macOS cursor from screenshots;
+  by default cmux includes it for visual action feedback.
 - `CMUX_CU_AUTO_APPROVE=1` — pre-approve app-control and local capability
   prompts for unattended runs.
 - `CMUX_CU_FAKE_PROVIDER=1` — hermetic fake provider for tests; it does not

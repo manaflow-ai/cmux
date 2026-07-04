@@ -17,9 +17,13 @@ The macOS provider path uses:
 
 - `NSWorkspace` for running app discovery,
 - Accessibility APIs for AX trees and semantic actions,
-- `screencapture -l` for app-window screenshots,
+- `screencapture -C -l` for app-window screenshots with the native cursor,
 - CGWindowList for window metadata,
 - CoreGraphics events for coordinate click, drag, scroll, typing, and keys.
+
+Element clicks move the macOS pointer to the element center before using
+`AXPress`, so the cursor shown in the next screenshot still reflects the action
+target even when the semantic accessibility action handled the click.
 
 The implementation is currently a single bundled Node resource with embedded
 Swift helper snippets. That keeps app-bundle wiring simple for this PR. If this

@@ -12,6 +12,7 @@
 // Config (env):
 //   CMUX_CU_TIMEOUT_MS  per-command timeout (default 180000)
 //   CMUX_CU_MAX_TREE    max AX-tree chars returned by computer_state (default 60000)
+//   CMUX_CU_SCREENSHOT_CURSOR=0 omits the native macOS cursor from screenshots
 //   CMUX_CU_FAKE_PROVIDER=1 uses a hermetic provider for tests
 
 import { spawn, execFile } from "node:child_process";
@@ -76,6 +77,7 @@ const MAX_PENDING_TOOL_CALLS = 8;
 const MAX_TOOL_CALL_ARGUMENT_BYTES = 256 * 1024;
 const MAX_TYPE_TEXT_CHARS = positiveIntegerEnv("CMUX_CU_MAX_TYPE_TEXT_CHARS", 8000);
 const MAX_RETAINED_SNAPSHOTS = 4;
+const INCLUDE_SCREENSHOT_CURSOR = process.env.CMUX_CU_SCREENSHOT_CURSOR !== "0";
 // Explicit opt-in for headless automation: pre-approve the engine's per-app
 // control elicitations instead of forwarding them to the MCP client. Headless
 // clients (e.g. `claude -p`) cannot show the approval prompt and cancel it,
@@ -322,7 +324,10 @@ async function captureWindowScreenshot(windowId) {
   activeCaptureDirs.add(dir);
   const path = join(dir, "screenshot.png");
   try {
-    await execFileTool("/usr/sbin/screencapture", ["-x", "-o", "-l", String(windowId), path], {
+    const args = ["-x", "-o"];
+    if (INCLUDE_SCREENSHOT_CURSOR) args.push("-C");
+    args.push("-l", String(windowId), path);
+    await execFileTool("/usr/sbin/screencapture", args, {
       timeout: TIMEOUT_MS,
       env: childEnv(),
     });
@@ -762,6 +767,10 @@ switch op {
 case "click_element":
     guard let element else { fail("element no longer exists") }
     let actions = actionsFor(element)
+    if let point = centerOf(element) {
+        postMouse(.mouseMoved, point)
+        usleep(30_000)
+    }
     if actions.contains(kAXPressAction as String),
        AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
         jsonOut(["ok": true, "message": "pressed"])
@@ -1293,6 +1302,7 @@ async function desktopScreenshot(display) {
   activeCaptureDirs.add(dir);
   const path = join(dir, "screenshot.png");
   const args = ["-x"];
+  if (INCLUDE_SCREENSHOT_CURSOR) args.push("-C");
   if (display != null) args.push("-D", String(display));
   args.push(path);
   try {
