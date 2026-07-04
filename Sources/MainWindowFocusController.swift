@@ -379,8 +379,8 @@ final class MainWindowFocusController {
             }
             if terminalFocusRequest(for: responder) == nil,
                selectedFocusedPanelRequest(owning: responder) == nil,
-               shouldRespectForeignFirstResponder(responder, in: window, isRightSidebarOwner: {
-                   liveRightSidebarModeOwning($0, in: window) != nil
+               shouldRespectForeignFirstResponder(responder, in: window, isNonTerminalFocusOwner: {
+                   liveRightSidebarModeOwning($0, in: window) != nil || ownsWorkspaceSidebarFocus($0)
                }) {
                 return false
             }
