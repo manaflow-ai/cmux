@@ -161,4 +161,101 @@ final class SettingsWorkspaceColorsBehaviorUITests: SettingsUITestCase {
             "Reset Palette row missing"
         )
     }
+
+    /// TIER 1 (regression, #7137): the **Workspace Color Indicator** menu
+    /// Picker must round-trip both directions. The reporter could switch
+    /// Left Rail → Solid Fill but then the Left Rail item became
+    /// unselectable, trapping the setting on Solid Fill with no way back
+    /// from the UI.
+    ///
+    /// The picker renders as a `.menu` Picker → an AppKit popUpButton whose
+    /// displayed `value` is the selected style's localized label. Driving
+    /// the popUpButton and its menu items is the same seam-free path the
+    /// Sidebar branch-layout picker test uses. This asserts the *behavior*
+    /// (the selected value returns to Left Rail), not merely that a control
+    /// exists — and that the Left Rail menu item is enabled and hittable
+    /// while Solid Fill is the current value, which is exactly what the bug
+    /// report says is broken.
+    func testIndicatorStylePickerCanReturnToLeftRailAfterSolidFill() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+
+        navigate(window, to: "Workspace Colors")
+
+        // Anchor: the Workspace Colors detail is on screen.
+        XCTAssertTrue(
+            poll(timeout: 6.0) { window.staticTexts["Workspace Color Indicator"].exists },
+            "Workspace Colors section did not render its indicator row"
+        )
+
+        // Default value is Left Rail, so the picker shows "Left Rail".
+        let leftRailPicker = requireElement(
+            candidates: [
+                window.popUpButtons["Left Rail"],
+                window.popUpButtons.matching(NSPredicate(format: "value == %@", "Left Rail")).firstMatch,
+            ],
+            timeout: 6.0,
+            description: "indicator picker showing Left Rail"
+        )
+
+        // Switch Left Rail → Solid Fill (the direction the reporter says works).
+        leftRailPicker.click()
+        let solidFillItem = requireElement(
+            candidates: [app.menuItems["Solid Fill"], window.menuItems["Solid Fill"]],
+            timeout: 4.0,
+            description: "Solid Fill menu item"
+        )
+        solidFillItem.click()
+
+        // The picker now displays Solid Fill.
+        let solidFillPicker = requireElement(
+            candidates: [
+                window.popUpButtons["Solid Fill"],
+                window.popUpButtons.matching(NSPredicate(format: "value == %@", "Solid Fill")).firstMatch,
+            ],
+            timeout: 5.0,
+            description: "indicator picker showing Solid Fill"
+        )
+        XCTAssertEqual(
+            solidFillPicker.value as? String,
+            "Solid Fill",
+            "Picker should show Solid Fill after selecting it"
+        )
+
+        // Reopen and select Left Rail again — the regression. The Left Rail
+        // menu item must be enabled and hittable while Solid Fill is the
+        // current value.
+        solidFillPicker.click()
+        let leftRailItem = requireElement(
+            candidates: [app.menuItems["Left Rail"], window.menuItems["Left Rail"]],
+            timeout: 4.0,
+            description: "Left Rail menu item"
+        )
+        XCTAssertTrue(
+            leftRailItem.isEnabled,
+            "Left Rail menu item must be enabled while Solid Fill is selected (#7137)"
+        )
+        XCTAssertTrue(
+            leftRailItem.isHittable,
+            "Left Rail menu item must be hittable while Solid Fill is selected (#7137)"
+        )
+        leftRailItem.click()
+
+        // Effect: the picker returns to Left Rail — the setting is no longer
+        // trapped on Solid Fill.
+        let backToLeftRail = requireElement(
+            candidates: [
+                window.popUpButtons["Left Rail"],
+                window.popUpButtons.matching(NSPredicate(format: "value == %@", "Left Rail")).firstMatch,
+            ],
+            timeout: 5.0,
+            description: "indicator picker back on Left Rail"
+        )
+        XCTAssertEqual(
+            backToLeftRail.value as? String,
+            "Left Rail",
+            "Picker should return to Left Rail after selecting it again (#7137)"
+        )
+    }
 }
