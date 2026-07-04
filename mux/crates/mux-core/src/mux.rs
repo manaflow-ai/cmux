@@ -7,7 +7,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::model::{Node, Pane, Screen, State, Workspace};
-use crate::surface::{Surface, SurfaceOptions};
+use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 
 /// Events pushed to subscribed frontends.
@@ -33,6 +33,7 @@ pub struct Mux {
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
     next_id: AtomicU64,
     surface_options: SurfaceOptions,
+    default_colors: Mutex<DefaultColors>,
     pub session: String,
 }
 
@@ -48,6 +49,7 @@ impl Mux {
             subscribers: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             surface_options,
+            default_colors: Mutex::new(DefaultColors::default()),
             session: session.into(),
         })
     }
@@ -109,6 +111,19 @@ impl Mux {
 
     pub fn surface_count(&self) -> usize {
         self.state.lock().unwrap().surfaces.len()
+    }
+
+    pub fn default_colors(&self) -> DefaultColors {
+        *self.default_colors.lock().unwrap()
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) {
+        *self.default_colors.lock().unwrap() = colors;
+        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        for surface in surfaces {
+            surface.set_default_colors(colors);
+            self.emit(MuxEvent::SurfaceOutput(surface.id));
+        }
     }
 
     /// Create a workspace with one screen holding one pane with one tab.

@@ -15,7 +15,9 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use ghostty_vt::{RenderState, Terminal};
-use mux_core::{Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface, SurfaceId, WorkspaceId};
+use mux_core::{
+    DefaultColors, Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface, SurfaceId, WorkspaceId,
+};
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
@@ -63,6 +65,16 @@ impl Session {
         match self {
             Session::Local(mux) => mux.subscribe(),
             Session::Remote(remote) => remote.subscribe(),
+        }
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => {
+                mux.set_default_colors(colors);
+                Ok(())
+            }
+            Session::Remote(remote) => remote.set_default_colors(colors),
         }
     }
 

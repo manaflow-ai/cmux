@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, Terminal};
-use mux_core::{MuxEvent, SurfaceId};
+use mux_core::{DefaultColors, MuxEvent, Rgb, SurfaceId};
 use serde_json::{json, Value};
 
 use super::tree::{parse_tree, TreeView};
@@ -194,6 +194,20 @@ impl RemoteSession {
         let _ = self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded}));
     }
 
+    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
+        if colors.fg.is_none() && colors.bg.is_none() {
+            return Ok(());
+        }
+        let mut cmd = json!({"cmd": "set-default-colors"});
+        if let Some(fg) = colors.fg {
+            cmd["fg"] = json!(hex_color(fg));
+        }
+        if let Some(bg) = colors.bg {
+            cmd["bg"] = json!(hex_color(bg));
+        }
+        self.request(cmd).map(|_| ())
+    }
+
     /// Mirror for a surface, attaching on first use. `size` is the cell
     /// size the frontend will render at: the server surface is resized
     /// BEFORE the replay is taken, so the shell's resize redraw happens
@@ -249,4 +263,8 @@ impl RemoteSession {
         *self.tree.lock().unwrap() = tree.clone();
         Ok(tree)
     }
+}
+
+fn hex_color(color: Rgb) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }

@@ -403,6 +403,7 @@ dependencies = [
  "base64",
  "crossterm",
  "ghostty-vt",
+ "libc",
  "mux-core",
  "ratatui",
  "serde",

@@ -1,4 +1,4 @@
-import os, pty, select, socket, json, time, sys, signal, subprocess
+import os, pty, select, socket, json, time, sys, signal, subprocess, re
 
 BIN = os.environ.get("CMUX_MUX_BIN", "target/debug/cmux-mux")
 SESSION = f"smoke-{os.getpid()}"
@@ -34,6 +34,37 @@ fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
 os.kill(pid, signal.SIGWINCH)
 
 output = b""
+probe_pending = b""
+probe_answers = {10: 0, 11: 0}
+
+def answer_host_color_queries(chunk):
+    global probe_pending
+    probe_pending += chunk
+    while True:
+        start = probe_pending.find(b"\x1b]")
+        if start < 0:
+            probe_pending = probe_pending[-1:]
+            return
+        if start > 0:
+            probe_pending = probe_pending[start:]
+
+        bel = probe_pending.find(b"\x07", 2)
+        st = probe_pending.find(b"\x1b\\", 2)
+        ends = [(bel, b"\x07", 1), (st, b"\x1b\\", 2)]
+        ends = [e for e in ends if e[0] >= 0]
+        if not ends:
+            probe_pending = probe_pending[-64:]
+            return
+        end, terminator, term_len = min(ends, key=lambda e: e[0])
+        seq = probe_pending[:end]
+        if seq == b"\x1b]10;?":
+            os.write(fd, b"\x1b]10;rgb:d8d8/d9d9/dada" + terminator)
+            probe_answers[10] += 1
+        elif seq == b"\x1b]11;?":
+            os.write(fd, b"\x1b]11;rgb:1313/1414/1515" + terminator)
+            probe_answers[11] += 1
+        probe_pending = probe_pending[end + term_len:]
+
 def drain(seconds):
     global output
     end = time.time() + seconds
@@ -41,15 +72,29 @@ def drain(seconds):
         r, _, _ = select.select([fd], [], [], 0.1)
         if r:
             try:
-                output += os.read(fd, 65536)
+                chunk = os.read(fd, 65536)
+                output += chunk
+                answer_host_color_queries(chunk)
             except OSError:
                 break
+
+def wait_screen_contains(surface_id, needle, seconds=15):
+    deadline = time.time() + seconds
+    last = ""
+    while time.time() < deadline:
+        drain(0.2)
+        screen = rpc({"id": 300, "cmd": "read-screen", "surface": surface_id})
+        last = screen["data"]["text"]
+        if needle in last:
+            return last
+    raise AssertionError(last[-500:])
 
 deadline = time.time() + 15
 while not os.path.exists(SOCK) and time.time() < deadline:
     drain(0.2)
 assert os.path.exists(SOCK), f"socket missing at {SOCK}"
 drain(1.0)
+assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident
@@ -79,12 +124,40 @@ assert " 1 " in text, text[-500:]
 assert " + " in text, text[-500:]
 print("always-on tab bar with numbered tab ok")
 
+# Host OSC replies must be consumed by the startup probe, not forwarded as
+# keystrokes into the child shell.
+screen = rpc({"id": 30, "cmd": "read-screen", "surface": surface_id})
+assert "rgb:" not in screen["data"]["text"], screen["data"]["text"][-500:]
+print("host color probe replies did not leak to shell ok")
+
 # Type a command into the shell via the TUI's stdin path (real keystrokes).
 os.write(fd, b"printf 'smoke-marker-%s\\n' ok\r")
-drain(1.5)
-screen = rpc({"id": 3, "cmd": "read-screen", "surface": surface_id})
-assert "smoke-marker-ok" in screen["data"]["text"], screen["data"]["text"][-500:]
+wait_screen_contains(surface_id, "smoke-marker-ok")
 print("keystroke -> pty -> ghostty screen ok")
+
+inner_osc_query = """python3 - <<'PY'
+import os, select, termios, time, tty
+fd = os.open('/dev/tty', os.O_RDWR)
+old = termios.tcgetattr(fd)
+try:
+    tty.setraw(fd)
+    os.write(fd, b'\\x1b]11;?\\x1b\\\\')
+    data = b''
+    end = time.time() + 2
+    while time.time() < end and not (data.endswith(b'\\x1b\\\\') or data.endswith(b'\\x07')):
+        r, _, _ = select.select([fd], [], [], max(0, end - time.time()))
+        if not r:
+            break
+        data += os.read(fd, 128)
+finally:
+    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    os.close(fd)
+print(data.decode('ascii', 'ignore').replace('\\x1b', '<ESC>').replace('\\x07', '<BEL>'))
+PY
+"""
+os.write(fd, inner_osc_query.replace("\n", "\r").encode())
+wait_screen_contains(surface_id, "1313/1414/1515")
+print("inner OSC 11 query receives seeded background ok")
 
 # Drag-select the marker text: press, drag, release (SGR mouse, 1-based).
 # Pane content starts at column 24 (sidebar 22 + left border 1; SGR
@@ -98,7 +171,7 @@ os.write(fd, f"\x1b[<0;{col0};{row}M".encode())
 os.write(fd, f"\x1b[<32;{col0 + 14};{row}M".encode())
 os.write(fd, f"\x1b[<0;{col0 + 14};{row}m".encode())
 drain(1.0)
-import base64, re
+import base64
 osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
 assert osc52, "no OSC 52 clipboard write after drag-select"
 copied = base64.b64decode(osc52[-1]).decode()

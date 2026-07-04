@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, Dirty, RenderState, Terminal};
+use ghostty_vt::{Callbacks, Dirty, RenderState, Rgb, Terminal};
 
 #[test]
 fn writes_and_renders_text() {
@@ -61,6 +61,36 @@ fn title_and_pty_callbacks() {
     // DSR cursor position query must produce a pty response.
     term.vt_write(b"\x1b[6n");
     assert!(!pty_out.lock().unwrap().is_empty());
+}
+
+#[test]
+fn default_colors_answer_osc_queries() {
+    let pty_out: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let po = pty_out.clone();
+    let callbacks = Callbacks {
+        on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
+        on_title_changed: None,
+        on_bell: None,
+    };
+    let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
+
+    term.vt_write(b"\x1b]11;?\x07");
+    assert!(pty_out.lock().unwrap().is_empty());
+
+    term.set_default_colors(None, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+    term.vt_write(b"\x1b]11;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:1313/1414/1515\x07");
+
+    pty_out.lock().unwrap().clear();
+    term.set_default_colors(Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }), None);
+    term.vt_write(b"\x1b]10;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]10;rgb:0101/0202/0303\x07");
+
+    pty_out.lock().unwrap().clear();
+    term.vt_write(b"\x1b]11;rgb:20/40/60\x07");
+    term.vt_write(b"\x1b]11;?\x07");
+    assert_eq!(&*pty_out.lock().unwrap(), b"\x1b]11;rgb:2020/4040/6060\x07");
 }
 
 #[test]

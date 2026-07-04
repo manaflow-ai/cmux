@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
-use ghostty_vt::{Callbacks, RenderState, Terminal};
+use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -38,6 +38,12 @@ impl Default for SurfaceOptions {
             extra_env: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DefaultColors {
+    pub fg: Option<Rgb>,
+    pub bg: Option<Rgb>,
 }
 
 /// Everything an attaching frontend needs to adopt a surface: its size,
@@ -143,7 +149,11 @@ impl Surface {
             })),
         };
 
-        let term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        if let Some(mux) = mux.upgrade() {
+            let colors = mux.default_colors();
+            term.set_default_colors(colors.fg, colors.bg);
+        }
         let surface = Arc::new(Surface {
             id,
             term: Mutex::new(term),
@@ -224,6 +234,11 @@ impl Surface {
     /// Run `f` with exclusive access to the terminal state.
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> R {
         f(&mut self.term.lock().unwrap())
+    }
+
+    pub fn set_default_colors(&self, colors: DefaultColors) {
+        self.term.lock().unwrap().set_default_colors(colors.fg, colors.bg);
+        self.dirty.store(true, Ordering::Release);
     }
 
     /// Snapshot the terminal into `rs` (holds the terminal lock only for

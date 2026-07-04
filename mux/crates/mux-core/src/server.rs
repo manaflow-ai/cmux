@@ -30,7 +30,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
-use crate::{Mux, MuxEvent, Node, PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
+use crate::{
+    DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId, SplitDir, SurfaceId, WorkspaceId,
+};
 
 pub const PROTOCOL_VERSION: u32 = 4;
 
@@ -112,6 +114,12 @@ enum Command {
         /// "right" or "down"
         dir: String,
         ratio: f32,
+    },
+    SetDefaultColors {
+        #[serde(default)]
+        fg: Option<String>,
+        #[serde(default)]
+        bg: Option<String>,
     },
     /// Close one tab.
     CloseSurface {
@@ -340,6 +348,25 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
+fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 7 || bytes[0] != b'#' {
+        anyhow::bail!("bad color {value:?} (want \"#rrggbb\")");
+    }
+    let nibble = |b: u8| -> anyhow::Result<u8> {
+        match b {
+            b'0'..=b'9' => Ok(b - b'0'),
+            b'a'..=b'f' => Ok(b - b'a' + 10),
+            b'A'..=b'F' => Ok(b - b'A' + 10),
+            _ => anyhow::bail!("bad color {value:?} (want \"#rrggbb\")"),
+        }
+    };
+    let hex = |idx: usize| -> anyhow::Result<u8> {
+        Ok((nibble(bytes[idx])? << 4) | nibble(bytes[idx + 1])?)
+    };
+    Ok(Rgb { r: hex(1)?, g: hex(3)?, b: hex(5)? })
+}
+
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
@@ -406,6 +433,21 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             if !mux.set_ratio(pane, dir, ratio) {
                 anyhow::bail!("unknown pane/split {pane}");
             }
+            Ok(json!({}))
+        }
+        Command::SetDefaultColors { fg, bg } => {
+            let current = mux.default_colors();
+            let colors = DefaultColors {
+                fg: match fg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => current.fg,
+                },
+                bg: match bg {
+                    Some(value) => Some(parse_hex_color(&value)?),
+                    None => current.bg,
+                },
+            };
+            mux.set_default_colors(colors);
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {

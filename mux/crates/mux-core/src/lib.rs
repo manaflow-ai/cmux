@@ -20,7 +20,9 @@ pub use layout::{
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{Mux, MuxEvent};
-pub use surface::{AttachStream, Surface, SurfaceOptions};
+pub use surface::{AttachStream, DefaultColors, Surface, SurfaceOptions};
+
+pub use ghostty_vt::Rgb;
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;
