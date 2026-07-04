@@ -335,6 +335,8 @@
 		C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
 		C750100000000000000000A3 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
+		C0B7CF1000000000000000F3 /* CmuxCopyReflow in Frameworks */ = {isa = PBXBuildFile; productRef = C0B7CF1000000000000000F2 /* CmuxCopyReflow */; };
+		C0B7CF1000000000000000F4 /* CmuxCopyReflow in Frameworks */ = {isa = PBXBuildFile; productRef = C0B7CF1000000000000000F2 /* CmuxCopyReflow */; };
 		CC0DE00000000000000000A3 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		CC0DE00000000000000000A4 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -2581,6 +2583,7 @@
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
 				5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
+				C0B7CF1000000000000000F3 /* CmuxCopyReflow in Frameworks */,
 				CC0DE00000000000000000A3 /* CmuxCore in Frameworks */,
 				C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */,
 				C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */,
@@ -2657,6 +2660,7 @@
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
+				C0B7CF1000000000000000F4 /* CmuxCopyReflow in Frameworks */,
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
 				5E2701040000000000000004 /* CmuxFoundation in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
@@ -4145,6 +4149,7 @@
 				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
+				C0B7CF1000000000000000F2 /* CmuxCopyReflow */,
 				A5001262 /* Bonsplit */,
 			);
 			productName = cmuxTests;
