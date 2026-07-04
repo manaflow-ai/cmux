@@ -3,7 +3,27 @@ import CmuxInbox
 import SwiftUI
 
 struct InboxPanelView: View {
-    @Environment(InboxRuntime.self) private var runtime
+    // Optional on purpose: this panel renders inside AppKit-hosted
+    // NSHostingView trees (per-window ContentView roots), and a hosting root
+    // that misses the runtime injection must degrade instead of crashing.
+    @Environment(InboxRuntime.self) private var runtime: InboxRuntime?
+
+    var body: some View {
+        if let runtime {
+            InboxPanelContentView(runtime: runtime)
+        } else {
+            Text(String(localized: "inbox.unavailable", defaultValue: "Inbox is unavailable in this window."))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .accessibilityIdentifier("InboxPanelUnavailable")
+        }
+    }
+}
+
+private struct InboxPanelContentView: View {
+    let runtime: InboxRuntime
     @State private var draftBody = ""
 
     private let filters: [InboxListFilter] = [.actionable, .unread, .all]

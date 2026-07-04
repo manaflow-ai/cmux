@@ -222,6 +222,7 @@ struct cmuxApp: App {
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
+            inboxRuntime: inboxRuntime,
             auth: authComposition
         )
         StartupBreadcrumbLog.append("app.init.delegate.configured")
@@ -381,7 +382,6 @@ struct cmuxApp: App {
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
-                    InboxRuntimeRegistry.install(inboxRuntime); inboxRuntime.start()
                     SettingsWindowPresenter.configure(
                         openWindow: {
                             openWindow(id: SettingsWindowPresenter.windowID)

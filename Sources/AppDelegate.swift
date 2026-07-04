@@ -801,6 +801,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    var inboxRuntime: InboxRuntime?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2047,10 +2048,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         notificationStore: TerminalNotificationStore,
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
+        inboxRuntime: InboxRuntime,
         auth: MacAuthComposition
     ) {
         self.tabManager = tabManager
-        self.settingsRuntime = settingsRuntime
+        self.settingsRuntime = settingsRuntime; installInboxRuntime(inboxRuntime)
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
@@ -8452,11 +8454,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 : 0
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
-
         let cmuxConfigStore = CmuxConfigStore()
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
-
         let fileExplorerState = FileExplorerState()
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] == "1" {
@@ -8479,7 +8479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // observes throughout the main window (e.g. the sidebar). The key is
             // optional, so a nil runtime just leaves reads at their seeded
             // catalog default.
-            .environment(\.settingsRuntime, settingsRuntime)
+            .environment(\.settingsRuntime, settingsRuntime).environment(inboxRuntime)
             .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N

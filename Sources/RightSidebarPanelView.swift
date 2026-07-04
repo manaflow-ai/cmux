@@ -136,10 +136,10 @@ struct RightSidebarPanelView: View {
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
-    @Environment(InboxRuntime.self) private var inboxRuntime
+    @Environment(InboxRuntime.self) private var inboxRuntime: InboxRuntime?
 
     private var feedPendingCount: Int {
-        inboxRuntime.totalUnreadCount
+        inboxRuntime?.totalUnreadCount ?? 0
     }
 
     private var availableModes: [RightSidebarMode] {
