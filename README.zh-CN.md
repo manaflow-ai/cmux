@@ -20,11 +20,6 @@
 </p>
 
 <p align="center">
-  <strong>WeChat：</strong>扫描二维码加入社区。<br />
-  <img src="./docs/assets/wechat-community-qr.jpg" alt="用于加入 cmux 社区的 WeChat 二维码" width="240" />
-</p>
-
-<p align="center">
   <img src="./docs/assets/main-first-image.png" alt="cmux 截图" width="900" />
 </p>
 
@@ -401,6 +396,11 @@ cmux 免费且开源，并将一直如此。如果您想支持开发并提前体
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat：</strong>扫描二维码加入社区。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="用于加入 cmux 社区的 WeChat 二维码" width="240" />
+</p>
 
 ## Founder's Edition
 
