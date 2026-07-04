@@ -9,6 +9,7 @@ use mux_cdp::{
     ChromeLaunchOptions,
 };
 
+use crate::platform;
 use crate::surface::{Surface, SurfaceMeta, SurfaceOptions};
 use crate::{Mux, MuxEvent, SurfaceId};
 
@@ -212,13 +213,54 @@ fn runtime_endpoint(
             opts.browser_discover
         );
     }
+    let chrome_binary = resolve_chrome_binary(opts.chrome_binary.as_deref())?;
+    let user_data_dir = if opts.browser_ephemeral {
+        None
+    } else {
+        Some(resolve_chrome_user_data_dir(opts.browser_user_data_dir.as_deref())?)
+    };
     let chrome = Chrome::launch_with(ChromeLaunchOptions {
-        binary: opts.chrome_binary.clone(),
-        user_data_dir: opts.browser_user_data_dir.as_deref().map(PathBuf::from),
+        binary: chrome_binary,
+        user_data_dir,
         ephemeral: opts.browser_ephemeral,
     })?;
     let web_socket_url = chrome.web_socket_url().to_string();
     Ok((web_socket_url, Some(chrome), BrowserSource::Launched))
+}
+
+fn resolve_chrome_binary(explicit: Option<&str>) -> anyhow::Result<PathBuf> {
+    if let Some(path) = explicit.filter(|s| !s.trim().is_empty()) {
+        let path = PathBuf::from(path);
+        if platform::is_executable_file(&path) {
+            return Ok(path);
+        }
+        anyhow::bail!(
+            "configured browser.chrome_binary does not point to an executable file: {}",
+            path.display()
+        );
+    }
+
+    for path in platform::chrome_candidates() {
+        if platform::is_executable_file(&path) {
+            return Ok(path);
+        }
+    }
+
+    let config_hint = platform::config_path()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "mux.json".to_string());
+    anyhow::bail!("no Chrome/Chromium binary found; set browser.chrome_binary in {config_hint}")
+}
+
+fn resolve_chrome_user_data_dir(explicit: Option<&str>) -> anyhow::Result<PathBuf> {
+    if let Some(path) = explicit.filter(|s| !s.trim().is_empty()) {
+        return Ok(PathBuf::from(path));
+    }
+    platform::chrome_user_data_dir().ok_or_else(|| {
+        anyhow::anyhow!(
+            "cannot determine Chrome profile directory; set HOME or browser.user_data_dir"
+        )
+    })
 }
 
 fn start_router(runtime: Arc<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {

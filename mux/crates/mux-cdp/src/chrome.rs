@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -11,7 +11,7 @@ static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone)]
 pub struct ChromeLaunchOptions {
-    pub binary: Option<String>,
+    pub binary: PathBuf,
     pub user_data_dir: Option<PathBuf>,
     pub ephemeral: bool,
 }
@@ -27,19 +27,14 @@ pub struct Chrome {
 impl Chrome {
     /// Launch Chrome in headless mode and wait for the browser CDP
     /// endpoint printed on stderr.
-    pub fn launch(explicit_binary: Option<&str>) -> anyhow::Result<Self> {
-        Chrome::launch_with(ChromeLaunchOptions {
-            binary: explicit_binary.map(str::to_string),
-            user_data_dir: None,
-            ephemeral: true,
-        })
+    pub fn launch(binary: PathBuf) -> anyhow::Result<Self> {
+        Chrome::launch_with(ChromeLaunchOptions { binary, user_data_dir: None, ephemeral: true })
     }
 
     pub fn launch_with(options: ChromeLaunchOptions) -> anyhow::Result<Self> {
-        let binary = find_chrome_binary(options.binary.as_deref())?;
         let (profile_dir, profile_ephemeral) = profile_dir_for(&options)?;
         std::fs::create_dir_all(&profile_dir)?;
-        let mut child = Command::new(&binary)
+        let mut child = Command::new(&options.binary)
             .arg("--headless=new")
             .arg("--remote-debugging-port=0")
             .arg("--no-first-run")
@@ -50,7 +45,9 @@ impl Chrome {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| anyhow::anyhow!("failed to launch Chrome at {}: {e}", binary.display()))?;
+            .map_err(|e| {
+                anyhow::anyhow!("failed to launch Chrome at {}: {e}", options.binary.display())
+            })?;
 
         let stderr = child
             .stderr
@@ -87,7 +84,7 @@ impl Chrome {
                 }
                 anyhow::bail!(
                     "Chrome did not publish a DevTools endpoint within 10s (binary: {})",
-                    binary.display()
+                    options.binary.display()
                 );
             }
         };
@@ -121,74 +118,6 @@ impl Drop for Chrome {
     }
 }
 
-/// Locate a Chrome-family binary. The explicit config path wins; then
-/// well-known app locations; then PATH.
-pub fn find_chrome_binary(explicit: Option<&str>) -> anyhow::Result<PathBuf> {
-    if let Some(path) = explicit.filter(|s| !s.trim().is_empty()) {
-        let path = PathBuf::from(path);
-        if is_executable_file(&path) {
-            return Ok(path);
-        }
-        anyhow::bail!(
-            "configured browser.chrome_binary does not point to an executable file: {}",
-            path.display()
-        );
-    }
-
-    for path in known_binary_paths() {
-        if is_executable_file(&path) {
-            return Ok(path);
-        }
-    }
-
-    for name in ["google-chrome", "chromium", "chromium-browser", "brave-browser", "microsoft-edge"]
-    {
-        if let Some(path) = find_on_path(name) {
-            return Ok(path);
-        }
-    }
-
-    anyhow::bail!(
-        "no Chrome/Chromium binary found; set browser.chrome_binary in ~/.config/cmux/mux.json"
-    )
-}
-
-fn known_binary_paths() -> Vec<PathBuf> {
-    vec![
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into(),
-        "/Applications/Chromium.app/Contents/MacOS/Chromium".into(),
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser".into(),
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge".into(),
-        "/usr/bin/google-chrome".into(),
-        "/usr/bin/chromium".into(),
-        "/usr/bin/chromium-browser".into(),
-        "/snap/bin/chromium".into(),
-        "/usr/bin/brave-browser".into(),
-        "/usr/bin/microsoft-edge".into(),
-    ]
-}
-
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|dir| dir.join(name)).find(|p| is_executable_file(p))
-}
-
-fn is_executable_file(path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else { return false };
-    if !meta.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        meta.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
-}
-
 fn make_profile_dir() -> anyhow::Result<PathBuf> {
     let seq = PROFILE_SEQ.fetch_add(1, Ordering::Relaxed);
     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
@@ -210,23 +139,7 @@ fn profile_dir_for(options: &ChromeLaunchOptions) -> anyhow::Result<(PathBuf, bo
     if let Some(dir) = options.user_data_dir.clone() {
         return Ok((dir, false));
     }
-    Ok((default_user_data_dir()?, false))
-}
-
-pub fn default_user_data_dir() -> anyhow::Result<PathBuf> {
-    if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME")?;
-        return Ok(PathBuf::from(home)
-            .join("Library")
-            .join("Application Support")
-            .join("cmux-mux")
-            .join("chrome-profile"));
-    }
-    if let Some(data_home) = std::env::var_os("XDG_DATA_HOME") {
-        return Ok(PathBuf::from(data_home).join("cmux-mux").join("chrome-profile"));
-    }
-    let home = std::env::var("HOME")?;
-    Ok(PathBuf::from(home).join(".local/share/cmux-mux/chrome-profile"))
+    anyhow::bail!("ChromeLaunchOptions.user_data_dir is required when ephemeral is false")
 }
 
 fn parse_devtools_url(line: &str) -> Option<String> {
@@ -258,7 +171,7 @@ mod tests {
         std::fs::write(&sentinel, b"keep").unwrap();
 
         let options = ChromeLaunchOptions {
-            binary: None,
+            binary: PathBuf::from("chrome"),
             user_data_dir: Some(explicit_dir.clone()),
             ephemeral: true,
         };

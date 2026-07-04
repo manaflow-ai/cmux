@@ -1,9 +1,10 @@
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::RenderState;
+use mux_core::platform::transport;
 use mux_core::{AttachFrame, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
@@ -29,7 +30,11 @@ fn unique_session(prefix: &str) -> String {
     format!("{prefix}-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
 }
 
-fn read_json_line(reader: &mut BufReader<UnixStream>) -> Option<serde_json::Value> {
+fn connect(path: &Path) -> Box<dyn transport::Stream> {
+    transport::connect(path).unwrap()
+}
+
+fn read_json_line(reader: &mut impl BufRead) -> Option<serde_json::Value> {
     let mut line = String::new();
     match reader.read_line(&mut line) {
         Ok(0) => None,
@@ -126,8 +131,8 @@ fn control_socket_round_trip() {
     let surface = mux.new_workspace(None, None).unwrap();
 
     let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
-    let stream = UnixStream::connect(&sock_path).unwrap();
-    let mut writer = stream.try_clone().unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
 
     let mut line = String::new();
@@ -311,8 +316,8 @@ fn control_socket_set_default_colors_merges_fields() {
     let opts = SurfaceOptions { command: Some(vec!["/bin/cat".to_string()]), ..Default::default() };
     let mux = Mux::new(format!("test-colors-{}", std::process::id()), opts);
     let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
-    let stream = UnixStream::connect(&sock_path).unwrap();
-    let mut writer = stream.try_clone().unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
 
@@ -353,13 +358,13 @@ fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
 
     let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
-    let subscribe_stream = UnixStream::connect(&sock_path).unwrap();
+    let subscribe_stream = connect(&sock_path);
     subscribe_stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
-    let mut subscribe_writer = subscribe_stream.try_clone().unwrap();
+    let mut subscribe_writer = subscribe_stream.try_clone_box().unwrap();
     let mut subscribe_reader = BufReader::new(subscribe_stream);
 
-    let command_stream = UnixStream::connect(&sock_path).unwrap();
-    let mut command_writer = command_stream.try_clone().unwrap();
+    let command_stream = connect(&sock_path);
+    let mut command_writer = command_stream.try_clone_box().unwrap();
     let mut command_reader = BufReader::new(command_stream);
 
     writeln!(subscribe_writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();

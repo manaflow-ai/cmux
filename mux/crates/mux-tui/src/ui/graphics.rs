@@ -7,6 +7,7 @@ use mux_core::{Rect, SurfaceId};
 const ESC: &str = "\x1b";
 const CHUNK: usize = 4096;
 const PLACEMENT_ID: u32 = 1;
+const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 
 #[derive(Debug, Clone)]
 pub struct GraphicPlacement {
@@ -101,21 +102,19 @@ pub fn probe_kitty_graphics() -> bool {
 }
 
 pub fn detect_cell_pixels(query_fallback: bool) -> (u16, u16) {
-    if let Some(cell) = ioctl_cell_pixels() {
-        return cell;
-    }
-    if query_fallback {
-        if let Some(cell) = query_cell_pixels() {
-            return cell;
-        }
-    }
-    (8, 16)
+    ioctl_cell_pixels()
+        .or_else(|| if query_fallback { query_cell_pixels() } else { None })
+        .unwrap_or(DEFAULT_CELL_PIXELS)
 }
 
 fn ioctl_cell_pixels() -> Option<(u16, u16)> {
     let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) } == 0;
-    if !ok || ws.ws_col == 0 || ws.ws_row == 0 || ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
+    ok.then_some(ws).and_then(cell_pixels_from_winsize)
+}
+
+fn cell_pixels_from_winsize(ws: libc::winsize) -> Option<(u16, u16)> {
+    if ws.ws_col == 0 || ws.ws_row == 0 || ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
         return None;
     }
     let w = (ws.ws_xpixel / ws.ws_col).max(1);
@@ -208,5 +207,15 @@ mod tests {
     fn deletes_by_image_id_quietly() {
         let bytes = String::from_utf8(delete_image(41)).unwrap();
         assert_eq!(bytes, "\x1b_Ga=d,d=i,i=42,q=2;\x1b\\");
+    }
+
+    #[test]
+    fn zero_pixel_winsize_degrades_to_default_cell_pixels() {
+        let ws = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        assert_eq!(cell_pixels_from_winsize(ws), None);
+        assert_eq!(
+            cell_pixels_from_winsize(ws).unwrap_or(DEFAULT_CELL_PIXELS),
+            DEFAULT_CELL_PIXELS
+        );
     }
 }
