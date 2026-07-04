@@ -345,6 +345,7 @@
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 			E4C006000000000000000001 /* CmuxExtensionPipeOutputCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C006000000000000000002 /* CmuxExtensionPipeOutputCollector.swift */; };
+				E50320020000000000000001 /* CmuxExtensionPipeOutputCollectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320020000000000000002 /* CmuxExtensionPipeOutputCollectorTests.swift */; };
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
 		C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
@@ -494,15 +495,15 @@
 		DCDC1000000000000000B00D /* DockSurfaceKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B00E /* DockSurfaceKind.swift */; };
 		D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7054D0C0000000000000002 /* DockTerminalReattachTests.swift */; };
 		DCDC1000000000000000B00F /* DockTrustRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B010 /* DockTrustRequest.swift */; };
-		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
-		D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
-			5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
-			5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */; };
-			E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
-			E4C002000000000000000001 /* ExtensionSidebarWorktreeHeaderControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C002000000000000000002 /* ExtensionSidebarWorktreeHeaderControls.swift */; };
-			E4C003000000000000000001 /* ExtensionSidebarWorktreeRowContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C003000000000000000002 /* ExtensionSidebarWorktreeRowContextMenu.swift */; };
-			E4C007000000000000000001 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C007000000000000000002 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift */; };
-			E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
+			D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
+			D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */; };
+				5732A0095732A0095732A009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */; };
+				5732A0135732A0135732A013 /* EnvironmentValues+SidebarLazyContractProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */; };
+				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
+				E4C002000000000000000001 /* ExtensionSidebarWorktreeHeaderControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C002000000000000000002 /* ExtensionSidebarWorktreeHeaderControls.swift */; };
+				E4C003000000000000000001 /* ExtensionSidebarWorktreeRowContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C003000000000000000002 /* ExtensionSidebarWorktreeRowContextMenu.swift */; };
+				E4C007000000000000000001 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C007000000000000000002 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift */; };
+				E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 			E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00C /* FeedButtonStyleDebugWindowController.swift */; };
@@ -1680,6 +1681,7 @@
 		E7E000000000000000000008 /* CmuxEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventPublishing.swift; sourceTree = "<group>"; };
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
 			E4C006000000000000000002 /* CmuxExtensionPipeOutputCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionPipeOutputCollector.swift; sourceTree = "<group>"; };
+				E50320020000000000000002 /* CmuxExtensionPipeOutputCollectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionPipeOutputCollectorTests.swift; sourceTree = "<group>"; };
 		C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxExtensionSidebarSelection+CustomSidebarName.swift"; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
@@ -1796,12 +1798,12 @@
 		D7054D0C0000000000000002 /* DockTerminalReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTerminalReattachTests.swift; sourceTree = "<group>"; };
 		DCDC1000000000000000B010 /* DockTrustRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockTrustRequest.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
-		D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
-		5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
-		5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+SidebarLazyContractProbe.swift"; sourceTree = "<group>"; };
-		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
-			E4C002000000000000000002 /* ExtensionSidebarWorktreeHeaderControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorktreeHeaderControls.swift; sourceTree = "<group>"; };
-			E4C003000000000000000002 /* ExtensionSidebarWorktreeRowContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorktreeRowContextMenu.swift; sourceTree = "<group>"; };
+			D3622101A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableTextViewArrowKeyForwardingTests.swift; sourceTree = "<group>"; };
+			5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+MinimalModeInvalidationProbe.swift"; sourceTree = "<group>"; };
+			5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/EnvironmentValues+SidebarLazyContractProbe.swift"; sourceTree = "<group>"; };
+			E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
+				E4C002000000000000000002 /* ExtensionSidebarWorktreeHeaderControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorktreeHeaderControls.swift; sourceTree = "<group>"; };
+				E4C003000000000000000002 /* ExtensionSidebarWorktreeRowContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorktreeRowContextMenu.swift; sourceTree = "<group>"; };
 			E4C007000000000000000002 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExtensionWorktreePrototype+ForceRemovalPreview.swift"; sourceTree = "<group>"; };
 			E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 			E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
@@ -3839,12 +3841,13 @@
 				C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */,
 				F50030040000000000000002 /* TitlebarInteractiveControlTests.swift */,
 				E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */,
-				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
-				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
-				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
-				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
-		C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
-				120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
+					BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
+					D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
+					2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
+					E50320020000000000000002 /* CmuxExtensionPipeOutputCollectorTests.swift */,
+					E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
+			C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
+					120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
 				4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */,
 				A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */,
 				4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */,
@@ -5395,6 +5398,7 @@
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
 				E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */,
+					E50320020000000000000001 /* CmuxExtensionPipeOutputCollectorTests.swift in Sources */,
 				D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */,
 				D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */,
 				C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */,
@@ -5424,10 +5428,10 @@
 				D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */,
 				DCDC0000000000000000B001 /* DockControlDefinitionDecodingTests.swift in Sources */,
 				D6212D0C0000000000000001 /* DockSocketLifecycleTests.swift in Sources */,
-				D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
-				D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
-				E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
-				FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
+					D7054D0C0000000000000001 /* DockTerminalReattachTests.swift in Sources */,
+					D3622100A1B2C3D4E5F60718 /* EditableTextViewArrowKeyForwardingTests.swift in Sources */,
+					E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */,
+					FEEDC0DEC0DEC0DEC0DE0001 /* FeedCoordinatorTests.swift in Sources */,
 				FEED49850000000000000001 /* FeedEventClassificationTests.swift in Sources */,
 				FEEDC1A50000000000000003 /* FeedEventClassifier.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,

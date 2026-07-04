@@ -146,17 +146,17 @@ enum CmuxExtensionWorktreePrototype {
         )
     }
 
-    /// Parses a cmux-managed worktree identity from a workspace's resolved
-    /// git-root path, or `nil` when the path is not a managed worktree (e.g. a
-    /// plain project checkout). Pure and synchronous so it is cheap to call at
-    /// the row-render site.
+    /// Parses the innermost cmux-managed worktree identity from a workspace's
+    /// resolved git-root path, or `nil` when the path is not a managed worktree
+    /// (e.g. a plain project checkout). Pure and synchronous so it is cheap to
+    /// call at the row-render site.
     static func managedWorktreeIdentity(gitRootPath: String?) -> CmuxExtensionWorktreeIdentity? {
         guard let raw = gitRootPath?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else {
             return nil
         }
         let standardized = URL(fileURLWithPath: raw, isDirectory: true).standardizedFileURL.path
-        guard let range = standardized.range(of: managedWorktreeContainerSegment) else { return nil }
+        guard let range = standardized.range(of: managedWorktreeContainerSegment, options: .backwards) else { return nil }
         let parent = String(standardized[..<range.lowerBound])
         let remainder = standardized[range.upperBound...]
         // Require a non-empty parent repo and a non-empty worktree name segment.

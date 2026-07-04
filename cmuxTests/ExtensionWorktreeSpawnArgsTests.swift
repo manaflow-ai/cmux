@@ -82,13 +82,13 @@ struct ExtensionWorktreeManagementTests {
         #expect(identity?.worktreePath == "/Users/me/repo/.cmux/worktrees/cmux-sidebar-9")
     }
 
-    @Test("managed worktree identity resolves nested git roots to the managed root")
-    func managedWorktreeIdentityUsesFirstWorktreePathSegment() {
+    @Test("managed worktree identity resolves nested managed worktrees to the innermost root")
+    func managedWorktreeIdentityUsesInnermostWorktreePathSegment() {
         let identity = CmuxExtensionWorktreePrototype.managedWorktreeIdentity(
-            gitRootPath: "/Users/me/repo/.cmux/worktrees/cmux-sidebar-9/deps/lib"
+            gitRootPath: "/Users/me/repo/.cmux/worktrees/outer/subrepo/.cmux/worktrees/inner/deps/lib"
         )
-        #expect(identity?.parentRepoPath == "/Users/me/repo")
-        #expect(identity?.worktreePath == "/Users/me/repo/.cmux/worktrees/cmux-sidebar-9")
+        #expect(identity?.parentRepoPath == "/Users/me/repo/.cmux/worktrees/outer/subrepo")
+        #expect(identity?.worktreePath == "/Users/me/repo/.cmux/worktrees/outer/subrepo/.cmux/worktrees/inner")
     }
 
     @Test("non-worktree git roots are not treated as managed worktrees")
