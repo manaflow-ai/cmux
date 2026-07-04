@@ -92,10 +92,15 @@ func confirmDeleteWorkstream(workstreamName: String, workspaceCount: Int) -> Boo
         )
         alert.informativeText = String.localizedStringWithFormat(format, workstreamName)
     } else {
-        let format = String(
-            localized: "workstream.delete.message",
-            defaultValue: "Delete the workstream \u{201C}%1$@\u{201D}? Its %2$lld workspaces are kept and return to the top level."
-        )
+        let format = workspaceCount == 1
+            ? String(
+                localized: "workstream.delete.message.one",
+                defaultValue: "Delete the workstream \u{201C}%1$@\u{201D}? Its %2$lld workspace is kept and returns to the top level."
+            )
+            : String(
+                localized: "workstream.delete.message.other",
+                defaultValue: "Delete the workstream \u{201C}%1$@\u{201D}? Its %2$lld workspaces are kept and return to the top level."
+            )
         alert.informativeText = String.localizedStringWithFormat(format, workstreamName, workspaceCount)
     }
     alert.alertStyle = .warning

@@ -15115,7 +15115,7 @@ struct CMUXCLI {
                                         kept and return to the top level.
               add --workstream <id> --workspace <ws>
               remove --workspace <ws>   Remove a workspace from its workstream
-              move <workstream> --to-index <n> | --before <ws> | --after <ws>
+              move <workstream> --to-index <n> | --before <workstream> | --after <workstream>
               enter <workstream>        Drill into a workstream (view only)
               exit                      Return to the top-level workstream list
 

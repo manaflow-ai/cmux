@@ -4184,23 +4184,20 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
-        // The snapshot may carry a groupId for a group that no longer exists
-        // in this TabManager (e.g. the group was dissolved between close and
-        // reopen). Drop those stale references so the restored workspace
-        // doesn't render as an orphaned indented row under no header.
+        // Drop stale group/workstream references from snapshots whose containers
+        // were dissolved while the workspace was closed.
         if let groupId = workspace.groupId,
            !workspaceGroups.contains(where: { $0.id == groupId }) {
             workspace.groupId = nil
         }
-        // Same for a workstream that was deleted between close and reopen.
         if let workstreamId = workspace.workstreamId,
            !workstreams.contains(where: { $0.id == workstreamId }) {
             workspace.workstreamId = nil
         }
-        // When the group DOES still exist, the workspace is about to be
-        // reinserted at its old absolute index, which may now sit inside a
-        // different group section after intervening reorders. Renormalize
-        // so the restored member lands beside its group.
+        if drilledInWorkstreamId != workspace.workstreamId {
+            drilledInWorkstreamId = workspace.workstreamId
+        }
+        // Renormalize restored group members after reinserting at their old index.
         let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
@@ -5584,10 +5581,6 @@ extension TabManager {
         hasher.combine(tabs.count)
         let notificationStore = AppDelegate.shared?.notificationStore
 
-        // Workspace groups participate in the session snapshot, so changes
-        // that only touch group metadata (rename / collapse / pin a group,
-        // or move a workspace between groups without reordering tabs) must
-        // bump the fingerprint or the autosave timer skips the write.
         hasher.combine(workspaceGroups.count)
         for group in workspaceGroups {
             hasher.combine(group.id)
@@ -5598,9 +5591,18 @@ extension TabManager {
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
         }
+        hasher.combine(workstreams.count)
+        for workstream in workstreams {
+            hasher.combine(workstream.id)
+            hasher.combine(workstream.name)
+            hasher.combine(workstream.customColor ?? "")
+            hasher.combine(workstream.iconSymbol ?? "")
+        }
+        hasher.combine(drilledInWorkstreamId)
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
+            hasher.combine(workspace.workstreamId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")
@@ -5916,9 +5918,7 @@ extension TabManager {
                 }
             return snapshots.isEmpty ? nil : snapshots
         }()
-        // Persist every workstream (including empty ones the user is still
-        // populating) in master-list order. Workstream ids are stable across
-        // restart, so membership reconnects from each workspace's workstreamId.
+        // Persist workstreams in master-list order; workspace snapshots carry membership.
         let workstreamSnapshots: [SessionWorkstreamSnapshot]? = {
             let snapshots = workstreams.map { workstream in
                 SessionWorkstreamSnapshot(

@@ -130,11 +130,19 @@ extension ControlCommandCoordinator {
               let name = string(params, "name") else {
             return .err(code: "invalid_params", message: "Missing workstream_id or name", data: nil)
         }
-        guard let ok = context?.controlRenameWorkstream(routing: routingSelectors(params), workstreamID: id, name: name) else {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing workstream_id or name", data: nil)
+        }
+        guard let ok = context?.controlRenameWorkstream(
+            routing: routingSelectors(params),
+            workstreamID: id,
+            name: trimmedName
+        ) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         return ok
-            ? .ok(.object(["workstream_id": .string(id.uuidString), "name": .string(name)]))
+            ? .ok(.object(["workstream_id": .string(id.uuidString), "name": .string(trimmedName)]))
             : .err(code: "not_found", message: "Workstream not found", data: .object(["workstream_id": .string(id.uuidString)]))
     }
 
@@ -232,12 +240,10 @@ extension ControlCommandCoordinator {
 
     /// `workstream.exit` — return to the top-level workstream list.
     func workstreamExit(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let ok = context?.controlExitWorkstreamDrillIn(routing: routingSelectors(params)) else {
+        guard context?.controlExitWorkstreamDrillIn(routing: routingSelectors(params)) != nil else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        return ok
-            ? .ok(.object(["drilled_in": .bool(false)]))
-            : .err(code: "unavailable", message: "TabManager not available", data: nil)
+        return .ok(.object(["drilled_in": .bool(false)]))
     }
 
     // MARK: - Local helpers

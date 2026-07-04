@@ -35,6 +35,13 @@ struct SidebarWorkstreamRowView: View, Equatable {
     }
 
     var body: some View {
+        let unreadAccessibilityFormat = snapshot.unreadCount == 1
+            ? String(localized: "workstream.unread.a11y.one", defaultValue: "%lld unread")
+            : String(localized: "workstream.unread.a11y.other", defaultValue: "%lld unread")
+        let workspaceCountAccessibilityFormat = snapshot.workspaceCount == 1
+            ? String(localized: "workstream.count.a11y.one", defaultValue: "%lld workspace")
+            : String(localized: "workstream.count.a11y.other", defaultValue: "%lld workspaces")
+
         HStack(spacing: 6) {
             Image(systemName: snapshot.iconSymbol)
                 .font(.system(size: 12 * fontScale, weight: .semibold))
@@ -55,7 +62,7 @@ struct SidebarWorkstreamRowView: View, Equatable {
                     .padding(.vertical, 1)
                     .background(Capsule().fill(Color.accentColor))
                     .accessibilityLabel(Text(String.localizedStringWithFormat(
-                        String(localized: "workstream.unread.a11y", defaultValue: "%lld unread"),
+                        unreadAccessibilityFormat,
                         snapshot.unreadCount
                     )))
             }
@@ -64,7 +71,7 @@ struct SidebarWorkstreamRowView: View, Equatable {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .accessibilityLabel(Text(String.localizedStringWithFormat(
-                    String(localized: "workstream.count.a11y", defaultValue: "%lld workspaces"),
+                    workspaceCountAccessibilityFormat,
                     snapshot.workspaceCount
                 )))
             Image(systemName: "chevron.right")

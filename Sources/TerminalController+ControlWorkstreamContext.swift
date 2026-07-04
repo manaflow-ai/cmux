@@ -10,14 +10,14 @@ import Foundation
 extension TerminalController: ControlWorkstreamContext {
     private func controlWorkstreamSnapshot(
         _ workstream: Workstream,
-        tabManager: TabManager
+        memberWorkspaceIDs: [UUID]
     ) -> ControlWorkstreamSnapshot {
         ControlWorkstreamSnapshot(
             id: workstream.id,
             name: workstream.name,
             customColor: workstream.customColor,
             iconSymbol: workstream.iconSymbol,
-            memberWorkspaceIDs: tabManager.workspaces.memberWorkspaceIds(ofWorkstream: workstream.id)
+            memberWorkspaceIDs: memberWorkspaceIDs
         )
     }
 
@@ -27,8 +27,13 @@ extension TerminalController: ControlWorkstreamContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        var memberWorkspaceIDsByWorkstream: [UUID: [UUID]] = [:]
+        for tab in tabManager.tabs {
+            guard let workstreamId = tab.workstreamId else { continue }
+            memberWorkspaceIDsByWorkstream[workstreamId, default: []].append(tab.id)
+        }
         let workstreams = tabManager.workstreams.map {
-            controlWorkstreamSnapshot($0, tabManager: tabManager)
+            controlWorkstreamSnapshot($0, memberWorkspaceIDs: memberWorkspaceIDsByWorkstream[$0.id] ?? [])
         }
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(
@@ -57,7 +62,10 @@ extension TerminalController: ControlWorkstreamContext {
             // Should not happen, but surface a deterministic shape if it does.
             return .workspaceNotFound([])
         }
-        return .created(controlWorkstreamSnapshot(workstream, tabManager: tabManager))
+        return .created(controlWorkstreamSnapshot(
+            workstream,
+            memberWorkspaceIDs: tabManager.workspaces.memberWorkspaceIds(ofWorkstream: workstream.id)
+        ))
     }
 
     func controlRenameWorkstream(

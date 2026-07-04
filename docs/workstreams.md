@@ -62,14 +62,14 @@ reconnect directly.
 
 All operations are scriptable via `cmux workstream <subcommand>`:
 
-```
+```bash
 cmux workstream list [--json]
 cmux workstream create [--name "Checkout revamp"] [--workspaces <id>,<id>]
 cmux workstream rename <workstream> --name "new name"
 cmux workstream delete <workstream>          # keeps workspaces (returns them to top level)
 cmux workstream add --workstream <id> --workspace <ws>
 cmux workstream remove --workspace <ws>
-cmux workstream move <workstream> --to-index <n> | --before <ws> | --after <ws>
+cmux workstream move <workstream> --to-index <n> | --before <workstream> | --after <workstream>
 cmux workstream enter <workstream>           # drill in (view only)
 cmux workstream exit                         # back to the workstream list
 ```
