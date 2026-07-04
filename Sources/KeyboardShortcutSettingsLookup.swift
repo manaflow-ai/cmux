@@ -98,10 +98,30 @@ extension KeyboardShortcutSettings {
     /// is a no-op for the pure-UserDefaults path (it already holds it) and, for
     /// the file-managed path, leaves ``shortcutIfBound(for:)`` unchanged because
     /// the settings-file override still wins at a higher priority.
-    static func syncSurfaceNumberShortcutMirrorForTabBarHint(defaults: UserDefaults = .standard) {
+    ///
+    /// bonsplit is a standalone SwiftPM package that cmux depends on (its
+    /// `Package.swift` has no dependencies), so it cannot call
+    /// ``shortcutIfBound(for:)`` directly — a proper root fix would have to add a
+    /// resolved-shortcut input to the bonsplit tab controller and is out of scope
+    /// here. Until then this mirror is the seam, and its invariant
+    /// ("mirrored key == resolved shortcut") holds because every path that
+    /// changes the resolved surface shortcut posts
+    /// ``KeyboardShortcutSettings/didChangeNotification``: `setShortcut`,
+    /// `reset*`, the `settingsFileStore` replacement (its `didSet`), and
+    /// `KeyboardShortcutSettingsFileStore.reload()` (on-disk edits). The sole
+    /// caller re-runs this from that notification (plus once at launch), so a new
+    /// change path only needs to keep firing that notification — which it must
+    /// already do for the rest of the shortcut system to react.
+    ///
+    /// Always reads/writes `UserDefaults.standard` because the value it mirrors —
+    /// ``shortcut(for:)`` — and the key bonsplit reads are both bound to
+    /// `.standard`; a suite parameter here would be dead surface that cannot
+    /// actually isolate either side.
+    static func syncSurfaceNumberShortcutMirrorForTabBarHint() {
         let action = Action.selectSurfaceByNumber
         let resolved = shortcut(for: action)
         guard let data = try? JSONEncoder().encode(resolved) else { return }
+        let defaults = UserDefaults.standard
         if defaults.data(forKey: action.defaultsKey) != data {
             defaults.set(data, forKey: action.defaultsKey)
         }
