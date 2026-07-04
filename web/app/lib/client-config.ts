@@ -53,13 +53,6 @@ export async function getClientConfig(
   return await response.json() as ClientConfig;
 }
 
-export function getClientConfigFlag(
-  config: ClientConfig,
-  key: string,
-): ClientConfigFlagValue | undefined {
-  return config.featureFlags[key];
-}
-
 function getPostHogEvaluationContext(): ClientConfigEvaluationContext {
   return {
     groups: getPostHogGroups(),
