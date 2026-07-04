@@ -195,14 +195,14 @@ extension Workspace {
             return restoreSessionLayout(snapshot.layout)
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
-
+        let vaultCWDPolicyResolver = SurfaceResumeBindingVaultCWDPolicyResolver()
         for entry in leafEntries {
             restorePane(
                 entry.paneId,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
-                oldToNewPanelIds: &oldToNewPanelIds
+                oldToNewPanelIds: &oldToNewPanelIds, vaultCWDPolicyResolver: vaultCWDPolicyResolver
             )
         }
 
@@ -908,7 +908,6 @@ extension Workspace {
            RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
             return binding
         }
-
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
         // and fall back to launch capture only for older snapshots.
         let snapshotRestorableWorkingDirectory =
@@ -1092,7 +1091,7 @@ extension Workspace {
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         snapshotWorkspaceId: UUID?,
-        oldToNewPanelIds: inout [UUID: UUID]
+        oldToNewPanelIds: inout [UUID: UUID], vaultCWDPolicyResolver: SurfaceResumeBindingVaultCWDPolicyResolver
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1105,7 +1104,7 @@ extension Workspace {
             guard let createdPanelId = createPanel(
                 from: panelSnapshot,
                 inPane: paneId,
-                snapshotWorkspaceId: snapshotWorkspaceId
+                snapshotWorkspaceId: snapshotWorkspaceId, vaultCWDPolicyResolver: vaultCWDPolicyResolver
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1180,7 +1179,7 @@ extension Workspace {
     private func createPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
-        snapshotWorkspaceId: UUID?
+        snapshotWorkspaceId: UUID?, vaultCWDPolicyResolver: SurfaceResumeBindingVaultCWDPolicyResolver = SurfaceResumeBindingVaultCWDPolicyResolver()
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
@@ -1193,6 +1192,10 @@ extension Workspace {
                 snapshotRestorableAgent,
                 resumeBinding: resumeBinding
             )
+            let resumeBindingCWDPolicy = restorableAgent?.registration?.cwd ?? resumeBinding.flatMap { vaultCWDPolicyResolver.cwdPolicy(for: $0, fallbackWorkingDirectory: snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory) }
+            let sessionReturnWorkingDirectory = resumeBindingCWDPolicy == .ignore
+                ? nil
+                : resumeBinding?.cwd ?? snapshot.terminal?.workingDirectory ?? restorableAgent?.workingDirectory ?? snapshot.directory ?? currentDirectory
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
@@ -1203,7 +1206,7 @@ extension Workspace {
                 restoredHibernation != nil ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
-                    : resumeBinding
+                    : (resumeBindingCWDPolicy == .ignore ? resumeBinding?.retargetingWorkingDirectory(nil) : resumeBinding)
             let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
                 resumeBindingForStartup,
                 autoResumeAgentSessions: shouldAutoResumeAgent,
@@ -1219,22 +1222,19 @@ extension Workspace {
                 effectiveResumeBindingForStartup.flatMap {
                     sessionRestorePolicy.surfaceResumeStartupLaunch(
                         forApprovedBinding: $0,
-                        allowLauncherScript: true
+                        allowLauncherScript: true,
+                        returnWorkingDirectory: sessionReturnWorkingDirectory
                     )
                 }
             }
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
-            let savedWorkingDirectory =
-                effectiveResumeBinding?.cwd
-                ?? snapshot.terminal?.workingDirectory
-                ?? restorableAgent?.workingDirectory
-                ?? snapshot.directory
+            let savedWorkingDirectory = effectiveResumeBinding?.cwd ?? snapshot.terminal?.workingDirectory ?? restorableAgent?.workingDirectory ?? snapshot.directory
             // A persisted terminal cwd can already be the stray fallback cwd
             // from a prior auto-resume restore; the transient rescue/guard must
             // remember where the resume launcher actually sends the agent.
             let resumeSessionWorkingDirectory: String? = {
                 if restoredBindingLaunch != nil {
-                    return effectiveResumeBindingForStartup?.cwd
+                    return effectiveResumeBindingForStartup?.cwd ?? (restoresRemoteWorkspaceTerminalSnapshot ? nil : sessionReturnWorkingDirectory)
                 }
                 guard let restorableAgent else { return savedWorkingDirectory }
                 if let workingDirectory = restorableAgent.workingDirectory {
@@ -1263,7 +1263,7 @@ extension Workspace {
                         restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
-                        restorableAgent?.resumeStartupCommand()
+                        restorableAgent?.resumeStartupCommand(returnWorkingDirectory: sessionReturnWorkingDirectory)
                             .map(SurfaceResumeStartupLaunch.command)
                     }
                 } else {

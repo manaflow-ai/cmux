@@ -421,7 +421,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     func startupCommandWithLauncherScript(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectory: String? = nil
     ) -> String? {
         guard let inlineInput = inlineStartupInput,
               let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
@@ -429,7 +430,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
                   binding: self,
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true
+                  returnToLoginShell: true,
+                  returnWorkingDirectory: returnWorkingDirectory
               ) else {
             return nil
         }
@@ -1299,10 +1301,7 @@ nonisolated enum TerminalStartupReturnShellScript {
             #"  *) "$_cmux_resume_shell" -c \#(quotedCommand) ;;"#,
             #"esac"#,
         ] + zshIntegrationReentryLines
-        // The resume command's `cd` runs inside the child shell above, so after the resumed agent
-        // exits the outer login shell would otherwise land in this script's launch cwd (the surface
-        // default), not the session's directory. Return the outer shell to the session's working
-        // directory so killing a resumed agent leaves you where the session lived.
+        // Return the outer login shell to the session cwd after the child resume command exits.
         if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
             lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
@@ -1321,7 +1320,8 @@ enum SurfaceResumeBindingScriptStore {
         binding: SurfaceResumeBindingSnapshot,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        returnToLoginShell: Bool = false
+        returnToLoginShell: Bool = false,
+        returnWorkingDirectory: String? = nil
     ) -> URL? {
         let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
@@ -1339,10 +1339,7 @@ enum SurfaceResumeBindingScriptStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
-                    command: inlineInput,
-                    workingDirectory: binding.cwd
-                ))
+                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(command: inlineInput, workingDirectory: binding.cwd ?? returnWorkingDirectory))
             } else {
                 lines.append(inlineInput)
             }

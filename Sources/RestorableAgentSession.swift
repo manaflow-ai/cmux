@@ -773,7 +773,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     func resumeStartupCommand(
         fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        returnWorkingDirectory: String? = nil
     ) -> String? {
         guard let command = resumeCommand,
               let scriptURL = AgentResumeScriptStore.writeLauncherScript(
@@ -783,11 +784,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
                   fileManager: fileManager,
                   temporaryDirectory: temporaryDirectory,
                   returnToLoginShell: true,
-                  // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
-                  // the current directory (no cd), so the post-exit shell must not force the launch dir.
                   workingDirectory: registration?.cwd == .ignore
                       ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
+                      : (workingDirectory ?? launchCommand?.workingDirectory ?? returnWorkingDirectory)
               ) else {
             return nil
         }
