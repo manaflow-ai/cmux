@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ObjectiveC.runtime
 import Testing
 import WebKit
 
