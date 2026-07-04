@@ -90,6 +90,21 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
         #expect(state.dropIndicatorUsesTopLevelRows == false)
     }
 
+    @Test func nilDropIndicatorCanKeepGroupScopeForReparentHover() {
+        let registry = FakeWorkspaceDragRegistry()
+        let state = SidebarDragState(workspaceDragRegistry: registry)
+        let groupId = UUID()
+
+        state.setDropIndicator(nil, scope: .group(groupId))
+
+        #expect(state.dropIndicator == nil)
+        #expect(state.dropIndicatorScope == .group(groupId))
+        #expect(state.dropIndicatorUsesTopLevelRows == false)
+
+        state.clearDropIndicator()
+        #expect(state.dropIndicatorScope == .raw)
+    }
+
     @Test func currentWorkspaceDragIdReadsThroughRegistry() {
         let registry = FakeWorkspaceDragRegistry()
         let state = SidebarDragState(workspaceDragRegistry: registry)
