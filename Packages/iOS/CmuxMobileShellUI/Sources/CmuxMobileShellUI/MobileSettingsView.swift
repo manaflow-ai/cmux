@@ -105,7 +105,8 @@ struct MobileSettingsView: View {
                 case .troubleshooting:
                     MobileTroubleshootingSettingsPage(
                         rescanQR: rescanQR,
-                        dismissSettings: { dismiss() }
+                        dismissSettings: { dismiss() },
+                        store: store
                     )
                 }
             }

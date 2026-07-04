@@ -24,7 +24,7 @@ public enum VoiceEngineID: String, CaseIterable, Codable, Sendable {
         case .apple:
             return nil
         case .parakeetV3:
-            return L10n.string("mobile.voice.engine.parakeetV3.downloadSize", defaultValue: "~480 MB")
+            return L10n.string("mobile.voice.engine.parakeetV3.downloadSize", defaultValue: "483 MB")
         }
     }
 

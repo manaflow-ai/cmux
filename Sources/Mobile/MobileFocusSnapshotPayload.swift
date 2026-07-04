@@ -9,6 +9,16 @@ struct MobileFocusSnapshotPayload: Equatable {
     let surfaceType: String?
     let isTerminal: Bool
 
+    /// Empty focus snapshot used when no Mac window/tab manager is active.
+    static let empty = MobileFocusSnapshotPayload(
+        workspaceID: nil,
+        workspaceTitle: nil,
+        surfaceID: nil,
+        surfaceTitle: nil,
+        surfaceType: nil,
+        isTerminal: false
+    )
+
     /// Builds the focus snapshot for a tab manager's selected workspace.
     /// - Parameter tabManager: The tab manager whose current focus should be projected.
     /// - Returns: A snapshot for the selected workspace and focused panel.
@@ -16,14 +26,7 @@ struct MobileFocusSnapshotPayload: Equatable {
     static func snapshot(tabManager: TabManager) -> MobileFocusSnapshotPayload {
         guard let workspaceID = tabManager.selectedTabId,
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
-            return MobileFocusSnapshotPayload(
-                workspaceID: nil,
-                workspaceTitle: nil,
-                surfaceID: nil,
-                surfaceTitle: nil,
-                surfaceType: nil,
-                isTerminal: false
-            )
+            return .empty
         }
         guard let surfaceID = workspace.focusedPanelId else {
             return MobileFocusSnapshotPayload(

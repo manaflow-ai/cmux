@@ -119,7 +119,7 @@ public final class ParakeetModelStore {
 
     /// Deletes the local model directory and returns to idle.
     ///
-    /// The store is `@MainActor` and the compiled model tree is ~480 MB, so a
+    /// The store is `@MainActor` and the compiled model tree is about 483 MB, so a
     /// synchronous `removeItem` here would block the settings UI. Instead the
     /// directory is atomically renamed aside (an O(1) same-volume rename, so
     /// `isInstalled` flips immediately and a failure still throws), and the

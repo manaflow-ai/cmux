@@ -104,6 +104,7 @@ class TerminalController {
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     var tabManager: TabManager?
+    private var didEmitEmptyMobileFocusSnapshot = false
     /// The shared auth coordinator + browser sign-in flow, injected once via
     /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
     /// listener starts. Socket auth commands read these on the main actor.
@@ -658,10 +659,21 @@ class TerminalController {
         }
         self.tabManager = tabManager
         guard previous !== tabManager else { return }
+        if tabManager == nil {
+            emitEmptyMobileFocusSnapshotIfNeeded()
+        } else {
+            didEmitEmptyMobileFocusSnapshot = false
+        }
         NotificationCenter.default.post(name: Self.activeTabManagerDidChangeNotification, object: tabManager)
     }
 
     func activeTabManagerForCallerNotification() -> TabManager? { tabManager }
+
+    private func emitEmptyMobileFocusSnapshotIfNeeded() {
+        guard !didEmitEmptyMobileFocusSnapshot else { return }
+        didEmitEmptyMobileFocusSnapshot = true
+        MobileHostService.shared.emitEvent(topic: "focus.updated", payload: MobileFocusSnapshotPayload.empty.jsonObject())
+    }
 
     // MARK: - Process Ancestry Check
 
