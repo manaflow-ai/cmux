@@ -198,8 +198,9 @@ extension TerminalController {
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            tabManager.updateSurfaceDirectory(
-                tabId: scope.workspaceID,
+            self.controlSidebarApplyDirectoryReport(
+                tabManager: tabManager,
+                tab: tab,
                 surfaceId: scope.panelID,
                 directory: directory,
                 displayLabel: displayLabel
@@ -213,19 +214,40 @@ extension TerminalController {
         directory: String,
         displayLabel: String?
     ) -> ControlSidebarPanelWriteResolution {
-        guard let tabManager else { return .tabNotFound }
-        return controlSidebarResolvePanelWrite(
+        controlSidebarResolvePanelWrite(
             tabArg: tabArg,
             panelArg: panelArg,
             prune: true,
             requireLiveSurface: true
         ) { tab, surfaceId in
+            controlSidebarApplyDirectoryReport(
+                tabManager: AppDelegate.shared?.tabManagerFor(tabId: tab.id) ?? tabManager,
+                tab: tab,
+                surfaceId: surfaceId,
+                directory: directory,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    private func controlSidebarApplyDirectoryReport(
+        tabManager: TabManager?,
+        tab: Workspace,
+        surfaceId: UUID,
+        directory: String,
+        displayLabel: String?
+    ) {
+        if tab.isRemoteWorkspace {
+            _ = tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
+        } else if let tabManager {
             tabManager.updateSurfaceDirectory(
                 tabId: tab.id,
                 surfaceId: surfaceId,
                 directory: directory,
                 displayLabel: displayLabel
             )
+        } else {
+            _ = tab.updatePanelDirectory(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
         }
     }
 
