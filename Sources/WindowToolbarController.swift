@@ -244,11 +244,11 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             segmented.segmentCount = 2
             segmented.controlSize = .small
             segmented.setImage(
-                NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: nil),
+                LayoutModeToolbarImages.splits,
                 forSegment: LayoutModeSegment.splits.rawValue
             )
             segmented.setImage(
-                NSImage(systemSymbolName: "square.on.square.dashed", accessibilityDescription: nil),
+                LayoutModeToolbarImages.canvas,
                 forSegment: LayoutModeSegment.canvas.rawValue
             )
             segmented.setToolTip(
@@ -293,4 +293,57 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         }
     }
 
+}
+
+@MainActor
+private enum LayoutModeToolbarImages {
+    static let splits = makeImage { rect in
+        let outer = NSBezierPath(roundedRect: rect, xRadius: 2.5, yRadius: 2.5)
+        outer.lineWidth = 1.4
+        outer.stroke()
+
+        let divider = NSBezierPath()
+        divider.move(to: NSPoint(x: rect.midX, y: rect.minY + 1.0))
+        divider.line(to: NSPoint(x: rect.midX, y: rect.maxY - 1.0))
+        divider.lineWidth = 1.2
+        divider.stroke()
+    }
+
+    static let canvas = makeImage { rect in
+        let backRect = NSRect(
+            x: rect.minX + 1.0,
+            y: rect.minY + 1.0,
+            width: rect.width - 5.0,
+            height: rect.height - 5.0
+        )
+        let frontRect = NSRect(
+            x: rect.minX + 5.0,
+            y: rect.minY + 5.0,
+            width: rect.width - 5.0,
+            height: rect.height - 5.0
+        )
+
+        let back = NSBezierPath(roundedRect: backRect, xRadius: 2.0, yRadius: 2.0)
+        back.lineWidth = 1.2
+        back.stroke()
+
+        let front = NSBezierPath(roundedRect: frontRect, xRadius: 2.0, yRadius: 2.0)
+        front.lineWidth = 1.4
+        front.stroke()
+    }
+
+    private static func makeImage(draw: @escaping (NSRect) -> Void) -> NSImage {
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size, flipped: false) { bounds in
+            // macOS 27 betas can throw while CoreUI rasterizes named SF Symbol
+            // glyphs inside titlebar toolbar controls. These local template
+            // images keep the toolbar off that code path.
+            NSGraphicsContext.current?.shouldAntialias = true
+            NSColor.black.setStroke()
+            draw(bounds.insetBy(dx: 1.5, dy: 1.5))
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
 }
