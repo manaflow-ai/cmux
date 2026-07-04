@@ -29,7 +29,14 @@ html, body { height: 100%; margin: 0; }
 /* html paints the same background as body so nothing behind the webview (a
    terminal surface) composites through a transparent document root. */
 html { background: var(--bg-html); }
-body { background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--sans); }
+body {
+  background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--sans);
+  /* Grayscale AA to match the terminal's text rendering; default subpixel
+     smoothing makes light-on-dark text look heavy next to Ghostty. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 #root { height: 100%; }
 #main { height: 100%; display: flex; flex-direction: column; min-width: 0; }
 
