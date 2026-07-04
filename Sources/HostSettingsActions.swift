@@ -51,6 +51,8 @@ final class HostSettingsActions: SettingsHostActions {
     /// searches rather than rebuilt each call.
     private var cachedCommandShortcutCatalog: [CommandShortcutCatalogEntry]?
     private var cachedCommandShortcutSearchEngine: CommandPaletteSearchEngine<CommandShortcutCatalogEntry>?
+    private typealias ConfiguredActionShortcut = (label: String, shortcut: CmuxSettings.StoredShortcut)
+    private var cachedStandaloneConfiguredActionShortcuts: [ConfiguredActionShortcut]?
 
     init(configFileURL: URL) {
         self.configFileURL = configFileURL
@@ -408,27 +410,36 @@ final class HostSettingsActions: SettingsHostActions {
     func configuredActionShortcuts() -> [(label: String, shortcut: CmuxSettings.StoredShortcut)] {
         let liveStores = AppDelegate.shared?.mainWindowContexts.values
             .compactMap { $0.cmuxConfigStore } ?? []
-        let stores: [CmuxConfigStore]
         if liveStores.isEmpty {
+            if let cachedStandaloneConfiguredActionShortcuts {
+                return cachedStandaloneConfiguredActionShortcuts
+            }
             // No live window (e.g. Settings opened after the last window closed):
             // load the global config standalone so configured-action conflicts are
-            // still checked rather than silently skipped.
+            // still checked rather than silently skipped. Cache the snapshot so
+            // recorder validation does not synchronously reload cmux.json on
+            // every attempted keystroke.
             let transient = CmuxConfigStore()
             transient.loadAll()
-            stores = [transient]
-        } else {
-            // Each window's store merges its local config with the global one, and
-            // runtime dispatch checks the focused window's store. Aggregate across
-            // every live window so a configured action defined in another project
-            // window is still treated as a conflict.
-            stores = liveStores
+            let shortcuts = configuredActionShortcuts(from: [transient])
+            cachedStandaloneConfiguredActionShortcuts = shortcuts
+            return shortcuts
         }
+        cachedStandaloneConfiguredActionShortcuts = nil
+        // Each window's store merges its local config with the global one, and
+        // runtime dispatch checks the focused window's store. Aggregate across
+        // every live window so a configured action defined in another project
+        // window is still treated as a conflict.
+        return configuredActionShortcuts(from: liveStores)
+    }
+
+    private func configuredActionShortcuts(from stores: [CmuxConfigStore]) -> [ConfiguredActionShortcut] {
         // A list, not a title-keyed map: action titles are free-form and may
         // collide, and dropping a duplicate would hide a real conflict. Dedup by
         // (id, keystroke) so the global actions shared across windows collapse
         // while distinct per-window overrides are all kept.
         var seen = Set<String>()
-        var result: [(label: String, shortcut: CmuxSettings.StoredShortcut)] = []
+        var result: [ConfiguredActionShortcut] = []
         for store in stores {
             for action in store.shortcutActions() {
                 guard let shortcut = action.shortcut, !shortcut.isUnbound else { continue }

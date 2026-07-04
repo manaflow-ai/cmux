@@ -187,6 +187,7 @@
 602	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 598	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
+596	Sources/HostSettingsActions.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
 592	Sources/TextBoxSubmitActions.swift
@@ -197,7 +198,6 @@
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
-585	Sources/HostSettingsActions.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift

@@ -8521,8 +8521,9 @@ struct ContentView: View {
     /// list is rebuilt with the window's live context, so a command gated out by
     /// its `when`/`enablement` clause is simply absent and the press is a silent
     /// no-op (the app-level handler still consumes the event on any binding
-    /// match). Usage is recorded so frequently-fired commands keep their palette
-    /// ranking boost.
+    /// match). Execution delegates to ``runCommandPaletteCommand(_:)`` so
+    /// palette dismissal, focus restoration, and usage tracking stay identical
+    /// to selection from the visible palette.
     ///
     /// A `dismissOnRun == false` command drives an *in-palette* input flow (e.g.
     /// rename / edit-description, which switch `commandPaletteMode` to an input
@@ -8551,11 +8552,10 @@ struct ContentView: View {
 #if DEBUG
         cmuxDebugLog("palette.runById commandId=\(commandId) result=run dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
 #endif
-        recordCommandPaletteUsage(command.id)
         if !command.dismissOnRun, !isCommandPalettePresented {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
-        command.action()
+        runCommandPaletteCommand(command)
     }
 
     private func commandPalettePostRunFocusTarget(for command: CommandPaletteCommand) -> CommandPaletteRestoreFocusTarget? {
