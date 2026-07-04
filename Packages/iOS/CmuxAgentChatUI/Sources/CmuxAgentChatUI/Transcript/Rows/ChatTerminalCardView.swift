@@ -8,6 +8,7 @@ import SwiftUI
 public struct ChatTerminalCardView: View {
     private let capture: ChatTerminalCapture
     private let rowID: String
+    private let onShowDetail: () -> Void
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatContentCache) private var contentCache
@@ -23,10 +24,12 @@ public struct ChatTerminalCardView: View {
     ///   - rowID: The row's stable identity, for cached output rendering.
     public init(
         capture: ChatTerminalCapture,
-        rowID: String
+        rowID: String,
+        onShowDetail: @escaping () -> Void = {}
     ) {
         self.capture = capture
         self.rowID = rowID
+        self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
@@ -45,6 +48,16 @@ public struct ChatTerminalCardView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(theme.hairline, lineWidth: 0.5)
+        )
+        .contentShape(.rect)
+        .onTapGesture(perform: onShowDetail)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(
+            String(
+                localized: "chat.detail.show.hint",
+                defaultValue: "Opens a sheet with the full block content",
+                bundle: .module
+            )
         )
     }
 
@@ -71,6 +84,7 @@ public struct ChatTerminalCardView: View {
                 .truncationMode(.middle)
             Spacer(minLength: 6)
             trailingStatus
+            detailGlyph
         }
         .padding(.horizontal, 10)
         .frame(minHeight: 32)
@@ -132,6 +146,13 @@ public struct ChatTerminalCardView: View {
                     .monospacedDigit()
             }
         }
+    }
+
+    private var detailGlyph: some View {
+        Image(systemName: "doc.text.magnifyingglass")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 
     private func outputBlock(lines: [String]) -> some View {

@@ -16,6 +16,7 @@ public struct ChatScreen: View {
     @State private var store: ChatConversationStore
     @State private var renderer = ChatMarkdownRenderer()
     @State private var contentCache = ChatContentCache()
+    @State private var selectedBlockDetail: ChatBlockDetail?
 
     @Binding private var draft: String
     private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
@@ -81,6 +82,9 @@ public struct ChatScreen: View {
             providesOwnChrome: providesOwnChrome,
             onOpenTerminal: onOpenTerminal
         ))
+        .sheet(item: $selectedBlockDetail) { detail in
+            ChatBlockDetailSheetView(detail: detail)
+        }
         .task {
             guard runsStoreTask else { return }
             await store.run()
@@ -220,7 +224,20 @@ public struct ChatScreen: View {
             discardPending: { id in
                 store.discard(pendingID: id)
             },
-            openTerminal: onOpenTerminal
+            openTerminal: onOpenTerminal,
+            showMessageDetail: { message in
+                selectedBlockDetail = ChatBlockDetail.make(message: message)
+            },
+            showTerminalCommandDetail: { block in
+                selectedBlockDetail = ChatBlockDetail.make(block: block)
+            },
+            showCodeBlockDetail: { code, language in
+                selectedBlockDetail = ChatBlockDetail.codeBlock(
+                    id: "code-\(code.hashValue)-\(language ?? "")",
+                    code: code,
+                    language: language
+                )
+            }
         )
     }
 }

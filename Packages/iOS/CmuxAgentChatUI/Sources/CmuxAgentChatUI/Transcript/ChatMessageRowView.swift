@@ -28,23 +28,29 @@ public struct ChatMessageRowView: View {
                     prose: prose,
                     message: snapshot.message,
                     groupPosition: snapshot.groupPosition,
-                    showsTimestamp: snapshot.showsTimestamp
+                    showsTimestamp: snapshot.showsTimestamp,
+                    onShowCodeDetail: actions.showCodeBlockDetail
                 )
             case .thought:
-                ChatThoughtRowView()
+                ChatThoughtRowView(
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
+                )
             case .toolUse(let toolUse):
                 ChatToolUseRowView(
-                    toolUse: toolUse
+                    toolUse: toolUse,
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .terminal(let capture):
                 ChatTerminalCardView(
                     capture: capture,
-                    rowID: rowID
+                    rowID: rowID,
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .fileEdit(let edit):
                 ChatFileEditCardView(
                     edit: edit,
-                    rowID: rowID
+                    rowID: rowID,
+                    onShowDetail: { actions.showMessageDetail(snapshot.message) }
                 )
             case .permissionRequest(let request):
                 ChatPermissionCardView(

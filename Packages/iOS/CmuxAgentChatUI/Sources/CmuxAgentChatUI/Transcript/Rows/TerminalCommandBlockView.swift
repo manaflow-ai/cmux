@@ -11,6 +11,7 @@ import SwiftUI
 public struct TerminalCommandBlockView: View {
     private let block: TerminalCommandBlock
     private let onOpenTerminal: () -> Void
+    private let onShowDetail: () -> Void
 
     @Environment(\.chatTheme) private var theme
 
@@ -24,12 +25,15 @@ public struct TerminalCommandBlockView: View {
     /// - Parameters:
     ///   - block: The parsed command/output unit.
     ///   - onOpenTerminal: Opens the raw terminal (escape hatch).
+    ///   - onShowDetail: Opens the full command block in a stable detail sheet.
     public init(
         block: TerminalCommandBlock,
-        onOpenTerminal: @escaping () -> Void
+        onOpenTerminal: @escaping () -> Void,
+        onShowDetail: @escaping () -> Void = {}
     ) {
         self.block = block
         self.onOpenTerminal = onOpenTerminal
+        self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
@@ -65,6 +69,16 @@ public struct TerminalCommandBlockView: View {
                     .frame(width: 2.5)
             }
         }
+        .contentShape(.rect)
+        .onTapGesture(perform: onShowDetail)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(
+            String(
+                localized: "chat.detail.show.hint",
+                defaultValue: "Opens a sheet with the full block content",
+                bundle: .module
+            )
+        )
         .accessibilityIdentifier("TerminalCommandBlock-\(block.id)")
     }
 

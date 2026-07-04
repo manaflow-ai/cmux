@@ -4,8 +4,7 @@ import SwiftUI
 /// Dispatches one ``ChatTranscriptRow`` to its renderer.
 ///
 /// Equatable so SwiftUI skips body re-evaluation for rows whose snapshot
-/// and expansion state did not change while the transcript updates around
-/// them.
+/// did not change while the transcript updates around them.
 public struct ChatTranscriptRowView: View, Equatable {
     private let row: ChatTranscriptRow
     private let actions: ChatRowActions
@@ -39,7 +38,8 @@ public struct ChatTranscriptRowView: View, Equatable {
         case .terminalCommand(let block):
             TerminalCommandBlockView(
                 block: block,
-                onOpenTerminal: actions.openTerminal
+                onOpenTerminal: actions.openTerminal,
+                onShowDetail: { actions.showTerminalCommandDetail(block) }
             )
         }
     }

@@ -6,6 +6,7 @@ import SwiftUI
 public struct ChatFileEditCardView: View {
     private let edit: ChatFileEdit
     private let rowID: String
+    private let onShowDetail: () -> Void
 
     @Environment(\.chatTheme) private var theme
     @Environment(\.chatContentCache) private var contentCache
@@ -17,9 +18,11 @@ public struct ChatFileEditCardView: View {
     /// - Parameters:
     ///   - edit: The file modification payload.
     ///   - rowID: The row's stable identity, for cached diff rendering.
-    public init(edit: ChatFileEdit, rowID: String) {
+    ///   - onShowDetail: Opens the full diff in a stable detail sheet.
+    public init(edit: ChatFileEdit, rowID: String, onShowDetail: @escaping () -> Void = {}) {
         self.edit = edit
         self.rowID = rowID
+        self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
@@ -38,6 +41,16 @@ public struct ChatFileEditCardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(theme.hairline, lineWidth: 0.5)
         )
+        .contentShape(.rect)
+        .onTapGesture(perform: onShowDetail)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(
+            String(
+                localized: "chat.detail.show.hint",
+                defaultValue: "Opens a sheet with the full block content",
+                bundle: .module
+            )
+        )
     }
 
     private var header: some View {
@@ -52,6 +65,7 @@ public struct ChatFileEditCardView: View {
                 .truncationMode(.middle)
             Spacer(minLength: 6)
             counts
+            detailGlyph
         }
         .padding(.horizontal, 10)
         .frame(minHeight: 32)
@@ -79,6 +93,13 @@ public struct ChatFileEditCardView: View {
             }
         }
         .font(.system(.caption, design: .monospaced))
+    }
+
+    private var detailGlyph: some View {
+        Image(systemName: "doc.text.magnifyingglass")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 
     private func diffBlock(diff: String) -> some View {

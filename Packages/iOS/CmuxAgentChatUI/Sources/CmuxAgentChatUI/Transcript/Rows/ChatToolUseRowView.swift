@@ -5,13 +5,16 @@ import SwiftUI
 /// glyph.
 public struct ChatToolUseRowView: View {
     private let toolUse: ChatToolUse
+    private let onShowDetail: () -> Void
 
     /// Creates a tool-use row.
     ///
     /// - Parameters:
     ///   - toolUse: The invocation payload.
-    public init(toolUse: ChatToolUse) {
+    ///   - onShowDetail: Opens the full tool input/output in a detail sheet.
+    public init(toolUse: ChatToolUse, onShowDetail: @escaping () -> Void = {}) {
         self.toolUse = toolUse
+        self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
@@ -25,9 +28,20 @@ public struct ChatToolUseRowView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             statusGlyph
+            detailGlyph
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .onTapGesture(perform: onShowDetail)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(
+            String(
+                localized: "chat.detail.show.hint",
+                defaultValue: "Opens a sheet with the full block content",
+                bundle: .module
+            )
+        )
     }
 
     /// SF symbol for the tool, keyed off its machine name.
@@ -40,6 +54,13 @@ public struct ChatToolUseRowView: View {
         if name.contains("webfetch") || name.contains("websearch") { return "globe" }
         if name.contains("task") || name.contains("agent") { return "person.2" }
         return "gearshape"
+    }
+
+    private var detailGlyph: some View {
+        Image(systemName: "doc.text.magnifyingglass")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
