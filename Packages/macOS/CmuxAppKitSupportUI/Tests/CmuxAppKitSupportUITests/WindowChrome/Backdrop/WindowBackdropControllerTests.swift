@@ -166,13 +166,8 @@ import Testing
     }
 
     private func makeWindowBackgroundPolicy() -> WindowBackgroundPolicy {
-        WindowBackgroundPolicy(settings: FakeWindowBackgroundSettings())
+        WindowBackgroundPolicy(settings: WindowBackgroundPolicyTestSettings())
     }
-}
-
-private struct FakeWindowBackgroundSettings: WindowBackgroundSettingsReading {
-    var sidebarBlendModeRawValue = "withinWindow"
-    var isBackgroundGlassEnabled = false
 }
 
 @MainActor
