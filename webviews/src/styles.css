@@ -412,20 +412,13 @@ body {
   }
 }
 .base-picker-popover {
-  /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
-     `.toolbar-left`'s `overflow-x: clip` AND its `container-type: inline-size`:
-     a container-query container is the containing block for `position: fixed`
-     descendants and still clips them, so a fixed popover left inside the cell
-     would be positioned against (and clipped by) the cell, not the viewport.
-     `#app` likewise has `contain: strict`, which is also a fixed-positioning
-     containing block, so the popover is mounted on `document.body` (outside both)
-     in `BranchBasePicker`. `top` / `bottom` / `left` / `max-height` are set
-     inline by JS from the Base button's rect, clamped to the viewport (see
-     computePopoverStyle); `body` spans the full viewport and does not clip the
-     clamped fixed element. */
-  position: fixed;
+  /* Base UI portals and viewport-anchors the popover so it escapes `.toolbar-left`
+     clipping and `#app` containment while preserving outside-click, Escape, and
+     focus-return behavior. */
+  position: relative;
   width: 320px;
   max-width: min(86vw, 360px);
+  max-height: min(var(--available-height), 70vh);
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
@@ -604,10 +597,10 @@ body {
   stroke-width: 2;
 }
 #options-menu {
-  position: absolute;
-  top: calc(100% + 7px);
-  right: 10px;
+  position: relative;
   min-width: 246px;
+  max-height: min(var(--available-height), 70vh);
+  overflow-y: auto;
   padding: 8px;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 8px;
@@ -638,7 +631,8 @@ body {
   text-align: left;
   padding: 0 7px;
 }
-.menu-item:hover:not(:disabled) {
+.menu-item:hover:not(:disabled),
+.menu-item[data-highlighted] {
   background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   color: var(--cmux-diff-fg);
 }
@@ -668,9 +662,11 @@ body {
   background: transparent;
   color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
   padding: 0;
+  cursor: default;
 }
 .segment-button:hover,
-.segment-button[aria-pressed="true"] {
+.segment-button[data-highlighted],
+.segment-button[data-checked] {
   background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
   color: var(--cmux-diff-fg);
 }

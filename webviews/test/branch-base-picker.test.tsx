@@ -2,8 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { BranchBasePicker, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
-import { createDiffViewerLabelResolver } from "../src/labels";
+import type { BranchPickerPayload } from "../src/BranchBasePicker";
 
 // Behavior coverage for the render cap (huge refs lists must not render every
 // row) and the empty-state "type to filter" affordance, plus the filtered total
@@ -12,9 +11,13 @@ import { createDiffViewerLabelResolver } from "../src/labels";
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, unknown>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "customElements", "fetch"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "customElements", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame", "fetch"]) {
   originalGlobals.set(key, (globalThis as Record<string, unknown>)[key]);
 }
+
+installBootstrapDom();
+const { BranchBasePicker, buildFlatRows, toCurrentOriginRelative } = await import("../src/BranchBasePicker");
+const { createDiffViewerLabelResolver } = await import("../src/labels");
 
 afterEach(async () => {
   if (root) {
@@ -32,6 +35,21 @@ afterEach(async () => {
     }
   }
 });
+
+function installBootstrapDom(): void {
+  const bootstrapDom = createDom();
+  const g = globalThis as Record<string, unknown>;
+  g.window = bootstrapDom.window;
+  g.document = bootstrapDom.window.document;
+  g.navigator = bootstrapDom.window.navigator;
+  g.Element = bootstrapDom.window.Element;
+  g.Node = bootstrapDom.window.Node;
+  g.HTMLElement = bootstrapDom.window.HTMLElement;
+  g.customElements = bootstrapDom.window.customElements;
+  g.getComputedStyle = bootstrapDom.window.getComputedStyle.bind(bootstrapDom.window);
+  g.requestAnimationFrame = bootstrapDom.window.requestAnimationFrame.bind(bootstrapDom.window);
+  g.cancelAnimationFrame = bootstrapDom.window.cancelAnimationFrame.bind(bootstrapDom.window);
+}
 
 const label = createDiffViewerLabelResolver(undefined);
 
@@ -204,6 +222,7 @@ test("selecting a ref navigates to a root-relative regenerate URL", async () => 
 
 function createDom(): JSDOM {
   return new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    pretendToBeVisual: true,
     url: "http://127.0.0.1/diff",
   });
 }
@@ -217,6 +236,9 @@ function installDomGlobals(nextDom: JSDOM): void {
   g.Node = nextDom.window.Node;
   g.HTMLElement = nextDom.window.HTMLElement;
   g.customElements = nextDom.window.customElements;
+  g.getComputedStyle = nextDom.window.getComputedStyle.bind(nextDom.window);
+  g.requestAnimationFrame = nextDom.window.requestAnimationFrame.bind(nextDom.window);
+  g.cancelAnimationFrame = nextDom.window.cancelAnimationFrame.bind(nextDom.window);
   // The autofocused filter input makes React run its legacy IE onpropertychange
   // polyfill (JSDOM misreports 'input' support), which calls attach/detachEvent
   // on the active element. JSDOM lacks them; stub no-ops on Element.prototype.
