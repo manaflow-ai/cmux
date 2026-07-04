@@ -9901,13 +9901,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voice transcription is processed on this iPhone. Apple uses the built-in recognizer; Parakeet runs from a downloaded CoreML model."
+            "value": "Parakeet always transcribes on this iPhone from a downloaded CoreML model. The Apple engine prefers on-device recognition; when your language does not support it, Apple's servers may process the audio."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "音声の文字起こしはこのiPhone上で処理されます。Appleは内蔵認識機能を使用し、ParakeetはダウンロードしたCoreMLモデルから実行されます。"
+            "value": "Parakeetは常にこのiPhone上でダウンロード済みCoreMLモデルから文字起こしします。Appleエンジンはオンデバイス認識を優先しますが、言語が対応していない場合はAppleのサーバーで音声が処理されることがあります。"
           }
         }
       }

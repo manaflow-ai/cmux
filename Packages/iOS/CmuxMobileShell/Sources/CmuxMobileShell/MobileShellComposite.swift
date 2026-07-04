@@ -5936,10 +5936,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 continue
             }
             let generation = connectionGeneration
-            _ = await fetchVoiceFocus()
-            guard !Task.isCancelled, isCurrentRemoteOperation(client: client, generation: generation) else {
-                continue
-            }
             let subscribed = await runVoiceFocusSubscription(client: client, generation: generation)
             guard !Task.isCancelled else { return }
             guard !subscribed, isCurrentRemoteOperation(client: client, generation: generation) else {
@@ -5966,6 +5962,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return false
         }
 
+        // Seed AFTER the subscription is installed, not before: a focus change
+        // during the subscribe round-trip would otherwise be lost and the card
+        // would stay stale until the next change on the Mac.
+        _ = await fetchVoiceFocus()
+        guard !Task.isCancelled, isCurrentRemoteOperation(client: client, generation: generation) else {
+            await unsubscribeVoiceFocus(client: client, streamID: streamID, generation: generation)
+            return false
+        }
+
         await withTaskCancellationHandler {
             for await event in stream {
                 guard !Task.isCancelled else { break }
@@ -5981,14 +5986,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         } onCancel: {
             Task { @MainActor [weak self] in
-                await self?.unsubscribeVoiceFocus(client: client, streamID: streamID)
+                await self?.unsubscribeVoiceFocus(client: client, streamID: streamID, generation: generation)
             }
         }
-        await unsubscribeVoiceFocus(client: client, streamID: streamID)
+        await unsubscribeVoiceFocus(client: client, streamID: streamID, generation: generation)
         return true
     }
 
-    private func unsubscribeVoiceFocus(client: MobileCoreRPCClient, streamID: String) async {
+    /// Best-effort unsubscribe. Skipped when the connection generation moved on:
+    /// `sendRequest` dials through `ensureConnected`, so an unconditional send
+    /// after a disconnect or Mac switch would reconnect a stale Mac just to
+    /// unsubscribe a stream it already dropped.
+    private func unsubscribeVoiceFocus(client: MobileCoreRPCClient, streamID: String, generation: UUID) async {
+        guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
         guard let request = try? MobileCoreRPCClient.requestData(
             method: "mobile.events.unsubscribe",
             params: ["stream_id": streamID]

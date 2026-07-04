@@ -126,6 +126,13 @@ public final class ComposerDictationController {
     ///   - onText: Receives merged text (base + transcript) on the main actor for
     ///     every partial and the final result.
     public func toggle(existingText: String, onText: @escaping (String) -> Void) {
+        // `.unavailable` is terminal for a given backend, not for the controller:
+        // the user can install and select a different engine (e.g. Parakeet on a
+        // locale Apple Speech does not support) after this controller was created.
+        // Re-consult the factory so the mic recovers without recreating the view.
+        if state == .unavailable, Self.backendFactory().isSupported {
+            state = .idle
+        }
         if state.isListening {
             // The visible Stop button: finalize gracefully so the last spoken
             // words are not dropped.

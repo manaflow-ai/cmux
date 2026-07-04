@@ -32,7 +32,7 @@ struct MobileVoiceSettingsPage: View {
             } header: {
                 Text(L10n.string("mobile.settings.voice.engine", defaultValue: "Engine"))
             } footer: {
-                Text(L10n.string("mobile.settings.voice.footer", defaultValue: "Voice transcription is processed on this iPhone. Apple uses the built-in recognizer; Parakeet runs from a downloaded CoreML model."))
+                Text(L10n.string("mobile.settings.voice.footer", defaultValue: "Parakeet always transcribes on this iPhone from a downloaded CoreML model. The Apple engine prefers on-device recognition; when your language does not support it, Apple's servers may process the audio."))
             }
 
             if canOpenVoiceMode {
