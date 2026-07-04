@@ -219,7 +219,7 @@ private final class DetachedNotificationsPopoverDelegate: NSObject, NSPopoverDel
 
 extension Notification.Name {
     static let cmuxNotificationsPopoverVisibilityDidChange = Notification.Name("cmux.notificationsPopoverVisibilityDidChange")
-    static let cmuxMinimalModeSidebarHostWindowDidChange = Notification.Name("cmux.minimalModeSidebarHostWindowDidChange")
+    static let cmuxTitlebarHostWindowDidChange = Notification.Name("cmux.titlebarHostWindowDidChange")
 }
 
 private enum NotificationsPopoverVisibilityUserInfoKey {
@@ -905,17 +905,16 @@ struct TitlebarControlsView: View {
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor(refreshID: showModifierHoldHints) { window in
-                    _ = viewModel.setHostWindow(window)
+                    if viewModel.setHostWindow(window) { NotificationCenter.default.post(name: .cmuxTitlebarHostWindowDidChange, object: viewModel) }
                     modifierKeyMonitor.setHostWindow(modifierHoldHintsEnabled ? window : nil)
                 }
                 .frame(width: 0, height: 0)
             )
-            .onHover { hovering in
-                isHoveringControls = hovering
-            }
+            .onHover { isHoveringControls = $0 }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
             }
+            .onReceive(NotificationCenter.default.publisher(for: .cmuxTitlebarHostWindowDidChange, object: viewModel).receive(on: RunLoop.main)) { _ in focusHistoryAvailabilityRevision &+= 1 }
             .onReceive(NotificationCenter.default.publisher(for: .tabManagerFocusHistoryRevisionDidChange)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
             }
@@ -1363,7 +1362,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         ZStack(alignment: .leading) {
             WindowAccessor(invokeDuringUpdate: false) { window in
                 let nextWindowNumber = window.windowNumber
-                if viewModel.setHostWindow(window) { NotificationCenter.default.post(name: .cmuxMinimalModeSidebarHostWindowDidChange, object: viewModel) }
+                if viewModel.setHostWindow(window) { NotificationCenter.default.post(name: .cmuxTitlebarHostWindowDidChange, object: viewModel) }
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
                 _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -1461,7 +1460,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             }
             #endif
         }
-        .onReceive(NotificationCenter.default.publisher(for: .cmuxMinimalModeSidebarHostWindowDidChange, object: viewModel).receive(on: RunLoop.main)) { _ in isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxTitlebarHostWindowDidChange, object: viewModel).receive(on: RunLoop.main)) { _ in isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
         .onAppear { isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
         .onDisappear {
             isHoveringHost = false
