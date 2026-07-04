@@ -66,7 +66,7 @@ extension Workspace {
         if let directory = reportedPanelDirectory(panelId: panelId) {
             return directory
         }
-        guard !isRemoteWorkspace else { return nil }
+        guard allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
         if let requestedDirectory = normalizedSidebarDirectory(
             terminalPanel(for: panelId)?.requestedWorkingDirectory
         ) {
