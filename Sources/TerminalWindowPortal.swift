@@ -1815,6 +1815,29 @@ enum TerminalWindowPortalRegistry {
     private static var blockedBindReasons: [String: Int] = [:]
 #endif
 
+    /// Depth of in-flight terminal host `viewDidMoveToWindow` callbacks.
+    ///
+    /// AppKit delivers `viewDidMoveToWindow` while it is still enumerating the view tree inside
+    /// `-[NSView _setWindow:]`. Reparenting the hosted terminal surface (a `addSubview`) during
+    /// that enumeration mutates the in-flight walk and crashes with `EXC_BREAKPOINT` inside
+    /// `-[NSView addSubview:positioned:relativeTo:]` → `-[__NSArrayM insertObject:atIndex:]`.
+    /// See https://github.com/manaflow-ai/cmux/issues/5704.
+    private static var hostWindowAttachmentDepth = 0
+
+    /// True while a terminal host placeholder is inside its AppKit `viewDidMoveToWindow`
+    /// callback (i.e. mid `_setWindow:` enumeration). Portal binds issued in this state must be
+    /// deferred so the structural reparent does not mutate the view tree mid-walk.
+    static var isHostWindowAttachmentInProgress: Bool { hostWindowAttachmentDepth > 0 }
+
+    static func beginHostWindowAttachment() {
+        hostWindowAttachmentDepth += 1
+    }
+
+    static func endHostWindowAttachment() {
+        guard hostWindowAttachmentDepth > 0 else { return }
+        hostWindowAttachmentDepth -= 1
+    }
+
     static var isInteractiveGeometryResizeActive: Bool {
 #if DEBUG
         if Self.isPointerDragActiveForTesting { return true }
@@ -1988,6 +2011,7 @@ enum TerminalWindowPortalRegistry {
         return portalsByWindowId[ObjectIdentifier(window)]
     }
 
+    @discardableResult
     static func bind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -1995,9 +2019,28 @@ enum TerminalWindowPortalRegistry {
         zPriority: Int = 0,
         expectedSurfaceId: UUID? = nil,
         expectedGeneration: UInt64? = nil,
-        deferLayoutSynchronization: Bool = false
-    ) {
-        guard let window = anchorView.window else { return }
+        deferLayoutSynchronization: Bool = false,
+        deferredBindStillCurrent: (() -> Bool)? = nil
+    ) -> Bool {
+        // A bind issued while a terminal host is mid `viewDidMoveToWindow` (AppKit's
+        // `_setWindow:` enumeration) would reparent the surface and corrupt the in-flight
+        // view-tree walk. Defer the structural bind to the next MainActor turn instead.
+        // See https://github.com/manaflow-ai/cmux/issues/5704.
+        if isHostWindowAttachmentInProgress {
+            scheduleDeferredHostWindowAttachmentBind(
+                hostedView: hostedView,
+                to: anchorView,
+                visibleInUI: visibleInUI,
+                zPriority: zPriority,
+                expectedSurfaceId: expectedSurfaceId,
+                expectedGeneration: expectedGeneration,
+                deferLayoutSynchronization: deferLayoutSynchronization,
+                deferredBindStillCurrent: deferredBindStillCurrent
+            )
+            return false
+        }
+
+        guard let window = anchorView.window else { return false }
 
         let windowId = ObjectIdentifier(window)
         let hostedId = ObjectIdentifier(hostedView)
@@ -2026,7 +2069,7 @@ enum TerminalWindowPortalRegistry {
                 "actualState=\(guardState.state)"
             )
 #endif
-            return
+            return false
         }
 
         let nextPortal = portal(for: window, syncLayout: !deferLayoutSynchronization)
@@ -2045,12 +2088,77 @@ enum TerminalWindowPortalRegistry {
         )
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
+        return true
     }
 
-    static func synchronizeForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
-        guard let window = anchorView.window else { return }
+    /// Re-issue a portal bind on the next MainActor turn, after AppKit has unwound the
+    /// `_setWindow:` enumeration that delivered the host's `viewDidMoveToWindow`. The hosted
+    /// and anchor views are captured weakly and the bind is re-validated (anchor still in a
+    /// window, surface still accepts the binding) before it runs.
+    ///
+    /// `visibleInUI`/`zPriority` are captured by value at schedule time. `deferredBindStillCurrent`
+    /// lets the caller invalidate this block if a newer `updateNSView` generation has already
+    /// (re)bound the host with fresh presentation params, so a stale defer cannot overwrite them.
+    private static func scheduleDeferredHostWindowAttachmentBind(
+        hostedView: GhosttySurfaceScrollView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int,
+        expectedSurfaceId: UUID?,
+        expectedGeneration: UInt64?,
+        deferLayoutSynchronization: Bool,
+        deferredBindStillCurrent: (() -> Bool)?
+    ) {
+#if DEBUG
+        cmuxDebugLog(
+            "portal.bind.deferAttach hosted=\(portalDebugToken(hostedView)) " +
+            "anchor=\(portalDebugToken(anchorView)) visible=\(visibleInUI ? 1 : 0) z=\(zPriority)"
+        )
+#endif
+        Task { @MainActor [weak hostedView, weak anchorView] in
+            guard let hostedView, let anchorView, anchorView.window != nil else { return }
+            // Bail if a newer SwiftUI update generation has superseded this deferred bind; its
+            // captured presentation params would otherwise clobber the fresh ones. See #5704.
+            if let deferredBindStillCurrent, !deferredBindStillCurrent() { return }
+            bind(
+                hostedView: hostedView,
+                to: anchorView,
+                visibleInUI: visibleInUI,
+                zPriority: zPriority,
+                expectedSurfaceId: expectedSurfaceId,
+                expectedGeneration: expectedGeneration,
+                deferLayoutSynchronization: deferLayoutSynchronization
+            )
+        }
+    }
+
+    @discardableResult
+    static func synchronizeForAnchor(_ anchorView: NSView, syncLayout: Bool = true) -> Bool {
+        guard let window = anchorView.window else { return false }
+        // `portal(for:)` can install the window portal for the first time and
+        // `synchronizeHostedViewForAnchor` runs `ensureInstalled`, both of which `addSubview`
+        // and reorder portal views. That structural mutation is unsafe while a terminal host is
+        // mid `viewDidMoveToWindow` (AppKit's `_setWindow:` enumeration), so defer it to the next
+        // MainActor turn just like `bind`. See https://github.com/manaflow-ai/cmux/issues/5704.
+        if isHostWindowAttachmentInProgress {
+            scheduleDeferredHostWindowAttachmentSynchronize(anchorView, syncLayout: syncLayout)
+            return false
+        }
         let portal = portal(for: window, syncLayout: syncLayout)
         portal.synchronizeHostedViewForAnchor(anchorView, syncLayout: syncLayout)
+        return true
+    }
+
+    /// Re-issue an anchor geometry reconcile on the next MainActor turn, after AppKit has
+    /// unwound the `_setWindow:` enumeration that delivered the host's `viewDidMoveToWindow`.
+    private static func scheduleDeferredHostWindowAttachmentSynchronize(
+        _ anchorView: NSView,
+        syncLayout: Bool
+    ) {
+        Task { @MainActor [weak anchorView] in
+            guard let anchorView, anchorView.window != nil else { return }
+            synchronizeForAnchor(anchorView, syncLayout: syncLayout)
+        }
     }
 
     static func scheduleExternalGeometrySynchronize(for window: NSWindow, forceImmediate: Bool = true) {
