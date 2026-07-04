@@ -219,6 +219,7 @@ private final class DetachedNotificationsPopoverDelegate: NSObject, NSPopoverDel
 
 extension Notification.Name {
     static let cmuxNotificationsPopoverVisibilityDidChange = Notification.Name("cmux.notificationsPopoverVisibilityDidChange")
+    static let cmuxMinimalModeSidebarHostWindowDidChange = Notification.Name("cmux.minimalModeSidebarHostWindowDidChange")
 }
 
 private enum NotificationsPopoverVisibilityUserInfoKey {
@@ -1362,7 +1363,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         ZStack(alignment: .leading) {
             WindowAccessor(invokeDuringUpdate: false) { window in
                 let nextWindowNumber = window.windowNumber
-                _ = viewModel.setHostWindow(window)
+                if viewModel.setHostWindow(window) { NotificationCenter.default.post(name: .cmuxMinimalModeSidebarHostWindowDidChange, object: viewModel) }
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
                 _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
@@ -1380,7 +1381,6 @@ struct HiddenTitlebarSidebarControlsView: View {
                 height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
             )
             .allowsHitTesting(false)
-
             TitlebarControlsView(
                 notificationStore: notificationStore,
                 viewModel: viewModel,
@@ -1444,7 +1444,6 @@ struct HiddenTitlebarSidebarControlsView: View {
                 width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
                 height: MinimalModeSidebarTitlebarControlsMetrics.hostHeight
             )
-
         }
         .frame(
             width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
@@ -1462,6 +1461,7 @@ struct HiddenTitlebarSidebarControlsView: View {
             }
             #endif
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxMinimalModeSidebarHostWindowDidChange, object: viewModel).receive(on: RunLoop.main)) { _ in isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
         .onAppear { isHoveringWindowChrome = hostWindowNumber.map { $0 == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber } ?? false }
         .onDisappear {
             isHoveringHost = false
