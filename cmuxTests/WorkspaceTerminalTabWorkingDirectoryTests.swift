@@ -202,7 +202,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.panelDirectories[focusedPanel.id] == liveDirectory)
 
         let createdPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
-        #expect(createdPanel.requestedWorkingDirectory == defaultDirectory)
+        #expect(createdPanel.requestedWorkingDirectory == liveDirectory)
     }
 
     @MainActor
