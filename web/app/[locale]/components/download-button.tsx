@@ -29,8 +29,8 @@ export type PadOverride = {
   caretRight?: number;
 };
 const PILL_PADDING = {
-  default: { downloadLeft: 20, downloadRight: 8, caretLeft: 6, caretRight: 7 },
-  sm: { downloadLeft: 12, downloadRight: 7, caretLeft: 5, caretRight: 7 },
+  default: { downloadLeft: 20, downloadRight: 9, caretLeft: 7, caretRight: 11 },
+  sm: { downloadLeft: 12, downloadRight: 7, caretLeft: 5, caretRight: 9 },
 } as const;
 
 export function DownloadButton({
