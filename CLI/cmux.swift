@@ -23350,7 +23350,12 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession) ?? (resolvedSurface.allowsFeedWorkspaceAttribution ? workspaceId : nil)
+            let hasAuthoritativeWorkspace = feedWorkspace != nil
+            sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
+                                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                                    defaultToWorkspaceArg: false)
+            guard hasAuthoritativeWorkspace else { telemetry.breadcrumb("claude-hook.notification.unknown-workspace"); print("OK"); return }
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -23557,13 +23562,21 @@ struct CMUXCLI {
             // as current only when the consumed session was the active one.
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
+                let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: consumedSession)
+                sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
+                                        surfaceId: feedWorkspace != nil ? consumedSession.surfaceId : nil,
+                                        defaultToWorkspaceArg: false)
+                guard feedWorkspace != nil else {
+                    telemetry.breadcrumb("claude-hook.session-end.unknown-workspace")
+                    print("OK")
+                    return
+                }
                 clearAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: consumedSession.surfaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
@@ -23622,7 +23635,12 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession) ?? (resolvedSurface.allowsFeedWorkspaceAttribution ? workspaceId : nil)
+            let hasAuthoritativeWorkspace = feedWorkspace != nil
+            sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
+                                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                                    defaultToWorkspaceArg: false)
+            guard hasAuthoritativeWorkspace else { telemetry.breadcrumb("claude-hook.pre-tool-use.unknown-workspace"); print("OK"); return }
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,

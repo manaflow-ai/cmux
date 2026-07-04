@@ -131,6 +131,44 @@ struct ClaudeHookConversationAttributionTests {
         )
     }
 
+    @Test func notificationWithListedAmbientSurfaceDoesNotAttributeToFocusedWorkspace() throws {
+        let capture = try runClaudeFeedHook(
+            subcommand: "notification",
+            eventName: "Notification",
+            callerWorkspaceId: nil,
+            surfaceEnvId: Self.focusedSurfaceId
+        )
+        let event = try #require(
+            capture.feedEvent,
+            Comment(rawValue: "Expected the Notification hook to emit a feed.push, saw \(capture.commands)")
+        )
+        let attributed = event["workspace_id"] as? String
+        #expect(
+            attributed == nil,
+            Comment(rawValue: "Notification feed telemetry must omit unknown workspace_id; got \(String(describing: attributed))")
+        )
+        #expect(attributed != Self.focusedWorkspaceId)
+    }
+
+    @Test func preToolUseWithListedAmbientSurfaceDoesNotAttributeToFocusedWorkspace() throws {
+        let capture = try runClaudeFeedHook(
+            subcommand: "pre-tool-use",
+            eventName: "PreToolUse",
+            callerWorkspaceId: nil,
+            surfaceEnvId: Self.focusedSurfaceId
+        )
+        let event = try #require(
+            capture.feedEvent,
+            Comment(rawValue: "Expected the PreToolUse hook to emit a feed.push, saw \(capture.commands)")
+        )
+        let attributed = event["workspace_id"] as? String
+        #expect(
+            attributed == nil,
+            Comment(rawValue: "PreToolUse feed telemetry must omit unknown workspace_id; got \(String(describing: attributed))")
+        )
+        #expect(attributed != Self.focusedWorkspaceId)
+    }
+
     // MARK: - Harness
 
     private struct FeedCapture {
@@ -140,6 +178,24 @@ struct ClaudeHookConversationAttributionTests {
     }
 
     private func runClaudeStopHook(
+        callerWorkspaceId: String?,
+        surfaceEnvId: String,
+        includeSessionStart: Bool = false,
+        repeatCount: Int = 1
+    ) throws -> FeedCapture {
+        try runClaudeFeedHook(
+            subcommand: "stop",
+            eventName: "Stop",
+            callerWorkspaceId: callerWorkspaceId,
+            surfaceEnvId: surfaceEnvId,
+            includeSessionStart: includeSessionStart,
+            repeatCount: repeatCount
+        )
+    }
+
+    private func runClaudeFeedHook(
+        subcommand: String,
+        eventName: String,
         callerWorkspaceId: String?,
         surfaceEnvId: String,
         includeSessionStart: Bool = false,
@@ -208,20 +264,20 @@ struct ClaudeHookConversationAttributionTests {
                 standardInput: stdin,
                 timeout: 10
             )
-            #expect(!result.timedOut, Comment(rawValue: "hooks claude stop timed out; stderr=\(result.stderr)"))
+            #expect(!result.timedOut, Comment(rawValue: "hooks claude \(subcommand) timed out; stderr=\(result.stderr)"))
         }
         if includeSessionStart {
             try runHook("session-start", eventName: "SessionStart")
             try runHook("prompt-submit", eventName: "UserPromptSubmit")
         }
         for _ in 0..<repeatCount {
-            try runHook("stop", eventName: "Stop")
+            try runHook(subcommand, eventName: eventName)
         }
 
         // Feed telemetry is delivered best-effort on a separate one-way socket
         // connection; the CLI writes it before exiting but the mock records it
-        // asynchronously, so poll the recorded commands for the Stop event.
-        let events = Self.pollForStopFeedEvents(state: state, expectedCount: repeatCount, timeout: 5)
+        // asynchronously, so poll the recorded commands for the target event.
+        let events = Self.pollForFeedEvents(state: state, hookEventName: eventName, expectedCount: repeatCount, timeout: 5)
         return FeedCapture(feedEvents: events, commands: state.snapshot())
     }
 
@@ -235,30 +291,31 @@ struct ClaudeHookConversationAttributionTests {
         return []
     }
 
-    private static func pollForStopFeedEvents(
+    private static func pollForFeedEvents(
         state: MockServerState,
+        hookEventName: String,
         expectedCount: Int,
         timeout: TimeInterval
     ) -> [[String: Any]] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            let events = stopFeedEvents(in: state.snapshot())
+            let events = feedEvents(in: state.snapshot(), hookEventName: hookEventName)
             if events.count >= expectedCount {
                 return events
             }
             usleep(50_000)
         }
-        return stopFeedEvents(in: state.snapshot())
+        return feedEvents(in: state.snapshot(), hookEventName: hookEventName)
     }
 
-    private static func stopFeedEvents(in commands: [String]) -> [[String: Any]] {
+    private static func feedEvents(in commands: [String], hookEventName: String) -> [[String: Any]] {
         var events: [[String: Any]] = []
         for line in commands {
             guard let payload = jsonObject(line),
                   payload["method"] as? String == "feed.push",
                   let params = payload["params"] as? [String: Any],
                   let event = params["event"] as? [String: Any],
-                  (event["hook_event_name"] as? String) == "Stop" else {
+                  (event["hook_event_name"] as? String) == hookEventName else {
                 continue
             }
             events.append(event)
