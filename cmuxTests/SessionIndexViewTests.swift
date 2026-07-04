@@ -170,6 +170,11 @@ final class SessionIndexViewTests: XCTestCase {
             inner,
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
         )
+        XCTAssertFalse(inner.contains("check_for_update_on_startup=false"), inner)
+        XCTAssertEqual(
+            Self.unwrapPortableShellCommand(entry.resumeExecutionCommandWithCwd ?? ""),
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-123 -c check_for_update_on_startup=false -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
+        )
         XCTAssertFalse(
             inner.contains("-s disabled"),
             "Codex resume must not emit the invalid `-s disabled` flag (issue #5262)"
