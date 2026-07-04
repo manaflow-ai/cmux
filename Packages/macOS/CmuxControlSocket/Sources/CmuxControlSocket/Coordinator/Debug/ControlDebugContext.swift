@@ -142,6 +142,15 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response (`"OK <id> <path>"` or an `ERROR:` line).
     func controlDebugCaptureScreenshot(label: String) -> String
 
+    /// Shows the canvas Command+scroll discovery hint for
+    /// `debug.canvas.command_scroll_hint`.
+    ///
+    /// - Parameter routing: Optional workspace/window routing selectors.
+    /// - Returns: The canvas action outcome.
+    func controlDebugShowCanvasCommandScrollHint(
+        routing: ControlRoutingSelectors
+    ) -> ControlCanvasActionResolution
+
     // MARK: - Live app/UI state
 
     /// Inserts text at the key window's first responder for `debug.type`

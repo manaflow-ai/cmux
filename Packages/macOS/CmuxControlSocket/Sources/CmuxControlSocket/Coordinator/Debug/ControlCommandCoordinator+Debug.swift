@@ -100,6 +100,8 @@ extension ControlCommandCoordinator {
             return debugPanelSnapshotReset(request.params)
         case "debug.window.screenshot":
             return debugScreenshot(request.params)
+        case "debug.canvas.command_scroll_hint":
+            return debugCanvasCommandScrollHint(request.params)
         default:
             return nil
         }
@@ -125,6 +127,17 @@ extension ControlCommandCoordinator {
     /// integrator-owned umbrella file.
     var debugContext: (any ControlDebugContext)? {
         context as? any ControlDebugContext
+    }
+
+    // MARK: - debug.canvas.command_scroll_hint
+
+    /// `debug.canvas.command_scroll_hint` — show the canvas scroll hint toast
+    /// through the same canvas action path used by the Debug menu.
+    func debugCanvasCommandScrollHint(_ params: [String: JSONValue]) -> ControlCallResult {
+        let routing = routingSelectors(params)
+        let resolution = debugContext?.controlDebugShowCanvasCommandScrollHint(routing: routing)
+            ?? .tabManagerUnavailable
+        return canvasActionResult(resolution)
     }
 
     // MARK: - debug.session_snapshot_benchmark

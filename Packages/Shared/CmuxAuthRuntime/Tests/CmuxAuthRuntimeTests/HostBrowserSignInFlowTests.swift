@@ -7,7 +7,7 @@ import Testing
 /// Behavior tests for the hosted-browser sign-in flow: callback completion,
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
-@Suite struct HostBrowserSignInFlowTests {
+@Suite(.serialized) struct HostBrowserSignInFlowTests {
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
@@ -203,6 +203,48 @@ import Testing
         await harness.waitForCondition { harness.flow.isSigningIn == false }
 
         let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: fallbackState))
+
+        #expect(callbackResult)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
+    }
+
+    @Test func manualFallbackURLCallbackSurvivesPopupCancellation() async throws {
+        // Regression for the iOS-pairing "stuck on Checking…" bug (#6158).
+        // The CLI `cmux auth login` flow requests the manual fallback URL
+        // (`auth.sign_in_url` -> `manualSignInURL`) BEFORE it starts the popup
+        // attempt (`auth.begin_sign_in`), so the popup and the printed fallback
+        // URL deliberately share one callback state. When the system popup
+        // auto-dismisses without completing the handoff, the attempt ends — but a
+        // callback later delivered from the manually opened fallback URL must
+        // still complete sign-in instead of being rejected as "noActiveAttempt"
+        // and leaving `auth.status` stuck at signed_in=false.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+
+        // auth.sign_in_url: issue the manual fallback URL up front.
+        let manualURL = harness.flow.manualSignInURL
+        let manualState = try #require(URLComponents(url: manualURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "cmux_auth_state" })?
+            .value)
+
+        // auth.begin_sign_in: start the popup attempt, which consumes that state
+        // so the popup and the printed fallback URL share one callback state.
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        #expect(harness.callbackState(harness.factory.sessions[0]) == manualState)
+
+        // The system popup auto-dismisses without completing the handoff.
+        harness.factory.sessions[0].cancel()
+        #expect(await attempt.value == false)
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
+
+        // The user finishes sign-in in their own browser and returns to the app
+        // via the manual fallback URL's callback.
+        let callbackResult = await harness.flow.handleCallbackURL(harness.callbackURL(state: manualState))
 
         #expect(callbackResult)
         #expect(harness.coordinator.isAuthenticated)
@@ -418,12 +460,14 @@ import Testing
         // session revocation) silently loses its credentials even though the
         // device is online. The coordinator owns the local clear AFTER the
         // capture; the flow must not clear the shared store underneath it.
+        let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = HostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
         await harness.client.closeUserGate()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
+        await clock.waitUntilSleepers(count: 3)
         harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
         await harness.waitForPendingUserRequest()
 
@@ -436,6 +480,7 @@ import Testing
         // The parked validation resumes and fails as cancelled while
         // sign-out is still inside the capture window.
         await harness.client.openUserGate()
+        clock.advance(by: .seconds(60))
         #expect(await attempt.value == false)
 
         // Sign-out proceeds: capture, local-first clear, bounded revocation.

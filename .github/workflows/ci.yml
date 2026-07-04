@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
@@ -82,7 +82,7 @@ jobs:
             --head-sha "$HEAD_SHA"
 
   workflow-guard-tests:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -129,6 +129,9 @@ jobs:
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
+      - name: Validate TestFlight notes generator
+        run: python3 tests/test_ios_testflight_notes.py
 
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
@@ -198,6 +201,9 @@ jobs:
       - name: Validate bash shell integration job control
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate sidebar lazy-layout guard
+        run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
+
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
@@ -210,7 +216,7 @@ jobs:
   remote-daemon-tests:
     needs: changes
     if: ${{ needs.changes.outputs.go == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -231,7 +237,7 @@ jobs:
   web-typecheck:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
@@ -246,7 +252,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: bun tsc --noEmit
+        run: bun run typecheck
 
       - name: Web tests
         run: bun test
@@ -256,7 +262,7 @@ jobs:
   react-apps-check:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -289,7 +295,7 @@ jobs:
   web-db-migrations:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
@@ -341,9 +347,10 @@ jobs:
     if: ${{ needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
     # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions. Keep this job on the hosted GUI-capable pool until the
-    # MACOS_RUNNER_15/Austin runner-infra issue is fixed separately.
-    runs-on: warp-macos-15-arm64-6x
+    # sessions. Validated head-to-head that blacksmith-6vcpu-macos-15 runs the
+    # full app-host suite with 0 unexpected failures, identical to warp-15, so
+    # route through the shared MACOS_RUNNER_15 var like the other macOS jobs.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -380,25 +387,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -650,6 +639,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_claude_wrapper_mutual_shim_loop.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_env.py
@@ -658,6 +648,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_6714_zsh_shim_noclobber.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
@@ -678,7 +669,7 @@ jobs:
       - swift-package-tests
       - agent-session-web-resources
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check app-host unit test routing
@@ -726,7 +717,7 @@ jobs:
   swift-package-tests:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -749,25 +740,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -861,6 +834,22 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
+            CmuxAuthRuntime)
+              suite_list="$(
+                find "$pkgdir/Tests" -name '*.swift' -print0 \
+                  | xargs -0 perl -ne 'print "$1\n" if /^\s*@Suite(?:\([^)]*\))?\s+struct\s+([A-Za-z0-9_]+)/' \
+                  | sort -u
+              )"
+              if [ -z "$suite_list" ]; then
+                echo "::error::no Swift Testing suites found for $pkg"
+                exit 1
+              fi
+              while IFS= read -r suite; do
+                [ -n "$suite" ] || continue
+                echo "swift test $pkgdir --filter $suite"
+                swift test --package-path "$pkgdir" --filter "$suite"
+              done <<< "$suite_list"
+              ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
@@ -885,7 +874,7 @@ jobs:
   agent-session-web-resources:
     needs: changes
     if: ${{ needs.changes.outputs.agent_session_web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -909,7 +898,7 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -919,7 +908,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -962,25 +951,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Prepare isolated DerivedData
         run: |
@@ -1241,7 +1212,7 @@ jobs:
   release-ghostty-cli-helper:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1332,26 +1303,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+          ./scripts/select-ci-xcode.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -1444,14 +1396,14 @@ jobs:
   ui-regressions:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     # Cold builds after project/package changes can spend more than 25 minutes
     # in build-for-testing before the UI regression script starts.
     timeout-minutes: 45
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -1494,26 +1446,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+          ./scripts/select-ci-xcode.sh
 
       - name: Prepare isolated DerivedData
         run: |
@@ -1617,7 +1550,10 @@ jobs:
           DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
+          XCODEBUILD_LOG="/tmp/cmux-ui-test-display-${TOKEN}-xcodebuild.log"
+          BASELINE_READY_MARKER="CMUX_DISPLAY_CHURN_BASELINE_READY_${TOKEN}"
           HELPER_PID=""
+          START_SIGNAL_PID=""
           DISPLAY_LOCK_DIR=""
           DISPLAY_LOCK_TOKEN=""
 
@@ -1640,6 +1576,11 @@ jobs:
           }
 
           cleanup_attempt() {
+            if [ -n "${START_SIGNAL_PID:-}" ]; then
+              kill "$START_SIGNAL_PID" 2>/dev/null || true
+              wait "$START_SIGNAL_PID" 2>/dev/null || true
+              START_SIGNAL_PID=""
+            fi
             if [ -n "${HELPER_PID:-}" ]; then
               kill "$HELPER_PID" 2>/dev/null || true
               wait "$HELPER_PID" 2>/dev/null || true
@@ -1647,7 +1588,7 @@ jobs:
             fi
             release_display_lock
             pkill -x "cmux DEV" 2>/dev/null || true
-            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
+            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG" "$XCODEBUILD_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
           }
 
@@ -1679,18 +1620,17 @@ jobs:
             # this create on persistent self-hosted runners.
             scripts/ci/virtual-display-lock.sh reap-strays || true
 
-            # Launch display helper from shell (non-sandboxed).
-            # Use --start-delay-ms instead of --start-path because the XCTest
-            # runner is sandboxed and can't write to /tmp/ for the start signal.
-            # 10s delay gives the test time to capture baseline render stats.
+            # Launch display helper from shell (non-sandboxed). The helper waits
+            # on a shell-owned /tmp start file; XCTest prints a baseline-ready
+            # marker after sampling render stats, then the shell writes startPath.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
               --display-id-path "$DISPLAY_ID_PATH" \
+              --start-path "$DISPLAY_START" \
               --done-path "$DISPLAY_DONE" \
               --iterations 40 \
               --interval-ms 40 \
-              --start-delay-ms 10000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
             scripts/ci/virtual-display-lock.sh set-owner "$HELPER_PID"
@@ -1794,22 +1734,51 @@ jobs:
             # Write manifests so test can find the pre-launched state
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
             cat >"$MANIFEST_PATH" <<MANIFEST_EOF
-          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
+          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","startPath":"$DISPLAY_START","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
           MANIFEST_EOF
 
             PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
             cat >"$PRELAUNCH_PATH" <<PRELAUNCH_EOF
-          {"diagnosticsPath":"$DIAG_PATH"}
+          {"diagnosticsPath":"$DIAG_PATH","baselineReadyMarker":"$BASELINE_READY_MARKER"}
           PRELAUNCH_EOF
 
             # Run test — app is already launched from shell
+            (
+              for _ in $(seq 1 480); do
+                if grep -Fq "$BASELINE_READY_MARKER" "$XCODEBUILD_LOG" 2>/dev/null; then
+                  echo "XCTest baseline marker observed; starting display churn"
+                  printf 'start\n' > "$DISPLAY_START"
+                  exit 0
+                fi
+                sleep 0.25
+              done
+              echo "ERROR: XCTest baseline marker not observed before display-churn start timeout" >&2
+              echo "--- xcodebuild log tail ---" >&2
+              tail -80 "$XCODEBUILD_LOG" >&2 2>/dev/null || true
+              echo "--- diagnostics ---" >&2
+              cat "$DIAG_PATH" >&2 2>/dev/null || true
+              exit 1
+            ) &
+            START_SIGNAL_PID=$!
+
+            XCODEBUILD_OK=false
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-              test-without-building; then
+              test-without-building 2>&1 | tee "$XCODEBUILD_LOG"; then
+              XCODEBUILD_OK=true
+            fi
+
+            if [ -n "${START_SIGNAL_PID:-}" ]; then
+              kill "$START_SIGNAL_PID" 2>/dev/null || true
+              wait "$START_SIGNAL_PID" 2>/dev/null || true
+              START_SIGNAL_PID=""
+            fi
+
+            if [ "$XCODEBUILD_OK" = "true" ]; then
               cleanup_attempt
               exit 0
             fi
@@ -1937,7 +1906,7 @@ jobs:
       - release-build
       - ui-regressions
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Check routed CI jobs
         env:

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -85,7 +86,7 @@ public struct KeyboardShortcutsSection: View {
             }
             .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
                 .padding(.leading, 2)
                 .accessibilityIdentifier("ShortcutRecordingHint")
@@ -108,7 +109,7 @@ public struct KeyboardShortcutsSection: View {
                     String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"),
                     destination: URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
                 )
-                .font(.caption)
+                .cmuxFont(.caption)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
 
                 Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open cmux.json")) {
@@ -196,7 +197,7 @@ public struct KeyboardShortcutsSection: View {
                     Text(action.displayName)
                     if let subtitle {
                         Text(subtitle)
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -249,11 +250,11 @@ public struct KeyboardShortcutsSection: View {
             if let validationMessage {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.red)
 
                     Text(validationMessage)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -269,7 +270,7 @@ public struct KeyboardShortcutsSection: View {
                         conflictRejections.removeValue(forKey: action.rawValue)
                     }
                     .buttonStyle(.link)
-                    .font(.caption)
+                    .cmuxFont(.caption)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -330,25 +331,18 @@ public struct KeyboardShortcutsSection: View {
         case .always:
             return nil
         case .atom(.sidebarFocus):
-            return String(
-                localized: "shortcut.when.caption.sidebarFocus",
-                defaultValue: "Only while the right sidebar is focused"
-            )
+            return String(localized: "shortcut.when.caption.sidebarFocus", defaultValue: "Only while the right sidebar is focused")
         case .atom(.browserFocus):
-            return String(
-                localized: "shortcut.when.caption.browserFocus",
-                defaultValue: "Only while a browser pane is focused"
-            )
+            return String(localized: "shortcut.when.caption.browserFocus", defaultValue: "Only while a browser pane is focused")
+        case .atom(.filePreviewTextEditorFocus):
+            return String(localized: "shortcut.when.caption.filePreviewTextEditorFocus", defaultValue: "Only while a text file preview is focused")
+        case .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus)),
+             .or(.atom(.filePreviewTextEditorFocus), .atom(.browserFocus)):
+            return String(localized: "shortcut.when.caption.browserOrFilePreviewTextEditorFocus", defaultValue: "Only while a browser pane or text file preview is focused")
         case .atom(.markdownFocus):
-            return String(
-                localized: "shortcut.when.caption.markdownFocus",
-                defaultValue: "Only while a markdown preview is focused"
-            )
+            return String(localized: "shortcut.when.caption.markdownFocus", defaultValue: "Only while a markdown preview is focused")
         default:
-            return String(
-                localized: "shortcut.when.caption.terminalFocus",
-                defaultValue: "Only while a terminal pane is focused"
-            )
+            return String(localized: "shortcut.when.caption.terminalFocus", defaultValue: "Only while a terminal pane is focused")
         }
     }
 
@@ -357,9 +351,7 @@ public struct KeyboardShortcutsSection: View {
         for other in ShortcutAction.allCases where other != action {
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
-            // cannot decide the overlap. Context-disjoint clauses (e.g.
-            // `!sidebarFocus` workspace digits vs the sidebar's own digits)
-            // coexist, and a pre-routed action (sidebar modes) wins its context
+            // cannot decide the overlap. Context-disjoint clauses coexist.
             // outright so the factory Select Surface ⌃1…9 coexists with the
             // sidebar's ⌃1…5 — matching the app target's authoritative check.
             guard ShortcutWhenClause.bindingsCollide(

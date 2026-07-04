@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFoundation
 import CmuxWorkspaces
 import CmuxSettings
 import SwiftUI
@@ -362,6 +363,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        @MainActor func openSelectedItem(in outlineView: NSOutlineView) { openNode(in: outlineView, at: outlineView.selectedRow) }
+
         private func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
             guard let row = resolvedSelectionRow(in: outlineView),
                   let node = outlineView.item(atRow: row) as? FileExplorerNode,
@@ -641,6 +644,7 @@ final class FileExplorerContainerView: NSView {
     private let loadingIndicator: NSProgressIndicator
     private let searchController: any FileSearchControlling
     private var searchBarHeightConstraint: NSLayoutConstraint!
+    private var searchFieldHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentProviderIsLocal = false
@@ -660,8 +664,10 @@ final class FileExplorerContainerView: NSView {
     }
     private var presentation: FileExplorerPanelPresentation
     private let coordinator: FileExplorerPanelView.Coordinator
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private let searchDebounceDelayMilliseconds = 200
-    private let searchBarVisibleHeight: CGFloat = 48
+    private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
+    private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
 
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
@@ -706,7 +712,6 @@ final class FileExplorerContainerView: NSView {
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.setAccessibilityIdentifier("FileExplorerSearchField")
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
-        searchField.font = .systemFont(ofSize: 12, weight: .regular)
         searchField.focusRingType = .none
         searchField.cell?.usesSingleLineMode = true
         searchField.cell?.isScrollable = true
@@ -732,7 +737,6 @@ final class FileExplorerContainerView: NSView {
         searchBarView.addSubview(searchField)
 
         searchStatusLabel.translatesAutoresizingMaskIntoConstraints = false
-        searchStatusLabel.font = .systemFont(ofSize: 11, weight: .medium)
         searchStatusLabel.textColor = .secondaryLabelColor
         searchStatusLabel.lineBreakMode = .byTruncatingTail
         searchStatusLabel.maximumNumberOfLines = 1
@@ -743,7 +747,6 @@ final class FileExplorerContainerView: NSView {
 
         // Empty state label
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-        emptyLabel.font = .systemFont(ofSize: 13)
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
         emptyLabel.isHidden = true
@@ -755,6 +758,13 @@ final class FileExplorerContainerView: NSView {
         loadingIndicator.controlSize = .small
         loadingIndicator.isHidden = true
         addSubview(loadingIndicator)
+        applyChromeFonts()
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyChromeFonts()
+            self?.outlineView.reloadData()
+            self?.searchResultsView.rowHeight = FileExplorerSearchResultCellView.preferredRowHeight
+            self?.searchResultsView.reloadData()
+        }
 
         // Outline view setup
         outlineView.headerView = nil
@@ -806,7 +816,7 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.style = .plain
         searchResultsView.selectionHighlightStyle = .regular
         searchResultsView.backgroundColor = .clear
-        searchResultsView.rowHeight = 46
+        searchResultsView.rowHeight = FileExplorerSearchResultCellView.preferredRowHeight
         searchResultsView.allowsMultipleSelection = true
         searchResultsView.intercellSpacing = NSSize(width: 0, height: 0)
         searchResultsView.onCancel = { [weak self] in
@@ -854,6 +864,7 @@ final class FileExplorerContainerView: NSView {
         }
 
         searchBarHeightConstraint = searchBarView.heightAnchor.constraint(equalToConstant: 0)
+        searchFieldHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: searchFieldVisibleHeight)
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: topAnchor),
             headerView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -867,7 +878,7 @@ final class FileExplorerContainerView: NSView {
             searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
             searchField.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
             searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: 4),
-            searchField.heightAnchor.constraint(equalToConstant: 24),
+            searchFieldHeightConstraint,
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
             searchStatusLabel.leadingAnchor.constraint(equalTo: searchField.leadingAnchor, constant: 4),
@@ -890,6 +901,17 @@ final class FileExplorerContainerView: NSView {
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    private func applyChromeFonts() {
+        searchField.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .regular)
+        searchStatusLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+        emptyLabel.font = GlobalFontMagnification.systemFont(ofSize: 13)
+        searchFieldHeightConstraint?.constant = searchFieldVisibleHeight
+        if isSearchVisible {
+            searchBarHeightConstraint?.constant = searchBarVisibleHeight
+        }
+        headerView.applyFonts()
     }
 
     required init?(coder: NSCoder) {
@@ -1518,6 +1540,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         if let event = NSApp.currentEvent, searchField.handleOpenSelectionShortcut(event) { return true }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
+            guard !textView.hasMarkedText() else { return false }
             openSelectedSearchResult()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
@@ -1536,10 +1559,6 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
 
     func numberOfRows(in tableView: NSTableView) -> Int {
         searchSnapshot.results.count
-    }
-
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        46
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {

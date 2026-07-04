@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -46,25 +47,49 @@ struct FileExplorerRootSyncPolicyTests {
     }
 }
 
-@Suite("Right sidebar directory context")
-struct RightSidebarDirectoryContextTests {
-    @Test("Dock root prefers selected workspace directory")
-    func dockRootPrefersSelectedWorkspaceDirectory() {
-        #expect(
-            RightSidebarDirectoryContext.dockRootDirectory(
-                workspaceDirectory: " /remote/project ",
-                fallbackDirectory: "/local/session"
-            ) == "/remote/project"
-        )
+@MainActor
+@Suite("Right sidebar keyboard navigation")
+struct RightSidebarKeyboardNavigationTests {
+    @Test("Return and keypad Enter open the selected item")
+    func returnAndKeypadEnterOpenSelection() throws {
+        for keyCode in [UInt16(36), UInt16(76)] {
+            let event = try #require(Self.keyEvent(keyCode: keyCode, modifierFlags: []))
+            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        }
     }
 
-    @Test("Dock root falls back to session index directory")
-    func dockRootFallsBackToSessionIndexDirectory() {
-        #expect(
-            RightSidebarDirectoryContext.dockRootDirectory(
-                workspaceDirectory: " ",
-                fallbackDirectory: "/local/session"
-            ) == "/local/session"
+    @Test("Command Down opens the selected item")
+    func commandDownOpensSelection() throws {
+        let event = try #require(Self.keyEvent(keyCode: 125, modifierFlags: [.command]))
+        #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+    }
+
+    @Test("Plain Down, Shift Return, and Command Return keep their existing routes")
+    func nonActivationKeysDoNotOpenSelection() throws {
+        let plainDown = try #require(Self.keyEvent(keyCode: 125, modifierFlags: []))
+        let shiftReturn = try #require(Self.keyEvent(keyCode: 36, modifierFlags: [.shift]))
+        let commandReturn = try #require(Self.keyEvent(keyCode: 36, modifierFlags: [.command]))
+
+        #expect(!plainDown.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        #expect(!shiftReturn.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        #expect(!commandReturn.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+    }
+
+    private static func keyEvent(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: keyCode
         )
     }
 }

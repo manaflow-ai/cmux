@@ -120,6 +120,84 @@ struct WorkstreamStoreTests {
         #expect(store.items[0].kind == .toolUse)
     }
 
+    @Test("Codex CLI lifecycle feed events stay telemetry")
+    func codexLifecycleFeedEventsStayTelemetry() {
+        let store = WorkstreamStore(
+            ringCapacity: 10,
+            titleProvider: { event in
+                switch event.hookEventName {
+                case .preCompact, .postCompact:
+                    return "Compaction"
+                case .subagentStart, .subagentStop:
+                    return "Subagent"
+                default:
+                    return nil
+                }
+            }
+        )
+        let events: [WorkstreamEvent.HookEventName] = [
+            .postToolUse,
+            .preCompact,
+            .postCompact,
+            .subagentStart,
+            .subagentStop,
+        ]
+
+        for event in events {
+            store.ingest(WorkstreamEvent(
+                sessionId: "codex-session",
+                hookEventName: event,
+                source: "codex"
+            ))
+        }
+
+        #expect(store.items.count == events.count)
+        #expect(store.pending.isEmpty)
+        #expect(store.items.allSatisfy { $0.status == .telemetry })
+        #expect(store.items.map(\.title).contains("Compaction"))
+        #expect(store.items.map(\.title).contains("Subagent"))
+        #expect(!store.items.map(\.title).contains("PreCompact"))
+        #expect(!store.items.map(\.title).contains("PostCompact"))
+        #expect(!store.items.map(\.title).contains("SubagentStart"))
+        #expect(!store.items.contains { $0.kind == .sessionStart })
+        #expect(!store.items.contains { $0.kind == .stop })
+        if let compactionStartItem = store.items.first(where: {
+            $0.title == "Compaction" && $0.kind == .toolUse
+        }) {
+            if case .toolUse(let toolName, _) = compactionStartItem.payload {
+                #expect(toolName == "Compaction")
+            } else {
+                Issue.record("expected PreCompact to decode as toolUse telemetry")
+            }
+        } else {
+            Issue.record("expected PreCompact item")
+        }
+        if let subagentStartItem = store.items.first(where: {
+            $0.title == "Subagent" && $0.kind == .toolUse
+        }) {
+            #expect(subagentStartItem.kind == .toolUse)
+            if case .toolUse(let toolName, _) = subagentStartItem.payload {
+                #expect(toolName == "Subagent")
+            } else {
+                Issue.record("expected SubagentStart to decode as toolUse telemetry")
+            }
+        } else {
+            Issue.record("expected SubagentStart item")
+        }
+        if let subagentStopItem = store.items.first(where: {
+            $0.title == "Subagent" && $0.kind == .toolResult
+        }) {
+            #expect(subagentStopItem.kind == .toolResult)
+            if case .toolResult(let toolName, _, _) = subagentStopItem.payload {
+                #expect(toolName == "Subagent")
+            } else {
+                Issue.record("expected SubagentStop to decode as toolResult telemetry")
+            }
+        } else {
+            Issue.record("expected SubagentStop item")
+        }
+    }
+
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
     func telemetryContent() {
         let store = WorkstreamStore(ringCapacity: 10)

@@ -40,7 +40,7 @@ permissions:
 
 jobs:
   detect-ios-changes:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -86,7 +86,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -146,6 +146,13 @@ jobs:
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
           swift test --package-path Packages/Shared/CmuxSyncStore
+
+      - name: Run CmuxMobileShell package tests
+        run: |
+          # iOS shell replay/liveness regressions live in this package target.
+          # Keep them under the iOS package gate so PR CI enforces the mobile
+          # terminal mirror behavior without relying on local-only SwiftPM runs.
+          swift test --package-path Packages/iOS/CmuxMobileShell
 
   ios-simulator:
     needs: detect-ios-changes
@@ -231,8 +238,21 @@ jobs:
           import subprocess
           import sys
 
+          def simctl_json(*args):
+              return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"]))
+
+          def version_key(runtime):
+              raw = str(runtime.get("version") or "")
+              parts = []
+              for part in raw.split("."):
+                  try:
+                      parts.append(int(part))
+                  except ValueError:
+                      parts.append(0)
+              return tuple(parts)
+
           family = os.environ["DEVICE_FAMILY"]
-          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          data = simctl_json("devices", "available")
           devices = [
               device
               for runtimes in data.get("devices", {}).values()
@@ -244,42 +264,36 @@ jobs:
           selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
           selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
           if selected is None:
-              runtimes_data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "available", "-j"]))
               runtimes = [
                   runtime
-                  for runtime in runtimes_data.get("runtimes", [])
+                  for runtime in simctl_json("runtimes").get("runtimes", [])
                   if runtime.get("isAvailable", True)
                   and (
                       runtime.get("platform") == "iOS"
+                      or "iOS" in runtime.get("name", "")
                       or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
                   )
               ]
-              if not runtimes:
-                  raise SystemExit(f"No available iOS simulator runtime for {family}")
-
-              def version_key(runtime):
-                  return tuple(int(part) for part in runtime.get("version", "0").split(".") if part.isdigit())
-
-              runtime = sorted(runtimes, key=version_key, reverse=True)[0]
-              device_types_data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"]))
               device_types = [
                   device_type
-                  for device_type in device_types_data.get("devicetypes", [])
+                  for device_type in simctl_json("devicetypes").get("devicetypes", [])
                   if device_type.get("name", "").startswith(prefix)
               ]
+              runtime = max(runtimes, key=version_key, default=None)
               device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
-              device_type = device_type or next(iter(device_types), None)
-              if device_type is None:
-                  raise SystemExit(f"No available {prefix} simulator device type")
+              device_type = device_type or (device_types[-1] if device_types else None)
+              if runtime is None or device_type is None:
+                  raise SystemExit(f"No available {family} simulator or creatable iOS runtime/device type found")
+              created_name = f"cmux CI {device_type['name']}"
               udid = subprocess.check_output([
                   "xcrun",
                   "simctl",
                   "create",
-                  f"cmux CI {device_type['name']}",
+                  created_name,
                   device_type["identifier"],
                   runtime["identifier"],
               ], text=True).strip()
-              selected = {"udid": udid, "name": f"cmux CI {device_type['name']}"}
+              selected = {"udid": udid, "name": created_name}
               print(
                   f"Created {selected['name']} ({udid}) with {runtime['identifier']}",
                   file=sys.stderr,
@@ -377,7 +391,7 @@ jobs:
       - mobile-core-package
       - ios-simulator
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing
