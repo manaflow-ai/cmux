@@ -40,6 +40,38 @@ describe("subrouter tenants service", () => {
     expect(db.rows[0].tenantName).toBe("Team A");
     expect(db.rows[0].encryptedTenantKey).not.toContain("srt_");
   });
+
+  test("revokes the upstream tenant when the mapping insert fails", async () => {
+    const db = createFakeTenantDb();
+    db.insertError = new Error("insert failed");
+    const createTenant = mock(async () => ({
+      id: "tenant-orphan",
+      name: "Team A",
+      key: "srt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    }));
+    const revokeTenant = mock(async () => {});
+    const client = {
+      createTenant,
+      rotateTenant: mock(),
+      revokeTenant,
+      listAccounts: mock(),
+      createAccount: mock(),
+      deleteAccount: mock(),
+    };
+
+    await expect(
+      getOrCreateTenantForTeam(
+        db as never,
+        "team-a",
+        "Team A",
+        { client: client as never, tenantKeySecret: secret },
+      ),
+    ).rejects.toThrow("insert failed");
+
+    expect(revokeTenant).toHaveBeenCalledTimes(1);
+    expect(revokeTenant).toHaveBeenCalledWith("tenant-orphan");
+    expect(db.rows).toHaveLength(0);
+  });
 });
 
 function createFakeTenantDb() {
@@ -50,8 +82,9 @@ function createFakeTenantDb() {
     encryptedTenantKey: string;
   }> = [];
 
-  return {
+  const db = {
     rows,
+    insertError: null as Error | null,
     transaction: async <T>(callback: (tx: unknown) => Promise<T>): Promise<T> => {
       const tx = {
         execute: async () => [],
@@ -64,6 +97,7 @@ function createFakeTenantDb() {
         }),
         insert: () => ({
           values: async (row: (typeof rows)[number]) => {
+            if (db.insertError) throw db.insertError;
             rows.push(row);
           },
         }),
@@ -71,4 +105,5 @@ function createFakeTenantDb() {
       return await callback(tx);
     },
   };
+  return db;
 }

@@ -64,14 +64,25 @@ export async function getOrCreateTenantForTeam(
     const encryptedTenantKey = encryptTenantKey(tenant.key, tenantKeySecret);
     const now = new Date();
 
-    await tx.insert(subrouterTenants).values({
-      teamId,
-      tenantId: tenant.id,
-      tenantName: tenant.name,
-      encryptedTenantKey,
-      createdAt: now,
-      updatedAt: now,
-    });
+    try {
+      await tx.insert(subrouterTenants).values({
+        teamId,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        encryptedTenantKey,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (err) {
+      // The upstream tenant was already provisioned; revoke it (best effort)
+      // so a failed insert does not leave an orphaned tenant behind.
+      try {
+        await client.revokeTenant(tenant.id);
+      } catch {
+        // Ignore revoke failures: the original insert error is the actionable one.
+      }
+      throw err;
+    }
 
     return {
       tenantId: tenant.id,

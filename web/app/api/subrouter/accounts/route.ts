@@ -9,18 +9,19 @@ import {
 import {
   unauthorized,
   verifyRequest,
-  type AuthedUser,
 } from "../../../../services/vms/auth";
 import {
   createSubrouterClient,
   subrouterRuntimeConfig,
-  SubrouterClientError,
-  SubrouterNotConfiguredError,
   type ClaudeAccountInput,
   type CodexAccountInput,
   type SubrouterAccountInput,
 } from "../../../../services/subrouter/client";
-import { SubrouterTenantKeySecretError } from "../../../../services/subrouter/crypto";
+import {
+  resolveTeam,
+  serviceUnavailableResponse,
+  subrouterErrorResponse,
+} from "../../../../services/subrouter/routeHelpers";
 import { getOrCreateTenantForTeam } from "../../../../services/subrouter/tenants";
 
 export const runtime = "nodejs";
@@ -28,10 +29,6 @@ export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_LABEL_LENGTH = 120;
-
-type TeamResolution =
-  | { ok: true; teamId: string; teamName: string }
-  | { ok: false; response: Response };
 
 export async function GET(request: Request): Promise<Response> {
   const context = await resolveRequestContext(request);
@@ -113,7 +110,7 @@ async function resolveRequestContext(request: Request): Promise<
   if (!config) {
     return {
       ok: false,
-      response: jsonResponse({ error: "subrouter not configured" }, 503),
+      response: serviceUnavailableResponse(),
     };
   }
 
@@ -128,39 +125,6 @@ async function resolveRequestContext(request: Request): Promise<
   };
 }
 
-function resolveTeam(request: Request, user: AuthedUser): TeamResolution {
-  const requested = requestedVmTeamIdFromRequest(request);
-  if (requested) {
-    const isMember = user.teamIds.includes(requested) || requested === user.id;
-    if (!isMember) {
-      return {
-        ok: false,
-        response: jsonResponse({ error: "team_not_found" }, 403),
-      };
-    }
-    return {
-      ok: true,
-      teamId: requested,
-      teamName: teamDisplayName(user, requested),
-    };
-  }
-
-  const teamId = user.selectedTeamId ?? user.billingTeamId;
-  return {
-    ok: true,
-    teamId,
-    teamName: teamDisplayName(user, teamId),
-  };
-}
-
-function teamDisplayName(user: AuthedUser, teamId: string): string {
-  if (teamId === user.id) {
-    return user.displayName ?? user.primaryEmail ?? user.id;
-  }
-  const team = user.teams.find((candidate) => candidate.id === teamId);
-  return team?.displayName ?? teamId;
-}
-
 async function readBoundedJson(
   request: Request,
 ): Promise<{ ok: true; value: Record<string, unknown> } | { ok: false; status: number }> {
@@ -168,13 +132,9 @@ async function readBoundedJson(
   if (lengthHeader && Number(lengthHeader) > MAX_REQUEST_BYTES) {
     return { ok: false, status: 413 };
   }
-  let raw: string;
-  try {
-    raw = await request.text();
-  } catch {
-    return { ok: false, status: 400 };
-  }
-  if (raw.length > MAX_REQUEST_BYTES) return { ok: false, status: 413 };
+  const bounded = await readBoundedBody(request, MAX_REQUEST_BYTES);
+  if (!bounded.ok) return bounded;
+  const raw = bounded.value;
 
   let parsed: unknown;
   try {
@@ -266,17 +226,39 @@ function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function subrouterErrorResponse(err: unknown): Response {
-  if (err instanceof SubrouterNotConfiguredError || err instanceof SubrouterTenantKeySecretError) {
-    return jsonResponse({ error: "subrouter not configured" }, 503);
+async function readBoundedBody(
+  request: Request,
+  maxBytes: number,
+): Promise<{ ok: true; value: string } | { ok: false; status: number }> {
+  const body = request.body;
+  if (!body) return { ok: true, value: "" };
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        return { ok: false, status: 413 };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { ok: false, status: 400 };
   }
-  if (err instanceof SubrouterClientError) {
-    const status = err.status !== null && err.status >= 400 && err.status < 500
-      ? err.status
-      : 502;
-    return jsonResponse({ error: "subrouter_request_failed" }, status);
+
+  const merged = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
   }
-  return jsonResponse({ error: "subrouter_request_failed" }, 500);
+  return { ok: true, value: new TextDecoder().decode(merged) };
 }
 
 function requestUrl(request: Request): URL | null {

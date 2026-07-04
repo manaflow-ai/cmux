@@ -188,9 +188,16 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
 
 async function dashboardTeams(user: StackUserLike, personalLabel: string): Promise<readonly DashboardTeam[]> {
   const selectedTeam = teamFromUnknown(user.selectedTeam);
-  const listedTeams = typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(teamFromUnknown).filter((team): team is DashboardTeam => !!team)
-    : [];
+  let listedTeams: readonly (DashboardTeam | null)[] = [];
+  if (typeof user.listTeams === "function") {
+    try {
+      listedTeams = (await user.listTeams()).map(teamFromUnknown);
+    } catch {
+      // Degrade to the selected/personal team when team listing fails,
+      // mirroring how loadAccounts degrades instead of crashing the page.
+      listedTeams = [];
+    }
+  }
   const teams = uniqueTeams([selectedTeam, ...listedTeams]);
   if (teams.length > 0) return teams;
   return [{

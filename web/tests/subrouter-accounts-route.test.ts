@@ -69,7 +69,40 @@ describe("subrouter accounts route", () => {
     const body = await textWithoutTenantKeys(response);
 
     expect(response.status).toBe(503);
-    expect(JSON.parse(body)).toEqual({ error: "subrouter not configured" });
+    expect(JSON.parse(body)).toEqual({ error: "service_unavailable" });
+    expect(upstream.fetch).not.toHaveBeenCalled();
+  });
+
+  test("returns 503 when a stored tenant key cannot be decrypted", async () => {
+    fakeDb.rows.push({
+      teamId: "team-a",
+      tenantId: "tenant-team-a",
+      tenantName: "Team A",
+      encryptedTenantKey: "not-a-valid-encrypted-key",
+    });
+
+    const response = await accountsRoute.GET(request("/api/subrouter/accounts"));
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(503);
+    expect(JSON.parse(body)).toEqual({ error: "service_unavailable" });
+    expect(upstream.tenantListCalls).toBe(0);
+  });
+
+  test("rejects request bodies larger than the byte limit", async () => {
+    const oversized = JSON.stringify({
+      provider: "openai-apikey",
+      apiKey: "sk-test-openai",
+      padding: "x".repeat(70 * 1024),
+    });
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts", { method: "POST", body: oversized }),
+    );
+    const body = await textWithoutTenantKeys(response);
+
+    expect(response.status).toBe(413);
+    expect(JSON.parse(body)).toEqual({ error: "invalid_request" });
     expect(upstream.fetch).not.toHaveBeenCalled();
   });
 
