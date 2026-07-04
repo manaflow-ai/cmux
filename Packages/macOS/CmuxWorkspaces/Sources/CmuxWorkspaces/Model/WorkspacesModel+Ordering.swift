@@ -312,19 +312,25 @@ extension WorkspacesModel {
 
     /// The number of leading rows in `tabs[]` that render as pinned.
     func leadingGlobalPinnedRowCount() -> Int {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         var count = 0
         for tab in tabs {
-            guard isGlobalPinnedRow(tab) else { break }
+            guard isGlobalPinnedRow(tab, groupsById: groupsById) else { break }
             count += 1
         }
         return count
     }
 
-    /// Whether the row renders as pinned: group pin for grouped members,
+    /// Whether the row renders as pinned: root group pin for grouped members,
     /// workspace pin otherwise.
     func isGlobalPinnedRow(_ tab: Tab) -> Bool {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        return isGlobalPinnedRow(tab, groupsById: groupsById)
+    }
+
+    private func isGlobalPinnedRow(_ tab: Tab, groupsById: [UUID: WorkspaceGroup]) -> Bool {
         if let groupId = tab.groupId,
-           let group = workspaceGroups.first(where: { $0.id == groupId }) {
+           let group = rootWorkspaceGroup(containing: groupId, groupsById: groupsById) {
             return group.isPinned
         }
         return tab.isPinned
