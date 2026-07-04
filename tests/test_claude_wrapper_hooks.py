@@ -1154,7 +1154,7 @@ def test_computer_use_mcp_skipped_without_codex_auth(failures: list[str]) -> Non
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(codex_auth=False),
+        setup_sandbox=computer_use_sandbox(codex_auth=False, codex_override="<sandbox-codex>"),
     )
     expect(code == 0, f"computer use no-auth: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1235,7 +1235,7 @@ def test_computer_use_mcp_skipped_when_disabled(failures: list[str]) -> None:
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(disabled=True),
+        setup_sandbox=computer_use_sandbox(disabled=True, codex_override="<sandbox-codex>"),
     )
     expect(code == 0, f"computer use disabled: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1249,7 +1249,7 @@ def test_computer_use_mcp_skipped_when_server_script_missing(failures: list[str]
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(script=False),
+        setup_sandbox=computer_use_sandbox(script=False, codex_override="<sandbox-codex>"),
     )
     expect(code == 0, f"computer use no-script: wrapper exited {code}: {stderr}", failures)
     expect(
