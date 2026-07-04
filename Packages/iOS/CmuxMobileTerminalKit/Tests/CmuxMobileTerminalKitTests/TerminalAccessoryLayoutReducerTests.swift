@@ -155,6 +155,20 @@ struct TerminalAccessoryLayoutReducerTests {
         #expect(moved.enabled == layout.enabled)
     }
 
+    @Test("flat scoped reorder can move scoped items across row slots")
+    func scopedReorderAcrossRowsPreservesNonScopedSlots() {
+        let scopedReducer = TerminalAccessoryLayoutReducer(configurable: [0, 1, 2, 3, 4, 5])
+        let layout = TerminalAccessoryLayoutReducer<Int>.Layout(
+            rows: [[0, 1, 2], [3, 4, 5]],
+            enabled: Set([0, 1, 2, 3, 4, 5])
+        )
+
+        let moved = scopedReducer.reorderAcrossRows([5, 3, 0, 2], limitedTo: Set([0, 2, 3, 5]), in: layout)
+
+        #expect(moved.rows == [[5, 1, 3], [0, 4, 2]])
+        #expect(moved.enabled == layout.enabled)
+    }
+
     @Test("moving an item to another row preserves enabled state")
     func moveItemToRow() {
         let layout = TerminalAccessoryLayoutReducer<Int>.Layout(

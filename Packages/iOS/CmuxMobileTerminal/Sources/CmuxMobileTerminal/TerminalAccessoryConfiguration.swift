@@ -343,6 +343,17 @@ public final class TerminalAccessoryConfiguration {
         persistAndNotify()
     }
 
+    /// Reorder a scoped subset of configurable items across row-major slots.
+    ///
+    /// Non-scoped items keep their exact row positions, while scoped items can
+    /// trade places across the slots occupied by that scope. This keeps flat
+    /// settings surfaces aligned with flat runtime consumers without moving
+    /// terminal-only items.
+    public func reorderItemsAcrossRows(_ orderedIDs: [ToolbarItemID], limitedTo scopedIDs: Set<ToolbarItemID>) {
+        apply(reducer.reorderAcrossRows(orderedIDs, limitedTo: scopedIDs, in: currentLayout))
+        persistAndNotify()
+    }
+
     /// Append a new custom action, shown at the end of the configurable region.
     public func addCustomAction(_ action: CustomToolbarAction) {
         customActions.append(action)

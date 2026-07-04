@@ -287,6 +287,41 @@ public struct TerminalAccessoryLayoutReducer<ID: Hashable & Sendable>: Sendable 
         return Layout(rows: rows, enabled: layout.enabled)
     }
 
+    /// Returns `layout` with a scoped set of identifiers reordered across row-major slots.
+    ///
+    /// Use this when a settings surface renders a flat scoped list while the
+    /// underlying toolbar may have multiple rows. Identifiers outside `scopedIDs`
+    /// keep their exact row positions, row lengths stay unchanged, and scoped
+    /// identifiers can move between the row-major slots occupied by that scope.
+    ///
+    /// - Parameters:
+    ///   - orderedIDs: The desired row-major order for the scoped identifiers.
+    ///   - scopedIDs: The identifiers the caller's current surface is allowed to move.
+    ///   - layout: The current layout.
+    /// - Returns: The updated layout.
+    public func reorderAcrossRows(_ orderedIDs: [ID], limitedTo scopedIDs: Set<ID>, in layout: Layout) -> Layout {
+        let validScopedIDs = scopedIDs.intersection(configurableSet).intersection(Set(layout.order))
+        guard !validScopedIDs.isEmpty else { return layout }
+
+        var seen = Set<ID>()
+        var scopedOrder = orderedIDs.filter { identifier in
+            validScopedIDs.contains(identifier) && seen.insert(identifier).inserted
+        }
+        for identifier in layout.order where validScopedIDs.contains(identifier) && seen.insert(identifier).inserted {
+            scopedOrder.append(identifier)
+        }
+        guard !scopedOrder.isEmpty else { return layout }
+
+        var iterator = scopedOrder.makeIterator()
+        let rows = layout.rows.map { row in
+            row.map { identifier in
+                guard validScopedIDs.contains(identifier) else { return identifier }
+                return iterator.next() ?? identifier
+            }
+        }
+        return Layout(rows: rows, enabled: layout.enabled)
+    }
+
     /// Returns `layout` with items moved within one toolbar row.
     ///
     /// `offsets`/`destination` follow the SwiftUI `onMove` contract: indices into

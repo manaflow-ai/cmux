@@ -67,23 +67,6 @@ struct TerminalShortcutsSettingsView: View {
                             }
                         }
                     }
-                } else if configuration.rowCount > 1 {
-                    ForEach(displayedNonEmptyRowSections) { rowSection in
-                        Section {
-                            ForEach(rowSection.items) { item in
-                                row(for: item, rowIndex: rowSection.index)
-                            }
-                            .onMove { offsets, destination in
-                                moveDisplayedItems(from: offsets, to: destination, inRow: rowSection.index)
-                            }
-                        } header: {
-                            Text(rowTitle(rowSection.index))
-                        } footer: {
-                            if rowSection.id == displayedNonEmptyRowSections.last?.id {
-                                Text(scope.footer)
-                            }
-                        }
-                    }
                 } else {
                     Section {
                         ForEach(displayedItems) { item in
@@ -226,10 +209,6 @@ struct TerminalShortcutsSettingsView: View {
         }
     }
 
-    private var displayedNonEmptyRowSections: [TerminalShortcutRowSection] {
-        displayedRowSections.filter { !$0.items.isEmpty }
-    }
-
     private func rowIndex(for id: ToolbarItemID) -> Int? {
         configuration.displayRows.firstIndex { row in row.contains(id) }
     }
@@ -242,18 +221,11 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {
-        // Agent-chat ("Shared Shortcuts") scope with one configured toolbar row:
-        // flat order is equivalent to row-local order. Multi-row layouts render
-        // row sections and route through the row-local overload below.
-        guard configuration.rowCount <= 1 else {
-            assertionFailure("Flat shortcut reordering is only valid for one-row layouts")
-            return
-        }
         let visibleIDs = displayedItems.map(\.id)
         let visibleSet = Set(visibleIDs)
         var reorderedVisibleIDs = visibleIDs
         reorderedVisibleIDs.move(fromOffsets: offsets, toOffset: destination)
-        configuration.reorderItems(reorderedVisibleIDs, limitedTo: visibleSet)
+        configuration.reorderItemsAcrossRows(reorderedVisibleIDs, limitedTo: visibleSet)
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int, inRow rowIndex: Int) {
