@@ -773,6 +773,34 @@ cmux_computer_use_world_writable_dir() {
     (( (other & 2) != 0 ))
 }
 
+cmux_computer_use_dir_owner() {
+    local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    "$stat_bin" -f %u "$dir" 2>/dev/null || "$stat_bin" -c %u "$dir" 2>/dev/null
+}
+
+cmux_computer_use_trusted_path_ancestors() {
+    local path="$1"
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    local current_uid
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    local dir="${path%/*}"
+    [[ "$dir" = /* ]] || return 1
+    while :; do
+        local owner
+        owner="$(cmux_computer_use_dir_owner "$dir")" || return 1
+        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+        cmux_computer_use_world_writable_dir "$dir" && return 1
+        [[ "$dir" == "/" ]] && break
+        dir="${dir%/*}"
+        [[ -n "$dir" ]] || dir="/"
+    done
+}
+
 cmux_computer_use_workspace_root() {
     local dir="$1"
     while [[ -n "$dir" && "$dir" != "/" ]]; do
@@ -831,7 +859,7 @@ cmux_computer_use_resolve_node() {
             esac
         fi
     fi
-    cmux_computer_use_world_writable_dir "$node_dir_real" && return 1
+    cmux_computer_use_trusted_path_ancestors "$node_real" || return 1
     printf '%s' "$node_real"
 }
 
