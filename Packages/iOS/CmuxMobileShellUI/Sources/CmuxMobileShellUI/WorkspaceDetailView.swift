@@ -50,7 +50,7 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so a newer session
@@ -93,6 +93,7 @@ struct WorkspaceDetailView: View {
             }
             .onChange(of: selectedTerminalID) { _, _ in
                 refreshCachedChatToggleAnchor()
+                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -350,16 +351,14 @@ struct WorkspaceDetailView: View {
     // Native menu keeps press-drag-release selection and routes through
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
     var terminalPickerToolbarButton: some View {
-        let liveRows = terminalPickerLiveRows
-        let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
+        let rows = terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
         let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
-        let liveSelection = liveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
 
         return Menu {
             terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
         } label: {
             Label(
-                liveSelection?.name ?? selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
@@ -367,9 +366,9 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(liveSelection?.name ?? selection?.name ?? "")
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows() })
-        .onAppear(perform: syncTerminalPickerRows)
+        .accessibilityValue(selection?.name ?? "")
+        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
+        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
         .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
     }
 
@@ -445,12 +444,6 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileSendFeedbackMenuItem")
         }
         #endif
-    }
-
-    private func syncTerminalPickerRows() {
-        let rows = terminalPickerLiveRows
-        guard terminalPickerRows != rows else { return }
-        terminalPickerRows = rows
     }
 
     #if canImport(UIKit)

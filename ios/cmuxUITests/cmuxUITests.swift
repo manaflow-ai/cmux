@@ -532,13 +532,15 @@ final class cmuxUITests: XCTestCase {
         let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
         XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
 
-        RunLoop.current.run(until: Date().addingTimeInterval(3.0))
         let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
-
-        XCTAssertTrue(
-            refreshedTarget.exists && refreshedTarget.isHittable,
-            "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
-        )
+        let deadline = Date().addingTimeInterval(3.0)
+        while Date() < deadline {
+            XCTAssertTrue(
+                refreshedTarget.exists && refreshedTarget.isHittable,
+                "Bottom terminal must stay visible and hittable while workspace refreshes update terminal titles."
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
         tapMenuItem(refreshedTarget, in: app)
         let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
         XCTAssertTrue(

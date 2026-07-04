@@ -41,6 +41,19 @@ extension WorkspaceDetailView {
         TerminalPickerMenuMembership(terminalPickerLiveRows)
     }
 
+    func syncTerminalPickerRows(includeTitleChanges: Bool = false) {
+        let rows = terminalPickerLiveRows
+        if includeTitleChanges {
+            guard terminalPickerRows != rows else { return }
+            terminalPickerRows = rows
+            return
+        }
+        guard terminalPickerRows.isEmpty
+            || TerminalPickerMenuMembership(terminalPickerRows) != TerminalPickerMenuMembership(rows)
+        else { return }
+        terminalPickerRows = rows
+    }
+
     var hasTitleMenuActions: Bool {
         workspace.actionCapabilities.supportsWorkspaceActions
             || workspace.actionCapabilities.supportsReadStateActions
