@@ -13145,6 +13145,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsWorkspaceDescription: Bool
         let usesVerticalBranchLayout: Bool
         let showsGitBranch: Bool
+        let showsPullRequestCIStatus: Bool
         let usesViewportAwarePath: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     }
@@ -13610,15 +13611,14 @@ struct TabItemView: View, Equatable {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
     }
 
-    private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
-        settings.visibleAuxiliaryDetails
-    }
+    private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility { settings.visibleAuxiliaryDetails }
 
     private var workspaceSnapshotPresentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
             usesVerticalBranchLayout: sidebarBranchVerticalLayout,
             showsGitBranch: sidebarShowGitBranch,
+            showsPullRequestCIStatus: settings.showsPullRequestCIStatus,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )

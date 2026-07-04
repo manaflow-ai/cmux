@@ -123,6 +123,14 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    @Test func presentationKeyChangesWhenPullRequestCIStatusVisibilityChanges() {
+        #expect(
+            Self.presentationKey(showsPullRequestCIStatus: false) !=
+                Self.presentationKey(showsPullRequestCIStatus: true),
+            "Toggling sidebar PR CI visibility must invalidate cached workspace snapshots."
+        )
+    }
+
     private static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
@@ -167,6 +175,7 @@ import Testing
         showsWorkspaceDescription: Bool = true,
         usesVerticalBranchLayout: Bool = true,
         showsGitBranch: Bool = true,
+        showsPullRequestCIStatus: Bool = false,
         usesViewportAwarePath: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
@@ -181,6 +190,7 @@ import Testing
             showsWorkspaceDescription: showsWorkspaceDescription,
             usesVerticalBranchLayout: usesVerticalBranchLayout,
             showsGitBranch: showsGitBranch,
+            showsPullRequestCIStatus: showsPullRequestCIStatus,
             usesViewportAwarePath: usesViewportAwarePath,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
