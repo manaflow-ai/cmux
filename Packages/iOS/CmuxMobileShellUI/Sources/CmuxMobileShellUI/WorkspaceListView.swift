@@ -485,7 +485,7 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
-                .listRowInsets(EdgeInsets(top: 6, leading: 12 + Double(max(depth, 0)) * 20, bottom: 6, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 6, leading: 12 + CGFloat(max(depth, 0)) * 20, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .workspace(let workspace, let indented):
                 workspaceRow(workspace, indented: indented)

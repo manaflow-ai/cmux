@@ -300,7 +300,7 @@ struct WorkspaceGroupTests {
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
     }
 
-    @Test func nestedGroupHeaderDoesNotUseRootTopLevelReorderSpace() throws {
+    @Test func nestedGroupHeaderUsesRootTopLevelReorderSpace() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         let originalIds = manager.tabs.map(\.id)
@@ -318,7 +318,7 @@ struct WorkspaceGroupTests {
             forDraggedWorkspaceId: parentAnchorId,
             targetWorkspaceId: nil
         ))
-        #expect(!manager.sidebarReorderUsesTopLevelRows(
+        #expect(manager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: childAnchorId,
             targetWorkspaceId: nil
         ))
