@@ -45,6 +45,7 @@ final class SecondaryMacSubscription {
         refreshTask?.cancel()
         refreshTask = nil
         let client = self.client
+        _client.disarm()
         Task { await client.disconnect() }
     }
 
@@ -54,5 +55,6 @@ final class SecondaryMacSubscription {
         task = nil
         refreshTask?.cancel()
         refreshTask = nil
+        _client.disarm()
     }
 }

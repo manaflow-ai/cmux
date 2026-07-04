@@ -5,7 +5,7 @@ import Dispatch
 @propertyWrapper
 final class CancelOnDeinit<Value> {
     var wrappedValue: Value
-    private let cancel: (Value) -> Void
+    private var cancel: ((Value) -> Void)?
 
     init(wrappedValue: Value) where Value == Task<Void, Never>? {
         self.wrappedValue = wrappedValue
@@ -40,7 +40,11 @@ final class CancelOnDeinit<Value> {
         }
     }
 
+    func disarm() {
+        cancel = nil
+    }
+
     deinit {
-        cancel(wrappedValue)
+        cancel?(wrappedValue)
     }
 }
