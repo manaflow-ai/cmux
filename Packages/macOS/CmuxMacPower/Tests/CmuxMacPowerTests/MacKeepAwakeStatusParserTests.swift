@@ -30,6 +30,42 @@ struct MacKeepAwakeStatusParserTests {
         #expect(status.holders.isEmpty)
     }
 
+    /// System-wide counts still indicate sleep prevention when pmset does not
+    /// provide an attributable owning-process line.
+    @Test func aggregateSystemSleepCountKeepsAwakeWithoutHolder() {
+        let output = """
+        Assertion status system-wide:
+           PreventUserIdleDisplaySleep    0
+           PreventSystemSleep             0
+           PreventUserIdleSystemSleep     1
+        Listed by owning process:
+        No assertions.
+        """
+        let status = macParseKeepAwakeStatus(pmsetAssertions: output)
+        #expect(status.keptAwake)
+        #expect(status.preventsSystemSleep)
+        #expect(status.preventsDisplaySleep == false)
+        #expect(status.holders.isEmpty)
+    }
+
+    /// Display sleep aggregate counts also keep the Mac awake when attribution is
+    /// unavailable.
+    @Test func aggregateDisplaySleepCountKeepsAwakeWithoutHolder() {
+        let output = """
+        Assertion status system-wide:
+           PreventUserIdleDisplaySleep    1
+           PreventSystemSleep             0
+           PreventUserIdleSystemSleep     0
+        Listed by owning process:
+        No assertions.
+        """
+        let status = macParseKeepAwakeStatus(pmsetAssertions: output)
+        #expect(status.keptAwake)
+        #expect(status.preventsSystemSleep == false)
+        #expect(status.preventsDisplaySleep)
+        #expect(status.holders.isEmpty)
+    }
+
     /// The canonical case the issue cares about: a `caffeinate` process holding a
     /// system-sleep assertion. Status reports kept-awake + caffeinate, and the
     /// holder is parsed with pid/name/type/detail.

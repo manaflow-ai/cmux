@@ -1,10 +1,9 @@
 /// The outcome of asking the Mac to sleep.
 ///
-/// A sleep request usually drops the connection as the Mac sleeps, so a
-/// connection-close error after sending is not treated as a failure. Timeouts
+/// Only an acknowledged request is ``requested``. Timeouts, connection closes,
 /// and other delivery failures are reported as ``failed``.
 public enum MobileMacSleepResult: Sendable, Equatable {
-    /// The Mac acknowledged the request, or the connection dropped as it slept.
+    /// The Mac acknowledged the request.
     case requested
 
     /// The Mac explicitly refused, most often because Automation access is missing.

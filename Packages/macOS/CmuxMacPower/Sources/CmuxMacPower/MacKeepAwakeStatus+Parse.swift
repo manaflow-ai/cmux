@@ -27,6 +27,9 @@ func macParseKeepAwakeStatus(pmsetAssertions output: String) -> MacKeepAwakeStat
     var detailByPID: [Int: String] = [:]
     var pidOrder: [Int] = []
     var inOwningSection = false
+    var inSystemStatusSection = false
+    var aggregatePreventsSystemSleep = false
+    var aggregatePreventsDisplaySleep = false
 
     for rawLine in output.split(separator: "\n", omittingEmptySubsequences: false) {
         let line = String(rawLine)
@@ -38,10 +41,22 @@ func macParseKeepAwakeStatus(pmsetAssertions output: String) -> MacKeepAwakeStat
         if !isIndented {
             let header = line.trimmingCharacters(in: .whitespaces).lowercased()
             inOwningSection = header.hasPrefix("listed by owning process")
+            inSystemStatusSection = header.hasPrefix("assertion status system-wide")
+            continue
+        }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if inSystemStatusSection,
+           let aggregate = macParseSystemWideAssertionCountLine(trimmed),
+           aggregate.count > 0 {
+            if macSystemSleepAssertionTypes.contains(aggregate.type) {
+                aggregatePreventsSystemSleep = true
+            }
+            if aggregate.type == macDisplaySleepAssertionType {
+                aggregatePreventsDisplaySleep = true
+            }
             continue
         }
         guard inOwningSection else { continue }
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("pid "), let parsed = macParsePmsetProcessLine(trimmed) else { continue }
         if typesByPID[parsed.pid] == nil {
             typesByPID[parsed.pid] = []
@@ -66,8 +81,10 @@ func macParseKeepAwakeStatus(pmsetAssertions output: String) -> MacKeepAwakeStat
         )
     }
 
-    let preventsSystem = holders.contains { !macSystemSleepAssertionTypes.isDisjoint(with: Set($0.assertionTypes)) }
-    let preventsDisplay = holders.contains { $0.assertionTypes.contains(macDisplaySleepAssertionType) }
+    let holderPreventsSystem = holders.contains { !macSystemSleepAssertionTypes.isDisjoint(with: Set($0.assertionTypes)) }
+    let holderPreventsDisplay = holders.contains { $0.assertionTypes.contains(macDisplaySleepAssertionType) }
+    let preventsSystem = aggregatePreventsSystemSleep || holderPreventsSystem
+    let preventsDisplay = aggregatePreventsDisplaySleep || holderPreventsDisplay
     let cmux = holders.contains { macIsCmuxProcess($0.processName) }
     let caffeinate = holders.contains { macIsCaffeinateProcess($0.processName) }
 
@@ -96,6 +113,18 @@ private let macDisplaySleepAssertionType = "PreventUserIdleDisplaySleep"
 /// Every assertion-type token recognized on an owning-process line.
 private let macKnownAssertionTypes: Set<String> =
     macSystemSleepAssertionTypes.union([macDisplaySleepAssertionType])
+
+/// Parse one system-wide count line, e.g. `PreventUserIdleSystemSleep     1`.
+private func macParseSystemWideAssertionCountLine(_ line: String) -> (type: String, count: Int)? {
+    let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+    guard parts.count >= 2 else { return nil }
+    let type = String(parts[0])
+    guard macKnownAssertionTypes.contains(type),
+          let count = Int(parts[1]) else {
+        return nil
+    }
+    return (type, count)
+}
 
 /// True for the cmux app's own process (matches `cmux`, `cmux DEV …`, etc.).
 private func macIsCmuxProcess(_ name: String) -> Bool {

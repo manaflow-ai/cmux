@@ -4,17 +4,16 @@ import Testing
 @testable import CmuxMobileShell
 
 @Suite struct MobileMacSleepResultTests {
-    @Test func connectionClosedMapsToRequested() {
-        #expect(macPowerSleepResult(forSendError: MobileShellConnectionError.connectionClosed) == .requested)
-    }
-
     @Test func explicitRPCErrorMapsToRefused() {
-        #expect(macPowerSleepResult(forSendError: MobileShellConnectionError.rpcError("sleep_failed", "nope")) == .refused)
+        let classifier = MobileMacSleepErrorClassifier()
+        #expect(classifier.result(forSendError: MobileShellConnectionError.rpcError("sleep_failed", "nope")) == .refused)
     }
 
     @Test func timeoutAndDeliveryFailuresMapToFailed() {
+        let classifier = MobileMacSleepErrorClassifier()
         let failures: [MobileShellConnectionError] = [
             .requestTimedOut,
+            .connectionClosed,
             .invalidResponse,
             .insecureManualRoute,
             .attachTicketExpired,
@@ -22,7 +21,7 @@ import Testing
             .accountMismatch("account"),
         ]
         for failure in failures {
-            #expect(macPowerSleepResult(forSendError: failure) == .failed)
+            #expect(classifier.result(forSendError: failure) == .failed)
         }
     }
 }
