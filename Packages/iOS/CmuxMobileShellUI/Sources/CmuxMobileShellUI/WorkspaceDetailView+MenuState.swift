@@ -10,6 +10,15 @@ struct TerminalPickerMenuRow: Identifiable, Equatable {
     }
 }
 
+/// Structural change token for the native menu; title churn must not rebuild an open picker.
+struct TerminalPickerMenuMembership: Equatable {
+    let ids: [MobileTerminalPreview.ID]
+
+    init(_ rows: [TerminalPickerMenuRow]) {
+        ids = rows.map(\.id)
+    }
+}
+
 extension Collection where Element == TerminalPickerMenuRow {
     func resolvedTerminalPickerSelection(
         selectedID: MobileTerminalPreview.ID?
@@ -26,6 +35,10 @@ extension Collection where Element == TerminalPickerMenuRow {
 extension WorkspaceDetailView {
     var terminalPickerLiveRows: [TerminalPickerMenuRow] {
         workspace.terminals.map(TerminalPickerMenuRow.init)
+    }
+
+    var terminalPickerLiveMembership: TerminalPickerMenuMembership {
+        TerminalPickerMenuMembership(terminalPickerLiveRows)
     }
 
     var hasTitleMenuActions: Bool {

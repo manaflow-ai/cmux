@@ -353,12 +353,13 @@ struct WorkspaceDetailView: View {
         let liveRows = terminalPickerLiveRows
         let rows = terminalPickerRows.isEmpty ? liveRows : terminalPickerRows
         let selection = rows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
+        let liveSelection = liveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
 
         return Menu {
             terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
         } label: {
             Label(
-                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
+                liveSelection?.name ?? selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
@@ -366,9 +367,10 @@ struct WorkspaceDetailView: View {
         .foregroundStyle(TerminalPalette.foreground)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
         .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(selection?.name ?? "")
+        .accessibilityValue(liveSelection?.name ?? selection?.name ?? "")
+        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows() })
         .onAppear(perform: syncTerminalPickerRows)
-        .onChange(of: liveRows) { _, _ in syncTerminalPickerRows() }
+        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
     }
 
     @ViewBuilder
