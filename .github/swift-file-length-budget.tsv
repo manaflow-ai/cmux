@@ -62,9 +62,9 @@
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
+1488	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1433	Sources/RemoteTmuxControlConnection.swift
 1428	cmuxTests/AgentSessionAutoResumeSwiftTests.swift
-1420	cmuxTests/AppDelegateIssue2907RoutingTests.swift
 1384	cmuxTests/KeyboardShortcutSettingsFileStoreStartupTests.swift
 1380	cmuxUITests/MenuKeyEquivalentRoutingUITests.swift
 1363	Sources/CMUXInstalledExtensionSidebarHostView.swift
@@ -119,7 +119,7 @@
 834	Sources/MainWindowFocusController.swift
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
-825	Sources/TerminalController+ControlWorkspaceContext.swift
+823	Sources/TerminalController+ControlWorkspaceContext.swift
 822	Sources/WorkspaceContentView.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift

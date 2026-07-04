@@ -134,8 +134,7 @@ extension TerminalController: ControlWorkspaceContext {
         let tabManager: TabManager
         let workspace: Workspace
         if let workspaceID {
-            guard let resolvedTabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)
-                ?? resolveTabManager(routing: routing) else {
+            guard let resolvedTabManager = resolveTabManager(routing: routing) else {
                 return .tabManagerUnavailable
             }
             guard let resolvedWorkspace = resolvedTabManager.tabs.first(where: { $0.id == workspaceID }) else {
@@ -168,8 +167,7 @@ extension TerminalController: ControlWorkspaceContext {
         let tabManager: TabManager
         let workspace: Workspace
         if let workspaceID {
-            guard let resolvedTabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)
-                ?? resolveTabManager(routing: routing) else {
+            guard let resolvedTabManager = resolveTabManager(routing: routing) else {
                 return .tabManagerUnavailable
             }
             guard let resolvedWorkspace = resolvedTabManager.tabs.first(where: { $0.id == workspaceID }) else {

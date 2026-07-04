@@ -4740,7 +4740,7 @@ final class Workspace: Identifiable, ObservableObject {
         if panelId == focusedPanelId {
             let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
             if surfaceTabBarDirectory != nextSurfaceTabBarDirectory { surfaceTabBarDirectory = nextSurfaceTabBarDirectory }
-            if defaultWorkingDirectory == nil, currentDirectory != trimmed { currentDirectory = trimmed }
+            if currentDirectory != trimmed { currentDirectory = trimmed }
         }
         return true
     }
