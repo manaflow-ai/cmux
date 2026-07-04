@@ -319,7 +319,7 @@ struct MobileDiagnosticsSettingsPage: View {
 
     private func directorySizeString(at url: URL) async -> String? {
         let byteCount = await Task.detached(priority: .utility) {
-            directorySizeBytes(at: url)
+            url.cmuxDirectorySizeBytes()
         }.value
         guard byteCount > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
@@ -389,10 +389,12 @@ private extension MobileDiagnosticsReportRow.Status {
     }
 }
 
-private func directorySizeBytes(at url: URL) -> Int64 {
+private extension URL {
+    /// Allocated size of every regular file under this directory, in bytes.
+    func cmuxDirectorySizeBytes() -> Int64 {
     let keys: Set<URLResourceKey> = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
     guard let enumerator = FileManager.default.enumerator(
-        at: url,
+        at: self,
         includingPropertiesForKeys: Array(keys),
         options: []
     ) else {
@@ -408,5 +410,6 @@ private func directorySizeBytes(at url: URL) -> Int64 {
         total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
     }
     return total
+    }
 }
 #endif
