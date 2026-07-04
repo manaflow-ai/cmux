@@ -23031,6 +23031,7 @@ struct CMUXCLI {
                 clearPersistedAgentSessionTitle(
                     workspaceId: workspaceId,
                     excludingSessionId: parsedInput.sessionId ?? "",
+                    excludingPid: claudePid,
                     sessionStore: sessionStore,
                     client: client,
                     telemetryKey: "claude-hook.session-start",
@@ -29806,6 +29807,7 @@ export default CMUXSessionRestore;
                 clearPersistedAgentSessionTitle(
                     workspaceId: workspaceId,
                     excludingSessionId: sessionId,
+                    excludingPid: pid,
                     sessionStore: store,
                     client: client,
                     telemetryKey: "\(def.name)-hook.session-start",

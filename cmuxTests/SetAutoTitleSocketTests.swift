@@ -398,12 +398,13 @@ import Testing
             try withManager { _, workspace in
                 workspace.applyProcessTitle("project-directory")
                 workspace.setCustomTitle("Live sibling title", source: .auto)
+                let currentPid = ProcessInfo.processInfo.processIdentifier
                 // SessionStart clears the persisted exit title *before* it registers
                 // the starting session's own pid, so a live agent seen here is a
                 // different, still-running session that owns the workspace title.
                 workspace.recordAgentPID(
                     key: "claude",
-                    pid: ProcessInfo.processInfo.processIdentifier,
+                    pid: currentPid,
                     panelId: nil
                 )
 
@@ -417,8 +418,20 @@ import Testing
                 #expect(result["workspace_owned_by_live_agent"] as? Bool == true)
                 #expect(workspace.customTitle == "Live sibling title")
 
+                let ownProcessClear = try call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "clear_auto": true,
+                    "excluding_pid": String(currentPid)
+                ])
+                #expect(ownProcessClear["ok"] as? Bool == true)
+                let ownProcessResult = try #require(ownProcessClear["result"] as? [String: Any])
+                #expect(ownProcessResult["workspace_cleared"] as? Bool == true)
+                #expect(ownProcessResult["workspace_owned_by_live_agent"] as? Bool == false)
+                #expect(workspace.customTitle == nil)
+
                 // Once no live agent owns the workspace, the persisted title clears
                 // so the next session can re-evolve its own name.
+                workspace.setCustomTitle("Exited session title", source: .auto)
                 workspace.clearAllAgentPIDs()
                 let cleared = try call(method: "workspace.set_auto_title", params: [
                     "workspace_id": workspace.id.uuidString,

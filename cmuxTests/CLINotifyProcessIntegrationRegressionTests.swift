@@ -11,10 +11,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
 
+        let currentPid = String(ProcessInfo.processInfo.processIdentifier)
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
-            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"clear-session","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: ["CMUX_CLAUDE_PID": currentPid]
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -42,6 +44,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             clearTitleRequests.contains {
                 $0["workspace_id"] as? String == context.workspaceId
                     && $0["clear_auto"] as? Bool == true
+                    && $0["excluding_pid"] as? String == currentPid
             },
             "Expected SessionStart to clear an auto-owned persisted title, saw \(context.state.commands)"
         )

@@ -3302,12 +3302,12 @@ class TerminalController {
         // must still honor the opt-in even though the persist path otherwise
         // bypasses the setting to preserve already-applied titles.
         let autoDerived = v2Bool(params, "auto_derived") == true
-        // The exiting agent's own pid, so a `persist_after_exit` write can be
-        // rejected while a *different* live agent still owns the shared workspace
-        // title. The CLI-side guard only sees the exiting agent's own sessions;
-        // this covers the cross-agent split case. Sent as a string to avoid JSON
-        // number ambiguity.
-        let persistExcludingPid = v2String(params, "excluding_pid").flatMap { Int($0) }
+        // The lifecycle hook's own pid, so `clear_auto` / `persist_after_exit`
+        // can ignore the current process while still rejecting writes when a
+        // different live agent owns the shared workspace title. The CLI-side
+        // guard only sees the current agent's own sessions; this covers the
+        // cross-agent split case. Sent as a string to avoid JSON number ambiguity.
+        let lifecycleExcludingPid = v2String(params, "excluding_pid").flatMap { Int($0) }
         if clearAuto {
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -3323,10 +3323,10 @@ class TerminalController {
                 found = true
                 // Only clear a title a session left persisted after exit. If a live
                 // agent still owns the workspace (a live sibling's active auto
-                // title), leave it — SessionStart registers the starting session's
-                // own pid *after* this clear, so any live agent seen here is a
-                // different session that still owns the title.
-                if workspace.hasLiveRegisteredAgent() {
+                // title), leave it. Exclude the starting process's own already-
+                // registered PID so same-process /clear can remove the old
+                // persisted title before re-registering its PID.
+                if workspace.hasLiveRegisteredAgent(excludingPid: lifecycleExcludingPid) {
                     skippedForLiveAgent = true
                     return
                 }
@@ -3392,7 +3392,7 @@ class TerminalController {
             // never registered here either, so any live registered agent is a
             // different session that owns the title. Only for persist-after-exit.
             if persistAfterExit,
-               workspace.hasLiveRegisteredAgent(excludingPid: persistExcludingPid) {
+               workspace.hasLiveRegisteredAgent(excludingPid: lifecycleExcludingPid) {
                 skippedForLiveAgent = true
                 return
             }
