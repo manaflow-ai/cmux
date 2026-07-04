@@ -46,6 +46,8 @@ Listed by owning process:
    pid 42(caffeinate): [0x000a] PreventUserIdleSystemSleep named: "caffeinate command-line tool"
 """
 
+private let caffeinateCommandPath = "/usr/bin/caffeinate\n"
+
 private let idleAssertions = """
 Assertion status system-wide:
    PreventUserIdleSystemSleep     0
@@ -100,15 +102,33 @@ struct MacPowerControllerTests {
     @Test func disableKeepAwakeKillsCaffeinateThenRereadsStatus() async throws {
         let runner = FakeRunner(captureSequences: [
             "/usr/bin/pmset": [caffeinateAssertions, idleAssertions],
+            "/bin/ps": [caffeinateCommandPath],
         ], runResults: ["/bin/kill": true])
         let maybeOutcome = await MacPowerController(runner: runner).disableKeepAwake()
         let outcome = try #require(maybeOutcome)
         #expect(outcome.terminatedCaffeinate)
         #expect(outcome.status == .idle)
-        // Only the observed caffeinate holder PID is signaled before the re-read.
+        // Only the observed caffeinate holder PID is revalidated and signaled before the re-read.
         #expect(await runner.calls == [
             .init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"]),
+            .init(tool: "/bin/ps", arguments: ["-p", "42", "-o", "comm="]),
             .init(tool: "/bin/kill", arguments: ["42"]),
+            .init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"]),
+        ])
+    }
+
+    @Test func disableKeepAwakeSkipsKillWhenPidNoLongerBelongsToCaffeinate() async throws {
+        let runner = FakeRunner(captureSequences: [
+            "/usr/bin/pmset": [caffeinateAssertions, idleAssertions],
+            "/bin/ps": ["/bin/zsh\n"],
+        ], runResults: ["/bin/kill": true])
+        let maybeOutcome = await MacPowerController(runner: runner).disableKeepAwake()
+        let outcome = try #require(maybeOutcome)
+        #expect(outcome.terminatedCaffeinate == false)
+        #expect(outcome.status == .idle)
+        #expect(await runner.calls == [
+            .init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"]),
+            .init(tool: "/bin/ps", arguments: ["-p", "42", "-o", "comm="]),
             .init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"]),
         ])
     }

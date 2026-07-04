@@ -8,8 +8,8 @@ import os
 /// AppleScript sleep can take).
 public protocol MacPowerCommandRunning: Sendable {
     /// Run a tool and report whether it exited cleanly (status 0). Used for
-    /// fire-and-forget effects such as `osascript … to sleep` or
-    /// `pkill -x caffeinate`.
+    /// fire-and-forget effects such as `osascript … to sleep` or a targeted
+    /// `kill` after verifying a `caffeinate` PID.
     @discardableResult
     func run(_ tool: String, _ arguments: [String]) async -> Bool
 

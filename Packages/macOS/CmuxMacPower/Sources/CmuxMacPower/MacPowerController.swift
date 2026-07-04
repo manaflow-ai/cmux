@@ -1,3 +1,5 @@
+import Foundation
+
 /// High-level Mac power control used by the mobile host RPC so the phone can
 /// sleep the Mac, disable keep-awake (caffeinate), and read whether the Mac is
 /// being kept awake.
@@ -54,6 +56,7 @@ public struct MacPowerController: Sendable {
 
         var terminated = false
         for pid in caffeinatePIDs {
+            guard await isCurrentlyCaffeinateProcess(pid: pid) else { continue }
             let didSignal = await runner.run("/bin/kill", [String(pid)])
             terminated = terminated || didSignal
         }
@@ -63,5 +66,15 @@ public struct MacPowerController: Sendable {
 
     private func isCaffeinateHolder(_ holder: MacPowerAssertionHolder) -> Bool {
         holder.processName.lowercased() == "caffeinate"
+    }
+
+    private func isCurrentlyCaffeinateProcess(pid: Int) async -> Bool {
+        guard let command = await runner.capture("/bin/ps", ["-p", String(pid), "-o", "comm="]) else {
+            return false
+        }
+        let firstLine = command.split(separator: "\n", omittingEmptySubsequences: false).first.map(String.init) ?? ""
+        let trimmed = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let executable = trimmed.split(separator: "/").last.map(String.init) ?? trimmed
+        return executable.lowercased() == "caffeinate"
     }
 }
