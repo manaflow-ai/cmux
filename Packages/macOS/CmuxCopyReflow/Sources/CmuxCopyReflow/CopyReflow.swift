@@ -119,7 +119,7 @@ private extension ReflowOptions {
                 // own wrapped continuation can rejoin onto it.
                 flush()
                 para = Paragraph(
-                    text: String(line),
+                    text: preservedLine,
                     standaloneText: preservedLine,
                     hasJoined: false,
                     baseIndent: line.indentWidth,
