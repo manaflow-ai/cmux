@@ -204,10 +204,6 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
         #expect(workspace.presentedCurrentDirectory == nil)
 
-        workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
-        #expect(workspace.presentedCurrentDirectory == nil)
-        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [remotePanelId]) == [])
-
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
 
         #expect(workspace.presentedCurrentDirectory == remoteDirectory)

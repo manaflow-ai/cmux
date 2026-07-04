@@ -4604,7 +4604,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private enum PanelDirectoryUpdateSource {
+    private enum PanelDirectoryUpdateSource: Equatable {
         case liveReport
         case remoteReport
         case restoredSnapshotMetadata
@@ -4628,14 +4628,6 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        var waitsForSamePathRemoteConfirmation: Bool {
-            switch self {
-            case .restoredSnapshotMetadata:
-                return true
-            case .liveReport, .remoteReport, .trustedRestoredRemoteSnapshotMetadata:
-                return false
-            }
-        }
     }
 
     private static func unmountedVolumeRoot(
@@ -4740,7 +4732,7 @@ final class Workspace: Identifiable, ObservableObject {
         if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId)
         }
-        if source.waitsForSamePathRemoteConfirmation && isRemoteTerminalSurface(panelId) {
+        if source == .restoredSnapshotMetadata && isRemoteTerminalSurface(panelId) {
             remoteDirectorySamePathConfirmationPanelIds.insert(panelId)
         } else if establishesRemoteProvenance {
             remoteDirectorySamePathConfirmationPanelIds.remove(panelId)
@@ -5782,6 +5774,10 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDirectorySamePathConfirmationPanelIds.removeAll()
         remoteDirectoryReportPanelIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
+        for panelId in remoteDirectoryTrustRequiredPanelIds {
+            panelGitBranches.removeValue(forKey: panelId)
+            panelPullRequests.removeValue(forKey: panelId)
+        }
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: clearedRemoteDirectoryTrust)
         remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         clearRemoteDetectedSurfacePorts()
@@ -5998,6 +5994,9 @@ final class Workspace: Identifiable, ObservableObject {
             removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil
         }
         remoteDirectoryTrustRequiredPanelIds.insert(panelId)
+        if !existingDirectory.isEmpty {
+            remoteDirectorySamePathConfirmationPanelIds.insert(panelId)
+        }
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
