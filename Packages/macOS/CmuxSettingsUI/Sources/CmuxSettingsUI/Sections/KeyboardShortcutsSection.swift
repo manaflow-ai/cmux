@@ -327,11 +327,19 @@ public struct KeyboardShortcutsSection: View {
             let format = String(localized: "shortcut.when.caption.override", defaultValue: "When: %@")
             return String.localizedStringWithFormat(format, raw)
         }
-        return Self.builtInScopeCaption(for: action.defaultFocusWhenClause)
-    }
+        func isPaneCountGreaterThanOne(_ clause: ShortcutWhenClause) -> Bool {
+            guard case let .compare(key, op, operand) = clause else { return false }
+            return key == ShortcutContextKnownKey.paneCount.rawValue
+                && op == .greaterThan
+                && operand == .int(1)
+        }
 
-    static func builtInScopeCaption(for clause: ShortcutWhenClause) -> String? {
-        switch clause {
+        func isSplitPaneNavigationClause(_ lhs: ShortcutWhenClause, _ rhs: ShortcutWhenClause) -> Bool {
+            (isPaneCountGreaterThanOne(lhs) && rhs == .not(.atom(.sidebarFocus)))
+                || (isPaneCountGreaterThanOne(rhs) && lhs == .not(.atom(.sidebarFocus)))
+        }
+
+        switch action.defaultFocusWhenClause {
         case .always:
             return nil
         case .atom(.sidebarFocus):
@@ -350,18 +358,6 @@ public struct KeyboardShortcutsSection: View {
         default:
             return String(localized: "shortcut.when.caption.terminalFocus", defaultValue: "Only while a terminal pane is focused")
         }
-    }
-
-    private static func isSplitPaneNavigationClause(_ lhs: ShortcutWhenClause, _ rhs: ShortcutWhenClause) -> Bool {
-        (isPaneCountGreaterThanOne(lhs) && rhs == .not(.atom(.sidebarFocus)))
-            || (isPaneCountGreaterThanOne(rhs) && lhs == .not(.atom(.sidebarFocus)))
-    }
-
-    private static func isPaneCountGreaterThanOne(_ clause: ShortcutWhenClause) -> Bool {
-        guard case let .compare(key, op, operand) = clause else { return false }
-        return key == ShortcutContextKnownKey.paneCount.rawValue
-            && op == .greaterThan
-            && operand == .int(1)
     }
 
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
