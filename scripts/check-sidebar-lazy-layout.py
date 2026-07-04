@@ -139,6 +139,56 @@ ROW_FORBIDDEN_PATTERNS = (
      "inside a row is the #5323 feedback shape)"),
 )
 
+# `.onReceive(` in a row view. Combine delivery into a sidebar row must hop
+# through `.receive(on:)`: the TabManager bridges are `CurrentValueSubject`s
+# that replay the current value SYNCHRONOUSLY at subscribe time -- and a lazy
+# row subscribes while the LazyVStack realizes it, inside an in-flight SwiftUI
+# layout transaction -- and they emit during `willSet`, so a selection change
+# made mid-update delivers mid-update. Either path lets the `onReceive` action
+# write row `@State` inside the transaction being laid out: the same
+# write-during-layout family as the #2586/#6556 livelocks (a row shipped this
+# exact shape in stable v0.64.17 via `selectedTabIdPublisher`, observed
+# livelocked in the wild on 2026-07-02/03). `NotificationCenter` publishers
+# deliver synchronously on the posting thread and need the same hop.
+ONRECEIVE_CALL = re.compile(r"\.onReceive\s*\(")
+
+ROW_SYNC_ONRECEIVE_MESSAGE = (
+    ".onReceive( without .receive(on:) in a row (synchronous publisher "
+    "delivery -- a CurrentValueSubject replays on subscribe while the "
+    "LazyVStack is realizing the row and emits during willSet -- writes row "
+    "@State inside the in-flight layout transaction, the #2586/#6556 "
+    "write-during-layout livelock family; route row subscriptions through "
+    ".receive(on: RunLoop.main))"
+)
+
+
+def find_sync_onreceive(region):
+    """Return True if ``region`` (neutralized Swift) contains an
+    ``.onReceive(`` whose publisher argument lacks a ``.receive(on:`` hop.
+
+    The publisher expression is the balanced-parenthesis argument list of the
+    ``.onReceive(`` call; the action trailing closure sits outside it, so a
+    ``.receive(on:)`` inside the action cannot mask a synchronous publisher.
+    """
+    for match in ONRECEIVE_CALL.finditer(region):
+        i = match.end() - 1  # at the opening '(' of the argument list
+        depth = 0
+        start = i
+        n = len(region)
+        while i < n:
+            ch = region[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            i += 1
+        publisher_expr = re.sub(r"\s+", "", region[start:i + 1])
+        if ".receive(on:" not in publisher_expr:
+            return True
+    return False
+
 # Lazy-fill primitives the #6188 fix depends on. Each must remain present in the
 # named function (after comments/strings are stripped).
 REQUIRED_PRIMITIVES = (
@@ -476,6 +526,11 @@ def check_source(
                     "row-wrapper file contains forbidden per-row geometry "
                     "feedback: {0}".format(description)
                 )
+        if find_sync_onreceive(neutralized):
+            violations.append(
+                "row-wrapper file contains forbidden synchronous delivery: "
+                "{0}".format(ROW_SYNC_ONRECEIVE_MESSAGE)
+            )
         for name in sorted(custom_layout_names):
             if re.search(r"\b" + re.escape(name) + r"\b", neutralized):
                 violations.append(
@@ -501,6 +556,12 @@ def check_source(
                     "{0} contains forbidden per-row geometry feedback: "
                     "{1}".format(type_name, description)
                 )
+        if find_sync_onreceive(body):
+            violations.append(
+                "{0} contains forbidden synchronous delivery: {1}".format(
+                    type_name, ROW_SYNC_ONRECEIVE_MESSAGE
+                )
+            )
         for name in sorted(custom_layout_names):
             if re.search(r"\b" + re.escape(name) + r"\b", body):
                 violations.append(
