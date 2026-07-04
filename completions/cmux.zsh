@@ -164,7 +164,8 @@ _cmux() {
         esac
     done
     if [[ -z $cmd ]]; then
-        _describe -t commands 'cmux command' commands
+        _describe -t commands 'cmux command' commands && return
+        _files
         return
     fi
     local prev=${words[CURRENT-1]}

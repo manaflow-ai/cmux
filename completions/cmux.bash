@@ -11,6 +11,17 @@ __cmux_compgen() {
     done < <(compgen -W "$wordlist" -- "$current")
 }
 
+__cmux_complete_commands_or_paths() {
+    local commands="$1" current="$2" match
+    __cmux_compgen "$commands" "$current"
+    if ((${#COMPREPLY[@]} == 0)); then
+        compopt -o filenames 2>/dev/null || true
+        while IFS= read -r match; do
+            COMPREPLY+=("$match")
+        done < <(compgen -f -- "$current")
+    fi
+}
+
 _cmux() {
     local cur prev
     cur="${COMP_WORDS[COMP_CWORD]}"
@@ -27,7 +38,7 @@ _cmux() {
     done
     local commands="agent-hibernation auth bind-key break-pane browser browser-back browser-forward browser-reload browser-status capabilities capture-pane claude-teams clear-history clear-log clear-notifications clear-progress clear-status close-surface close-window close-workspace cloud codex codex-teams config copy-mode current-window current-workspace debug-terminals detach-tab diff disable-browser dismiss-notification display-message docs drag-surface-to-split enable-browser events feed feedback find-window focus-pane focus-panel focus-webview focus-window get-url help hooks identify is-webview-focused join-pane jump-to-unread last-pane last-window list-buffers list-log list-notifications list-pane-surfaces list-panels list-panes list-status list-windows list-workspaces log login logout mark-notification-read markdown memory mobile move-surface move-tab-to-new-workspace move-workspace-to-window navigate new-pane new-split new-surface new-window new-workspace next-window notify omc omo omx open open-browser open-notification paste-buffer ping pipe-pane popup previous-window read-screen refresh-surfaces reload-config remote remote-daemon-status remotes rename-tab rename-window rename-workspace reorder-surface reorder-workspace reorder-workspaces resize-pane respawn-pane restore-session right-sidebar rpc select-workspace send send-key send-key-panel send-panel set-app-focus set-buffer set-hook set-progress set-status settings shortcuts sidebar sidebar-state simulate-app-active simulate-sidebar-drag split-off ssh ssh-session-attach ssh-session-cleanup ssh-session-list ssh-tmux surface surface-health surface-resume swap-pane tab-action themes top tree trigger-flash unbind-key version vm wait-for welcome workspace workspace-action workspace-group"
     if [[ -z $cmd ]]; then
-        __cmux_compgen "$commands" "$cur"
+        __cmux_complete_commands_or_paths "$commands" "$cur"
         return
     fi
     case "$cmd" in

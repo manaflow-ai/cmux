@@ -66,10 +66,33 @@ def top_level_commands(shell: str, text: str) -> set[str]:
     if shell == "fish":
         return set(
             re.findall(
-                r"^complete -c cmux -n __cmux_needs_command -f -a '([^']+)'$",
+                r"^complete -c cmux -n __cmux_needs_command (?:-f )?-a '([^']+)'$",
                 text,
                 re.MULTILINE,
             )
+        )
+    raise ValueError(f"unsupported shell: {shell}")
+
+
+def top_level_preserves_path_completion(shell: str, text: str) -> bool:
+    if shell == "bash":
+        return (
+            '__cmux_complete_commands_or_paths "$commands" "$cur"' in text
+            and 'compgen -f -- "$current"' in text
+        )
+    if shell == "zsh":
+        return (
+            "_describe -t commands 'cmux command' commands && return" in text
+            and re.search(r"^\s*_files$", text, re.MULTILINE) is not None
+        )
+    if shell == "fish":
+        return (
+            re.search(
+                r"^complete -c cmux -n __cmux_needs_command -f -a ",
+                text,
+                re.MULTILINE,
+            )
+            is None
         )
     raise ValueError(f"unsupported shell: {shell}")
 
@@ -175,6 +198,12 @@ def main() -> int:
                     f"top-level completions: "
                     f"{', '.join(missing[:10])}{'...' if len(missing) > 10 else ''}"
                 )
+
+    # Top-level command completion must not suppress the documented
+    # `cmux <path>` workflow.
+    for shell, text in regenerated.items():
+        if not top_level_preserves_path_completion(shell, text):
+            failures.append(f"{shell}: top-level path completion is suppressed")
 
     # Regression guard: first-level subcommands can be written as spaced pipe
     # alternatives, optional single values, or nested optional choice groups.

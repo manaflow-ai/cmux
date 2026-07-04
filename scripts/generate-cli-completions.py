@@ -493,6 +493,17 @@ def emit_bash(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines.append("    done < <(compgen -W \"$wordlist\" -- \"$current\")")
     lines.append("}")
     lines.append("")
+    lines.append("__cmux_complete_commands_or_paths() {")
+    lines.append("    local commands=\"$1\" current=\"$2\" match")
+    lines.append("    __cmux_compgen \"$commands\" \"$current\"")
+    lines.append("    if ((${#COMPREPLY[@]} == 0)); then")
+    lines.append("        compopt -o filenames 2>/dev/null || true")
+    lines.append("        while IFS= read -r match; do")
+    lines.append("            COMPREPLY+=(\"$match\")")
+    lines.append("        done < <(compgen -f -- \"$current\")")
+    lines.append("    fi")
+    lines.append("}")
+    lines.append("")
     lines.append("_cmux() {")
     lines.append("    local cur prev")
     lines.append("    cur=\"${COMP_WORDS[COMP_CWORD]}\"")
@@ -509,7 +520,7 @@ def emit_bash(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines.append("    done")
     lines.append(f"    local commands=\"{cmds}\"")
     lines.append("    if [[ -z $cmd ]]; then")
-    lines.append("        __cmux_compgen \"$commands\" \"$cur\"")
+    lines.append("        __cmux_complete_commands_or_paths \"$commands\" \"$cur\"")
     lines.append("        return")
     lines.append("    fi")
     lines.append("    case \"$cmd\" in")
@@ -550,7 +561,8 @@ def emit_zsh(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines.append("        esac")
     lines.append("    done")
     lines.append("    if [[ -z $cmd ]]; then")
-    lines.append("        _describe -t commands 'cmux command' commands")
+    lines.append("        _describe -t commands 'cmux command' commands && return")
+    lines.append("        _files")
     lines.append("        return")
     lines.append("    fi")
     lines.append("    local prev=${words[CURRENT-1]}")
@@ -611,7 +623,7 @@ def emit_fish(commands: list[str], specs: dict[str, CommandSpec]) -> str:
     lines.append("")
     for name in commands:
         lines.append(
-            f"complete -c cmux -n __cmux_needs_command -f -a '{name}'"
+            f"complete -c cmux -n __cmux_needs_command -a '{name}'"
         )
     lines.append("")
     for name in commands:
