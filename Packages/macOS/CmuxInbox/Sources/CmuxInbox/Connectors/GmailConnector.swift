@@ -157,8 +157,11 @@ public actor GmailConnector: InboxConnector {
         )
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let to = thread.participants.first?.address ?? ""
-        let subject = thread.title
+        // To/Subject originate from external senders' Gmail headers; strip
+        // CR/LF so a crafted subject or address cannot inject extra headers
+        // (Bcc, ...) into the approved outgoing reply.
+        let to = headerSafe(thread.participants.first?.address ?? "")
+        let subject = headerSafe(thread.title)
         let raw = "To: \(to)\r\nSubject: Re: \(subject)\r\n\r\n\(draft.body)"
         let body: [String: Any] = [
             "threadId": thread.externalThreadID,
@@ -278,6 +281,14 @@ public actor GmailConnector: InboxConnector {
             throw InboxError.invalidParameters("Invalid Gmail request")
         }
         return url
+    }
+
+    /// Collapses CR/LF in externally-sourced header values to spaces so they
+    /// cannot terminate a header line inside the raw RFC 822 message.
+    private static func headerSafe(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
     }
 
     private static func base64URL(_ data: Data) -> String {
