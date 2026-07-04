@@ -8,7 +8,7 @@ final class InboxFeedMirror {
     private let hub: IntegrationHub
     private let identity = InboxIdentity()
     private var storeObserver: NSObjectProtocol?
-    private var mirroredItemIDs = Set<UUID>()
+    private var mirroredStamps: [UUID: Date] = [:]
 
     init(hub: IntegrationHub) {
         self.hub = hub
@@ -44,18 +44,25 @@ final class InboxFeedMirror {
         mirror(store.items)
     }
 
-    /// Mirrors unseen workstream items as one batched hub push. The initial
-    /// Feed load can carry many items; pushing them individually produced one
-    /// store mutation plus one full downstream inbox refresh per item.
+    /// Mirrors new and changed workstream items as one batched hub push.
+    /// Feed items mutate in place (pending approvals resolve or expire under
+    /// the same id), so mirroring is keyed on `updatedAt`, not id alone —
+    /// otherwise a mirrored approval would stay unread/actionable forever.
+    /// Batching matters because the initial Feed load can carry many items;
+    /// pushing individually produced one store mutation plus one full
+    /// downstream inbox refresh per item.
     private func mirror(_ items: [WorkstreamItem]) {
-        let unseen = items.filter { !mirroredItemIDs.contains($0.id) }
-        mirroredItemIDs.formUnion(unseen.map(\.id))
+        let changed = items.filter { mirroredStamps[$0.id] != $0.updatedAt }
+        for item in changed {
+            mirroredStamps[item.id] = item.updatedAt
+        }
         // Feed event ids are unique and never re-enter once the Feed store
-        // prunes them, so keeping only current ids bounds the dedupe set to
+        // prunes them, so keeping only current ids bounds the stamp map to
         // the Feed ring instead of growing for the whole app session.
-        mirroredItemIDs.formIntersection(Set(items.map(\.id)))
-        guard !unseen.isEmpty else { return }
-        let records = unseen.map { mappedRecords(for: $0) }
+        let currentIDs = Set(items.map(\.id))
+        mirroredStamps = mirroredStamps.filter { currentIDs.contains($0.key) }
+        guard !changed.isEmpty else { return }
+        let records = changed.map { mappedRecords(for: $0) }
         Task { [hub] in
             try? await hub.push(records: records)
         }
@@ -105,7 +112,7 @@ final class InboxFeedMirror {
                 "status": Self.statusLabel(item.status),
             ],
             isUnread: item.status.isPending,
-            isActionable: item.kind.isActionable
+            isActionable: item.kind.isActionable && item.status.isPending
         )
         return InboxPushRecord(account: account, thread: thread, item: inboxItem)
     }
