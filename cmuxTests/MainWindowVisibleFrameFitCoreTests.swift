@@ -223,4 +223,22 @@ struct MainWindowVisibleFrameFitCoreTests {
         #expect(restored.minY == CGFloat(savedFrame.y))
         #expect(restored.height == CGFloat(savedFrame.height))
     }
+
+    @Test func restorePreservesVisibleFrameSpanningDisplaysWhenDisplaySnapshotChanged() throws {
+        let savedFrame = SessionRectSnapshot(x: 1_300, y: 80, width: 900, height: 600)
+        let staleDisplay = SessionDisplaySnapshot(
+            displayID: 999,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_512, height: 944)
+        )
+
+        let restored = try #require(AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: staleDisplay,
+            availableDisplays: [Self.builtInDisplay, Self.rightDisplay],
+            fallbackDisplay: Self.builtInDisplay
+        ))
+
+        #expect(restored == savedFrame.cgRect)
+    }
 }

@@ -3558,6 +3558,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return resolvedWindowFrame(
                 frame: frame,
                 displaySnapshot: displaySnapshot,
+                availableDisplays: availableDisplays,
                 targetDisplay: targetDisplay,
                 minWidth: minWidth,
                 minHeight: minHeight
@@ -3595,12 +3596,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func resolvedWindowFrame(
         frame: CGRect,
         displaySnapshot: SessionDisplaySnapshot?,
+        availableDisplays: [SessionDisplayGeometry],
         targetDisplay: SessionDisplayGeometry,
         minWidth: CGFloat,
         minHeight: CGFloat
     ) -> CGRect {
+        let fitCore = MainWindowVisibleFrameFitCore()
         if targetDisplay.visibleFrame.intersects(frame) {
-            return MainWindowVisibleFrameFitCore().fittedFrame(
+            if fitCore.fittedFrame(
+                for: frame,
+                displays: availableDisplays,
+                minimumWidth: minWidth,
+                minimumHeight: minHeight
+            ) == nil {
+                return frame
+            }
+
+            return fitCore.fittedFrame(
                 for: frame,
                 displays: [targetDisplay],
                 minimumWidth: minWidth,
