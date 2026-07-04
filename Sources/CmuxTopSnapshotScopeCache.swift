@@ -27,7 +27,8 @@ private nonisolated struct CmuxTopProcessScopeCacheValue {
 // be attributed. A newly spawned process has a new cache key and is probed
 // immediately; this TTL only bounds attribution latency for same-pid execs while
 // collapsing the steady-state re-probe storm for non-cmux processes.
-private nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
+// Internal (not private) so tests can read the TTL via @testable import.
+nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
 
 // Result of probing a single process for its cmux scope. `resolved` means the
 // probe completed (the scope may legitimately be absent) and is safe to cache.
@@ -47,10 +48,6 @@ private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
 )
 
 nonisolated extension CmuxTopProcessSnapshot {
-    static var scopeCacheNegativeTTLNanoseconds: UInt64 {
-        cmuxTopNegativeScopeTTLNanoseconds
-    }
-
     static func scopeCacheKey(from kinfo: kinfo_proc) -> CmuxTopProcessScopeCacheKey {
         let startTime = kinfo.kp_proc.p_un.__p_starttime
         return CmuxTopProcessScopeCacheKey(

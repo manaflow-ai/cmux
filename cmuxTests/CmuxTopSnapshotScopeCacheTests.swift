@@ -19,7 +19,7 @@ struct CmuxTopSnapshotScopeCacheTests {
     // ~1s, well within the negative TTL.
     static let nowNanoseconds: UInt64 = 1_000_000_000
     static let afterNegativeTTLNanoseconds = nowNanoseconds
-        + CmuxTopProcessSnapshot.scopeCacheNegativeTTLNanoseconds
+        + cmuxTopNegativeScopeTTLNanoseconds
         + 1
 
     // Before the fix, a process with no cmux scope was a permanent cache miss, so

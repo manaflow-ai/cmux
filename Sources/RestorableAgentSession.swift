@@ -1898,16 +1898,40 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+            // The async path serves the periodic autosave tick and non-terminating
+            // deactivation saves. Those re-run within seconds and self-heal on the
+            // next tick, so they tolerate a snapshot up to 5s old and can reuse
+            // one another subsystem just captured instead of re-scanning the full
+            // process table every 8s.
+            loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                maximumSnapshotAge: 5
+            )
         }.value
     }
 
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maximumSnapshotAge: TimeInterval? = nil
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: 5)
+        // Direct synchronous callers are the termination-critical saves (quit,
+        // power-off, update relaunch). The indexes they persist are the last
+        // word on which agent processes were live, and nothing runs afterward
+        // to correct a miss, so they default to a fresh capture; a stale
+        // snapshot could permanently drop an agent that started moments before
+        // quit. Only the periodic async path above opts into cached reuse.
+        let processSnapshot: CmuxTopProcessSnapshot
+        if let maximumSnapshotAge {
+            processSnapshot = CmuxTopProcessSnapshot.captureCached(
+                includeProcessDetails: true,
+                maximumAge: maximumSnapshotAge
+            )
+        } else {
+            processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        }
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: registry,
