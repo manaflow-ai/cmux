@@ -48,6 +48,8 @@ Hover over a group header to reveal a trailing `+` button. Click to create a new
 
 Pressing `⌘N` while the active workspace is a group anchor or group member also creates the workspace inside that group. The default group placement is **After current**: from a regular group member, the new workspace lands right after the active member; from the anchor/header, it lands at the top of the group.
 
+New in-group workspaces adopt the anchor's cwd only when **Settings → App → Inherit Workspace Working Directory** (`app.workspaceInheritWorkingDirectory`) is on, which is the default. Turn it off and new workspaces — grouped or not — start in your home directory instead.
+
 ## CLI
 
 All group operations are scriptable via `cmux workspace-group <subcommand>`. The hyphenated form ships first; once the broader `cmux workspace <noun>` namespace lands, `cmux workspace group ...` will be the canonical form with the hyphenated form kept as an alias forever.

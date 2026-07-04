@@ -1926,6 +1926,10 @@ class TabManager: ObservableObject {
         settings.value(for: settingsCatalog.workspaceGroups.newWorkspacePlacement)
     }
 
+    var inheritsWorkingDirectoryForNewWorkspaces: Bool {
+        settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+    }
+
     func normalizedGroupIconSymbol(_ symbol: String?) -> String? {
         RenderableSystemSymbol.normalized(symbol)
     }
