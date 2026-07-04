@@ -144,8 +144,34 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         // No change vs the local cache (same endpoints AND same metadata,
         // order-independent): skip the write and keep the local routes.
         if deduped.count == local.count {
+            func sortComponent(_ value: String) -> String {
+                "\(value.utf8.count)#\(value)"
+            }
+            func sortOptional(_ value: String?) -> String {
+                guard let value else { return "nil" }
+                return "some\(sortComponent(value))"
+            }
+            func endpointKey(_ endpoint: CmxAttachEndpoint) -> String {
+                switch endpoint {
+                case let .hostPort(host, port):
+                    return "hostPort\(sortComponent(host))\(sortComponent(String(port)))"
+                case let .peer(id, relayHint, directAddrs, relayURL):
+                    let addrs = directAddrs.map(sortComponent).joined()
+                    return "peer"
+                        + sortComponent(id)
+                        + sortOptional(relayHint)
+                        + sortComponent(String(directAddrs.count))
+                        + addrs
+                        + sortOptional(relayURL)
+                case let .url(url):
+                    return "url\(sortComponent(url))"
+                }
+            }
             let key: (CmxAttachRoute) -> String = {
-                "\($0.endpoint.routeDedupKey)|\($0.kind.rawValue)|\($0.priority)|\($0.id)"
+                sortComponent($0.kind.rawValue)
+                    + sortComponent($0.id)
+                    + sortComponent(String($0.priority))
+                    + endpointKey($0.endpoint)
             }
             if deduped.sorted { key($0) < key($1) } == local.sorted { key($0) < key($1) } {
                 return nil

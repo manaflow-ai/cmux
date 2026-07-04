@@ -17,6 +17,27 @@ import Testing
         )
     }
 
+    private func peerRoute(
+        routeID: String = "iroh",
+        peerID: String = "peer-1",
+        relayHint: String? = nil,
+        directAddrs: [String] = [],
+        relayURL: String? = nil,
+        priority: Int = 0
+    ) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: routeID,
+            kind: .iroh,
+            endpoint: .peer(
+                id: peerID,
+                relayHint: relayHint,
+                directAddrs: directAddrs,
+                relayURL: relayURL
+            ),
+            priority: priority
+        )
+    }
+
     @Test func registryUnavailableFallsBackToLocal() throws {
         let local = [try route(host: "100.0.0.1", port: 51000)]
         // nil == registry unreachable / unauthorized / Mac not registered.
@@ -61,6 +82,24 @@ import Testing
         let selected = DeviceRegistryService.selectReconnectRoutes(local: [cached], registry: [updated])
         #expect(selected?.count == 1)
         #expect(selected?.first?.priority == 9)
+    }
+
+    @Test func registryPeerEndpointMetadataChangeIsWritten() throws {
+        // Peer routes dedup by peer id, but relay/direct-address metadata is
+        // still authoritative reachability data and must be persisted when the
+        // registry refreshes it.
+        let cached = try peerRoute(
+            relayHint: "old-relay",
+            directAddrs: ["/ip4/10.0.0.1/tcp/51000"],
+            relayURL: "wss://relay-old.example"
+        )
+        let updated = try peerRoute(
+            relayHint: "new-relay",
+            directAddrs: ["/ip4/10.0.0.2/tcp/51000"],
+            relayURL: "wss://relay-new.example"
+        )
+        let selected = DeviceRegistryService.selectReconnectRoutes(local: [cached], registry: [updated])
+        #expect(selected == [updated])
     }
 
     @Test func registryResponseReplacesLocalEvenIfNarrower() throws {
