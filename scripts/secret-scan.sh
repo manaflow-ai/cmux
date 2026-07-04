@@ -109,15 +109,24 @@ gitleaks_cache_dir() {
 }
 
 ensure_gitleaks() {
-  if [[ -n "${GITLEAKS_BIN:-}" ]]; then
-    printf '%s\n' "$GITLEAKS_BIN"
-    return
-  fi
-
   local os arch cache_dir bin expected_bin_sha system_gitleaks
   os="$(platform_name)"
   arch="$(arch_name)"
   expected_bin_sha="$(gitleaks_pinned_binary_sha256 "$os" "$arch")" || return 1
+
+  if [[ -n "${GITLEAKS_BIN:-}" ]]; then
+    if [[ ! -x "$GITLEAKS_BIN" ]]; then
+      echo "GITLEAKS_BIN points to a non-executable file: $GITLEAKS_BIN" >&2
+      return 1
+    fi
+    if verify_sha256 "$expected_bin_sha" "$GITLEAKS_BIN" >/dev/null 2>&1; then
+      printf '%s\n' "$GITLEAKS_BIN"
+      return
+    fi
+    echo "GITLEAKS_BIN does not match pinned ${GITLEAKS_VERSION} binary: $GITLEAKS_BIN" >&2
+    return 1
+  fi
+
   cache_dir="$(gitleaks_cache_dir "$os" "$arch")"
   bin="$cache_dir/gitleaks"
 
