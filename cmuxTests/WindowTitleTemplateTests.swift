@@ -54,18 +54,12 @@ struct WindowTitleTemplateTests {
     }
 
     @Test func settingsFileStoreAppliesAppWindowTitleTemplate() throws {
-        let defaults = UserDefaults.standard
+        let defaults = try isolatedDefaults()
         let keys = [
             WindowTitleTemplate.userDefaultsKey,
             backupsDefaultsKey,
             importedManagedDefaultsKey,
         ]
-        let previousValues: [String: Any?] = Dictionary(
-            uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) }
-        )
-        defer {
-            restore(previousValues, defaults: defaults)
-        }
         keys.forEach { defaults.removeObject(forKey: $0) }
 
         let directoryURL = FileManager.default.temporaryDirectory
@@ -86,6 +80,7 @@ struct WindowTitleTemplateTests {
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
+            userDefaults: defaults,
             startWatching: false
         )
 
@@ -93,19 +88,13 @@ struct WindowTitleTemplateTests {
     }
 
     @Test func settingsFileStoreAppliesWorkspaceAutoNamingAutomationSetting() throws {
-        let defaults = UserDefaults.standard
+        let defaults = try isolatedDefaults()
         let workspaceAutoNamingKey = AutomationCatalogSection().workspaceAutoNaming.userDefaultsKey
         let keys = [
             workspaceAutoNamingKey,
             backupsDefaultsKey,
             importedManagedDefaultsKey,
         ]
-        let previousValues: [String: Any?] = Dictionary(
-            uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) }
-        )
-        defer {
-            restore(previousValues, defaults: defaults)
-        }
         keys.forEach { defaults.removeObject(forKey: $0) }
 
         let directoryURL = FileManager.default.temporaryDirectory
@@ -126,6 +115,7 @@ struct WindowTitleTemplateTests {
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
+            userDefaults: defaults,
             startWatching: false
         )
 
@@ -133,19 +123,13 @@ struct WindowTitleTemplateTests {
     }
 
     @Test func settingsFileStoreAppliesAutoNamingAgentAutomationSetting() throws {
-        let defaults = UserDefaults.standard
+        let defaults = try isolatedDefaults()
         let autoNamingAgentKey = AutomationCatalogSection().autoNamingAgent.userDefaultsKey
         let keys = [
             autoNamingAgentKey,
             backupsDefaultsKey,
             importedManagedDefaultsKey,
         ]
-        let previousValues: [String: Any?] = Dictionary(
-            uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) }
-        )
-        defer {
-            restore(previousValues, defaults: defaults)
-        }
         keys.forEach { defaults.removeObject(forKey: $0) }
 
         let directoryURL = FileManager.default.temporaryDirectory
@@ -166,6 +150,7 @@ struct WindowTitleTemplateTests {
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
+            userDefaults: defaults,
             startWatching: false
         )
 
@@ -173,19 +158,13 @@ struct WindowTitleTemplateTests {
     }
 
     @Test func settingsFileStoreAppliesAutoNamingLanguageAutomationSetting() throws {
-        let defaults = UserDefaults.standard
+        let defaults = try isolatedDefaults()
         let autoNamingLanguageKey = AutomationCatalogSection().autoNamingLanguage.userDefaultsKey
         let keys = [
             autoNamingLanguageKey,
             backupsDefaultsKey,
             importedManagedDefaultsKey,
         ]
-        let previousValues: [String: Any?] = Dictionary(
-            uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) }
-        )
-        defer {
-            restore(previousValues, defaults: defaults)
-        }
         keys.forEach { defaults.removeObject(forKey: $0) }
 
         let directoryURL = FileManager.default.temporaryDirectory
@@ -206,6 +185,7 @@ struct WindowTitleTemplateTests {
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
+            userDefaults: defaults,
             startWatching: false
         )
 
