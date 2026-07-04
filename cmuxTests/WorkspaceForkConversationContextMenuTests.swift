@@ -117,7 +117,7 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
         let index = loader.loadSynchronously()
-        #expect(index.snapshot(workspaceId: staleWorkspaceId, panelId: stalePanelId)?.sessionId == sessionId)
+        #expect(index.snapshot(workspaceId: staleWorkspaceId, panelId: stalePanelId) == nil)
 
         let snapshot = try #require(
             index.snapshot(workspaceId: liveWorkspaceId, panelId: livePanelId),
