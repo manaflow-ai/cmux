@@ -4,61 +4,14 @@ import Foundation
 import OSLog
 
 nonisolated struct SocketCommandObservability: Sendable {
-    enum ProtocolName: String, Sendable {
-        case v1
-        case v2
-    }
-
-    enum ExecutionLane: String, Sendable {
-        case mainActor = "main-actor"
-        case socketWorker = "socket-worker"
-    }
-
-    enum CompletionThread: String, Sendable {
-        case main
-        case worker
-    }
-
-    enum ResponseStatus: String, Sendable {
-        case ok
-        case error
-        case noResponse = "no-response"
-    }
-
-    struct Command: Equatable, Sendable {
-        let protocolName: ProtocolName
-        let method: String
-        let peerPid: pid_t?
-        let executionLane: ExecutionLane
-    }
-
-    struct Completion: Equatable, Sendable {
-        let command: Command
-        let status: ResponseStatus
-        let durationNanoseconds: UInt64
-        let responseByteCount: Int
-        let completionThread: CompletionThread
-
-        var durationMilliseconds: Double {
-            Double(durationNanoseconds) / 1_000_000
-        }
-
-        var formattedMilliseconds: String {
-            String(format: "%.2f", durationMilliseconds)
-        }
-    }
-
-    struct Watchdog {
-        fileprivate let task: Task<Void, Never>?
-
-        func cancel() { task?.cancel() }
-    }
-
-    struct WatchdogSample: Equatable {
-        let url: URL?
-        let mainThreadExcerpt: String?
-        let errorDescription: String?
-    }
+    typealias ProtocolName = SocketCommandProtocolName
+    typealias ExecutionLane = SocketCommandExecutionLane
+    typealias CompletionThread = SocketCommandCompletionThread
+    typealias ResponseStatus = SocketCommandResponseStatus
+    typealias Command = SocketCommandObservabilityCommand
+    typealias Completion = SocketCommandCompletion
+    typealias Watchdog = SocketCommandWatchdog
+    typealias WatchdogSample = SocketCommandWatchdogSample
 
     let slowThresholdNanoseconds: UInt64
     let mainActorWatchdogThresholdNanoseconds: UInt64
@@ -67,12 +20,14 @@ nonisolated struct SocketCommandObservability: Sendable {
     private static let maxSampleExcerptLines = 80
     private static let maxSampleExcerptCharacters = 6_000
     private let watchdogSampleCoordinator = WatchdogSampleCoordinator()
+    private let watchdogDeadline: SocketCommandWatchdogDeadline
     private let logger: Logger
 
     init(
         slowThresholdNanoseconds: UInt64 = 100_000_000,
         mainActorWatchdogThresholdNanoseconds: UInt64 = 2_000_000_000,
         maxWatchdogSampleFiles: Int = 20,
+        watchdogDeadline: SocketCommandWatchdogDeadline = SocketCommandWatchdogDeadline(),
         logger: Logger = Logger(
             subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
             category: "socket.command"
@@ -81,6 +36,7 @@ nonisolated struct SocketCommandObservability: Sendable {
         self.slowThresholdNanoseconds = slowThresholdNanoseconds
         self.mainActorWatchdogThresholdNanoseconds = mainActorWatchdogThresholdNanoseconds
         self.maxWatchdogSampleFiles = maxWatchdogSampleFiles
+        self.watchdogDeadline = watchdogDeadline
         self.logger = logger
     }
 
@@ -163,11 +119,11 @@ nonisolated struct SocketCommandObservability: Sendable {
         }
 
         let thresholdNanoseconds = thresholdNanoseconds ?? mainActorWatchdogThresholdNanoseconds
+        let watchdogDeadline = watchdogDeadline
         let task = Task.detached(priority: .utility) {
             do {
-                // swift-blocking-runtime: intentional-watchdog-deadline
                 // Intentional deadline: emit release diagnostics if a main-actor socket command stays busy.
-                try await Task.sleep(nanoseconds: thresholdNanoseconds)
+                try await watchdogDeadline.wait(nanoseconds: thresholdNanoseconds)
             } catch {
                 return
             }
