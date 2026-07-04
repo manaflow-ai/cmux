@@ -21,8 +21,11 @@ struct TerminalDefaultFileOpenRequestCJKTests {
         #expect(Self.ghosttyInitialInputTransport(request.initialInput) == request.initialInput)
     }
 
-    @Test
-    func nonAsciiCommandPathStartupInputReconstructsRealPathThroughTransport() throws {
+    @Test(arguments: ["/bin/zsh", "/bin/csh", "/bin/tcsh"])
+    func nonAsciiCommandPathStartupInputReconstructsRealPathThroughTransport(shellPath: String) throws {
+        guard FileManager.default.isExecutableFile(atPath: shellPath) else {
+            return
+        }
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-terminal-default-cjk-\(UUID().uuidString)", isDirectory: true)
         let directory = root.appendingPathComponent("测试目录", isDirectory: true)
@@ -38,8 +41,8 @@ struct TerminalDefaultFileOpenRequestCJKTests {
         let delivered = Self.ghosttyInitialInputTransport(request.initialInput)
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-fc", delivered]
+        process.executableURL = URL(fileURLWithPath: shellPath)
+        process.arguments = ["-f", "-c", delivered]
         let output = Pipe()
         let error = Pipe()
         process.standardOutput = output
@@ -52,7 +55,7 @@ struct TerminalDefaultFileOpenRequestCJKTests {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if process.terminationStatus != 0 {
-            Issue.record("zsh failed: \(stderr ?? "")")
+            Issue.record("\(shellPath) failed: \(stderr ?? "")")
         }
         #expect(process.terminationStatus == 0)
         #expect(stdout == expectedPath)

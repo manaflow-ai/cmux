@@ -209,13 +209,11 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         self.fileURL = standardizedURL
         self.workingDirectory = standardizedURL.deletingLastPathComponent().path(percentEncoded: false)
         // This command is delivered to Ghostty as inline `initial_input`, whose embedded
-        // parser corrupts every non-ASCII byte (UTF-8 misread as Latin-1) — so a raw CJK
-        // path would be mojibaked and the shell would report "no such file or directory".
-        // `TerminalStartupShellQuoting.singleQuoted` keeps ASCII paths single-quoted but
-        // ASCII-armors non-ASCII paths as `"$(printf '\NNN…')"`, which survives the
-        // transport unchanged and is reconstructed byte-for-byte by the shell.
+        // parser corrupts every non-ASCII byte (UTF-8 misread as Latin-1). Non-ASCII
+        // paths are therefore base64-armored in ASCII and decoded inside `/bin/sh`, so
+        // the user's login shell only parses shell-neutral ASCII tokens.
         // https://github.com/manaflow-ai/cmux/issues/7036
-        self.initialInput = "\(TerminalStartupShellQuoting.singleQuoted(standardizedURL.path(percentEncoded: false)))\n"
+        self.initialInput = "\(Self.startupCommand(forPath: standardizedURL.path(percentEncoded: false)))\n"
     }
 
     static func requests(from urls: [URL]) -> [TerminalDefaultFileOpenRequest] {
@@ -239,6 +237,19 @@ struct TerminalDefaultFileOpenRequest: Equatable {
             return true
         }
         return FileManager.default.isExecutableFile(atPath: fileURL.path(percentEncoded: false))
+    }
+
+    private static func startupCommand(forPath path: String) -> String {
+        if path.utf8.contains(where: { $0 >= 0x80 }) {
+            let encodedPath = Data(path.utf8).base64EncodedString()
+            let script = #"p=$(printf %s "$1" | /usr/bin/base64 -D) && exec "$p""#
+            return "/bin/sh -c \(shellSingleQuoted(script)) cmux \(shellSingleQuoted(encodedPath))"
+        }
+        return shellSingleQuoted(path)
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func shouldRunInTerminal(fileURL: URL, contentType: UTType?, isExecutable: Bool) -> Bool {

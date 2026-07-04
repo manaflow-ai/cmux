@@ -83,8 +83,8 @@
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
 1147	cmuxTests/PiVaultAgentPersistenceTests.swift
+1124	Sources/AppDelegate+CmuxSSHURL.swift
 1121	cmuxTests/AgentHibernationTests.swift
-1113	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
 1044	cmuxTests/WorkspaceGroupTests.swift
