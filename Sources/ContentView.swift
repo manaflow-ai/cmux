@@ -10211,26 +10211,17 @@ struct VerticalTabsSidebar: View {
         scope: SidebarWorkspaceReorderDropIndicatorScope,
         tabs: [Workspace],
         workspaceGroups: [WorkspaceGroup],
-        visibleWorkspaceRowIds: [UUID]
+        workspaceRenderItems: [SidebarWorkspaceRenderItem]
     ) -> [UUID] {
-        switch scope {
-        case .raw:
-            return tabs.map(\.id)
-        case .topLevel:
-            return tabManager.sidebarReorderWorkspaceIds(
+        SidebarDropIndicatorRowScopeResolver(
+            tabs: tabs,
+            workspaceGroups: workspaceGroups,
+            workspaceRenderItems: workspaceRenderItems,
+            topLevelWorkspaceRowIds: tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedWorkspaceId,
                 usesTopLevelRows: true
             )
-        case .group(let groupId):
-            guard workspaceGroups.contains(where: { $0.id == groupId }) else { return [] }
-            let visibleIds = Set(visibleWorkspaceRowIds)
-            let childAnchorIds = Set(workspaceGroups.compactMap {
-                $0.parentGroupId == groupId ? $0.anchorWorkspaceId : nil
-            })
-            return tabs.filter {
-                visibleIds.contains($0.id) && ($0.groupId == groupId || childAnchorIds.contains($0.id))
-            }.map(\.id)
-        }
+        ).rowIds(for: scope)
     }
 
     private var sidebarTopScrimHeight: CGFloat {
@@ -10518,7 +10509,7 @@ struct VerticalTabsSidebar: View {
                 scope: dropIndicatorScope,
                 tabs: tabs,
                 workspaceGroups: workspaceGroups,
-                visibleWorkspaceRowIds: visibleWorkspaceRowIds
+                workspaceRenderItems: workspaceRenderItems
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(

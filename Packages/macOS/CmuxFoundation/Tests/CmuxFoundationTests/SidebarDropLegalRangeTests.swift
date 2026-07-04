@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxFoundation
 
 @Suite struct SidebarDropLegalRangeTests {
-    @Test func unpinnedWorkspaceDropClampsAfterPinnedChildFolderRow() throws {
+    @Test func unpinnedWorkspaceDropClampsAfterPinnedChildFolderSubtree() throws {
         let parentGroupId = UUID()
         let childGroupId = UUID()
         let parentAnchor = UUID()
@@ -61,12 +61,12 @@ import Testing
             )
         ))
 
-        #expect(plan.indicator == SidebarDropIndicator(tabId: childMember, edge: .top))
+        #expect(plan.indicator == SidebarDropIndicator(tabId: childMember, edge: .bottom))
         guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
             Issue.record("Expected parent-group reorder plan")
             return
         }
-        #expect(targetIndex == 2)
+        #expect(targetIndex == 3)
         #expect(!usesTopLevelRows)
         #expect(explicitGroupId == parentGroupId)
     }

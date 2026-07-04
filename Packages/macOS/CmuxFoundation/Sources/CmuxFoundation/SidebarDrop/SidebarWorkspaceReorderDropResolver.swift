@@ -231,7 +231,8 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             workspaces: request.workspaces,
             groupsById: groupsById
         )
-        guard let targetIndex = SidebarDropPlanner().targetIndex(
+        let planner = SidebarDropPlanner()
+        guard let targetIndex = planner.targetIndex(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: targetWorkspaceId,
             indicator: targetIndicator,
@@ -242,20 +243,17 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
 
-        let renderedIndicator = SidebarDropPlanner().indicator(
-            draggedTabId: request.draggedWorkspaceId,
-            targetTabId: targetWorkspaceId,
-            tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds,
-            legalInsertionRange: legalRange,
-            pointerY: pointerY(for: targetIndicator.edge, targetHeight: context.targetHeight),
-            targetHeight: context.targetHeight,
-            preserveTargetEdge: true
-        ) ?? targetIndicator
-
         return SidebarWorkspaceReorderDropPlan(
             draggedWorkspaceId: request.draggedWorkspaceId,
-            indicator: renderedIndicator,
+            indicator: renderedGroupScopedIndicator(
+                request: request,
+                targetWorkspaceId: targetWorkspaceId,
+                targetIndicator: targetIndicator,
+                targetHeight: context.targetHeight,
+                legalRange: legalRange,
+                explicitGroupId: explicitGroupId,
+                groupsById: groupsById
+            ),
             indicatorScope: .group(explicitGroupId),
             action: .reorder(
                 targetIndex: targetIndex,
