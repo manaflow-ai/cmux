@@ -18,16 +18,9 @@ import { WaitlistDialog } from "./waitlist-dialog";
 
 // Per-size pill padding in px. downloadRight = gap LEFT of the divider,
 // caretLeft = gap RIGHT of it. Applied as inline styles (not Tailwind classes)
-// because the tuned values include odd px like 7 that have no spacing token,
-// and because arbitrary `pr-[7px]` did not reliably resolve on the base-ui
-// Menu.Trigger button; inline px renders the exact value in dev and prod and
-// matches the /debug tuner one-to-one.
-export type PadOverride = {
-  downloadLeft?: number;
-  downloadRight?: number;
-  caretLeft?: number;
-  caretRight?: number;
-};
+// because the tuned values include odd px like 9/11 that have no spacing token,
+// and because arbitrary values like `pr-[9px]` did not reliably resolve on the
+// base-ui Menu.Trigger button; inline px renders the exact value in dev + prod.
 const PILL_PADDING = {
   default: { downloadLeft: 20, downloadRight: 9, caretLeft: 7, caretRight: 11 },
   sm: { downloadLeft: 12, downloadRight: 7, caretLeft: 5, caretRight: 9 },
@@ -37,12 +30,10 @@ export function DownloadButton({
   size = "default",
   location = "hero",
   className,
-  padOverride,
 }: {
   size?: "default" | "sm";
   location?: string;
   className?: string;
-  padOverride?: PadOverride;
 }) {
   const t = useTranslations("common");
   const tp = useTranslations("platforms");
@@ -67,9 +58,9 @@ export function DownloadButton({
   const onConfirmationPage = pathname === DOWNLOAD_CONFIRMATION_PATH;
   const macHref = onConfirmationPage ? DOWNLOAD_URL : DOWNLOAD_CONFIRMATION_HREF;
 
-  // Resolve padding from the per-size config, with the optional /debug override
-  // merged in. Applied inline below so odd px render exactly.
-  const pad = { ...PILL_PADDING[isSmall ? "sm" : "default"], ...padOverride };
+  // Resolve padding from the per-size config; applied inline so odd px render
+  // exactly.
+  const pad = PILL_PADDING[isSmall ? "sm" : "default"];
   const downloadStyle = {
     paddingLeft: pad.downloadLeft,
     paddingRight: pad.downloadRight,
