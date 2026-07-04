@@ -97,7 +97,7 @@ struct MobileVoiceSettingsPage: View {
         case .idle:
             return .download
         case .downloading(let progress):
-            return .downloading(progress.fractionCompleted)
+            return .downloading(progress)
         case .installed:
             return .installed
         case .failed(let message):
@@ -121,7 +121,7 @@ private struct VoiceEngineSettingsRowModel: Identifiable, Equatable {
 private enum VoiceEngineAccessory: Equatable {
     case none
     case download
-    case downloading(Double)
+    case downloading(ParakeetDownloadProgress)
     case installed
     case failed(String)
 }
@@ -210,12 +210,25 @@ private struct VoiceEngineSettingsRow: View {
             }
         case .downloading(let progress):
             HStack(spacing: 8) {
-                ProgressView(value: progress)
-                    .frame(width: 72)
-                Text(progressText(progress))
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                // Listing (HuggingFace tree enumeration) and CoreML compilation
+                // have no meaningful byte fraction; show an indeterminate spinner
+                // with a phase label instead of a bar frozen at 0% or 100%.
+                if progress.phaseDescription == "downloading" {
+                    ProgressView(value: progress.fractionCompleted)
+                        .frame(width: 72)
+                    Text(progressText(progress.fractionCompleted))
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(progress.phaseDescription == "compiling"
+                        ? L10n.string("mobile.settings.voice.optimizing", defaultValue: "Optimizing…")
+                        : L10n.string("mobile.settings.voice.preparing", defaultValue: "Preparing…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                     actions.cancel()
                 }

@@ -9861,6 +9861,40 @@
         }
       }
     },
+    "mobile.settings.voice.optimizing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optimizing…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最適化中…"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備中…"
+          }
+        }
+      }
+    },
     "mobile.settings.voice.downloadParakeet": {
       "extractionState": "manual",
       "localizations": {
