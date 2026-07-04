@@ -22,14 +22,6 @@ public struct WorkspaceColorsSection: View {
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
-    private struct AgentStateColorRow: Identifiable {
-        let rawValue: String
-        let title: String
-        let defaultHex: String?
-
-        var id: String { rawValue }
-    }
-
     /// Neutral gray shown in the state-color swatch when a state is cleared
     /// (no tint). Matches the "No tint" label rather than the built-in default.
     private static let noTintSwatchHex = "#8E8E93"
@@ -274,7 +266,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: Self.cmuxAccentColor(),
+                    fallback: cmuxAccentColor(),
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)
@@ -422,7 +414,7 @@ public struct WorkspaceColorsSection: View {
     /// Mirrors the legacy `cmuxAccentColor()` helper (see
     /// `Sources/Sidebar/SidebarAppearanceSupport.swift`) so the rendered
     /// swatch matches the rest of the app instead of the system accent.
-    private static func cmuxAccentColor() -> Color {
+    private func cmuxAccentColor() -> Color {
         let nsColor = NSColor(name: nil) { appearance in
             let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
             if bestMatch == .darkAqua {
