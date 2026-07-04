@@ -13,12 +13,17 @@ private actor FakeRunner: MacPowerCommandRunning {
 
     private(set) var calls: [Call] = []
     /// stdout returned by `capture`, keyed by tool path.
-    private let captures: [String: String]
+    private var captures: [String: [String]]
     /// exit-success returned by `run`, keyed by tool path (default true).
     private let runResults: [String: Bool]
 
     init(captures: [String: String] = [:], runResults: [String: Bool] = [:]) {
-        self.captures = captures
+        self.captures = captures.mapValues { [$0] }
+        self.runResults = runResults
+    }
+
+    init(captureSequences: [String: [String]], runResults: [String: Bool] = [:]) {
+        self.captures = captureSequences
         self.runResults = runResults
     }
 
@@ -29,7 +34,10 @@ private actor FakeRunner: MacPowerCommandRunning {
 
     func capture(_ tool: String, _ arguments: [String]) async -> String? {
         calls.append(Call(tool: tool, arguments: arguments))
-        return captures[tool]
+        guard var values = captures[tool], !values.isEmpty else { return nil }
+        let value = values.removeFirst()
+        captures[tool] = values
+        return value
     }
 }
 
@@ -43,6 +51,11 @@ Assertion status system-wide:
    PreventUserIdleSystemSleep     0
 Listed by owning process:
 No assertions.
+"""
+
+private let amphetamineAssertions = """
+Listed by owning process:
+   pid 99(Amphetamine): [0x000b] PreventUserIdleSystemSleep named: "User session"
 """
 
 @Suite("MacPowerController")
@@ -85,31 +98,30 @@ struct MacPowerControllerTests {
     }
 
     @Test func disableKeepAwakeKillsCaffeinateThenRereadsStatus() async throws {
-        let runner = FakeRunner(
-            captures: ["/usr/bin/pmset": idleAssertions],
-            runResults: ["/usr/bin/pkill": true]
-        )
+        let runner = FakeRunner(captureSequences: [
+            "/usr/bin/pmset": [caffeinateAssertions, idleAssertions],
+        ], runResults: ["/bin/kill": true])
         let maybeOutcome = await MacPowerController(runner: runner).disableKeepAwake()
         let outcome = try #require(maybeOutcome)
         #expect(outcome.terminatedCaffeinate)
         #expect(outcome.status == .idle)
-        // pkill must run before the status re-read.
+        // Only the observed caffeinate holder PID is signaled before the re-read.
         #expect(await runner.calls == [
-            .init(tool: "/usr/bin/pkill", arguments: ["-x", "caffeinate"]),
+            .init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"]),
+            .init(tool: "/bin/kill", arguments: ["42"]),
             .init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"]),
         ])
     }
 
     @Test func disableKeepAwakeReportsNothingTerminatedWhenNoCaffeinate() async throws {
-        // pkill exit 1 (no match) => terminatedCaffeinate false; the re-read still
-        // returns whatever else is keeping the Mac awake.
-        let runner = FakeRunner(
-            captures: ["/usr/bin/pmset": caffeinateAssertions],
-            runResults: ["/usr/bin/pkill": false]
-        )
+        let runner = FakeRunner(captures: ["/usr/bin/pmset": amphetamineAssertions])
         let maybeOutcome = await MacPowerController(runner: runner).disableKeepAwake()
         let outcome = try #require(maybeOutcome)
         #expect(outcome.terminatedCaffeinate == false)
-        #expect(outcome.status.caffeinateRunning)
+        #expect(outcome.status.caffeinateRunning == false)
+        #expect(outcome.status.keptAwake)
+        #expect(await runner.calls == [
+            .init(tool: "/usr/bin/pmset", arguments: ["-g", "assertions"]),
+        ])
     }
 }

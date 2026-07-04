@@ -39,15 +39,29 @@ public struct MacPowerController: Sendable {
         )
     }
 
-    /// Disable active keep-awake by terminating every `caffeinate` process, then
-    /// re-read the status so the caller can report whatever is still holding the
-    /// Mac awake (e.g. a GUI app like Amphetamine that cannot be killed safely).
+    /// Disable active keep-awake by terminating caffeinate assertion holders,
+    /// then re-read the status so the caller can report whatever is still
+    /// holding the Mac awake (e.g. a GUI app like Amphetamine that cannot be
+    /// killed safely).
     public func disableKeepAwake() async -> MacKeepAwakeDisableOutcome? {
-        // `pkill -x caffeinate` exits 0 when it signaled at least one process,
-        // 1 when none matched — the success bool is exactly "did we stop a
-        // caffeinate".
-        let terminated = await runner.run("/usr/bin/pkill", ["-x", "caffeinate"])
+        guard let statusBefore = await keepAwakeStatus() else { return nil }
+        let caffeinatePIDs = statusBefore.holders
+            .filter { isCaffeinateHolder($0) }
+            .map(\.pid)
+        guard !caffeinatePIDs.isEmpty else {
+            return MacKeepAwakeDisableOutcome(terminatedCaffeinate: false, status: statusBefore)
+        }
+
+        var terminated = false
+        for pid in caffeinatePIDs {
+            let didSignal = await runner.run("/bin/kill", [String(pid)])
+            terminated = terminated || didSignal
+        }
         guard let status = await keepAwakeStatus() else { return nil }
         return MacKeepAwakeDisableOutcome(terminatedCaffeinate: terminated, status: status)
+    }
+
+    private func isCaffeinateHolder(_ holder: MacPowerAssertionHolder) -> Bool {
+        holder.processName.lowercased() == "caffeinate"
     }
 }
