@@ -187,10 +187,10 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
         shim_root = tmpdir / "cmux-cli-shims" / surface_id
         expected_path = f"{shim_root}::{first}::{last}:"
 
-        input_path = f":{first}::{shim_root}:{last}:"
         base_env = minimal_env("/usr/bin:/bin", tmpdir)
         base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
         base_env["CMUX_SURFACE_ID"] = surface_id
+        input_path = f":{first}::{shim_root}:{last}:"
         base_env["CMUX_TEST_INPUT_PATH"] = input_path
 
         shell_commands = [

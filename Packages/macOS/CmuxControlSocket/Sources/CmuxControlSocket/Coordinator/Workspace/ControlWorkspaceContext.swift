@@ -55,6 +55,36 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// - Returns: The bridged call result.
     func controlWorkspaceCreate(params: [String: JSONValue]) -> ControlCallResult
 
+    /// Reads a workspace's stable default working directory for
+    /// `workspace.get_cwd`.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for fallback TabManager
+    ///     resolution.
+    ///   - workspaceID: The explicit workspace to read, or `nil` to read the
+    ///     selected workspace in the routed TabManager.
+    /// - Returns: The default-directory resolution.
+    func controlGetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceDefaultDirectoryResolution
+
+    /// Sets a workspace's stable default working directory for
+    /// `workspace.set_cwd`.
+    ///
+    /// - Parameters:
+    ///   - routing: The routing selectors used for fallback TabManager
+    ///     resolution.
+    ///   - workspaceID: The explicit workspace to mutate, or `nil` to mutate
+    ///     the selected workspace in the routed TabManager.
+    ///   - cwd: The new default working directory.
+    /// - Returns: The default-directory resolution.
+    func controlSetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        cwd: String
+    ) -> ControlWorkspaceDefaultDirectoryResolution
+
     /// Selects a workspace for `workspace.select` (focuses its window when it
     /// belongs to another window).
     ///

@@ -854,6 +854,12 @@
         "shortcuts": {
           "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
+        },
+        "workspaceProfiles": {
+          "description": "Perfiles de espacios de trabajo globales y persistentes. Al recargar la configuración, cmux garantiza que exista cada espacio de trabajo con nombre, aplica su estado fijado y mantiene su cwd predeterminado separado de los informes PWD en vivo del terminal. Los archivos .cmux/cmux.json locales del proyecto no pueden definir perfiles de espacios de trabajo.",
+          "name": "Nombre del espacio de trabajo que se debe crear o conciliar.",
+          "cwd": "Directorio de trabajo predeterminado para nuevas pestañas y divisiones en este espacio de trabajo. Las rutas relativas se resuelven desde el directorio global de cmux.json; ~ se expande al directorio de inicio del usuario.",
+          "pinned": "Si el espacio de trabajo conciliado debe fijarse en la barra lateral."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

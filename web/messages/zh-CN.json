@@ -854,6 +854,12 @@
         "shortcuts": {
           "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
+        },
+        "workspaceProfiles": {
+          "description": "全局持久工作区配置。重新加载配置时，cmux 会确保每个命名工作区都存在，应用其固定状态，并将默认 cwd 与终端实时 PWD 报告分开保存。项目本地的 .cmux/cmux.json 文件不能定义工作区配置。",
+          "name": "要创建或协调的工作区名称。",
+          "cwd": "此工作区中新标签页和分屏的默认工作目录。相对路径从全局 cmux.json 目录解析；~ 会展开为用户的主目录。",
+          "pinned": "协调后的工作区是否应固定在侧边栏中。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

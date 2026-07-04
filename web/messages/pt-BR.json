@@ -854,6 +854,12 @@
         "shortcuts": {
           "when": "Predicados de contexto opcionais por ação (cláusulas `when` no estilo do VS Code), indexados pelo id da ação do cmux. Cada valor é uma expressão booleana sobre chaves de contexto, combinada com !, &&, || e parênteses. Chaves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Chaves tipadas aceitam comparações: a string sidebarMode (files, find, sessions, feed ou dock) e os inteiros paneCount e workspaceCount. Os operadores de comparação são ==, !=, =~ (expressão regular), <, <=, >, >= e `in [a, b]`; uma chave desconhecida ou ausente é avaliada como false. Os literais booleanos true e false também são aceitos; `key == false` equivale a `!key`. O atalho da ação só dispara (e só conflita com outros atalhos) quando a cláusula é verdadeira. Exemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleciona workspaces com Ctrl+1–9 em todos os lugares, exceto quando a barra lateral direita está em foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } restringe uma atribuição à barra lateral Localizar quando o workspace tem vários painéis.",
           "showModifierHoldHints": "Mostra chips de dica de atalhos enquanto Cmd ou Control estiver pressionado."
+        },
+        "workspaceProfiles": {
+          "description": "Perfis globais e persistentes de workspaces. Ao recarregar a configuração, o cmux garante que cada workspace nomeado exista, aplica seu estado fixado e mantém seu cwd padrão separado dos relatórios PWD ao vivo do terminal. Arquivos .cmux/cmux.json locais do projeto não podem definir perfis de workspace.",
+          "name": "Nome do workspace a criar ou reconciliar.",
+          "cwd": "Diretório de trabalho padrão para novas abas e divisões neste workspace. Caminhos relativos são resolvidos a partir do diretório global do cmux.json; ~ se expande para o diretório inicial do usuário.",
+          "pinned": "Se o workspace reconciliado deve ficar fixado na barra lateral."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

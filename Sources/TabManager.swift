@@ -1502,6 +1502,9 @@ class TabManager: ObservableObject {
         }
         // Use cached directory state only; avoiding live focus traversal keeps workspace
         // creation resilient when Bonsplit is in the middle of a rapid Cmd+N churn.
+        if let defaultWorkingDirectory = normalizedWorkingDirectory(workspace.defaultWorkingDirectory) {
+            return defaultWorkingDirectory
+        }
         if let currentDirectory = normalizedWorkingDirectory(workspace.currentDirectory) {
             return currentDirectory
         }
@@ -5564,6 +5567,9 @@ extension TabManager {
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.defaultWorkingDirectory ?? "")
+            hasher.combine(workspace.workspaceProfileDefaultWorkingDirectory ?? "")
+            hasher.combine(workspace.workspaceProfileName ?? "")
             hasher.combine(workspace.customTitle ?? "")
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")

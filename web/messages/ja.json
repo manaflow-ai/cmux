@@ -1120,6 +1120,12 @@
         "shortcuts": {
           "when": "アクションごとの任意のコンテキスト述語（VS Code スタイルの `when` 句）です。cmux のアクション ID をキーにします。各値は、コンテキストキーを !、&&、||、括弧で組み合わせた boolean 式です。boolean キー: sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型付きキーは比較できます: 文字列 sidebarMode（files、find、sessions、feed、dock のいずれか）と整数 paneCount、workspaceCount です。比較演算子は ==、!=、=~（正規表現）、<、<=、>、>=、および `in [a, b]` です。未知または存在しないキーは false として扱われます。 boolean リテラル true および false も使えます。`key == false` は `!key` と同じです。その句が成立するときだけアクションのショートカットが発火し、他のショートカットとの競合もそのときだけ扱われます。例: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } は、右サイドバーにフォーカスがある場合を除いて Ctrl+1–9 でワークスペースを選択します。{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } は、ワークスペースに複数のペインがあるときに Find サイドバーへバインドを絞り込みます。",
           "showModifierHoldHints": "Cmd または Control を押し続けている間、ショートカットヒントのチップを表示します。"
+        },
+        "workspaceProfiles": {
+          "description": "グローバルな永続ワークスペースプロファイルです。設定の再読み込み時に、cmux は名前付きワークスペースが存在することを確認し、ピン留め状態を適用し、デフォルト cwd を端末のライブ PWD レポートとは別に保持します。プロジェクトローカルの .cmux/cmux.json ではワークスペースプロファイルを定義できません。",
+          "name": "作成または照合するワークスペース名。",
+          "cwd": "このワークスペースで新しいタブや分割に使うデフォルト作業ディレクトリ。相対パスはグローバル cmux.json のディレクトリから解決され、~ はユーザーのホームディレクトリに展開されます。",
+          "pinned": "照合されたワークスペースをサイドバーにピン留めするかどうか。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",

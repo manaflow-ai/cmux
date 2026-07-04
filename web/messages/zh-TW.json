@@ -854,6 +854,12 @@
         "shortcuts": {
           "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
           "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。"
+        },
+        "workspaceProfiles": {
+          "description": "全域持久工作區設定檔。重新載入設定時，cmux 會確保每個具名工作區存在、套用其釘選狀態，並讓預設 cwd 與終端機即時 PWD 回報分開保存。專案本機的 .cmux/cmux.json 檔案不能定義工作區設定檔。",
+          "name": "要建立或協調的工作區名稱。",
+          "cwd": "此工作區中新分頁與分割的預設工作目錄。相對路徑會從全域 cmux.json 目錄解析；~ 會展開為使用者的家目錄。",
+          "pinned": "協調後的工作區是否應釘選在側邊欄。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

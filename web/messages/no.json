@@ -854,6 +854,12 @@
         "shortcuts": {
           "when": "Valgfrie kontekstpredikater per handling (VS Code-lignende `when`-klausuler), indeksert etter cmux-handlings-id. Hver verdi er et boolsk uttrykk over kontekstnøkler, kombinert med !, &&, || og parenteser. Boolske nøkler: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typede nøkler støtter sammenligninger: strengen sidebarMode (files, find, sessions, feed eller dock) og heltallene paneCount og workspaceCount. Sammenligningsoperatorene er ==, !=, =~ (regulært uttrykk), <, <=, >, >= og `in [a, b]`; en ukjent eller fraværende nøkkel leses som false. De boolske literalene true og false godtas også; `key == false` tilsvarer `!key`. Handlingens snarvei utløses bare (og kolliderer bare med andre snarveier) når klausulen er sann. Eksempler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } velger arbeidsområder med Ctrl+1–9 overalt unntatt når høyre sidelinje har fokus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } begrenser en binding til Finn-sidelinjen når arbeidsområdet har flere paneler.",
           "showModifierHoldHints": "Vis snarveishint-brikker mens Cmd eller Control holdes nede."
+        },
+        "workspaceProfiles": {
+          "description": "Globale vedvarende workspace-profiler. Når konfigurasjonen lastes inn på nytt, sørger cmux for at hvert navngitte workspace finnes, bruker den festede tilstanden og holder standard-cwd adskilt fra live PWD-rapporter fra terminalen. Prosjektlokale .cmux/cmux.json-filer kan ikke definere workspace-profiler.",
+          "name": "Navnet på workspacet som skal opprettes eller avstemmes.",
+          "cwd": "Standard arbeidskatalog for nye faner og splitter i dette workspacet. Relative stier løses fra den globale cmux.json-katalogen; ~ utvides til brukerens hjemmekatalog.",
+          "pinned": "Om det avstemte workspacet skal festes i sidepanelet."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

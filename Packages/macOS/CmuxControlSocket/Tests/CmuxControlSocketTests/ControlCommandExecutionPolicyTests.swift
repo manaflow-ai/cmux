@@ -47,6 +47,7 @@ struct ControlCommandExecutionPolicyTests {
         for method in [
             "surface.list", "workspace.create", "window.list", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
+            "workspace.get_cwd", "workspace.set_cwd",
             "mobile.terminal.create", "feed.jump", "vmx.create", "",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)

@@ -65,6 +65,7 @@ extension TerminalController: ControlWorkspaceContext {
             listeningPorts: workspace.listeningPorts,
             remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
             currentDirectory: workspace.currentDirectory,
+            defaultWorkingDirectory: workspace.defaultWorkingDirectory,
             customColor: workspace.customColor,
             latestConversationMessage: workspace.latestConversationMessage,
             latestSubmittedMessage: workspace.latestSubmittedMessage,
@@ -122,6 +123,74 @@ extension TerminalController: ControlWorkspaceContext {
         case let .err(code, message, data):
             return .err(code: code, message: message, data: data.flatMap { JSONValue(foundationObject: $0) })
         }
+    }
+
+    // MARK: - Default cwd
+
+    func controlGetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?
+    ) -> ControlWorkspaceDefaultDirectoryResolution {
+        let tabManager: TabManager
+        let workspace: Workspace
+        if let workspaceID {
+            guard let resolvedTabManager = resolveTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let resolvedWorkspace = resolvedTabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                return .notFound
+            }
+            tabManager = resolvedTabManager
+            workspace = resolvedWorkspace
+        } else {
+            guard let resolvedTabManager = resolveTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let selectedWorkspace = resolvedTabManager.selectedWorkspace else {
+                return .noWorkspaceSelected
+            }
+            tabManager = resolvedTabManager
+            workspace = selectedWorkspace
+        }
+        return .resolved(
+            windowID: AppDelegate.shared?.windowId(for: tabManager),
+            workspaceID: workspace.id,
+            cwd: workspace.defaultWorkingDirectory
+        )
+    }
+
+    func controlSetWorkspaceDefaultDirectory(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        cwd: String
+    ) -> ControlWorkspaceDefaultDirectoryResolution {
+        let tabManager: TabManager
+        let workspace: Workspace
+        if let workspaceID {
+            guard let resolvedTabManager = resolveTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let resolvedWorkspace = resolvedTabManager.tabs.first(where: { $0.id == workspaceID }) else {
+                return .notFound
+            }
+            tabManager = resolvedTabManager
+            workspace = resolvedWorkspace
+        } else {
+            guard let resolvedTabManager = resolveTabManager(routing: routing) else {
+                return .tabManagerUnavailable
+            }
+            guard let selectedWorkspace = resolvedTabManager.selectedWorkspace else {
+                return .noWorkspaceSelected
+            }
+            tabManager = resolvedTabManager
+            workspace = selectedWorkspace
+        }
+        workspace.setDefaultWorkingDirectory(cwd, syncCurrentDirectory: false)
+        return .resolved(
+            windowID: AppDelegate.shared?.windowId(for: tabManager),
+            workspaceID: workspace.id,
+            cwd: workspace.defaultWorkingDirectory
+        )
     }
 
     // MARK: - Select / close / move

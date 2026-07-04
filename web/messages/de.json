@@ -854,6 +854,12 @@
         "shortcuts": {
           "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
+        },
+        "workspaceProfiles": {
+          "description": "Globale dauerhafte Workspace-Profile. Beim Neuladen der Konfiguration stellt cmux sicher, dass jeder benannte Workspace existiert, wendet seinen angehefteten Zustand an und hält seinen Standard-cwd getrennt von Live-PWD-Meldungen des Terminals. Projektlokale .cmux/cmux.json-Dateien können keine Workspace-Profile definieren.",
+          "name": "Name des Workspaces, der erstellt oder abgeglichen werden soll.",
+          "cwd": "Standard-Arbeitsverzeichnis für neue Tabs und Splits in diesem Workspace. Relative Pfade werden aus dem globalen cmux.json-Verzeichnis aufgelöst; ~ wird zum Home-Verzeichnis des Benutzers erweitert.",
+          "pinned": "Ob der abgeglichene Workspace in der Seitenleiste angeheftet werden soll."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

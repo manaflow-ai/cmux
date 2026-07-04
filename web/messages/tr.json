@@ -854,6 +854,12 @@
         "shortcuts": {
           "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
+        },
+        "workspaceProfiles": {
+          "description": "Genel kalıcı workspace profilleri. Yapılandırma yeniden yüklendiğinde cmux, adlandırılmış her workspace’in var olmasını sağlar, sabitleme durumunu uygular ve varsayılan cwd değerini terminalin canlı PWD raporlarından ayrı tutar. Proje yerelindeki .cmux/cmux.json dosyaları workspace profilleri tanımlayamaz.",
+          "name": "Oluşturulacak veya uzlaştırılacak workspace adı.",
+          "cwd": "Bu workspace içindeki yeni sekmeler ve bölmeler için varsayılan çalışma dizini. Göreli yollar genel cmux.json dizininden çözümlenir; ~ kullanıcının home dizinine genişler.",
+          "pinned": "Uzlaştırılan workspace’in kenar çubuğunda sabitlenip sabitlenmeyeceği."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

@@ -1150,6 +1150,12 @@
         "shortcuts": {
           "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
+        },
+        "workspaceProfiles": {
+          "description": "Global persistent workspace profiles. On config reload, cmux ensures each named workspace exists, applies its pinned state, and keeps its default cwd separate from live terminal PWD reports. Project-local .cmux/cmux.json files cannot define workspace profiles.",
+          "name": "Workspace name to create or reconcile.",
+          "cwd": "Default working directory for new tabs and splits in this workspace. Relative paths resolve from the global cmux.json directory; ~ expands to the user's home directory.",
+          "pinned": "Whether the reconciled workspace should be pinned in the sidebar."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

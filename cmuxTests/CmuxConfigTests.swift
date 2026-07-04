@@ -133,6 +133,38 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
+    func testDecodeWorkspaceProfiles() throws {
+        let json = """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "~/projects/coding", "pinned": true },
+            { "name": "planning", "cwd": "/tmp/planning" }
+          ]
+        }
+        """
+        let config = try decode(json)
+        XCTAssertEqual(config.workspaceProfiles.count, 2)
+        XCTAssertEqual(config.workspaceProfiles[0], CmuxWorkspaceProfileDefinition(
+            name: "coding",
+            cwd: "~/projects/coding",
+            pinned: true
+        ))
+        XCTAssertEqual(config.workspaceProfiles[1], CmuxWorkspaceProfileDefinition(
+            name: "planning",
+            cwd: "/tmp/planning",
+            pinned: false
+        ))
+    }
+
+    func testDecodeWorkspaceProfileRejectsBlankNameAndCwd() {
+        XCTAssertThrowsError(try decode("""
+        { "workspaceProfiles": [{ "name": " ", "cwd": "/tmp/project" }] }
+        """))
+        XCTAssertThrowsError(try decode("""
+        { "workspaceProfiles": [{ "name": "coding", "cwd": " " }] }
+        """))
+    }
+
     func testDecodeNewWorkspaceCommandTrimsWhitespace() throws {
         let json = """
         {
@@ -721,6 +753,137 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertNil(store.resolvedAction(id: "first"))
         XCTAssertNotNil(store.resolvedAction(id: "second"))
         cancellable?.cancel()
+    }
+
+    @MainActor
+    func testWorkspaceProfilesCreateAndReconcilePersistentDefaultCwd() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding", "pinned": true }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.wireDirectoryTracking(tabManager: manager)
+        store.loadAll()
+
+        let coding = try XCTUnwrap(manager.tabs.first { $0.customTitle == "coding" })
+        let firstWorkspaceCount = manager.tabs.count
+        XCTAssertEqual(coding.defaultWorkingDirectory, projects.appendingPathComponent("coding").path)
+        XCTAssertEqual(coding.currentDirectory, coding.defaultWorkingDirectory)
+        XCTAssertTrue(coding.isPinned)
+        XCTAssertEqual(store.workspaceProfiles.map(\.name), ["coding"])
+
+        XCTAssertTrue(coding.setCustomTitle("Renamed Coding"))
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding-v2", "pinned": false }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        XCTAssertEqual(manager.tabs.count, firstWorkspaceCount)
+        XCTAssertTrue(manager.tabs.contains { $0 === coding })
+        XCTAssertEqual(coding.customTitle, "Renamed Coding")
+        XCTAssertEqual(coding.defaultWorkingDirectory, projects.appendingPathComponent("coding-v2").path)
+        XCTAssertFalse(coding.isPinned)
+    }
+
+    @MainActor
+    func testWorkspaceProfilesPreserveManualDefaultCwdOverrideOnReload() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding", "pinned": true }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.wireDirectoryTracking(tabManager: manager)
+        store.loadAll()
+
+        let coding = try XCTUnwrap(manager.tabs.first { $0.customTitle == "coding" })
+        let firstWorkspaceCount = manager.tabs.count
+        let manualDirectory = projects.appendingPathComponent("manual").path
+        coding.setDefaultWorkingDirectory(manualDirectory, syncCurrentDirectory: false)
+
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding-v2", "pinned": false }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        XCTAssertEqual(manager.tabs.count, firstWorkspaceCount)
+        XCTAssertTrue(manager.tabs.contains { $0 === coding })
+        XCTAssertEqual(coding.defaultWorkingDirectory, manualDirectory)
+        XCTAssertEqual(coding.workspaceProfileDefaultWorkingDirectory, projects.appendingPathComponent("coding-v2").path)
+        XCTAssertFalse(coding.isPinned)
+    }
+
+    @MainActor
+    func testWorkspaceProfilesDoNotMutateUnboundTitleCollisions() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projects = root.appendingPathComponent("projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "workspaceProfiles": [
+            { "name": "coding", "cwd": "projects/coding", "pinned": true }
+          ]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let unboundWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        unboundWorkspace.setCustomTitle("coding")
+        let originalCount = manager.tabs.count
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.wireDirectoryTracking(tabManager: manager)
+        store.loadAll()
+
+        XCTAssertEqual(manager.tabs.count, originalCount + 1)
+        XCTAssertNil(unboundWorkspace.defaultWorkingDirectory)
+        let managedWorkspace = try XCTUnwrap(manager.tabs.first { workspace in
+            workspace !== unboundWorkspace && workspace.customTitle == "coding"
+        })
+        XCTAssertFalse(managedWorkspace === unboundWorkspace)
+        XCTAssertEqual(managedWorkspace.defaultWorkingDirectory, projects.appendingPathComponent("coding").path)
+        XCTAssertTrue(managedWorkspace.isPinned)
     }
 
     @MainActor

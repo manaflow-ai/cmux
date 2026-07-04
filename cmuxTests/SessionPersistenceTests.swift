@@ -4809,6 +4809,30 @@ extension SessionPersistenceTests {
     }
 
     @MainActor
+    func testAutosaveFingerprintIncludesWorkspaceDefaultCwdProfileFields() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let baseline = manager.sessionAutosaveFingerprint()
+
+        workspace.setDefaultWorkingDirectory(
+            "/tmp/cmux-default-\(UUID().uuidString)",
+            syncCurrentDirectory: false
+        )
+        let defaultFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(baseline, defaultFingerprint)
+
+        workspace.setWorkspaceProfileName("coding-\(UUID().uuidString)")
+        let profileNameFingerprint = manager.sessionAutosaveFingerprint()
+        XCTAssertNotEqual(defaultFingerprint, profileNameFingerprint)
+
+        workspace.applyWorkspaceProfile(
+            name: workspace.workspaceProfileName ?? "coding",
+            defaultWorkingDirectory: "/tmp/cmux-profile-\(UUID().uuidString)"
+        )
+        XCTAssertNotEqual(profileNameFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
+    @MainActor
     func testAutosaveFingerprintIncludesTextBoxDraftContent() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
