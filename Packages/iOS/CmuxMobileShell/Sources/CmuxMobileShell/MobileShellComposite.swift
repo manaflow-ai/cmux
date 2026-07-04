@@ -86,7 +86,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    static let terminalHybridRenderGridBeforeBytesCapability = "terminal.hybrid_render_grid_before_bytes.v1"
+    static let terminalViewportCapability = "terminal.viewport.v1"
     static let terminalReplayCapability = "terminal.replay.v1"
+
     private static let workspaceActionsCapability = "workspace.actions.v1"
     private static let workspaceReadStateCapability = "workspace.read_state.v1"
     private static let workspaceCloseCapability = "workspace.close.v1"
@@ -755,6 +758,45 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    /// The natural terminal grid this phone last reported per surface via
+    /// `mobile.terminal.viewport`. The Mac caps the shared surface grid to
+    /// min(all device reports, pane size), so a faithful producer frame can
+    /// never exceed this (after the Mac-side clamp floors); the render-grid
+    /// ingest uses it to detect a diverged producer grid (issue #7202).
+    ///
+    /// Deliberately phone-side state, not connection state: recording happens
+    /// before the remote-client guard so the map tracks the view's latest
+    /// natural grid even while disconnected, and it intentionally survives
+    /// `resetTerminalOutputTracking()`. The Mac clears its sticky caps when a
+    /// connection closes, so the post-reconnect producer grid is exactly the
+    /// case the guard must still catch; clearing this map there would disable
+    /// the guard until a manual resize re-reports. Per-surface entries are
+    /// removed on unmount (`unregisterTerminalOutput`).
+    var reportedTerminalViewportGridsBySurfaceID: [String: (columns: Int, rows: Int)] = [:]
+    /// Last oversized-grid recovery attempt per surface, pacing viewport
+    /// re-assertion and barrier re-arming while a producer stays diverged.
+    var oversizedTerminalGridRecoveryLastAttemptsBySurfaceID: [String: Date] = [:]
+    /// The replay barrier token whose recovery already re-asserted this
+    /// phone's viewport, per surface. A new barrier (a fresh recovery episode)
+    /// always gets its first re-assert even when the per-surface pacing
+    /// timestamp is still warm from the previous episode — the re-assert is
+    /// the only signal that drives the Mac to re-cap.
+    var oversizedRecoveryReassertedBarrierTokensBySurfaceID: [String: UUID] = [:]
+    /// The remote client through which the Mac proved it honors
+    /// `mobile.terminal.viewport` by returning an effective grid. Together
+    /// with the advertised `terminal.viewport.v1` capability this gates the
+    /// oversized-grid guard: a host that cannot re-cap its grid must keep the
+    /// legacy trust-the-producer behavior, or withheld output would freeze the
+    /// mirror instead of converging. Keyed by client identity so the proof
+    /// can never leak across a connection swap (e.g. promoting a secondary
+    /// Mac to foreground) onto a legacy host.
+    var terminalViewportRPCConfirmedClientID: ObjectIdentifier?
+    /// Surfaces whose oversized-grid recovery observed a fitting frame while a
+    /// barrier replay was in flight. If that replay chain exhausts on
+    /// still-diverged responses, this signal re-arms the barrier once so the
+    /// converged grid can repaint even when no further frame ever arrives
+    /// (an idle terminal emits exactly one dimension-change frame).
+    var oversizedRecoveryObservedFittingFrameSurfaceIDs: Set<String> = []
     /// Per-surface continuations for the Mac-pushed live font-size signal. A
     /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
     /// each yielded point size; the Mac emits `terminal.set_font` to drive a live
@@ -4198,6 +4240,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
         reportedViewportSizesByTerminalKey[key] = viewportSize
+        reportedTerminalViewportGridsBySurfaceID[terminalID.rawValue] = (
+            columns: viewportSize.columns,
+            rows: viewportSize.rows
+        )
     }
 
     /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.
@@ -5299,6 +5345,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
+        oversizedTerminalGridRecoveryLastAttemptsBySurfaceID = [:]
+        oversizedRecoveryReassertedBarrierTokensBySurfaceID = [:]
+        oversizedRecoveryObservedFittingFrameSurfaceIDs = []
+        terminalViewportRPCConfirmedClientID = nil
         terminalReplaySurfaceIDsInFlight = []
         terminalReplayRequestIDsInFlightBySurfaceID = [:]
         terminalReplayBarrierTokensInFlightBySurfaceID = [:]
@@ -6717,6 +6767,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
         var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
         bytes.append(snapshotBytes)
@@ -6786,7 +6837,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
-        // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
+        reportedTerminalViewportGridsBySurfaceID.removeValue(forKey: surfaceID)
+        oversizedTerminalGridRecoveryLastAttemptsBySurfaceID.removeValue(forKey: surfaceID)
+        oversizedRecoveryReassertedBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
+        oversizedRecoveryObservedFittingFrameSurfaceIDs.remove(surfaceID)
+        // Tell the Mac this device is no longer viewing the surface so it
+        // can unpin and clear its border.
         clearTerminalViewport(surfaceID: surfaceID)
     }
 
@@ -6864,6 +6920,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+
 
     /// Cold-attach/self-heal replay. Prefer the Mac's bounded render-grid
     /// snapshot, replacing the local iOS terminal state before live bytes
@@ -7136,6 +7193,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                     return
                 }
+                // A snapshot/raw-tail fallback authored for a producer grid
+                // larger than this phone's viewport splices rows exactly like
+                // an oversized render-grid frame (issue #7202). Withhold it and
+                // keep the barrier's bounded retries polling for a fitting
+                // replay instead of painting the divergence. Check the grid
+                // before the empty-payload path: a host can report dimensions
+                // even when an idle/failing snapshot contributes no bytes.
+                if let macColumns = payload?.columns,
+                   let macRows = payload?.rows,
+                   !self.producerGridFitsReportedViewport(
+                       columns: macColumns,
+                       rows: macRows,
+                       surfaceID: surfaceID
+                   ) {
+                    MobileDebugLog.anchormux(
+                        "CMUX_REPLAY oversized_fallback surface=\(surfaceID) macGrid=\(macColumns)x\(macRows)"
+                    )
+                    // The hold records the withheld payload and (paced)
+                    // re-asserts the viewport report so the Mac re-caps even
+                    // when this replay's barrier did not originate from an
+                    // oversized live frame.
+                    self.holdTerminalOutputForOversizedGrid(
+                        columns: macColumns,
+                        rows: macRows,
+                        surfaceID: surfaceID,
+                        source: "replay_fallback"
+                    )
+                    if replayBarrierTokenForRequest != nil {
+                        self.retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
+                    }
+                    return
+                }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
                     if self.terminalReplayBarrierDroppedOutputSurfaceIDs.contains(surfaceID),
                        let retryToken = self.prepareTerminalReplayFailureRetry(
@@ -7280,7 +7369,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
-        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: renderGridDTO?.hybridBytesOverflowed == true ? "hybrid_overflow" : "event")
     }
 
     private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {

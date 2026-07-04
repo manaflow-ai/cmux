@@ -16,6 +16,61 @@ final class MobileTerminalRenderObserver {
     private var hasPendingGlobalUpdate = false
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
+    private var pendingByteEventsBySurfaceID: [UUID: PendingTerminalBytes] = [:]
+    private let pendingBytesBudgetPerSurface = 256 * 1024
+    private let maxDeferredHybridByteFlushRetries = 2
+
+    private struct PendingTerminalBytes {
+        var seq: UInt64
+        var data: Data
+        var overflowed = false
+        var renderGridMissCount = 0
+
+        init(seq: UInt64, data: Data, budget: Int) {
+            self.seq = seq
+            self.data = data
+            enforceBudget(budget)
+        }
+
+        mutating func append(seq nextSeq: UInt64, data nextData: Data, budget: Int) {
+            let currentEnd = seq &+ UInt64(data.count)
+            if currentEnd == nextSeq {
+                data.append(nextData)
+            } else if nextSeq > currentEnd {
+                seq = nextSeq
+                data = nextData
+                overflowed = true
+            } else {
+                let overlap = currentEnd - nextSeq
+                guard overlap < UInt64(nextData.count) else {
+                    return
+                }
+                data.append(contentsOf: nextData.dropFirst(Int(overlap)))
+            }
+            enforceBudget(budget)
+        }
+
+        mutating func recordRenderGridMiss(maxRetries: Int) -> Bool {
+            renderGridMissCount += 1
+            return renderGridMissCount <= maxRetries
+        }
+
+        private mutating func enforceBudget(_ budget: Int) {
+            guard budget > 0 else {
+                seq &+= UInt64(data.count)
+                data.removeAll(keepingCapacity: false)
+                overflowed = true
+                return
+            }
+            let excess = data.count - budget
+            guard excess > 0 else { return }
+            // Keep a bounded tail so legacy hybrid clients still receive a
+            // sequenced byte event and can detect the missing prefix.
+            data.removeFirst(excess)
+            seq &+= UInt64(excess)
+            overflowed = true
+        }
+    }
 
     private init() {}
 
@@ -73,6 +128,7 @@ final class MobileTerminalRenderObserver {
         hasPendingGlobalUpdate = false
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
+        pendingByteEventsBySurfaceID.removeAll()
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
@@ -83,6 +139,26 @@ final class MobileTerminalRenderObserver {
         // notification already fired. Schedule a fresh Ghostty tick so every
         // byte-backed pending surface gets one post-parser render-grid flush.
         GhosttyApp.shared.scheduleTick()
+    }
+
+    func enqueueTerminalBytesEventAfterRender(surfaceID: UUID, seq: UInt64, data: Data) {
+        if var pending = pendingByteEventsBySurfaceID[surfaceID] {
+            pending.append(seq: seq, data: data, budget: pendingBytesBudgetPerSurface)
+            pendingByteEventsBySurfaceID[surfaceID] = pending
+        } else {
+            pendingByteEventsBySurfaceID[surfaceID] = PendingTerminalBytes(
+                seq: seq,
+                data: data,
+                budget: pendingBytesBudgetPerSurface
+            )
+        }
+        noteTerminalBytes(surfaceID: surfaceID)
+    }
+
+    func dropSurface(surfaceID: UUID) {
+        pendingSurfaceIDs.remove(surfaceID)
+        renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     deinit {
@@ -108,6 +184,25 @@ final class MobileTerminalRenderObserver {
                 releaseTickDemand = GhosttyApp.retainTickNotifications()
             }
         } else {
+            var orderedEvents: [(
+                topic: String,
+                payload: [String: Any],
+                requiredTopics: Set<String>,
+                excludedTopics: Set<String>
+            )] = []
+            for surfaceID in Array(pendingByteEventsBySurfaceID.keys) {
+                if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
+                    orderedEvents.append((
+                        topic: "terminal.bytes",
+                        payload: payload,
+                        requiredTopics: ["terminal.render_grid"],
+                        excludedTopics: []
+                    ))
+                }
+            }
+            if !orderedEvents.isEmpty {
+                MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
+            }
             releaseFrameDemand?()
             releaseFrameDemand = nil
             releaseTickDemand?()
@@ -138,13 +233,14 @@ final class MobileTerminalRenderObserver {
 
     private func flushTerminalUpdates() {
         isEmitFlushScheduled = false
-        guard hasAnyRenderEventSubscribers else {
+        guard hasAnyRenderEventSubscribers || !pendingByteEventsBySurfaceID.isEmpty else {
             refreshNotificationDemand()
             return
         }
         let shouldEmitUpdatedEvents = MobileHostService.hasEventSubscribers(topic: "terminal.updated")
         let shouldEmitRenderGridEvents = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
         let surfaceIDs = pendingSurfaceIDs
+        let pendingByteSurfaceIDs = Set(pendingByteEventsBySurfaceID.keys)
         let shouldEmitGlobal = hasPendingGlobalUpdate
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
@@ -160,39 +256,156 @@ final class MobileTerminalRenderObserver {
             }
         }
 
-        guard shouldEmitRenderGridEvents else { return }
-        let renderSurfaceIDs: Set<UUID>
-        if surfaceIDs.isEmpty, shouldEmitGlobal {
-            renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+        if shouldEmitRenderGridEvents {
+            let renderSurfaceIDs: Set<UUID>
+            if surfaceIDs.isEmpty, shouldEmitGlobal {
+                renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
+            } else {
+                renderSurfaceIDs = surfaceIDs
+            }
+            var orderedEvents: [(
+                topic: String,
+                payload: [String: Any],
+                requiredTopics: Set<String>,
+                excludedTopics: Set<String>
+            )] = []
+            var deferredHybridByteSurfaceIDs = Set<UUID>()
+            for surfaceID in renderSurfaceIDs {
+                guard let renderPayload = renderGridPayload(surfaceID: surfaceID) else {
+                    if pendingByteEventsBySurfaceID[surfaceID] != nil,
+                       hasTerminalSurface(surfaceID: surfaceID) {
+                        if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
+                            deferredHybridByteSurfaceIDs.insert(surfaceID)
+                        } else {
+                            dropPendingHybridBytesAndRecover(surfaceID: surfaceID)
+                        }
+                    } else {
+                        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+                    }
+                    continue
+                }
+                orderedEvents.append((
+                    topic: "terminal.render_grid",
+                    payload: renderPayload,
+                    requiredTopics: [],
+                    excludedTopics: []
+                ))
+                if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
+                    orderedEvents.append((
+                        topic: "terminal.bytes",
+                        payload: payload,
+                        requiredTopics: ["terminal.render_grid"],
+                        excludedTopics: []
+                    ))
+                }
+            }
+            for surfaceID in surfaceIDs.union(pendingByteSurfaceIDs).subtracting(renderSurfaceIDs) {
+                if hasTerminalSurface(surfaceID: surfaceID) {
+                    if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
+                        deferredHybridByteSurfaceIDs.insert(surfaceID)
+                    } else {
+                        dropPendingHybridBytesAndRecover(surfaceID: surfaceID)
+                    }
+                } else {
+                    pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+                }
+            }
+            pendingSurfaceIDs.formUnion(deferredHybridByteSurfaceIDs)
+            if !deferredHybridByteSurfaceIDs.isEmpty {
+                // Keep byte-backed hybrid surfaces moving after an early flush
+                // races ahead of Ghostty's VT parser.
+                GhosttyApp.shared.scheduleTick()
+            }
+            if !orderedEvents.isEmpty {
+                MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
+            }
         } else {
-            renderSurfaceIDs = surfaceIDs
-        }
-        for surfaceID in renderSurfaceIDs {
-            emitRenderGrid(surfaceID: surfaceID)
+            var orderedEvents: [(
+                topic: String,
+                payload: [String: Any],
+                requiredTopics: Set<String>,
+                excludedTopics: Set<String>
+            )] = []
+            for surfaceID in surfaceIDs.union(pendingByteSurfaceIDs) {
+                if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
+                    orderedEvents.append((
+                        topic: "terminal.bytes",
+                        payload: payload,
+                        requiredTopics: ["terminal.render_grid"],
+                        excludedTopics: []
+                    ))
+                }
+            }
+            if !orderedEvents.isEmpty {
+                MobileHostService.emitConstrainedEventsInOrder(orderedEvents)
+            }
         }
     }
 
-    private func emitRenderGrid(surfaceID: UUID) {
+    private func shouldDeferHybridByteFlush(surfaceID: UUID) -> Bool {
+        guard var pending = pendingByteEventsBySurfaceID[surfaceID] else { return false }
+        let shouldDefer = pending.recordRenderGridMiss(maxRetries: maxDeferredHybridByteFlushRetries)
+        pendingByteEventsBySurfaceID[surfaceID] = pending
+        return shouldDefer
+    }
+
+    private func dropPendingHybridBytesAndRecover(surfaceID: UUID) {
+        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+        // Reconnect drives the phone's existing replay path; sending bytes here
+        // would violate the advertised render-grid-before-bytes contract.
+        MobileHostService.closeConnectionsSubscribed(
+            to: "terminal.render_grid",
+            reason: "terminal render-grid recovery failed"
+        )
+    }
+
+    private func pendingTerminalBytesPayload(surfaceID: UUID) -> [String: Any]? {
+        guard let pending = pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID) else {
+            return nil
+        }
+        guard !pending.data.isEmpty else { return nil }
+        return [
+            "surface_id": surfaceID.uuidString,
+            "seq": pending.seq,
+            "data_b64": pending.data.base64EncodedString(),
+        ]
+    }
+
+    private func hasTerminalSurface(surfaceID: UUID) -> Bool {
+        GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
+    }
+
+    private func renderGridPayload(surfaceID: UUID) -> [String: Any]? {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
               let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
-            return
+            return nil
         }
 
-        guard let emission = try? snapshot.frame.renderGridEmission(
-            comparedTo: renderGridStatesBySurfaceID[surfaceID]
-        ) else { return }
-        let frame = emission.frame
-        renderGridStatesBySurfaceID[surfaceID] = emission.state
-        guard let payload = try? frame.jsonObject() else { return }
-        MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
+        let forceFullFrame = pendingByteEventsBySurfaceID[surfaceID]?.overflowed == true
+        let frame: MobileTerminalRenderGridFrame
+        if forceFullFrame {
+            frame = snapshot.frame
+            renderGridStatesBySurfaceID[surfaceID] = frame.emissionState
+        } else {
+            guard let emission = try? snapshot.frame.renderGridEmission(
+                comparedTo: renderGridStatesBySurfaceID[surfaceID]
+            ) else { return nil }
+            frame = emission.frame
+            renderGridStatesBySurfaceID[surfaceID] = emission.state
+        }
+        guard var payload = try? frame.jsonObject() else { return nil }
+        if forceFullFrame {
+            payload["hybrid_bytes_overflowed"] = true
+        }
         #if DEBUG
         cmuxDebugLog(
             "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +
                 "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
         )
         #endif
+        return payload
     }
 
     #if DEBUG

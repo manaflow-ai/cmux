@@ -107,12 +107,14 @@ import Testing
             "columns": 4,
             "rows": 1,
             "row_spans": []
-          }
+          },
+          "hybrid_bytes_overflowed": true
         }
         """
         let event = try MobileTerminalRenderGridEvent.decode(Data(json.utf8))
         let frame = try #require(event.frame)
         #expect(frame.surfaceID == "surface-2")
+        #expect(event.hybridBytesOverflowed)
     }
 
     @Test func renderGridEventHasNilFrameWhenUnwrapped() throws {
@@ -123,10 +125,12 @@ import Testing
           "state_seq": 5,
           "columns": 4,
           "rows": 1,
-          "row_spans": []
+          "row_spans": [],
+          "hybrid_bytes_overflowed": true
         }
         """
         let event = try MobileTerminalRenderGridEvent.decode(Data(json.utf8))
         #expect(event.frame == nil)
+        #expect(event.hybridBytesOverflowed)
     }
 }

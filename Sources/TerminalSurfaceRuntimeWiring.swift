@@ -103,6 +103,7 @@ final class TerminalMobileByteTeeBridge: TerminalByteTeeBinding {
     @MainActor
     func dropSurface(surfaceID: UUID) {
         MobileTerminalByteTee.shared.dropSurface(surfaceID: surfaceID)
+        MobileTerminalRenderObserver.shared.dropSurface(surfaceID: surfaceID)
     }
 }
 

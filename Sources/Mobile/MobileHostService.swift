@@ -10,6 +10,14 @@ import os
 
 private let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
 
+private typealias MobileHostQueuedEvent = (
+    topic: String,
+    payload: [String: Any],
+    requiredTopics: Set<String>,
+    excludedTopics: Set<String>,
+    estimatedBytes: Int
+)
+
 extension Notification.Name {
     static let mobileHostEventSubscriptionsDidChange = Notification.Name(
         "cmux.mobileHostEventSubscriptionsDidChange"
@@ -27,7 +35,10 @@ extension Notification.Name {
 
 private enum MobileHostEventSubscriptionTracker {
     private static let lock = NSLock()
+    // Protected by `lock`; static emitters query subscription state from nonisolated contexts.
     private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
+    private nonisolated(unsafe) static var bytesOnlyConnectionCount = 0
+    private nonisolated(unsafe) static var hybridConnectionCount = 0
 
     static func hasSubscribers(topic: String) -> Bool {
         lock.lock()
@@ -35,8 +46,32 @@ private enum MobileHostEventSubscriptionTracker {
         return (topicCounts[topic] ?? 0) > 0
     }
 
+    static func hasSubscribers(topic: String, requiringTopics requiredTopics: Set<String>) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard topic == "terminal.bytes", requiredTopics == ["terminal.render_grid"] else { return false }
+        return hybridConnectionCount > 0
+    }
+
+    static func hasSubscribers(topic: String, excludingTopics excludedTopics: Set<String>) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard topic == "terminal.bytes", excludedTopics == ["terminal.render_grid"] else { return false }
+        return bytesOnlyConnectionCount > 0
+    }
+
     static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
         let changedTopics = updateCounts(previousTopics: previousTopics, nextTopics: nextTopics)
+        guard !changedTopics.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": Array(changedTopics).sorted()]
+        )
+    }
+
+    static func replaceConnection(previousTopics: Set<String>?, nextTopics: Set<String>?) {
+        let changedTopics = updateConnectionCounts(previousTopics: previousTopics, nextTopics: nextTopics)
         guard !changedTopics.isEmpty else { return }
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -53,7 +88,10 @@ private enum MobileHostEventSubscriptionTracker {
         let allTopics = Set(previousTopics ?? []).union(nextTopics ?? [])
         let before = Dictionary(uniqueKeysWithValues: allTopics.map { ($0, topicCounts[$0] ?? 0) })
 
-        for topic in previousTopics ?? [] {
+        let previousTopics = previousTopics ?? []
+        let nextTopics = nextTopics ?? []
+
+        for topic in previousTopics {
             let nextCount = max(0, (topicCounts[topic] ?? 0) - 1)
             if nextCount == 0 {
                 topicCounts.removeValue(forKey: topic)
@@ -61,7 +99,7 @@ private enum MobileHostEventSubscriptionTracker {
                 topicCounts[topic] = nextCount
             }
         }
-        for topic in nextTopics ?? [] {
+        for topic in nextTopics {
             topicCounts[topic] = (topicCounts[topic] ?? 0) + 1
         }
 
@@ -75,9 +113,35 @@ private enum MobileHostEventSubscriptionTracker {
         return changedTopics
     }
 
+    private static func updateConnectionCounts(
+        previousTopics: Set<String>?,
+        nextTopics: Set<String>?
+    ) -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let previousTopics = previousTopics ?? []
+        let nextTopics = nextTopics ?? []
+        guard previousTopics != nextTopics else { return [] }
+        adjustTerminalByteConnectionCount(topics: previousTopics, delta: -1)
+        adjustTerminalByteConnectionCount(topics: nextTopics, delta: 1)
+        return previousTopics.union(nextTopics)
+    }
+
+    private static func adjustTerminalByteConnectionCount(topics: Set<String>, delta: Int) {
+        guard topics.contains("terminal.bytes") else { return }
+        if topics.contains("terminal.render_grid") {
+            hybridConnectionCount = max(0, hybridConnectionCount + delta)
+        } else {
+            bytesOnlyConnectionCount = max(0, bytesOnlyConnectionCount + delta)
+        }
+    }
+
     static func reset() {
         lock.lock()
         topicCounts.removeAll()
+        bytesOnlyConnectionCount = 0
+        hybridConnectionCount = 0
         lock.unlock()
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -438,27 +502,110 @@ final class MobileHostService {
     /// Static form for callers already on non-main queues or Sendable
     /// notification closures. This path only touches the connection registry,
     /// not actor-isolated listener state.
-    nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
-        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
-            return
+    nonisolated static func emitEvent(
+        topic: String,
+        payload: [String: Any],
+        requiredTopics: Set<String> = [],
+        excludedTopics: Set<String> = []
+    ) {
+        emitConstrainedEventsInOrder([
+            (
+                topic: topic,
+                payload: payload,
+                requiredTopics: requiredTopics,
+                excludedTopics: excludedTopics
+            ),
+        ])
+    }
+
+    /// Fan out a sequence of server-pushed events to every subscribed
+    /// connection, preserving the sequence on each connection.
+    nonisolated static func emitEventsInOrder(_ events: [(topic: String, payload: [String: Any])]) {
+        emitConstrainedEventsInOrder(events.map {
+            (
+                topic: $0.topic,
+                payload: $0.payload,
+                requiredTopics: Set<String>(),
+                excludedTopics: Set<String>()
+            )
+        })
+    }
+
+    nonisolated static func emitConstrainedEventsInOrder(
+        _ events: [(
+            topic: String,
+            payload: [String: Any],
+            requiredTopics: Set<String>,
+            excludedTopics: Set<String>
+        )]
+    ) {
+        let subscribedEvents: [MobileHostQueuedEvent] = events.compactMap { event in
+            guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: event.topic) else {
+                return nil
+            }
+            return (
+                topic: event.topic,
+                payload: event.payload,
+                requiredTopics: event.requiredTopics,
+                excludedTopics: event.excludedTopics,
+                estimatedBytes: estimatedQueuedEventBytes(topic: event.topic, payload: event.payload)
+            )
         }
+        guard !subscribedEvents.isEmpty else { return }
         let connections = MobileHostConnectionRegistry.shared.snapshot()
         guard !connections.isEmpty else { return }
         #if DEBUG
-        cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
+        let topics = subscribedEvents.map(\.topic).joined(separator: ",")
+        cmuxDebugLog("mobile.emit topics=\(topics) connections=\(connections.count)")
         #endif
         for connection in connections {
             Task {
-                let delivered = await connection.sendEvent(topic: topic, payload: payload)
-                #if DEBUG
-                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(topic)")
-                #endif
+                await connection.enqueueEvents(subscribedEvents)
+            }
+        }
+    }
+
+    nonisolated static func closeConnectionsSubscribed(to topic: String, reason: String) {
+        for connection in MobileHostConnectionRegistry.shared.snapshot() {
+            Task {
+                if await connection.isSubscribed(to: topic) {
+                    await connection.close(reason: reason)
+                }
             }
         }
     }
 
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+    }
+
+    nonisolated static func hasEventSubscribers(topic: String, requiringTopics requiredTopics: Set<String>) -> Bool {
+        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic, requiringTopics: requiredTopics)
+    }
+
+    nonisolated static func hasEventSubscribers(topic: String, excludingTopics excludedTopics: Set<String>) -> Bool {
+        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic, excludingTopics: excludedTopics)
+    }
+
+    private nonisolated static func estimatedQueuedEventBytes(topic: String, payload: [String: Any]) -> Int {
+        topic.utf8.count + estimatedJSONLikeBytes(payload) + 128
+    }
+
+    private nonisolated static func estimatedJSONLikeBytes(_ value: Any) -> Int {
+        switch value {
+        case let string as String:
+            return string.utf8.count
+        case let data as Data:
+            return data.count
+        case let array as [Any]:
+            return array.reduce(16) { $0 + estimatedJSONLikeBytes($1) }
+        case let dictionary as [String: Any]:
+            return dictionary.reduce(16) { partial, entry in
+                partial + entry.key.utf8.count + estimatedJSONLikeBytes(entry.value)
+            }
+        default:
+            return 16
+        }
     }
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
@@ -1937,6 +2084,7 @@ private actor MobileHostAccessTokenStore: TokenStoreProtocol {
 
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
+    private static let maximumPendingEventSendByteCount = 8 * 1024 * 1024
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
@@ -1958,6 +2106,9 @@ actor MobileHostConnection {
     /// stream_id → set of topics this connection is subscribed to.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: Set<String>] = [:]
+    private var pendingEventSends: [MobileHostQueuedEvent] = []
+    private var pendingEventSendByteCount = 0
+    private var isDrainingEventSends = false
 
     init(
         id: UUID,
@@ -2004,14 +2155,22 @@ actor MobileHostConnection {
         for task in tasks {
             task.cancel()
         }
+        let previousConnectionTopics = subscribedTopics()
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
+        pendingEventSends.removeAll()
+        pendingEventSendByteCount = 0
+        isDrainingEventSends = false
         for topics in previousSubscriptions where !topics.isEmpty {
             MobileHostEventSubscriptionTracker.replace(
                 previousTopics: topics,
                 nextTopics: nil
             )
         }
+        MobileHostEventSubscriptionTracker.replaceConnection(
+            previousTopics: previousConnectionTopics,
+            nextTopics: nil
+        )
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
@@ -2266,11 +2425,16 @@ actor MobileHostConnection {
 
     /// Add a subscription for this connection. Idempotent per stream_id.
     func subscribe(streamID: String, topics: Set<String>) {
+        let previousConnectionTopics = subscribedTopics()
         let previousTopics = subscriptions[streamID]
         subscriptions[streamID] = topics
         MobileHostEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
             nextTopics: topics
+        )
+        MobileHostEventSubscriptionTracker.replaceConnection(
+            previousTopics: previousConnectionTopics,
+            nextTopics: subscribedTopics()
         )
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
@@ -2279,15 +2443,28 @@ actor MobileHostConnection {
     /// Remove a subscription by id. Returns true if it existed.
     @discardableResult
     func unsubscribe(streamID: String) -> Bool {
+        let previousConnectionTopics = subscribedTopics()
         let previousTopics = subscriptions.removeValue(forKey: streamID)
         let removed = previousTopics != nil
         if let previousTopics {
             MobileHostEventSubscriptionTracker.replace(previousTopics: previousTopics, nextTopics: nil)
         }
+        MobileHostEventSubscriptionTracker.replaceConnection(
+            previousTopics: previousConnectionTopics,
+            nextTopics: subscribedTopics()
+        )
         if subscriptions.isEmpty {
             startIdleTimeout()
         }
         return removed
+    }
+
+    private func subscribedTopics() -> Set<String> {
+        var topics = Set<String>()
+        for streamTopics in subscriptions.values {
+            topics.formUnion(streamTopics)
+        }
+        return topics
     }
 
     /// Check whether this connection has any subscriber registered for `topic`.
@@ -2296,6 +2473,51 @@ actor MobileHostConnection {
             return true
         }
         return false
+    }
+
+    /// Append server-pushed events to this connection's ordered event drain.
+    fileprivate func enqueueEvents(_ events: [MobileHostQueuedEvent]) async {
+        guard !events.isEmpty, !isClosed else { return }
+        let events = events.filter { canSendQueuedEvent($0) }
+        guard !events.isEmpty else { return }
+        let incomingByteCount = events.reduce(0) { $0 + $1.estimatedBytes }
+        guard pendingEventSendByteCount + incomingByteCount <= Self.maximumPendingEventSendByteCount else {
+            pendingEventSends.removeAll()
+            pendingEventSendByteCount = 0
+            close(reason: "event send backlog exceeded")
+            return
+        }
+        pendingEventSends.append(contentsOf: events)
+        pendingEventSendByteCount += incomingByteCount
+        guard !isDrainingEventSends else { return }
+        isDrainingEventSends = true
+        while !pendingEventSends.isEmpty {
+            let batch = pendingEventSends
+            pendingEventSends.removeAll(keepingCapacity: true)
+            pendingEventSendByteCount = 0
+            for event in batch {
+                let delivered = await sendEvent(event)
+                #if DEBUG
+                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(event.topic)")
+                #endif
+                guard !isClosed else {
+                    pendingEventSends.removeAll()
+                    pendingEventSendByteCount = 0
+                    isDrainingEventSends = false
+                    return
+                }
+            }
+        }
+        isDrainingEventSends = false
+    }
+
+    private func canSendQueuedEvent(_ event: MobileHostQueuedEvent) -> Bool {
+        isSubscribed(to: event.topic) && event.requiredTopics.allSatisfy { isSubscribed(to: $0) }
+            && event.excludedTopics.allSatisfy { !isSubscribed(to: $0) }
+    }
+    private func sendEvent(_ event: MobileHostQueuedEvent) async -> Bool {
+        guard canSendQueuedEvent(event) else { return false }
+        return await sendEvent(topic: event.topic, payload: event.payload)
     }
 
     /// Send a server-pushed event envelope to this connection. Returns true

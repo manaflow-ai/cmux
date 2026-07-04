@@ -110,27 +110,61 @@ final class MobileTerminalByteTee {
             state.replayBuffer.removeFirst(state.replayBuffer.count - replayBudget)
         }
         statesBySurfaceID[surfaceID] = state
-        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
 
         // The render-grid path (the primary mobile path) only needs the seq
-        // advance + `noteTerminalBytes` tick above; it never consumes the raw
-        // `terminal.bytes` wire payload. Gate the base64 allocation and its
-        // fan-out on whether anyone is actually subscribed to `terminal.bytes`,
-        // so render-grid-only attaches don't pay for it on the output hot path.
-        // The check is the same O(1) subscription read used elsewhere; the
-        // `seq`/render-grid work above stays unconditional so render-grid
-        // subscribers keep correct sequence continuity.
-        guard MobileHostService.hasEventSubscribers(topic: "terminal.bytes") else { return }
+        // advance plus a post-parser render-grid tick; it never consumes the
+        // raw `terminal.bytes` wire payload. Gate the base64 allocation and
+        // its fan-out on whether anyone is actually subscribed to
+        // `terminal.bytes`, so render-grid-only attaches don't pay for it on
+        // the output hot path. The checks are the same O(1) subscription reads
+        // used elsewhere; the `seq`/render-grid work stays unconditional so
+        // render-grid subscribers keep correct sequence continuity.
+        let hasRenderGridSubscriber = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+        let hasBytesOnlySubscriber = MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            excludingTopics: ["terminal.render_grid"]
+        )
+        let hasHybridSubscriber = MobileHostService.hasEventSubscribers(
+            topic: "terminal.bytes",
+            requiringTopics: ["terminal.render_grid"]
+        )
+        guard hasBytesOnlySubscriber || hasHybridSubscriber else {
+            if hasRenderGridSubscriber {
+                MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
+            }
+            return
+        }
 
-        // JSON+base64 stopgap for the wire format. A future commit can
-        // switch to a binary opcode on the same connection if PTY
-        // throughput becomes a bottleneck.
-        let payload: [String: Any] = [
-            "surface_id": surfaceID.uuidString,
-            "seq": chunkSeq,
-            "data_b64": data.base64EncodedString(),
-        ]
-        MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
+        if hasBytesOnlySubscriber {
+            // JSON+base64 stopgap for the wire format. A future commit can
+            // switch to a binary opcode on the same connection if PTY
+            // throughput becomes a bottleneck.
+            let payload: [String: Any] = [
+                "surface_id": surfaceID.uuidString,
+                "seq": chunkSeq,
+                "data_b64": data.base64EncodedString(),
+            ]
+            MobileHostService.emitEvent(
+                topic: "terminal.bytes",
+                payload: payload,
+                excludedTopics: ["terminal.render_grid"]
+            )
+        }
+
+        if hasRenderGridSubscriber, !hasHybridSubscriber {
+            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
+        }
+        guard hasHybridSubscriber else {
+            return
+        }
+        // Hybrid subscribers need the dimension-carrying render-grid advisory
+        // before raw bytes for the same PTY chunk, so phones can arm viewport
+        // recovery before oversized-grid bytes have a chance to paint.
+        MobileTerminalRenderObserver.shared.enqueueTerminalBytesEventAfterRender(
+            surfaceID: surfaceID,
+            seq: chunkSeq,
+            data: data
+        )
     }
 }
 

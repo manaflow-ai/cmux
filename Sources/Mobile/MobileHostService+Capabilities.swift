@@ -20,6 +20,7 @@ extension MobileHostService {
             "notification.dismiss.v1",
             "notification.reconcile.v1",
             "terminal.bytes.v1",
+            "terminal.hybrid_render_grid_before_bytes.v1",
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",

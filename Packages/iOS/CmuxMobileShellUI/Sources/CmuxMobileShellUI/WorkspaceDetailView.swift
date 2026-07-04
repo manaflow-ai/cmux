@@ -13,7 +13,6 @@ import SwiftUI
 #elseif os(macOS)
 import AppKit
 #endif
-
 struct WorkspaceDetailView: View {
     let host: String
     let connectionStatus: MobileMacConnectionStatus
@@ -75,7 +74,6 @@ struct WorkspaceDetailView: View {
     private var activeBrowser: BrowserSurfaceState? {
         browserStore.activeBrowser(for: workspace.id.rawValue)
     }
-
     var body: some View {
         let content = Group {
             detailSurfaceContent
@@ -119,7 +117,6 @@ struct WorkspaceDetailView: View {
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #endif
     }
-
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {

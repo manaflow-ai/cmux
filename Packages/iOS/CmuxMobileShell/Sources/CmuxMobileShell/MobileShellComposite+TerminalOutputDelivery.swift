@@ -50,6 +50,22 @@ extension MobileShellComposite {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
+        // A producer grid larger than this phone's reported viewport can never
+        // replay faithfully (issue #7202): rows beyond the local grid clamp
+        // onto the bottom row and over-wide rows wrap, splicing adjacent rows.
+        // Hold the surface's output and drive the Mac back to a capped grid
+        // instead of painting the divergence. The grid dimensions are a valid
+        // divergence signal even on a stale frame or hybrid advisory event.
+        guard renderGridFrameFitsReportedViewport(renderGrid, surfaceID: renderGrid.surfaceID) else {
+            holdTerminalOutputForOversizedGrid(
+                columns: renderGrid.columns,
+                rows: renderGrid.rows,
+                surfaceID: renderGrid.surfaceID,
+                source: source
+            )
+            return
+        }
+        noteFittingRenderGridFrame(surfaceID: renderGrid.surfaceID)
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)
@@ -201,6 +217,37 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        // Never paint a frame authored for a grid larger than this phone's
+        // reported viewport — it splices adjacent rows (issue #7202). A replay
+        // response still oversized means the Mac has not re-applied the cap
+        // yet: consume a bounded retry so the barrier keeps polling for the
+        // converged grid; other callers restart the paced recovery.
+        guard renderGridFrameFitsReportedViewport(frame, surfaceID: surfaceID) else {
+            if bypassReplayBarrier, terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
+                // Withholding the replay response is itself dropped output;
+                // the hold records it so the caller's not_delivered cleanup
+                // keeps the barrier alive (preserveDroppedOutput), and — for a
+                // barrier that did not originate from an oversized live frame
+                // (e.g. terminalOutputDidReset on an idle surface) — starts
+                // the recovery bookkeeping, most importantly the paced
+                // viewport re-assert that drives the Mac to re-cap.
+                holdTerminalOutputForOversizedGrid(
+                    columns: frame.columns,
+                    rows: frame.rows,
+                    surfaceID: surfaceID,
+                    source: "replay_response"
+                )
+                retryTerminalReplayForOversizedGrid(surfaceID: surfaceID)
+            } else {
+                holdTerminalOutputForOversizedGrid(
+                    columns: frame.columns,
+                    rows: frame.rows,
+                    surfaceID: surfaceID,
+                    source: "delivery"
+                )
+            }
+            return false
+        }
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,

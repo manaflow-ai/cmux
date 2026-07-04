@@ -78,11 +78,22 @@ actor LivenessHostRouter {
     private var heldViewportRequestNumbers: Set<Int> = []
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
-    private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var capabilities = [
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.hybrid_render_grid_before_bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "terminal.viewport.v1",
+    ]
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
+
     private var replayTexts: [String] = []
+    private var replayRawTails: [(text: String, columns: Int, rows: Int)] = []
     private var replayFailuresRemaining = 0
-    private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
+    private var emptyReplayResponsesRemaining = 0
+    private var viewportEffectiveGridOverride: LivenessViewportReport?
+    private var emptyViewportResponsesRemaining = 0
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -194,10 +205,27 @@ actor LivenessHostRouter {
         replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
     }
 
+    /// Queue full render-grid frames for upcoming `mobile.terminal.replay`
+    /// responses, modeling a host whose replay carries the preferred
+    /// render-grid payload (e.g. after the Mac re-applied a viewport cap).
     func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
         for frame in frames {
             enqueueReplayRenderGrid(frame)
         }
+    }
+
+    /// Queue a raw byte-tail replay response carrying an explicit Mac grid,
+    /// modeling an older host (or a failed render-grid export) that falls back
+    /// to `data_b64` while the surface grid is still uncapped.
+    func enqueueReplayRawTail(text: String, columns: Int, rows: Int) {
+        replayRawTails.append((text: text, columns: columns, rows: rows))
+    }
+
+    /// Answer `mobile.terminal.viewport` with an effective grid, modeling a
+    /// host that applies viewport caps (the default `[:]` models a host that
+    /// accepts the RPC but reports nothing).
+    func setViewportResponseGrid(columns: Int, rows: Int) {
+        viewportEffectiveGridOverride = .init(columns: columns, rows: rows)
     }
 
     func failNextReplay(count: Int = 1) {
@@ -332,6 +360,17 @@ actor LivenessHostRouter {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
             }
+            if !replayRawTails.isEmpty {
+                let tail = replayRawTails.removeFirst()
+                return try? Self.resultFrame(id: id, result: [
+                    "workspace_id": "live-workspace",
+                    "surface_id": "live-terminal",
+                    "seq": 30,
+                    "columns": tail.columns,
+                    "rows": tail.rows,
+                    "data_b64": Data(tail.text.utf8).base64EncodedString(),
+                ])
+            }
             if !replayPayloads.isEmpty {
                 let payload = replayPayloads.removeFirst()
                 var result: [String: Any] = [:]
@@ -341,8 +380,11 @@ actor LivenessHostRouter {
                 if let sequence = payload.sequence {
                     result["seq"] = sequence
                 }
-                if let renderGrid = payload.renderGrid,
-                   let renderGridObject = try? renderGrid.jsonObject() {
+                if let renderGrid = payload.renderGrid {
+                    guard let renderGridObject = try? renderGrid.jsonObject() else {
+                        Issue.record("enqueued replay render-grid frame failed to serialize")
+                        return try? Self.resultFrame(id: id, result: [:])
+                    }
                     result["render_grid"] = renderGridObject
                     result["columns"] = renderGrid.columns
                     result["rows"] = renderGrid.rows
@@ -352,6 +394,7 @@ actor LivenessHostRouter {
                 }
                 return try? Self.resultFrame(id: id, result: result)
             }
+
             guard !replayTexts.isEmpty else {
                 return try? Self.resultFrame(id: id, result: [:])
             }
@@ -359,6 +402,7 @@ actor LivenessHostRouter {
             return try? Self.resultFrame(id: id, result: [
                 "data_b64": Data(text.utf8).base64EncodedString(),
             ])
+
         case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
         case "mobile.terminal.viewport":
