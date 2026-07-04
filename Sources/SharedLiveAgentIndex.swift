@@ -12,10 +12,12 @@ final class SharedLiveAgentIndex: ObservableObject {
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
+    private var forkAvailabilityProbeCompletedAt: Date?
     private var changePending = false
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
+    private static let forkAvailabilityProbeTTL: TimeInterval = 5.0
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -53,7 +55,12 @@ final class SharedLiveAgentIndex: ObservableObject {
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleRefreshIfStale()
+        guard hasFreshForkAvailabilityProbe else {
+            requestForkAvailabilityRefresh()
+            return nil
+        }
         requestForkAvailabilityRefresh()
+        guard forkAvailabilityRefreshTask == nil else { return nil }
         return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
@@ -73,17 +80,22 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 
     func refreshForkAvailabilityNow() async {
-        await reloadIfLiveAgentProcessFingerprintChanged()
+        if await reloadIfLiveAgentProcessFingerprintChanged() {
+            forkAvailabilityProbeCompletedAt = Date()
+        }
     }
 
     private func requestForkAvailabilityRefresh() {
+        guard !hasFreshForkAvailabilityProbe else { return }
         guard refreshTask == nil,
               forkAvailabilityRefreshTask == nil else {
             return
         }
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.reloadIfLiveAgentProcessFingerprintChanged()
+            if await self.reloadIfLiveAgentProcessFingerprintChanged() {
+                self.forkAvailabilityProbeCompletedAt = Date()
+            }
             self.forkAvailabilityRefreshTask = nil
         }
     }
@@ -102,12 +114,13 @@ final class SharedLiveAgentIndex: ObservableObject {
         }
     }
 
-    private func reloadIfLiveAgentProcessFingerprintChanged() async {
+    private func reloadIfLiveAgentProcessFingerprintChanged() async -> Bool {
         guard refreshTask == nil else {
             changePending = true
-            return
+            return false
         }
         await reload(forcePublish: index == nil)
+        return true
     }
 
     private func reload(forcePublish: Bool) async {
@@ -131,7 +144,13 @@ final class SharedLiveAgentIndex: ObservableObject {
     ) {
         index = newIndex
         loadedAt = Date()
+        forkAvailabilityProbeCompletedAt = loadedAt
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
+    }
+
+    private var hasFreshForkAvailabilityProbe: Bool {
+        guard let forkAvailabilityProbeCompletedAt else { return false }
+        return Date().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
     }
 
     private func handleHookStoreChange() {
