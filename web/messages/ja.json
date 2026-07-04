@@ -109,7 +109,7 @@
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
     "faqPlatformQ": "対応プラットフォームは？",
-    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。",
+    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。Linux・Windows・Android 版が公開され次第お知らせします。<waitlist>順番待ちリストに登録</waitlist>してください。",
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
