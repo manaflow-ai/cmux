@@ -295,19 +295,23 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            updateBrowserResourceLifecycleWorkspaceActive(reason: "workspaceContent.appear")
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateBrowserResourceLifecycleWorkspaceActive(reason: "workspaceContent.visible")
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
             flushDeferredThemeRefreshIfNeeded()
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateBrowserResourceLifecycleWorkspaceActive(reason: "workspaceContent.inputActive")
             updateAgentHibernationPresentationVisibility()
         }
         .onDisappear {
+            workspace.setBrowserResourceLifecycleWorkspaceActive(false, reason: "workspaceContent.disappear")
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
@@ -535,6 +539,13 @@ struct WorkspaceContentView: View {
 
     private func updateAgentHibernationPresentationVisibility() {
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
+    }
+
+    private func updateBrowserResourceLifecycleWorkspaceActive(reason: String) {
+        workspace.setBrowserResourceLifecycleWorkspaceActive(
+            isWorkspaceVisible && isWorkspaceInputActive,
+            reason: reason
+        )
     }
 
     private func refreshGhosttyAppearanceConfig(
