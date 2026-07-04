@@ -51,7 +51,7 @@ private struct SessionPaneRestoreEntry {
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        restorableAgentIndex: RestorableAgentSnapshotIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
@@ -71,10 +71,10 @@ extension Workspace {
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
-                sessionPanelSnapshot(
+                return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    restorableAgentIndex: restorableAgentIndex,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -358,10 +358,15 @@ extension Workspace {
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
-        restorableAgent: SessionRestorableAgentSnapshot?,
+        restorableAgentIndex: RestorableAgentSnapshotIndex,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
+        let restorableAgent = restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId)
+        let restorableAgentHasTrustedLiveProcess = restorableAgentIndex.hasTrustedLiveProcess(
+            workspaceId: id,
+            panelId: panelId
+        )
 
         let compatibleIndexedRestorableAgent = restorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
@@ -465,6 +470,11 @@ extension Workspace {
                 : nil
             let agentWasRunning: Bool? = {
                 guard effectiveRestorableAgent != nil else { return nil }
+                // A live idle agent reports an idle shell prompt; trust the hook
+                // index's scoped live-process evidence before the prompt state.
+                if restorableAgentHasTrustedLiveProcess {
+                    return true
+                }
                 switch panelShellActivityStates[panelId] {
                 case .some(.commandRunning):
                     return true
@@ -689,13 +699,14 @@ extension Workspace {
         // is acceptable here because restore prefers the always-fresh in-memory
         // resumeBinding and only consults this agent snapshot when no binding exists, so
         // cmux-launched agents reopen correctly regardless of cache freshness.
-        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
-        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
+        let agentIndex = RestorableAgentSnapshotIndex(stale:
+            SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? RestorableAgentSessionIndex.load()
+        )
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgent,
+            restorableAgentIndex: agentIndex,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil

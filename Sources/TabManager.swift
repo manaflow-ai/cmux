@@ -2013,8 +2013,10 @@ class TabManager: ObservableObject {
             // while the cache has not loaded yet. See closedPanelHistoryEntry.
             let snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
-                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                    ?? RestorableAgentSessionIndex.load()
+                restorableAgentIndex: RestorableAgentSnapshotIndex(stale:
+                    SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                        ?? RestorableAgentSessionIndex.load()
+                )
             )
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
@@ -5537,7 +5539,7 @@ class TabManager: ObservableObject {
 
 extension TabManager {
     func sessionAutosaveFingerprint(
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSnapshotIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
     ) -> Int {
         var hasher = Hasher()
@@ -5607,6 +5609,14 @@ extension TabManager {
                         panelId: panelId
                     ),
                     into: &hasher
+                )
+                // The quit/save snapshot derives wasAgentRunning from trusted
+                // live-process evidence, so the dedup fingerprint must track liveness too.
+                // Otherwise a live-idle -> exited transition keeps the same agent snapshot
+                // identity/binding, produces the same fingerprint, skips the autosave
+                // write, and a crash in that window could restore-resume an exited agent.
+                hasher.combine(
+                    restorableAgentIndex.hasTrustedLiveProcess(workspaceId: workspace.id, panelId: panelId)
                 )
                 Self.hashAgentHibernationPanelState(
                     (workspace.panels[panelId] as? TerminalPanel)?.agentHibernationState,
@@ -5828,7 +5838,7 @@ extension TabManager {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        restorableAgentIndex: RestorableAgentSnapshotIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
