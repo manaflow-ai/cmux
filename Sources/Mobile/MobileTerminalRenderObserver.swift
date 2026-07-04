@@ -156,6 +156,12 @@ final class MobileTerminalRenderObserver {
         noteTerminalBytes(surfaceID: surfaceID)
     }
 
+    func dropSurface(surfaceID: UUID) {
+        pendingSurfaceIDs.remove(surfaceID)
+        renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
+        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+    }
+
     deinit {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
