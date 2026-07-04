@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import SwiftUI
 
 final class FileExplorerSearchResultCellView: NSTableCellView {
     private let pathLabel = NSTextField(labelWithString: "")
@@ -50,9 +51,11 @@ final class FileExplorerSearchResultCellView: NSTableCellView {
         ])
     }
 
-    func configure(with result: FileSearchResult) {
+    func configure(with result: FileSearchResult, colorScheme: ColorScheme) {
         pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
         previewLabel.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 11, weight: .regular)
+        pathLabel.textColor = .labelColor
+        previewLabel.textColor = FileExplorerColors(colorScheme: colorScheme).secondaryTextColor
         pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
         previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
         toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import SwiftUI
 
 /// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
 final class FileExplorerHeaderView: NSView {
@@ -8,6 +9,7 @@ final class FileExplorerHeaderView: NSView {
     private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
     private var quickSearchQuery: String?
+    private var colorScheme: ColorScheme = .light
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -19,12 +21,13 @@ final class FileExplorerHeaderView: NSView {
     }
 
     private func setupViews() {
+        let colors = FileExplorerColors(colorScheme: colorScheme)
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
+        iconView.contentTintColor = colors.secondaryIconTint
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         applyFonts()
-        pathLabel.textColor = .secondaryLabelColor
+        pathLabel.textColor = colors.secondaryTextColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
         pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -53,6 +56,14 @@ final class FileExplorerHeaderView: NSView {
     func applyFonts() {
         pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
         heightConstraint?.constant = RightSidebarChromeMetrics.secondaryBarHeight
+    }
+
+    func updateColorScheme(_ nextColorScheme: ColorScheme, force: Bool = false) {
+        guard force || colorScheme != nextColorScheme else { return }
+        let colors = FileExplorerColors(colorScheme: nextColorScheme)
+        colorScheme = nextColorScheme
+        iconView.contentTintColor = colors.secondaryIconTint
+        pathLabel.textColor = colors.secondaryTextColor
     }
 
     func update(displayPath: String) {

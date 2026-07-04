@@ -35,13 +35,20 @@ enum FileExplorerPanelPlacement: Equatable {
 /// The entire file explorer panel as one AppKit view hierarchy.
 /// Contains the header bar (path + controls) and NSOutlineView, with no SwiftUI intermediaries.
 struct FileExplorerPanelView: NSViewRepresentable {
+    @Environment(\.colorScheme) private var colorScheme
+
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
+    var preferredColorScheme: ColorScheme?
     var onFocus: (() -> Void)?
     var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+
+    private var effectiveColorScheme: ColorScheme {
+        preferredColorScheme ?? colorScheme
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -57,6 +64,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
         context.coordinator.containerView = container
+        container.updateColorScheme(effectiveColorScheme)
         context.coordinator.onContainerChange?(container)
         return container
     }
@@ -70,6 +78,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
         container.updateShortcutPlacement(placement)
+        container.updateColorScheme(effectiveColorScheme)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -263,7 +272,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
 
             let gitStatus = store.gitStatusByPath[node.path]
-            cellView.configure(with: node, gitStatus: gitStatus)
+            let colorScheme = containerView?.colorScheme ?? .light
+            cellView.configure(with: node, gitStatus: gitStatus, colorScheme: colorScheme)
             cellView.onHover = { [weak self] isHovering in
                 guard let self else { return }
                 if isHovering {
@@ -668,6 +678,7 @@ final class FileExplorerContainerView: NSView {
     private let searchDebounceDelayMilliseconds = 200
     private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
     private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
+    private(set) var colorScheme: ColorScheme = .light
 
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
@@ -945,6 +956,39 @@ final class FileExplorerContainerView: NSView {
         guard coordinator.placement == .rightSidebar else { return }
         guard let window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFileExplorerHost(self)
+    }
+
+    func updateColorScheme(_ nextColorScheme: ColorScheme) {
+        let colorSchemeChanged = colorScheme != nextColorScheme
+        let colors = FileExplorerColors(colorScheme: nextColorScheme)
+        let nextAppearance = FileExplorerColors.appearance(
+            for: nextColorScheme,
+            preservingVariantsOf: window?.effectiveAppearance ?? NSApp.effectiveAppearance
+        )
+        let appearanceChanged = appearance?.name != nextAppearance?.name
+        colorScheme = nextColorScheme
+        if appearanceChanged {
+            appearance = nextAppearance
+        }
+        headerView.updateColorScheme(nextColorScheme, force: appearanceChanged)
+        searchField.textColor = .labelColor
+        searchStatusLabel.textColor = colors.secondaryTextColor
+        emptyLabel.textColor = colors.secondaryTextColor
+        if colorSchemeChanged || appearanceChanged {
+            outlineView.reloadData(
+                forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
+                columnIndexes: IndexSet(integer: 0)
+            )
+            searchResultsView.reloadData(
+                forRowIndexes: IndexSet(integersIn: 0..<searchResultsView.numberOfRows),
+                columnIndexes: IndexSet(integer: 0)
+            )
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColorScheme(colorScheme)
     }
 
     override func layout() {
@@ -1570,7 +1614,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         } else {
             cellView = FileExplorerSearchResultCellView(identifier: identifier)
         }
-        cellView.configure(with: searchSnapshot.results[row])
+        cellView.configure(with: searchSnapshot.results[row], colorScheme: colorScheme)
         return cellView
     }
 

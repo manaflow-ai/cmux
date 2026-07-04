@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import UniformTypeIdentifiers
 
 final class FileExplorerCellView: NSTableCellView {
@@ -79,7 +80,7 @@ final class FileExplorerCellView: NSTableCellView {
         nameLabelTrailingToLoadingConstraint.isActive = false
     }
 
-    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
+    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil, colorScheme: ColorScheme) {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
         let style = FileExplorerStyle.current
         nameLabel.stringValue = node.name
@@ -132,7 +133,7 @@ final class FileExplorerCellView: NSTableCellView {
             nameLabel.textColor = .systemRed
             nameLabel.toolTip = error
         } else if let gitStatus {
-            nameLabel.textColor = style.gitColor(for: gitStatus)
+            nameLabel.textColor = style.gitColor(for: gitStatus, colorScheme: colorScheme)
             nameLabel.toolTip = node.path
         } else {
             nameLabel.textColor = .labelColor
