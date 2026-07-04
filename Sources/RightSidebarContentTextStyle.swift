@@ -1,27 +1,29 @@
 import SwiftUI
 
-enum RightSidebarContentTextStyle {
-    static func primary(colorScheme _: ColorScheme) -> Color {
+struct RightSidebarContentTextStyle {
+    let colorScheme: ColorScheme
+
+    var primary: Color {
         .primary
     }
 
-    static func prominent(colorScheme: ColorScheme) -> Color {
+    var prominent: Color {
         colorScheme == .dark ? .primary : .primary.opacity(0.92)
     }
 
-    static func emphasized(colorScheme: ColorScheme, lightOpacity: Double) -> Color {
+    func emphasized(lightOpacity: Double) -> Color {
         colorScheme == .dark ? .primary : .primary.opacity(lightOpacity)
     }
 
-    static func secondary(colorScheme: ColorScheme) -> Color {
+    var secondary: Color {
         colorScheme == .dark ? .primary.opacity(0.76) : .secondary
     }
 
-    static func tertiary(colorScheme: ColorScheme) -> Color {
+    var tertiary: Color {
         colorScheme == .dark ? .primary.opacity(0.66) : .secondary.opacity(0.7)
     }
 
-    static func quaternary(colorScheme: ColorScheme) -> Color {
+    var quaternary: Color {
         colorScheme == .dark ? .primary.opacity(0.56) : .secondary.opacity(0.5)
     }
 }

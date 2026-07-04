@@ -116,7 +116,7 @@ struct SessionIndexView: View {
             Toggle(isOn: $store.scopeToCurrentDirectory) {
                 Text(String(localized: "sessionIndex.scope.thisFolder", defaultValue: "This folder only"))
                     .cmuxFont(size: 11)
-                    .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                    .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
             }
             .toggleStyle(.checkbox)
             .controlSize(.small)
@@ -147,7 +147,7 @@ struct SessionIndexView: View {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.loading", defaultValue: "Loading Vault…"))
                 .cmuxFont(size: 11)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -156,11 +156,11 @@ struct SessionIndexView: View {
         VStack(spacing: 4) {
             Text(String(localized: "sessionIndex.empty.title", defaultValue: "Vault is empty"))
                 .cmuxFont(size: 12)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
             Text(String(localized: "sessionIndex.empty.subtitle",
                                    defaultValue: "Claude Code, Codex, OpenCode, and Rovo Dev history will appear here."))
                 .cmuxFont(size: 11)
-                .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).tertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
         }
@@ -276,7 +276,7 @@ private struct AgentIconImage: View, Equatable {
         } else {
             Image(systemName: agent.systemImageName ?? "person.crop.circle")
                 .cmuxFont(size: max(size - 2, 10), weight: .regular)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                 .frame(width: size, height: size)
         }
     }
@@ -416,7 +416,7 @@ private struct IndexSectionView: View, Equatable {
         } label: {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
                 .cmuxFont(size: 12, weight: .medium)
-                .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).tertiary)
                 .padding(.leading, 32)
                 .padding(.trailing, 12)
                 .padding(.vertical, 4)
@@ -444,12 +444,12 @@ private struct IndexSectionView: View, Equatable {
                 sectionIconView
                 Text(section.title)
                     .cmuxFont(size: 13, weight: .regular)
-                    .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                    .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
                     .cmuxFont(size: 9, weight: .semibold)
-                    .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
+                    .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).tertiary)
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
             }
@@ -483,7 +483,7 @@ private struct IndexSectionView: View, Equatable {
         case .folder:
             Image(systemName: "folder")
                 .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                 .frame(width: 14, height: 14)
         }
     }
@@ -583,13 +583,13 @@ private struct SessionRow: View, Equatable {
             AgentIconImage(agent: entry.agent, size: 12, colorScheme: colorScheme)
             Text(entry.displayTitle)
                 .cmuxFont(size: 13)
-                .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).prominent)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
             Text(relativeTime(entry.modified))
                 .cmuxFont(size: 12, monospacedDigit: true)
-                .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).tertiary)
                 .fixedSize()
         }
         .padding(.leading, 32)
@@ -771,13 +771,13 @@ private struct SessionTranscriptPreviewView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .cmuxFont(size: 13, weight: .semibold)
-                    .foregroundColor(RightSidebarContentTextStyle.primary(colorScheme: colorScheme))
+                    .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let cwd = entry.cwdLabel {
                     Text(cwd)
                         .cmuxFont(size: 11)
-                        .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                        .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -787,8 +787,8 @@ private struct SessionTranscriptPreviewView: View {
                 .cmuxFont(size: 11, weight: .semibold)
                 .foregroundColor(
                     closeIsHovered
-                        ? RightSidebarContentTextStyle.primary(colorScheme: colorScheme)
-                        : RightSidebarContentTextStyle.secondary(colorScheme: colorScheme)
+                        ? RightSidebarContentTextStyle(colorScheme: colorScheme).primary
+                        : RightSidebarContentTextStyle(colorScheme: colorScheme).secondary
                 )
                 .frame(width: 20, height: 20)
                 .background(
@@ -842,7 +842,7 @@ private struct SessionTranscriptPreviewView: View {
                 .controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
                 .cmuxFont(size: 12)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
             Spacer(minLength: 0)
         }
         .padding(12)
@@ -853,10 +853,10 @@ private struct SessionTranscriptPreviewView: View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
                 .cmuxFont(size: 12, weight: .medium)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
             Text(text)
                 .cmuxFont(size: 12)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
             Spacer(minLength: 0)
         }
         .padding(12)
@@ -981,7 +981,7 @@ private struct SessionTranscriptTurnView: View, Equatable {
             }
             Text(row.text)
                 .cmuxFont(size: row.role.bodyFontSize, design: row.role.bodyFontDesign)
-                .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).prominent)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2195,7 +2195,7 @@ private struct SectionPopoverView: View {
                 sectionIconView
                 Text(section.title)
                     .cmuxFont(size: 13, weight: .semibold)
-                    .foregroundColor(RightSidebarContentTextStyle.primary(colorScheme: colorScheme))
+                    .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
@@ -2207,7 +2207,7 @@ private struct SectionPopoverView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .cmuxFont(size: 11, weight: .medium)
-                    .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                    .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
                            defaultValue: "Search Vault"),
@@ -2222,7 +2222,7 @@ private struct SectionPopoverView: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .cmuxFont(size: 11)
-                            .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                            .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -2248,10 +2248,8 @@ private struct SectionPopoverView: View {
                             Text(msg)
                                 .cmuxFont(size: 11)
                                 .foregroundColor(
-                                    RightSidebarContentTextStyle.emphasized(
-                                        colorScheme: colorScheme,
-                                        lightOpacity: 0.85
-                                    )
+                                    RightSidebarContentTextStyle(colorScheme: colorScheme)
+                                        .emphasized(lightOpacity: 0.85)
                                 )
                         }
                     }
@@ -2269,7 +2267,7 @@ private struct SectionPopoverView: View {
                         Text(String(localized: "sessionIndex.popover.noMatches",
                                     defaultValue: "No matches"))
                             .cmuxFont(size: 12)
-                            .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                            .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2292,7 +2290,7 @@ private struct SectionPopoverView: View {
                             Text(String(localized: "sessionIndex.popover.endOfList",
                                         defaultValue: "You've reached the end"))
                                 .cmuxFont(size: 11)
-                                .foregroundColor(RightSidebarContentTextStyle.quaternary(colorScheme: colorScheme))
+                                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).quaternary)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.vertical, 8)
                         }
@@ -2410,7 +2408,7 @@ private struct SectionPopoverView: View {
             ProgressView().controlSize(.small)
             Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
                 .cmuxFont(size: 11)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
@@ -2496,7 +2494,7 @@ private struct SectionPopoverView: View {
         case .folder:
             Image(systemName: "folder")
                 .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(RightSidebarContentTextStyle.secondary(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).secondary)
                 .frame(width: 14, height: 14)
         }
     }
@@ -2535,7 +2533,7 @@ private struct PopoverRow: View, Equatable {
             Text(SessionIndexView.relativeFormatter.localizedString(for: entry.modified, relativeTo: context.date))
         }
         .cmuxFont(size: 11, monospacedDigit: true)
-        .foregroundColor(RightSidebarContentTextStyle.tertiary(colorScheme: colorScheme))
+        .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).tertiary)
         .fixedSize()
     }
 
@@ -2548,7 +2546,7 @@ private struct PopoverRow: View, Equatable {
             // source string.
             Text(Self.flatten(entry.displayTitle))
                 .cmuxFont(size: 12)
-                .foregroundColor(RightSidebarContentTextStyle.prominent(colorScheme: colorScheme))
+                .foregroundColor(RightSidebarContentTextStyle(colorScheme: colorScheme).prominent)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
