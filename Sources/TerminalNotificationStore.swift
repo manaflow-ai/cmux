@@ -173,60 +173,6 @@ enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     }
 }
 
-struct TerminalNotification: Identifiable, Hashable, Sendable {
-    let id: UUID
-    let tabId: UUID
-    let surfaceId: UUID?
-    let panelId: UUID?
-    let title: String
-    let subtitle: String
-    let body: String
-    let agentId: String?
-    let workspaceTitle: String?
-    let createdAt: Date
-    var isRead: Bool
-    var paneFlash: Bool = true
-    var clickAction: TerminalNotificationClickAction?
-
-    init(
-        id: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID? = nil,
-        title: String,
-        subtitle: String,
-        body: String,
-        agentId: String? = nil,
-        workspaceTitle: String? = nil,
-        createdAt: Date,
-        isRead: Bool,
-        paneFlash: Bool = true,
-        clickAction: TerminalNotificationClickAction? = nil
-    ) {
-        self.id = id
-        self.tabId = tabId
-        self.surfaceId = surfaceId
-        self.panelId = panelId
-        self.title = title
-        self.subtitle = subtitle
-        self.body = body
-        self.agentId = agentId
-        self.workspaceTitle = workspaceTitle
-        self.createdAt = createdAt
-        self.isRead = isRead
-        self.paneFlash = paneFlash
-        self.clickAction = clickAction
-    }
-
-    func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
-        guard tabId == targetTabId else { return false }
-        guard let targetSurfaceId else {
-            return surfaceId == nil && panelId == nil
-        }
-        return surfaceId == targetSurfaceId || panelId == targetSurfaceId
-    }
-}
-
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -1075,15 +1021,6 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
-    private func resolvedWorkspaceTitle(forTabId tabId: UUID) -> String? {
-        guard let title = AppDelegate.shared?.tabTitle(for: tabId)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !title.isEmpty else {
-            return nil
-        }
-        return title
-    }
-
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
@@ -1765,23 +1702,6 @@ final class TerminalNotificationStore: ObservableObject {
                 drainedSuperseded: supersededPhoneDismissBuffer.flush(matchingTabId: tabId)
             )
         }
-    }
-
-    private func notificationAppName() -> String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "cmux"
-    }
-
-    private func bannerContent(for notification: TerminalNotification) -> NotificationBannerContent {
-        composeNotificationBannerContent(
-            title: notification.title,
-            subtitle: notification.subtitle,
-            body: notification.body,
-            agentId: notification.agentId,
-            workspaceTitle: notification.workspaceTitle,
-            appName: notificationAppName()
-        )
     }
 
     private func scheduleUserNotification(
