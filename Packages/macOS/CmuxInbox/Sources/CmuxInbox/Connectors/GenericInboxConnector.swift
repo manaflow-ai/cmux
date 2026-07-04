@@ -5,7 +5,7 @@ public actor GenericInboxConnector: InboxConnector {
     /// Source service owned by the connector.
     public let source: InboxSource = .generic
     /// Generic pushes support live local events, local backfill semantics, and deep links when supplied.
-    public let capabilities: Set<InboxConnectorCapability> = [.liveEvents, .backfill, .markRead, .deepLink]
+    public let capabilities: Set<InboxConnectorCapability> = [.liveEvents, .backfill, .deepLink]
 
     /// Creates a generic connector.
     public init() {}

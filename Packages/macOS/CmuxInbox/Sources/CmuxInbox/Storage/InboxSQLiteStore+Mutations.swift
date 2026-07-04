@@ -39,7 +39,8 @@ extension InboxSQLiteStore {
     /// - Returns: Source-level unread counts.
     public func unreadCounts() throws -> [InboxSourceUnreadCount] {
         let statement = try database.prepare("""
-        SELECT source, COUNT(*) AS unread_count,
+        SELECT source,
+               SUM(CASE WHEN unread = 1 THEN 1 ELSE 0 END) AS unread_count,
                SUM(CASE WHEN actionable = 1 THEN 1 ELSE 0 END) AS actionable_count
         FROM items
         WHERE unread = 1 OR actionable = 1

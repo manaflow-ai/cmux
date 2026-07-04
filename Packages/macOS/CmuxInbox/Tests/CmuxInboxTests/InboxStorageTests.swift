@@ -104,6 +104,35 @@ import Testing
         #expect(gmailRows.isEmpty)
     }
 
+    @Test func unreadCountsExcludeReadActionableItems() async throws {
+        let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
+        let thread = fixtures.thread(source: .discord, title: "#ops")
+        try await store.upsertThread(thread)
+        try await store.upsertItem(fixtures.item(
+            source: .discord,
+            threadID: thread.threadID,
+            suffix: "handled",
+            unread: false,
+            actionable: true
+        ))
+
+        // A read-but-still-actionable item must not inflate the unread badge.
+        let counts = try #require(try await store.unreadCounts().first { $0.source == .discord })
+        #expect(counts.unreadCount == 0)
+        #expect(counts.actionableCount == 1)
+
+        try await store.upsertItem(fixtures.item(
+            source: .discord,
+            threadID: thread.threadID,
+            suffix: "fresh",
+            unread: true,
+            actionable: false
+        ))
+        let updated = try #require(try await store.unreadCounts().first { $0.source == .discord })
+        #expect(updated.unreadCount == 1)
+        #expect(updated.actionableCount == 1)
+    }
+
     @Test func accountUpsertPreservesNotificationsOptOut() async throws {
         let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
         let account = fixtures.account(source: .slack, accountID: "default")

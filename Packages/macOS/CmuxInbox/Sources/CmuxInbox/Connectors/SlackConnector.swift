@@ -4,8 +4,8 @@ public import Foundation
 public actor SlackConnector: InboxConnector {
     /// Source service owned by the connector.
     public let source: InboxSource = .slack
-    /// Slack supports live events, backfill, mark-read shape, replies, and deep links.
-    public let capabilities: Set<InboxConnectorCapability> = [.liveEvents, .backfill, .markRead, .sendReply, .deepLink]
+    /// Slack supports live events, backfill, replies, and deep links; remote mark-read is not implemented yet.
+    public let capabilities: Set<InboxConnectorCapability> = [.liveEvents, .backfill, .sendReply, .deepLink]
 
     private let accountID: String
     private let displayName: String

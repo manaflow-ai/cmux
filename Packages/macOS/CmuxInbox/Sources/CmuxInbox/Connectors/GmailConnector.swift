@@ -4,8 +4,8 @@ public import Foundation
 public actor GmailConnector: InboxConnector {
     /// Source service owned by the connector.
     public let source: InboxSource = .gmail
-    /// Gmail supports backfill, mark-read shape, approved replies, and web deep links.
-    public let capabilities: Set<InboxConnectorCapability> = [.backfill, .markRead, .sendReply, .deepLink]
+    /// Gmail supports backfill, approved replies, and web deep links; remote mark-read is not implemented yet.
+    public let capabilities: Set<InboxConnectorCapability> = [.backfill, .sendReply, .deepLink]
 
     private let accountID: String
     private let displayName: String
