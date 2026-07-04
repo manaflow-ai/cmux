@@ -98,6 +98,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     @Environment(\.colorScheme) private var colorScheme
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
 
+#if DEBUG
+    // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
+    // default no-op. See SidebarLazyContractProbe.
+    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
+#endif
+
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
     }
@@ -185,6 +191,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     }
 
     var body: some View {
+#if DEBUG
+        let _ = { sidebarLazyContractProbe.groupHeaderRowBody?() }()
+#endif
         HStack(spacing: 4) {
             if isPinned {
                 CmuxSystemSymbolImage(
