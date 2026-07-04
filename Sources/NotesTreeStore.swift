@@ -1223,7 +1223,13 @@ final class NotesTreeStore {
             projectRoot: projectRoot, cwd: cwd, title: workspaceTitle, anchorId: workspaceAnchorId
         )
         resolvedRootPath = root
-        guard let folder, NotesTreeStorage.isWithin(child: folder, orEqualTo: root) else { return root }
+        guard let folder else { return root }
+        // Fail closed on a stale or foreign destination: silently retargeting
+        // the mutation at the workspace root would create or move items in the
+        // wrong place. Callers surface this as a nil/no-op result.
+        guard NotesTreeStorage.isWithin(child: folder, orEqualTo: root) else {
+            throw NotesTreeStorageError.invalidMove
+        }
         return folder
     }
 

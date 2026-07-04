@@ -556,6 +556,43 @@ extension NotesTreeStore {
         #expect(fm.fileExists(atPath: hidden))
     }
 
+    /// A non-nil mutation destination outside the workspace root (a stale
+    /// path, the flat `.cmux/notes` area, or anywhere else) must fail the
+    /// mutation — regression for `ensureRoot(folder:)` silently retargeting
+    /// invalid destinations at the workspace root.
+    @Test @MainActor func storeMutationsRejectDestinationsOutsideWorkspaceRoot() throws {
+        let store = NotesTreeStore()
+        store.setWorkspace(
+            title: "WS", projectRoot: projectRoot, currentDirectory: "/work", anchorId: "anchor-dest"
+        )
+        let root = try NotesTreeStorage.ensureWorkspaceRoot(
+            projectRoot: projectRoot, cwd: "/work", title: "WS", anchorId: "anchor-dest"
+        )
+        let notesDir = NoteSupport.notesDirectory(forProjectRoot: projectRoot)
+        let outside = (projectRoot as NSString).appendingPathComponent("elsewhere")
+        try fm.createDirectory(atPath: outside, withIntermediateDirectories: true)
+        let descriptor = NotesSessionDescriptor(
+            agent: "claude",
+            sessionId: "0f3c2a1b-1234-4cde-9f00-aa11bb22cc33",
+            title: "session",
+            cwd: "/work",
+            modified: 1
+        )
+
+        #expect(store.newNote(inFolder: notesDir) == nil)
+        #expect(store.newNote(inFolder: outside) == nil)
+        #expect(store.newFolder(inFolder: notesDir) == nil)
+        #expect(store.addSession(descriptor, intoFolder: outside) == nil)
+        // Nothing may have landed at the workspace root as a fallback.
+        #expect(try Set(fm.contentsOfDirectory(atPath: root)) == [NotesTreeStorage.workspaceMarkerName])
+        #expect(try fm.contentsOfDirectory(atPath: outside).isEmpty)
+
+        // The root itself and folders inside it remain valid destinations.
+        #expect(store.newNote(inFolder: root) != nil)
+        let sub = try NotesTreeStorage.newFolder(inFolder: root, preferredName: "sub")
+        #expect(store.newNote(inFolder: sub) != nil)
+    }
+
     /// An indexed note filed into the tree must keep its index record through
     /// later tree moves, folder renames, and deletes — regression for raw
     /// FileManager tree operations silently orphaning `index.json` bodyPaths.
