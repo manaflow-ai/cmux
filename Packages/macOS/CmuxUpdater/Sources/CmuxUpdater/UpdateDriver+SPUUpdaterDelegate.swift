@@ -35,7 +35,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
 
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
-    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock _: @escaping () -> Void) -> Bool {
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock: @escaping () -> Void) -> Bool {
         let version = UpdateStateModel.normalizedDetectedUpdateVersion(from: item.displayVersionString)
         log.append("update staged for install on quit: \(version ?? "<unknown version>")")
         model.clearDetectedUpdate()
@@ -43,13 +43,14 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
             isAutoUpdate: true,
             stagedVersion: version,
             retryTerminatingApplication: { [weak self] in
-                self?.actionDelegate?.updaterRequestsRestartForStagedUpdate()
+                self?.actionDelegate?.updaterWillRelaunchApplication()
+                immediateInstallationBlock()
             },
             dismiss: { [weak self] in
                 self?.model.dismissUpdateReadyToast()
             }
         )))
-        return false
+        return true
     }
 
     /// Called when an update session aborts. Background auto-download failures surface here

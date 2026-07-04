@@ -194,7 +194,6 @@ import Testing
         var isSafeToRestart = false
         func updaterRequestsRetryCheckForUpdates() {}
         func updaterWillRelaunchApplication() {}
-        func updaterRequestsRestartForStagedUpdate() {}
         func updaterIsSafeToRestartNow() -> Bool { isSafeToRestart }
     }
 
