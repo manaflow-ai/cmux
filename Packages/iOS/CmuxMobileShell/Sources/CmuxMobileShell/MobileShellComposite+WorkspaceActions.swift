@@ -160,7 +160,7 @@ extension MobileShellComposite {
         localID: MobileWorkspacePreview.ID,
         target: WorkspaceMutationTarget
     ) {
-        let key = target.isForeground ? foregroundMacKey : (target.macDeviceID ?? foregroundMacKey)
+        let key = target.macDeviceID ?? MobileShellComposite.foregroundAnonymousKey
         confirmedClosedWorkspaceIDsByMac[key, default: []].insert(localID.rawValue)
         recomputeDerivedWorkspaceState()
     }
