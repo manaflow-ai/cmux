@@ -1,11 +1,15 @@
-import { and, desc, eq, ilike, lt, or, type SQL } from "drizzle-orm";
 import { cloudDb } from "../../../../db/client";
-import { vaultSessions } from "../../../../db/schema";
 import { isVaultConfigured } from "../../../../services/vault/config";
 import {
   normalizeAgent,
   normalizeAgentSessionId,
+  type VaultAgent,
 } from "../../../../services/vault/validation";
+import {
+  normalizeVaultSessionListLimit,
+  queryVaultSessionListPage,
+  serializeVaultSessionListPage,
+} from "../../../../services/vault/sessionList";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
 
@@ -18,91 +22,32 @@ export async function GET(request: Request): Promise<Response> {
   if (!user) return unauthorized();
 
   const url = new URL(request.url);
-  const limit = parseLimit(url.searchParams.get("limit"));
-  const conditions: SQL[] = [eq(vaultSessions.userId, user.id)];
+  const limit = normalizeVaultSessionListLimit(url.searchParams.get("limit"));
 
   const agentParam = url.searchParams.get("agent");
+  let agent: VaultAgent | undefined;
   if (agentParam) {
-    const agent = normalizeAgent(agentParam);
-    if (!agent.ok) return jsonResponse({ error: agent.error }, 400);
-    conditions.push(eq(vaultSessions.agent, agent.value));
+    const parsedAgent = normalizeAgent(agentParam);
+    if (!parsedAgent.ok) return jsonResponse({ error: parsedAgent.error }, 400);
+    agent = parsedAgent.value;
   }
 
   const agentSessionIdParam = url.searchParams.get("agentSessionId");
+  let agentSessionIdValue: string | undefined;
   if (agentSessionIdParam) {
     const agentSessionId = normalizeAgentSessionId(agentSessionIdParam);
     if (!agentSessionId.ok) return jsonResponse({ error: agentSessionId.error }, 400);
-    conditions.push(eq(vaultSessions.agentSessionId, agentSessionId.value));
+    agentSessionIdValue = agentSessionId.value;
   }
 
-  const q = url.searchParams.get("q")?.trim();
-  if (q) {
-    const pattern = `%${q.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
-    conditions.push(or(ilike(vaultSessions.cwd, pattern), ilike(vaultSessions.relPath, pattern))!);
-  }
-
-  const cursor = parseCursor(url.searchParams.get("cursor"));
-  if (cursor) {
-    conditions.push(
-      or(
-        lt(vaultSessions.lastUploadedAt, cursor.lastUploadedAt),
-        and(eq(vaultSessions.lastUploadedAt, cursor.lastUploadedAt), lt(vaultSessions.id, cursor.id)),
-      )!,
-    );
-  }
-
-  const rows = await cloudDb()
-    .select({
-      id: vaultSessions.id,
-      agent: vaultSessions.agent,
-      agentSessionId: vaultSessions.agentSessionId,
-      relPath: vaultSessions.relPath,
-      cwd: vaultSessions.cwd,
-      latestSha256: vaultSessions.latestSha256,
-      sizeBytes: vaultSessions.sizeBytes,
-      lastUploadedAt: vaultSessions.lastUploadedAt,
-    })
-    .from(vaultSessions)
-    .where(and(...conditions))
-    .orderBy(desc(vaultSessions.lastUploadedAt), desc(vaultSessions.id))
-    .limit(limit + 1);
-
-  const page = rows.slice(0, limit);
-  const last = page.at(-1);
-  const nextCursor = rows.length > limit && last
-    ? encodeCursor(last.lastUploadedAt, last.id)
-    : null;
-
-  return jsonResponse({
-    sessions: page.map((row) => ({
-      ...row,
-      lastUploadedAt: row.lastUploadedAt.toISOString(),
-    })),
-    ...(nextCursor ? { nextCursor } : {}),
+  const page = await queryVaultSessionListPage(cloudDb(), {
+    userId: user.id,
+    agent,
+    agentSessionId: agentSessionIdValue,
+    q: url.searchParams.get("q") ?? undefined,
+    cursor: url.searchParams.get("cursor"),
+    limit,
   });
-}
 
-function parseLimit(value: string | null): number {
-  if (!value || !/^\d+$/.test(value)) return 50;
-  return Math.min(Math.max(Number(value), 1), 100);
-}
-
-function encodeCursor(lastUploadedAt: Date, id: string): string {
-  return Buffer.from(JSON.stringify({ lastUploadedAt: lastUploadedAt.toISOString(), id })).toString("base64url");
-}
-
-function parseCursor(value: string | null): { lastUploadedAt: Date; id: string } | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as {
-      lastUploadedAt?: unknown;
-      id?: unknown;
-    };
-    if (typeof parsed.lastUploadedAt !== "string" || typeof parsed.id !== "string") return null;
-    const date = new Date(parsed.lastUploadedAt);
-    if (Number.isNaN(date.getTime())) return null;
-    return { lastUploadedAt: date, id: parsed.id };
-  } catch {
-    return null;
-  }
+  return jsonResponse(serializeVaultSessionListPage(page));
 }

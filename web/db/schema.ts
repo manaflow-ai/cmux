@@ -170,6 +170,8 @@ export const vaultSessions = pgTable(
       table.agentSessionId,
     ),
     index("vault_sessions_user_last_uploaded_idx").on(table.userId, table.lastUploadedAt),
+    index("vault_sessions_cwd_trgm_idx").using("gin", table.cwd.op("gin_trgm_ops")),
+    index("vault_sessions_rel_path_trgm_idx").using("gin", table.relPath.op("gin_trgm_ops")),
   ],
 );
 
