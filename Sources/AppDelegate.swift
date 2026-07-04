@@ -889,6 +889,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 TerminalController.shouldSuppressSocketCommandActivation()
                     && !TerminalController.socketCommandAllowsInAppFocusMutations()
             },
+            isWindowAvailable: { [weak self] window in
+                self?.contextForMainTerminalWindow(window) != nil
+            },
             setActiveMainWindow: { [weak self] window in
                 self?.setActiveMainWindow(window)
             }
@@ -1405,7 +1408,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
                 // re-enabled) child performance span before it leaves the device.
                 let scrubber = SentryEventScrubber()
-                options.beforeSend = { event in scrubber.scrub(event) }
+                options.beforeSend = { event in
+                    scrubber.scrub(scrubber.attachStartupLogTailIfCrash(to: event))
+                }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
                 options.beforeSendSpan = { span in scrubber.scrub(span) }
             }
@@ -2049,24 +2054,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition
     ) {
+        StartupBreadcrumbLog.append("appDelegate.configure.begin")
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        StartupBreadcrumbLog.append("appDelegate.configure.clients.vmRemotes.begin")
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
+        StartupBreadcrumbLog.append("appDelegate.configure.clients.vmRemotes.complete")
+        StartupBreadcrumbLog.append("appDelegate.configure.phonePush.begin")
         PhonePushClient.shared.configure(auth: auth.coordinator)
+        StartupBreadcrumbLog.append("appDelegate.configure.phonePush.complete")
+        StartupBreadcrumbLog.append("appDelegate.configure.mobileHost.begin")
         MobileHostService.shared.configure(auth: auth.coordinator)
+        StartupBreadcrumbLog.append("appDelegate.configure.mobileHost.complete")
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
+        StartupBreadcrumbLog.append("appDelegate.configure.terminalController.begin")
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
+        StartupBreadcrumbLog.append("appDelegate.configure.terminalController.complete")
+        StartupBreadcrumbLog.append("appDelegate.configure.auth.start.begin")
         auth.start()
+        StartupBreadcrumbLog.append("appDelegate.configure.auth.start.complete")
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
@@ -2097,6 +2113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+        StartupBreadcrumbLog.append("appDelegate.configure.complete")
     }
 
     /// Starts the per-pane runaway-memory guardrail: a background timer that
@@ -7208,11 +7225,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func scheduleInitialMainWindowBootstrap(debugSource: String) {
+        StartupBreadcrumbLog.append("appDelegate.scheduleInitialMainWindowBootstrap.entry")
         guard !didScheduleInitialMainWindowBootstrap else { return }
         didScheduleInitialMainWindowBootstrap = true
+        StartupBreadcrumbLog.append("appDelegate.scheduleInitialMainWindowBootstrap.scheduled")
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if self.shouldDeferInitialMainWindowBootstrapForExternalConfirmation { self.didScheduleInitialMainWindowBootstrap = false; return }
+            StartupBreadcrumbLog.append("appDelegate.scheduleInitialMainWindowBootstrap.run")
+            if self.shouldDeferInitialMainWindowBootstrapForExternalConfirmation {
+                StartupBreadcrumbLog.append("appDelegate.scheduleInitialMainWindowBootstrap.deferred")
+                self.didScheduleInitialMainWindowBootstrap = false
+                return
+            }
             self.bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
         }
     }
@@ -7223,6 +7247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shouldActivate: Bool = true,
         suppressWelcome: Bool = false
     ) -> UUID {
+        StartupBreadcrumbLog.append("appDelegate.bootstrapInitialMainWindow.entry")
         reserveInitialSocketPathIfNeeded()
         let windowId = ensureInitialMainWindowIfNeeded(
             shouldActivate: shouldActivate,
@@ -7244,6 +7269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
             openPreferencesWindow(debugSource: "uiTestShowSettings.\(debugSource)")
         }
+        StartupBreadcrumbLog.append("appDelegate.bootstrapInitialMainWindow.complete")
         return windowId
     }
 
@@ -8396,6 +8422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         remapClosedPanelHistoryFromSessionSnapshot: Bool = true,
         restoredSessionSnapshotHandler: (([[UUID: UUID]], TabManager) -> Void)? = nil
     ) -> UUID {
+        StartupBreadcrumbLog.append("appDelegate.createMainWindow.entry")
         reserveInitialSocketPathIfNeeded()
         let requestedWindowId = preferredWindowId ?? sessionWindowSnapshot?.windowId
         let windowId = availableWindowIdForNewMainWindow(preferredWindowId: requestedWindowId) ?? UUID()
@@ -8664,6 +8691,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // when unset. See DevWindowDisplayDefault.
         DevWindowDisplayDefault.applyToNewWindow(window)
 #endif
+        StartupBreadcrumbLog.append("appDelegate.createMainWindow.complete")
         return windowId
     }
 

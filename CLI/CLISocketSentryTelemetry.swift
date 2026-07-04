@@ -2,6 +2,10 @@ import CmuxFoundation
 import Darwin
 import Foundation
 
+protocol CLIErrnoProviding {
+    var cliErrnoValue: Int32? { get }
+}
+
 #if canImport(Sentry)
 // Sentry Cocoa 9.3.0 is pinned in Package.resolved. This SPI stores the
 // envelope durably without blocking short-lived CLI commands; verify it before
@@ -144,6 +148,9 @@ final class CLISocketSentryTelemetry {
         var context = baseContext()
         context["stage"] = stage
         context["error"] = errorDescription
+        if let errnoValue = Self.errnoValue(for: error, fallbackMessage: errorDescription) {
+            context["errno"] = Int(errnoValue)
+        }
         for (key, value) in socketDiagnostics() {
             context[key] = value
         }
@@ -223,11 +230,16 @@ final class CLISocketSentryTelemetry {
 #else
         event.environment = "production-cli"
 #endif
-        event.tags = [
+        var tags = [
             "component": "cmux-cli",
             "cli_command": command,
-            "cli_subcommand": subcommand
+            "cli_subcommand": subcommand,
+            "socket_stage": context["stage"] as? String ?? "unknown"
         ]
+        if let errnoValue = context["errno"] {
+            tags["errno"] = String(describing: errnoValue)
+        }
+        event.tags = tags
         event.context = ["cli_socket": context]
         if !breadcrumbs.isEmpty {
             event.breadcrumbs = breadcrumbs
@@ -290,6 +302,34 @@ final class CLISocketSentryTelemetry {
         return crumb
     }
 #endif
+
+    private static func errnoValue(for error: Error, fallbackMessage: String) -> Int32? {
+        if let provider = error as? CLIErrnoProviding,
+           let value = provider.cliErrnoValue {
+            return value
+        }
+
+        let nsError = error as NSError
+        if let provider = nsError.userInfo[NSUnderlyingErrorKey] as? CLIErrnoProviding,
+           let value = provider.cliErrnoValue {
+            return value
+        }
+
+        return parsedErrno(from: fallbackMessage)
+    }
+
+    private static func parsedErrno(from message: String) -> Int32? {
+        guard let regex = try? NSRegularExpression(pattern: #"errno[[:space:]:=]*([0-9]+)"#) else {
+            return nil
+        }
+        let range = NSRange(message.startIndex..<message.endIndex, in: message)
+        guard let match = regex.firstMatch(in: message, range: range),
+              match.numberOfRanges > 1,
+              let errnoRange = Range(match.range(at: 1), in: message) else {
+            return nil
+        }
+        return Int32(message[errnoRange])
+    }
 
     private func baseContext() -> [String: Any] {
         var context: [String: Any] = [

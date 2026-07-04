@@ -14,6 +14,14 @@ final class SentryNoiseFilterTests: XCTestCase {
             message: "Failed to write to socket (Connection reset by peer, errno 54)"
         ))
         XCTAssertTrue(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "Failed to write to socket (Bad file descriptor, errno 9)"
+        ))
+        XCTAssertTrue(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "CLIError: Failed to write to socket (Bad file descriptor, errno 9) (Code: 1)"
+        ))
+        XCTAssertTrue(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
             message: "Failed to connect to socket at /tmp/cmux.sock (Connection refused, errno 61)"
         ))
@@ -31,6 +39,10 @@ final class SentryNoiseFilterTests: XCTestCase {
         XCTAssertFalse(filter.isExpectedCLISocketTransportFailure(
             stage: "socket_connect",
             message: "Failed to connect to socket at /tmp/cmux.sock (Permission denied, errno 13)"
+        ))
+        XCTAssertFalse(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "Failed to write preferences file (Broken pipe, errno 32)"
         ))
     }
 
