@@ -104,4 +104,10 @@ struct MobilePairingConnectionTransitionTests {
         )
         #expect(next == .signedOut)
     }
+
+    @Test("Route display lines bracket IPv6 hosts")
+    func routeDisplayLinesBracketIPv6Hosts() {
+        #expect(MobilePairingModel.endpointLine(host: "fd00::12", port: 58465) == "[fd00::12]:58465")
+        #expect(MobilePairingModel.endpointLine(host: "100.64.0.1", port: 7777) == "100.64.0.1:7777")
+    }
 }

@@ -132,16 +132,69 @@ import Testing
         #expect(await router.count(of: "workspace.list") >= 1)
     }
 
+    @Test func manualFallbackApprovalKeepsExistingConnectionUntilConsent() async throws {
+        let clock = TestClock()
+        let oldRouter = LivenessHostRouter()
+        let oldBox = TransportBox()
+        let newRouter = LivenessHostRouter()
+        let newBox = TransportBox()
+        let runtime = LivenessTestRuntime(
+            transportFactory: ManualFallbackApprovalTransportFactory(router: newRouter, box: newBox),
+            now: { clock.now },
+            supportedRouteKinds: [.tailscale, .manualHost]
+        )
+        let store = makeStore(runtime: runtime, connectionState: .connected)
+        try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
+        let originalClient = try #require(store.remoteClient)
+        let trustedRoute = try CmxAttachRoute(
+            id: "a-trusted-tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.5", port: 58_465),
+            priority: 0
+        )
+        let manualFallbackRoute = try CmxAttachRoute(
+            id: "b-manual-fallback",
+            kind: .manualHost,
+            endpoint: .hostPort(host: "192.168.1.77", port: 58_465),
+            priority: 1
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [trustedRoute, manualFallbackRoute],
+            expiresAt: clock.now.addingTimeInterval(3600)
+        )
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .needsUserApproval)
+        #expect(store.connectionState == .connected)
+        #expect(store.remoteClient === originalClient)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.77:58465")
+        #expect(await newRouter.count(of: "workspace.list") == 0)
+
+        store.cancelPairing()
+
+        #expect(store.connectionState == .connected)
+        #expect(store.remoteClient === originalClient)
+        #expect(store.manualHostTrustWarning == nil)
+    }
+
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
 
     private func makeStore(
         runtime: any MobileSyncRuntime = PairingDeadlineRuntime(),
         pairingCode: String = "",
+        connectionState: MobileConnectionState = .disconnected,
         manualHostTrustStore: any MobileManualHostTrustStoring = InMemoryMobileManualHostTrustStore()
     ) -> MobileShellComposite {
         MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
+            connectionState: connectionState,
             pairingCode: pairingCode,
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(suiteName: "pairing-deadline-\(UUID().uuidString)")!,

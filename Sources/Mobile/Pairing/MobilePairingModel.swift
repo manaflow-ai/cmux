@@ -278,7 +278,7 @@ final class MobilePairingModel {
                   case let .hostPort(host, port) = route.endpoint else {
                 return nil
             }
-            return "\(host):\(port)"
+            return endpointLine(host: host, port: port)
         })
     }
 
@@ -288,8 +288,12 @@ final class MobilePairingModel {
                   case let .hostPort(host, port) = route.endpoint else {
                 return nil
             }
-            return "\(host):\(port)"
+            return endpointLine(host: host, port: port)
         })
+    }
+
+    static func endpointLine(host: String, port: Int) -> String {
+        host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
     }
 
     private static func uniqueLines(_ lines: [String]) -> [String] {

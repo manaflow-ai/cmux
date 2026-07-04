@@ -4908,11 +4908,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func isConnectCurrent() -> Bool {
             isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
         }
+        let preservesActiveConnection = hasActiveMacConnection
         connectionAttemptGeneration = generation
-        connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
-        cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        if !preservesActiveConnection {
+            connectionGeneration = generation
+            cancelRemoteOperationTasks()
+            rawTerminalInputBuffer.clear()
+        }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = routeSelection.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -4929,10 +4932,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // carry no expiry at all), and the host authorizes by Stack account,
         // not ticket age. Expiry still gates the RPC-minted attach token at
         // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
-        activeTicket = ticket
-        activeRoute = firstRoute
-        connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
-        replaceRemoteClient(with: nil)
+        if !preservesActiveConnection {
+            activeTicket = ticket
+            activeRoute = firstRoute
+            connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
+            replaceRemoteClient(with: nil)
+        }
 
         guard let runtime else {
             guard isConnectCurrent() else { return nil }
@@ -4951,7 +4956,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
         for route in supportedRoutes {
-            activeRoute = route
+            if !preservesActiveConnection {
+                activeRoute = route
+            }
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
             if let pendingManualHostTrust,
                await manualHostRouteNeedsApproval(route),
@@ -5001,6 +5008,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard isConnectCurrent() else { return nil }
                     await persistPairedMacFromTicket(ticket, ifStillCurrent: isConnectCurrent)
                     guard isConnectCurrent() else { return nil }
+                    if preservesActiveConnection {
+                        connectionGeneration = generation
+                        cancelRemoteOperationTasks()
+                        rawTerminalInputBuffer.clear()
+                        resetTerminalOutputTracking()
+                    }
+                    activeTicket = ticket
+                    activeRoute = route
+                    connectedHostName = placeholderHostName(for: ticket, firstRoute: route)
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
                     // The connect seam guarantees identity recovery for an
@@ -5052,7 +5068,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         connections[resolvedForegroundMacID] = MacConnection(
                             macDeviceID: resolvedForegroundMacID,
                             ticket: ticket,
-                            route: firstRoute,
+                            route: route,
                             client: client,
                             generation: generation
                         )
@@ -5324,10 +5340,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
     private func beginPairingAttempt(method: String? = nil) -> UUID {
         let attemptID = beginPairingValidationAttempt(method: method)
-        connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
-        cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        if !hasActiveMacConnection {
+            connectionGeneration = UUID()
+            cancelRemoteOperationTasks()
+            rawTerminalInputBuffer.clear()
+        }
         clearPairingError()
         clearPairingVersionWarning()
         clearManualHostTrustWarning()
@@ -7673,26 +7691,5 @@ private extension MobileWorkspacePreview {
 
     var hasReadyTerminal: Bool {
         terminals.contains(where: \.isReady)
-    }
-}
-private extension MobileShellComposite {
-    /// The name shown for the Mac until `mobile.host.status` reports the real
-    /// one: the ticket's display name, then its device id, then the dialed
-    /// route's host (a minimal pairing code carries neither name nor id, so the
-    /// route hostname is the best available placeholder).
-    func placeholderHostName(
-        for ticket: CmxAttachTicket,
-        firstRoute: CmxAttachRoute
-    ) -> String {
-        if let name = ticket.macDisplayName, !name.isEmpty {
-            return name
-        }
-        if !ticket.macDeviceID.isEmpty {
-            return ticket.macDeviceID
-        }
-        if case let .hostPort(host, _) = firstRoute.endpoint {
-            return host
-        }
-        return ""
     }
 }
