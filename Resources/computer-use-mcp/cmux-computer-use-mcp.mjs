@@ -364,6 +364,9 @@ class AppServerSession {
 
   async callTool(tool, args) {
     await this.ensureStarted();
+    // Source of truth: `codex app-server generate-ts` defines
+    // McpServerToolCallParams as { threadId, server, tool, arguments?, _meta? }.
+    // `serverName` is used by elicitation notifications, not tool-call requests.
     return this.request("mcpServer/tool/call", {
       threadId: this.threadId,
       server: "computer-use",

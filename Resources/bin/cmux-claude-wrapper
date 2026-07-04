@@ -825,10 +825,11 @@ cmux_computer_use_resolve_node() {
 # Any failure — including the timeout or a missing perl — just skips this
 # candidate, so a misbehaving codex can never block Claude from starting.
 cmux_computer_use_codex_supports_app_server() {
-    # Prefer the absolute system perl; fall back to PATH only if it is missing.
+    # macOS ships /usr/bin/perl. If it is unavailable, skip auto-attach instead
+    # of probing PATH-controlled helpers during ordinary Claude startup.
     local perl_bin=/usr/bin/perl
-    [[ -x "$perl_bin" ]] || perl_bin="$(command -v perl 2>/dev/null)"
-    [[ -n "$perl_bin" && -x "$perl_bin" ]] || return 1
+    local env_bin=/usr/bin/env
+    [[ -x "$perl_bin" && -x "$env_bin" ]] || return 1
     # Probe the explicit/trusted candidate under a minimal allowlisted env
     # (mirrors the MCP server's child env): keep only what codex/node/subprocess
     # resolution needs plus benign locale/proxy/cert vars and codex-owned
@@ -844,18 +845,18 @@ cmux_computer_use_codex_supports_app_server() {
     done
     # Subshell so the parent shell's signal-death notice ("Alarm clock") for a
     # timed-out probe is captured instead of leaking to the user's terminal.
-    local output lower
-    output="$((env -i "${env_args[@]}" "$perl_bin" -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help) 2>&1)" || return 1
-    lower="$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')"
-    case "$lower" in
-        *app-server*) ;;
-        *) return 1 ;;
-    esac
-    case "$lower" in
+    local output had_nocasematch=0 supported=0 rejected=0
+    output="$( ( "$env_bin" -i "${env_args[@]}" "$perl_bin" -e 'alarm 5; exec { $ARGV[0] } @ARGV; exit 127' "$1" app-server --help ) 2>&1 )" || return 1
+    shopt -q nocasematch && had_nocasematch=1
+    shopt -s nocasematch
+    [[ "$output" == *app-server* ]] && supported=1
+    case "$output" in
         *"does not accept"*|*unknown*|*unrecognized*|*invalid*|*"error:"*|*unsupported*)
-            return 1
+            rejected=1
             ;;
     esac
+    [[ "$had_nocasematch" -eq 1 ]] || shopt -u nocasematch
+    [[ "$supported" -eq 1 && "$rejected" -eq 0 ]]
 }
 
 cmux_computer_use_resolve_codex() {

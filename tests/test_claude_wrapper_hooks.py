@@ -898,6 +898,7 @@ def computer_use_sandbox(
     legacy_codex_first: bool = False,
     hanging_codex_first: bool = False,
     workspace_node_first: bool = False,
+    path_helper_trap: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
         if script:
@@ -968,6 +969,12 @@ exit 88
 """,
             )
             env["PATH"] = f"{node_dir}:{env['PATH']}"
+        if path_helper_trap:
+            helper_dir = tmp / "path-helper-trap"
+            helper_dir.mkdir(parents=True, exist_ok=True)
+            for helper in ("env", "tr"):
+                make_executable(helper_dir / helper, f"#!/bin/sh\necho unexpected {helper} >&2\nexit 99\n")
+            env["PATH"] = f"{helper_dir}:{env['PATH']}"
         if disabled:
             env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
         if codex_override is not None:
@@ -1067,6 +1074,20 @@ def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(fail
     expect(
         injected_mcp_config_index(captured) is None and "--mcp-config" not in captured,
         f"computer use inject: captured launch argv must not include the injected flag, got {captured}",
+        failures,
+    )
+
+
+def test_computer_use_probe_uses_absolute_system_helpers(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>", path_helper_trap=True),
+    )
+    expect(code == 0, f"computer use helper trap: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is not None,
+        f"computer use helper trap: expected injection despite PATH helper traps, got {real_argv}",
         failures,
     )
 

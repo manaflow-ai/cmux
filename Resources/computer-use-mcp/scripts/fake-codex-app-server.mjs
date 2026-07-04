@@ -19,6 +19,28 @@ if (process.argv.includes("--help")) {
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let pendingToolCallId = null;
 
+const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
+function toolCallParams(message) {
+  const params = message.params ?? {};
+  if (
+    params.server !== "computer-use" ||
+    typeof params.tool !== "string" ||
+    hasOwn(params, "serverName") ||
+    hasOwn(params, "toolName")
+  ) {
+    send({
+      id: message.id,
+      result: {
+        content: [{ type: "text", text: "invalid mcpServer/tool/call params" }],
+        isError: true,
+      },
+    });
+    return null;
+  }
+  return params;
+}
+
 function rejectStringElementIndex(message) {
   if (typeof message.params?.arguments?.element_index === "number") return false;
   send({
@@ -47,7 +69,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   if (message.method === "mcpServer/tool/call") {
-    if (message.params?.tool === "get_app_state") {
+    const params = toolCallParams(message);
+    if (!params) return;
+    if (params.tool === "get_app_state") {
       send({
         id: message.id,
         result: {
@@ -57,7 +81,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       });
       return;
     }
-    if (message.params?.tool === "click") {
+    if (params.tool === "click") {
       if (rejectStringElementIndex(message)) return;
       send({
         id: message.id,
@@ -68,12 +92,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       });
       return;
     }
-    if (message.params?.tool === "scroll" || message.params?.tool === "perform_secondary_action") {
+    if (params.tool === "scroll" || params.tool === "perform_secondary_action") {
       if (rejectStringElementIndex(message)) return;
       send({
         id: message.id,
         result: {
-          content: [{ type: "text", text: `${message.params.tool}:ok` }],
+          content: [{ type: "text", text: `${params.tool}:ok` }],
           isError: false,
         },
       });
