@@ -1,8 +1,29 @@
 import type { CSSProperties } from "react";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
+import enMessages from "../../messages/en.json";
+import { DOWNLOAD_URL } from "../lib/download";
+import {
+  CurrentPlanBadge,
+  DisabledButton,
+  FeatureList,
+  PlanCard,
+  PricingCompareTable,
+  PricingSizeTable,
+  PrimaryLink,
+  SecondaryLink,
+  visibleCompareRows,
+  visibleFaqItems,
+  visibleProFeatures,
+  type CompareRow,
+  type FaqItem,
+  type SizeRow,
+} from "../components/pricing-shared";
 
 const CHECKOUT_URL = "/api/billing/checkout";
+const TEAM_CTA_URL = DOWNLOAD_URL;
+const SALES_EMAIL = "founders@manaflow.com";
+const pricing = enMessages.pricing;
 
 export const dynamic = "force-dynamic";
 
@@ -15,66 +36,142 @@ export default async function AppPricingPage({
   const params = await searchParams;
   const banner = appPricingBanner(params);
   const appearance = appPricingAppearance(params);
+  const proFeatures = visibleProFeatures({
+    base: pricing.pro.features,
+    vault: pricing.pro.vaultFeatures,
+    hostedNetworking: pricing.pro.hostedNetworkingFeatures,
+  });
+  const compareRows = visibleCompareRows(pricing.compare.rows as CompareRow[]);
+  const sizeRows = pricing.sizes.rows as SizeRow[];
+  const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
 
   return (
     <main
-      className="min-h-screen w-full overflow-x-hidden px-5 py-5 text-foreground sm:px-7 sm:py-7"
+      className="min-h-screen w-full overflow-x-hidden px-6 py-10 text-foreground sm:py-12"
       data-app-pricing-appearance={appearance}
       style={appPricingStyle(appearance)}
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+      <div className="mx-auto w-full max-w-6xl">
         {banner ? <BillingBanner banner={banner} /> : null}
 
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
-              cmux Pro
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <h1 className="text-2xl font-medium tracking-tight">
+            {pricing.title}
+          </h1>
+          <CurrentPlanStatus snapshot={snapshot} />
+        </div>
+
+        <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
+          <PlanCard
+            name={pricing.free.name}
+            price={pricing.free.price}
+            period={pricing.perMonth}
+            badge={
+              snapshot.planId === FREE_PLAN_ID ? (
+                <CurrentPlanBadge>Current plan</CurrentPlanBadge>
+              ) : null
+            }
+          >
+            {snapshot.planId === FREE_PLAN_ID ? (
+              <DisabledButton>Current plan</DisabledButton>
+            ) : (
+              <PrimaryLink href={DOWNLOAD_URL}>{pricing.free.cta}</PrimaryLink>
+            )}
+            <p className="mt-5 text-sm font-medium text-muted">
+              {pricing.free.featuresLead}
             </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
-              Upgrade when Cloud VMs become part of your daily loop.
-            </h1>
-          </div>
-          <CurrentPill snapshot={snapshot} />
-        </header>
+            <FeatureList items={pricing.free.features} muted />
+          </PlanCard>
 
-        <section className="grid gap-4 md:grid-cols-2">
-          <PlanPanel
-            name="Free"
-            price="$0"
-            period="/month"
-            current={snapshot.planId === FREE_PLAN_ID}
-            cta={snapshot.planId === FREE_PLAN_ID ? "Current plan" : "Included"}
-            disabled
-            features={[
-              "Native Ghostty-based terminal",
-              "Claude Code, Codex, Gemini, and any local CLI agent",
-              "Vertical tabs, split panes, browser panels, and notifications",
-              "Local session history and one Cloud VM trial",
-            ]}
-          />
+          <PlanCard
+            name={pricing.pro.name}
+            price={pricing.pro.price}
+            period={pricing.perMonth}
+            badge={
+              snapshot.isPro ? (
+                <CurrentPlanBadge>Current plan</CurrentPlanBadge>
+              ) : null
+            }
+          >
+            {snapshot.isPro ? (
+              <DisabledButton>Current plan</DisabledButton>
+            ) : (
+              <PrimaryLink href={CHECKOUT_URL}>
+                {snapshot.authenticated ? pricing.pro.cta : "Sign in to upgrade"}
+              </PrimaryLink>
+            )}
+            <p className="mt-5 text-sm font-medium">
+              {pricing.pro.featuresLead}
+            </p>
+            <FeatureList items={proFeatures} />
+          </PlanCard>
 
-          <PlanPanel
-            name="Pro"
-            price="$30"
-            period="/month"
-            current={snapshot.isPro}
-            cta={snapshot.isPro ? "Current plan" : snapshot.authenticated ? "Upgrade to Pro" : "Sign in to upgrade"}
-            href={snapshot.isPro ? undefined : CHECKOUT_URL}
-            disabled={snapshot.isPro}
-            accent
-            features={[
-              "Cloud agents on isolated Cloud VMs",
-              "20 active compute-hours per month, then usage-based",
-              "Model gateway with usage and cost analytics",
-              "cmux iOS app and email support",
-            ]}
+          <PlanCard
+            name={pricing.team.name}
+            price={pricing.team.price}
+            period={pricing.perUserMonth}
+          >
+            <PrimaryLink href={TEAM_CTA_URL}>{pricing.team.cta}</PrimaryLink>
+            <p className="mt-5 text-sm font-medium">
+              {pricing.team.featuresLead}
+            </p>
+            <FeatureList items={pricing.team.features} />
+          </PlanCard>
+
+          <PlanCard
+            name={pricing.enterprise.name}
+            price={pricing.enterprise.price}
+          >
+            <SecondaryLink href={`mailto:${SALES_EMAIL}`}>
+              {pricing.enterprise.cta}
+            </SecondaryLink>
+            <p className="mt-5 text-sm font-medium">
+              {pricing.enterprise.featuresLead}
+            </p>
+            <FeatureList items={pricing.enterprise.features} />
+          </PlanCard>
+        </div>
+
+        <section className="mt-16">
+          <PricingCompareTable
+            rows={compareRows}
+            stickyTopClassName="top-0"
+            names={{
+              free: pricing.free.name,
+              pro: pricing.pro.name,
+              team: pricing.team.name,
+              enterprise: pricing.enterprise.name,
+            }}
+            prices={{
+              free: pricing.free.price,
+              pro: `${pricing.pro.price}${pricing.perMonth}`,
+              team: `${pricing.team.price}${pricing.perUserMonth}`,
+              enterprise: pricing.enterprise.price,
+            }}
           />
         </section>
 
-        <section className="grid gap-3 text-sm sm:grid-cols-3">
-          <Metric label="Included compute" value="20 hrs/mo" />
-          <Metric label="Default VM" value="4 vCPU / 16 GB" />
-          <Metric label="Extra usage" value="metered" />
+        <PricingSizeTable
+          rows={sizeRows}
+          title={pricing.sizes.title}
+          body={pricing.sizes.body}
+          colSize={pricing.sizes.colSize}
+          colUse={pricing.sizes.colUse}
+          colRate={pricing.sizes.colRate}
+        />
+
+        <section className="mt-16 border-t border-border pt-10">
+          <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
+            {pricing.faq.title}
+          </h2>
+          <div className="max-w-2xl space-y-5 text-[15px] leading-relaxed">
+            {faqItems.map((item, i) => (
+              <div key={i}>
+                <p className="mb-1 font-medium">{item.q}</p>
+                <p className="text-muted">{item.a}</p>
+              </div>
+            ))}
+          </div>
         </section>
       </div>
     </main>
@@ -107,19 +204,19 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
   };
 }
 
-function CurrentPill({ snapshot }: { snapshot: AppPlanSnapshot }) {
+function CurrentPlanStatus({ snapshot }: { snapshot: AppPlanSnapshot }) {
   const label = snapshot.isPro ? "Pro" : "Free";
   const detail = snapshot.authenticated
     ? snapshot.email ?? "Signed in"
     : "Signed out";
 
   return (
-    <div className="flex max-w-full flex-wrap items-center gap-2 self-start text-sm sm:self-auto sm:justify-end">
-      <span className="inline-flex items-center gap-2 rounded-full border border-border bg-code-bg px-3 py-1.5">
+    <div className="flex max-w-full flex-wrap items-center gap-2 text-sm sm:justify-end">
+      <span className="inline-flex items-center gap-2 border border-border bg-code-bg px-3 py-1.5">
         <span className="text-muted">Current</span>
         <span className="font-medium">{label}</span>
       </span>
-      <span className="min-w-0 max-w-full break-all rounded-full border border-border bg-code-bg px-3 py-1.5 text-muted">
+      <span className="min-w-0 max-w-full break-all border border-border bg-code-bg px-3 py-1.5 text-muted">
         {detail}
       </span>
     </div>
@@ -138,22 +235,22 @@ function appPricingBanner(
   const billing = firstParam(params.billing);
 
   if (welcome === "success") {
-    return { message: "Pro is active. cmux will pick up your plan on the next refresh." };
+    return { message: pricing.welcomeSuccess };
   }
   if (welcome === "active") {
-    return { message: "You already have cmux Pro." };
+    return { message: pricing.welcomeActive };
   }
   if (welcome === "pending") {
     return {
-      message: "Stripe is still confirming the subscription.",
-      action: { href: "/api/billing/confirm", label: "Check again" },
+      message: pricing.welcomePending,
+      action: { href: "/api/billing/confirm", label: pricing.welcomePendingAction },
     };
   }
   if (billing === "error") {
-    return { message: "Checkout could not start. Try again in a moment." };
+    return { message: pricing.billingError };
   }
   if (billing === "unavailable") {
-    return { message: "Billing is not configured for this environment." };
+    return { message: pricing.billingUnavailable };
   }
   return null;
 }
@@ -167,7 +264,7 @@ function BillingBanner({ banner }: { banner: BillingBannerModel }) {
   return (
     <div
       role="status"
-      className="rounded-lg border border-border bg-code-bg px-4 py-3 text-sm"
+      className="mb-8 border border-border bg-code-bg px-4 py-3 text-sm"
     >
       {banner.message}
       {banner.action ? (
@@ -185,86 +282,6 @@ function BillingBanner({ banner }: { banner: BillingBannerModel }) {
   );
 }
 
-function PlanPanel({
-  name,
-  price,
-  period,
-  current,
-  cta,
-  href,
-  disabled,
-  accent,
-  features,
-}: {
-  name: string;
-  price: string;
-  period: string;
-  current: boolean;
-  cta: string;
-  href?: string;
-  disabled?: boolean;
-  accent?: boolean;
-  features: string[];
-}) {
-  return (
-    <article
-      className={`flex min-h-[25rem] flex-col rounded-lg border p-5 ${
-        accent ? "border-border bg-code-bg/80" : "border-border bg-code-bg/60"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <h2 className="text-base font-semibold tracking-tight">{name}</h2>
-        {current ? (
-          <span className="whitespace-nowrap rounded-full border border-border bg-background/30 px-2 py-1 text-xs font-medium">
-            Current plan
-          </span>
-        ) : null}
-      </div>
-      <div className="mt-4 flex items-baseline gap-1.5">
-        <span className="text-4xl font-semibold tracking-tight">{price}</span>
-        <span className="text-sm text-muted">{period}</span>
-      </div>
-      <div className="mt-5">
-        {href && !disabled ? (
-          <a
-            href={href}
-            className="inline-flex w-full items-center justify-center rounded-md bg-foreground px-4 py-2.5 text-sm font-medium transition-opacity hover:opacity-85"
-            style={{ color: "var(--button-foreground)", textDecoration: "none" }}
-          >
-            {cta}
-          </a>
-        ) : (
-          <button
-            className="inline-flex w-full items-center justify-center rounded-md border border-border px-4 py-2.5 text-sm font-medium text-muted"
-            disabled
-          >
-            {cta}
-          </button>
-        )}
-      </div>
-      <ul className="mt-5 flex flex-1 flex-col gap-3 text-sm leading-6">
-        {features.map((feature) => (
-          <li key={feature} className="flex gap-2.5">
-            <CheckIcon />
-            <span>{feature}</span>
-          </li>
-        ))}
-      </ul>
-    </article>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-code-bg/55 p-4">
-      <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted">
-        {label}
-      </p>
-      <p className="mt-2 text-lg font-semibold tracking-tight">{value}</p>
-    </div>
-  );
-}
-
 function appPricingAppearance(
   params: Record<string, string | string[] | undefined>,
 ): "light" | "dark" {
@@ -278,6 +295,7 @@ function appPricingStyle(appearance: "light" | "dark"): CSSProperties {
       "--muted": "#a3a3a3",
       "--border": "rgba(255, 255, 255, 0.18)",
       "--code-bg": "rgba(24, 24, 24, 0.72)",
+      "--background": "rgba(0, 0, 0, 0.92)",
       "--button-foreground": "#0a0a0a",
     } as CSSProperties;
   }
@@ -286,25 +304,7 @@ function appPricingStyle(appearance: "light" | "dark"): CSSProperties {
     "--muted": "#5f6368",
     "--border": "rgba(0, 0, 0, 0.14)",
     "--code-bg": "rgba(245, 245, 245, 0.78)",
+    "--background": "rgba(255, 255, 255, 0.92)",
     "--button-foreground": "#ffffff",
   } as CSSProperties;
-}
-
-function CheckIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="mt-1 shrink-0 text-muted"
-      aria-hidden="true"
-    >
-      <path d="M20 6L9 17l-5-5" />
-    </svg>
-  );
 }

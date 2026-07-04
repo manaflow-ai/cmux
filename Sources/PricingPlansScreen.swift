@@ -75,7 +75,7 @@ private final class NativePricingWindowController: NSWindowController {
 
     private init() {
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 1080, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -83,7 +83,7 @@ private final class NativePricingWindowController: NSWindowController {
         window.title = String(localized: "pricing.native.window.title", defaultValue: "cmux Pro")
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 520, height: 420)
+        window.minSize = NSSize(width: 760, height: 520)
         window.contentView = NSHostingView(rootView: NativePricingPlansView())
         super.init(window: window)
     }
@@ -198,15 +198,16 @@ private struct NativePricingPlansView: View {
     @StateObject private var store = NativePricingPlanStore()
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+        ScrollView([.vertical, .horizontal]) {
+            VStack(alignment: .leading, spacing: 28) {
                 header
                 statusBanner
                 plans
-                includedMetrics
+                NativePricingComparisonSection()
+                NativePricingSizeSection()
             }
             .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 980, maxWidth: .infinity, alignment: .leading)
         }
         .background(NativePricingVisualEffectBackground().ignoresSafeArea())
         .onAppear { store.refreshIfNeeded() }
@@ -222,14 +223,11 @@ private struct NativePricingPlansView: View {
     private var header: some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(String(localized: "pricing.native.eyebrow", defaultValue: "cmux Pro"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
                 Text(String(
                     localized: "pricing.native.title",
-                    defaultValue: "Upgrade when Cloud VMs become part of your daily loop."
+                    defaultValue: "Pricing"
                 ))
-                .font(.system(size: 26, weight: .semibold))
+                .font(.system(size: 26, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
@@ -270,21 +268,30 @@ private struct NativePricingPlansView: View {
         let detail = snapshot.authenticated
             ? snapshot.email ?? String(localized: "pricing.native.signedIn", defaultValue: "Signed in")
             : String(localized: "pricing.native.signedOut", defaultValue: "Signed out")
-        return VStack(alignment: .trailing, spacing: 2) {
-            Text(String(localized: "pricing.native.current", defaultValue: "Current"))
-                .font(.system(size: 11))
+        return HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Text(String(localized: "pricing.native.current", defaultValue: "Current"))
+                    .foregroundStyle(.secondary)
+                Text(plan)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.7)))
+
+            Text(detail)
                 .foregroundStyle(.secondary)
-            Text("\(plan) - \(detail)")
-                .font(.system(size: 12, weight: .medium))
                 .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.7)))
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.regularMaterial, in: Capsule())
+        .font(.system(size: 13))
     }
 
     private var plans: some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .top, spacing: 16) {
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.free", defaultValue: "Free"),
                 price: String(localized: "pricing.native.free.price", defaultValue: "$0"),
@@ -297,6 +304,7 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.free.feature.agents", defaultValue: "Claude Code, Codex, Gemini, and local CLI agents"),
                     String(localized: "pricing.native.free.feature.workspaces", defaultValue: "Vertical tabs, split panes, browser panels, and notifications"),
                     String(localized: "pricing.native.free.feature.trial", defaultValue: "Local session history and one Cloud VM trial"),
+                    String(localized: "pricing.native.free.feature.community", defaultValue: "Community support on Discord and GitHub"),
                 ]
             )
             NativePricingPlanCard(
@@ -314,6 +322,40 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.pro.feature.ios", defaultValue: "cmux iOS app and email support"),
                 ]
             )
+            NativePricingPlanCard(
+                name: String(localized: "pricing.native.plan.team", defaultValue: "Team"),
+                price: String(localized: "pricing.native.team.price", defaultValue: "$35"),
+                period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
+                isCurrent: false,
+                actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Start a team"),
+                action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
+                features: [
+                    String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
+                    String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
+                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Pooled Cloud VM compute hours"),
+                    String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
+                    String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
+                ]
+            )
+            NativePricingPlanCard(
+                name: String(localized: "pricing.native.plan.enterprise", defaultValue: "Enterprise"),
+                price: String(localized: "pricing.native.enterprise.price", defaultValue: "Custom"),
+                period: nil,
+                isCurrent: false,
+                actionTitle: String(localized: "pricing.native.enterprise.cta", defaultValue: "Contact sales"),
+                action: {
+                    if let url = URL(string: "mailto:founders@manaflow.com") {
+                        NSWorkspace.shared.open(url)
+                    }
+                },
+                features: [
+                    String(localized: "pricing.native.enterprise.feature.selfHosted", defaultValue: "Self-hosted Cloud execution and networking"),
+                    String(localized: "pricing.native.enterprise.feature.gateway", defaultValue: "Self-hosted model gateway"),
+                    String(localized: "pricing.native.enterprise.feature.sso", defaultValue: "SSO and SAML sign-in"),
+                    String(localized: "pricing.native.enterprise.feature.audit", defaultValue: "Audit logs and dedicated support"),
+                    String(localized: "pricing.native.enterprise.feature.sla", defaultValue: "SOC 2 and an SLA"),
+                ]
+            )
         }
     }
 
@@ -327,28 +369,12 @@ private struct NativePricingPlansView: View {
         return String(localized: "pricing.native.signInToUpgrade", defaultValue: "Sign in to upgrade")
     }
 
-    private var includedMetrics: some View {
-        HStack(spacing: 12) {
-            NativePricingMetric(
-                label: String(localized: "pricing.native.metric.compute", defaultValue: "Included compute"),
-                value: String(localized: "pricing.native.metric.compute.value", defaultValue: "20 hrs/mo")
-            )
-            NativePricingMetric(
-                label: String(localized: "pricing.native.metric.vm", defaultValue: "Default VM"),
-                value: String(localized: "pricing.native.metric.vm.value", defaultValue: "4 vCPU / 16 GB")
-            )
-            NativePricingMetric(
-                label: String(localized: "pricing.native.metric.usage", defaultValue: "Extra usage"),
-                value: String(localized: "pricing.native.metric.usage.value", defaultValue: "metered")
-            )
-        }
-    }
 }
 
 private struct NativePricingPlanCard: View {
     let name: String
     let price: String
-    let period: String
+    let period: String?
     let isCurrent: Bool
     let actionTitle: String
     let action: (() -> Void)?
@@ -366,20 +392,22 @@ private struct NativePricingPlanCard: View {
                         .font(.system(size: 11, weight: .medium))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.thinMaterial, in: Capsule())
+                        .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.7)))
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(price)
                     .font(.system(size: 34, weight: .semibold))
-                Text(period)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                if let period {
+                    Text(period)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
             }
             Button(actionTitle) {
                 action?()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(NativePricingButtonStyle(isPrimary: action != nil && isProminent))
             .disabled(action == nil)
             .controlSize(.large)
             .frame(maxWidth: .infinity)
@@ -399,36 +427,295 @@ private struct NativePricingPlanCard: View {
             Spacer(minLength: 0)
         }
         .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 316, alignment: .topLeading)
-        .background(isProminent ? Color.accentColor.opacity(0.10) : Color(nsColor: .controlBackgroundColor).opacity(0.62))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .frame(width: 233, alignment: .topLeading)
+        .frame(minHeight: 390, alignment: .topLeading)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(isProminent ? 0.76 : 0.62))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isProminent ? Color.accentColor.opacity(0.35) : Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+            Rectangle()
+                .stroke(isProminent ? Color.primary.opacity(0.42) : Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
         )
     }
 }
 
-private struct NativePricingMetric: View {
+private struct NativePricingButtonStyle: ButtonStyle {
+    let isPrimary: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .foregroundStyle(isPrimary ? Color(nsColor: .windowBackgroundColor) : Color.primary)
+            .background(isPrimary ? Color.primary.opacity(configuration.isPressed ? 0.82 : 1) : Color.clear)
+            .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.7)))
+            .opacity(configuration.isPressed ? 0.82 : 1)
+    }
+}
+
+private enum NativePricingCompareValue {
+    case included
+    case unavailable
+    case text(String)
+}
+
+private struct NativePricingCompareRow: Identifiable {
+    let id: String
     let label: String
-    let value: String
+    let free: NativePricingCompareValue
+    let pro: NativePricingCompareValue
+    let team: NativePricingCompareValue
+    let enterprise: NativePricingCompareValue
+}
+
+private struct NativePricingComparisonSection: View {
+    private let rows: [NativePricingCompareRow] = [
+        NativePricingCompareRow(
+            id: "terminal",
+            label: String(localized: "pricing.native.compare.terminal", defaultValue: "Native macOS terminal, open source"),
+            free: .included,
+            pro: .included,
+            team: .included,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "agents",
+            label: String(localized: "pricing.native.compare.agents", defaultValue: "Local CLI agents with your own keys"),
+            free: .included,
+            pro: .included,
+            team: .included,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "workspace",
+            label: String(localized: "pricing.native.compare.workspace", defaultValue: "Vertical tabs, splits, notifications, socket API"),
+            free: .included,
+            pro: .included,
+            team: .included,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "cloud",
+            label: String(localized: "pricing.native.compare.cloud", defaultValue: "Cloud agents on Cloud VMs"),
+            free: .text(String(localized: "pricing.native.compare.cloud.free", defaultValue: "1 VM trial")),
+            pro: .text(String(localized: "pricing.native.compare.cloud.pro", defaultValue: "20 hrs/mo, then usage-based")),
+            team: .text(String(localized: "pricing.native.compare.cloud.team", defaultValue: "Pooled, usage-based")),
+            enterprise: .text(String(localized: "pricing.native.compare.cloud.enterprise", defaultValue: "Committed usage"))
+        ),
+        NativePricingCompareRow(
+            id: "concurrent",
+            label: String(localized: "pricing.native.compare.concurrent", defaultValue: "Concurrent Cloud VMs"),
+            free: .text(String(localized: "pricing.native.compare.concurrent.free", defaultValue: "1")),
+            pro: .text(String(localized: "pricing.native.compare.usageBased", defaultValue: "Usage-based")),
+            team: .text(String(localized: "pricing.native.compare.usageBased", defaultValue: "Usage-based")),
+            enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
+        ),
+        NativePricingCompareRow(
+            id: "gateway",
+            label: String(localized: "pricing.native.compare.gateway", defaultValue: "Model gateway: routing and usage analytics"),
+            free: .unavailable,
+            pro: .included,
+            team: .included,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "ios",
+            label: String(localized: "pricing.native.compare.ios", defaultValue: "iOS app"),
+            free: .unavailable,
+            pro: .included,
+            team: .included,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "billing",
+            label: String(localized: "pricing.native.compare.billing", defaultValue: "Unified billing and seat management"),
+            free: .unavailable,
+            pro: .unavailable,
+            team: .included,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "sso",
+            label: String(localized: "pricing.native.compare.sso", defaultValue: "SSO and SAML sign-in"),
+            free: .unavailable,
+            pro: .unavailable,
+            team: .unavailable,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "selfhosted",
+            label: String(localized: "pricing.native.compare.selfHosted", defaultValue: "Self-hosted and air-gapped execution"),
+            free: .unavailable,
+            pro: .unavailable,
+            team: .unavailable,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "admin",
+            label: String(localized: "pricing.native.compare.admin", defaultValue: "Centralized admin and shared team rules"),
+            free: .unavailable,
+            pro: .unavailable,
+            team: .included,
+            enterprise: .included
+        ),
+        NativePricingCompareRow(
+            id: "support",
+            label: String(localized: "pricing.native.compare.support", defaultValue: "Support"),
+            free: .text(String(localized: "pricing.native.compare.support.community", defaultValue: "Community")),
+            pro: .text(String(localized: "pricing.native.compare.support.email", defaultValue: "Email")),
+            team: .text(String(localized: "pricing.native.compare.support.priority", defaultValue: "Priority")),
+            enterprise: .text(String(localized: "pricing.native.compare.support.dedicated", defaultValue: "Dedicated"))
+        ),
+    ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(.system(size: 11, weight: .semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "pricing.native.compare.title", defaultValue: "Compare plans"))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 15, weight: .semibold))
+            VStack(spacing: 0) {
+                NativePricingComparisonHeader()
+                ForEach(rows) { row in
+                    NativePricingComparisonRow(row: row)
+                }
+            }
+            .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.55)))
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.54))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.5), lineWidth: 1)
+    }
+}
+
+private struct NativePricingComparisonHeader: View {
+    var body: some View {
+        HStack(spacing: 0) {
+            NativePricingTableCell(text: "", width: 300, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.free", defaultValue: "Free"), width: 160, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.pro", defaultValue: "Pro"), width: 180, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.team", defaultValue: "Team"), width: 170, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.enterprise", defaultValue: "Enterprise"), width: 170, isHeader: true)
+        }
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+    }
+}
+
+private struct NativePricingComparisonRow: View {
+    let row: NativePricingCompareRow
+
+    var body: some View {
+        HStack(spacing: 0) {
+            NativePricingTableCell(text: row.label, width: 300)
+            NativePricingCompareCell(value: row.free, width: 160)
+            NativePricingCompareCell(value: row.pro, width: 180)
+            NativePricingCompareCell(value: row.team, width: 170)
+            NativePricingCompareCell(value: row.enterprise, width: 170)
+        }
+    }
+}
+
+private struct NativePricingCompareCell: View {
+    let value: NativePricingCompareValue
+    let width: CGFloat
+
+    var body: some View {
+        Group {
+            switch value {
+            case .included:
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .semibold))
+            case .unavailable:
+                Text("-")
+                    .foregroundStyle(.secondary)
+            case .text(let text):
+                Text(text)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .frame(minHeight: 42, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.5)).frame(height: 1)
+        }
+    }
+}
+
+private struct NativePricingTableCell: View {
+    let text: String
+    let width: CGFloat
+    var isHeader = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: isHeader ? 13 : 12, weight: isHeader ? .medium : .regular))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: width, alignment: .leading)
+            .frame(minHeight: 42, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color(nsColor: .separatorColor).opacity(0.5)).frame(height: 1)
+            }
+    }
+}
+
+private struct NativePricingVMSizeRow: Identifiable {
+    let id: String
+    let size: String
+    let use: String
+    let rate: String
+}
+
+private struct NativePricingSizeSection: View {
+    private let rows: [NativePricingVMSizeRow] = [
+        NativePricingVMSizeRow(
+            id: "small",
+            size: "2 vCPU / 8 GB",
+            use: String(localized: "pricing.native.size.small.use", defaultValue: "Light agents and quick tasks"),
+            rate: String(localized: "pricing.native.size.small.rate", defaultValue: "$0.20")
+        ),
+        NativePricingVMSizeRow(
+            id: "medium",
+            size: "4 vCPU / 16 GB",
+            use: String(localized: "pricing.native.size.medium.use", defaultValue: "Standard development"),
+            rate: String(localized: "pricing.native.size.medium.rate", defaultValue: "$0.40")
+        ),
+        NativePricingVMSizeRow(
+            id: "large",
+            size: "8 vCPU / 32 GB",
+            use: String(localized: "pricing.native.size.large.use", defaultValue: "Heavy builds and parallel agents"),
+            rate: String(localized: "pricing.native.size.large.rate", defaultValue: "$0.80")
         )
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "pricing.native.sizes.title", defaultValue: "Cloud VM sizes"))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(String(
+                localized: "pricing.native.sizes.body",
+                defaultValue: "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size."
+            ))
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    NativePricingTableCell(text: String(localized: "pricing.native.sizes.colSize", defaultValue: "Size"), width: 180, isHeader: true)
+                    NativePricingTableCell(text: String(localized: "pricing.native.sizes.colUse", defaultValue: "Best for"), width: 560, isHeader: true)
+                    NativePricingTableCell(text: String(localized: "pricing.native.sizes.colRate", defaultValue: "Per active hour"), width: 180, isHeader: true)
+                }
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+                ForEach(rows) { row in
+                    HStack(spacing: 0) {
+                        NativePricingTableCell(text: row.size, width: 180)
+                        NativePricingTableCell(text: row.use, width: 560)
+                        NativePricingTableCell(text: row.rate, width: 180)
+                    }
+                }
+            }
+            .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.55)))
+        }
     }
 }
 
