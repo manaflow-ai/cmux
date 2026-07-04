@@ -64,6 +64,9 @@ extension SidebarGitMetadataService {
             let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
             if clearMetadataBeforeRefresh {
                 clearWorkspaceGitMetadata(for: probeKey)
+                if host.isRemoteWorkspace(workspaceId) == true {
+                    return
+                }
             }
             guard sidebarGitMetadataWatchEnabled else {
                 if !clearMetadataBeforeRefresh {
