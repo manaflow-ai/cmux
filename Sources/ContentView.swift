@@ -3226,7 +3226,7 @@ struct ContentView: View {
         let baseMaxMounted = shouldKeepHandoffPair
             ? WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
             : WorkspaceMountPlan.maxMountedWorkspaces
-        let selectedCount = effectiveSelectedId == nil ? 0 : 1
+        let selectedCount = effectiveSelectedId.map { activeWorkspaceIds.contains($0) ? 1 : 0 } ?? 0
         let maxMounted = max(baseMaxMounted, selectedCount + livePinnedIds.count)
         let previousMountedIds = mountedWorkspaceIds
         mountedWorkspaceIds = WorkspaceMountPlan(
