@@ -212,18 +212,7 @@ struct MobileWorkspaceListFidelityTests {
         let workspace = try #require(manager.selectedWorkspace)
         let remotePanelId = try #require(workspace.focusedPanelId)
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
-        let configuration = WorkspaceRemoteConfiguration(
-            destination: "seepine@192.168.5.20",
-            port: nil,
-            identityFile: nil,
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: 64007,
-            relayID: "relay-\(UUID().uuidString)",
-            relayToken: String(repeating: "a", count: 64),
-            localSocketPath: "/tmp/cmux-issue-7268-mobile-\(UUID().uuidString).sock",
-            terminalStartupCommand: "ssh seepine@192.168.5.20"
-        )
+        let configuration = sshRemoteConfiguration()
         workspace.configureRemoteConnection(configuration, autoConnect: false)
 
         let untrustedHash = MobileWorkspaceListObserver.summaryHashForTesting(
@@ -283,21 +272,7 @@ struct MobileWorkspaceListFidelityTests {
         )
         let workspace = try #require(manager.selectedWorkspace)
         let trustedPanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "seepine@192.168.5.20",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 64007,
-                relayID: "relay-\(UUID().uuidString)",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-issue-7268-focus-\(UUID().uuidString).sock",
-                terminalStartupCommand: "ssh seepine@192.168.5.20"
-            ),
-            autoConnect: false
-        )
+        workspace.configureRemoteConnection(sshRemoteConfiguration(), autoConnect: false)
         workspace.updateRemotePanelDirectory(panelId: trustedPanelId, directory: remoteDirectory)
         let untrustedPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
         #expect(workspace.isRemoteTerminalSurface(untrustedPanel.id))
@@ -320,6 +295,49 @@ struct MobileWorkspaceListFidelityTests {
             trustedFocusHash != untrustedFocusHash,
             "a focus-only presented cwd change must refresh the mobile list"
         )
+
+        workspace.configureRemoteConnection(
+            try #require(workspace.remoteConfiguration),
+            autoConnect: false
+        )
+        let clearedTrustHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(
+            untrustedFocusHash != clearedTrustHash,
+            "clearing background remote cwd trust must refresh the mobile list"
+        )
+    }
+
+    @Test func localTerminalInRemoteWorkspaceKeepsDirectoryInMobilePayload() throws {
+        let localDirectory = "/Users/alice/development"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(), autoConnect: false)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: localDirectory,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        #expect(!workspace.isRemoteTerminalSurface(localPanel.id))
+        #expect(workspace.updatePanelDirectory(panelId: localPanel.id, directory: localDirectory))
+        #expect(workspace.reportedPanelDirectory(panelId: localPanel.id) == localDirectory)
+
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: localPanel.id
+        )
+        let terminals = try #require(payload["terminals"] as? [[String: Any]])
+        let terminal = try #require(terminals.first)
+        #expect(terminal["current_directory"] as? String == localDirectory)
     }
 
     /// Why some rows showed no relative time: the payload's only timestamp was
@@ -449,5 +467,20 @@ struct MobileWorkspaceListFidelityTests {
         let boundedCluster = try #require(TerminalController.mobilePreviewSanitize(combiningBomb))
         #expect(boundedCluster.unicodeScalars.count <= TerminalController.mobilePreviewInputCap + 1)
         #expect(boundedCluster.hasSuffix("\u{2026}"))
+    }
+
+    private func sshRemoteConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-issue-7268-\(UUID().uuidString).sock",
+            terminalStartupCommand: "ssh seepine@192.168.5.20"
+        )
     }
 }

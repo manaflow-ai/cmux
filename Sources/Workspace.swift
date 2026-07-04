@@ -5722,9 +5722,10 @@ final class Workspace: Identifiable, ObservableObject {
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        let clearedRemoteDirectoryReports = !remoteDirectoryReportPanelIds.isEmpty
         remoteDirectoryReportPanelIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: clearedRemoteDirectoryReports)
         remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -5853,6 +5854,7 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
+        let clearedRemoteDirectoryReports = !remoteDirectoryReportPanelIds.isEmpty
         remoteDirectoryReportPanelIds.removeAll()
         endedPersistentRemotePTYAttachSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
@@ -5889,7 +5891,7 @@ final class Workspace: Identifiable, ObservableObject {
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
         recomputeListeningPorts()
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: clearedRemoteDirectoryReports)
         if let configurationForCleanup {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: configurationForCleanup)
         }
@@ -5926,10 +5928,12 @@ final class Workspace: Identifiable, ObservableObject {
     private func trackRemoteTerminalSurface(_ panelId: UUID, preserveTrustedRemoteDirectory: Bool = false) {
         let previousPresentedDirectory = presentedCurrentDirectory
         let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let removedTrustedDirectory: Bool
         if preserveTrustedRemoteDirectory && !existingDirectory.isEmpty {
             remoteDirectoryReportPanelIds.insert(panelId)
+            removedTrustedDirectory = false
         } else {
-            remoteDirectoryReportPanelIds.remove(panelId)
+            removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil
         }
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
@@ -5941,22 +5945,25 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let inserted = activeRemoteTerminalSurfaceIds.insert(panelId).inserted
         guard inserted else {
-            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
             return
         }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         _ = applyPendingRemoteSurfacePWDIfNeeded(to: panelId)
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
     }
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         let previousPresentedDirectory = presentedCurrentDirectory
-        remoteDirectoryReportPanelIds.remove(panelId)
-        guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
+        let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(panelId) != nil
+        guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else {
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
+            return
+        }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
@@ -6378,13 +6385,13 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteTerminalChildExitSurfaceIds.remove(surfaceId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
         surfaceTTYNames.removeValue(forKey: surfaceId)
-        remoteDirectoryReportPanelIds.remove(surfaceId)
+        let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
         syncRemotePortScanTTYs()
         applyBrowserRemoteWorkspaceStatusToPanels()
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
     }
 
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
@@ -6577,11 +6584,11 @@ final class Workspace: Identifiable, ObservableObject {
             rememberPendingRemoteDisconnectReplacement(configuration: configuration)
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
-        remoteDirectoryReportPanelIds.remove(surfaceId)
+        let removedTrustedDirectory = remoteDirectoryReportPanelIds.remove(surfaceId) != nil
         if activeRemoteTerminalSurfaceIds.remove(surfaceId) != nil {
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
-        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+        notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: removedTrustedDirectory)
         if activeRemoteTerminalSurfaceIds.isEmpty {
             guard !preservesRemotePTYSession else { return }
             let shouldCleanupControlMaster =

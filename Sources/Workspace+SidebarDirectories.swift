@@ -27,9 +27,8 @@ extension Workspace {
     }
 
     func reportedPanelDirectory(panelId: UUID) -> String? {
-        if isRemoteWorkspace {
-            guard isRemoteTerminalSurface(panelId),
-                  remoteDirectoryReportPanelIds.contains(panelId) else { return nil }
+        if isRemoteWorkspace, isRemoteTerminalSurface(panelId) {
+            guard remoteDirectoryReportPanelIds.contains(panelId) else { return nil }
         }
         return normalizedSidebarDirectory(panelDirectories[panelId])
     }
