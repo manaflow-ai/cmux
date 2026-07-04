@@ -203,6 +203,45 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotKeepsCrashWorkspaceWithCustomTags() {
+        let projectDirectory = "/tmp/cmux-project"
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        // A workspace living in the crash-diagnostic directory whose only user state
+        // is custom tags must survive crash pruning. Tags are restorable user state,
+        // so workspaceCarriesRestorableUserState has to keep it just like a custom
+        // title/color/pin would; otherwise the tag-only workspace is classified as a
+        // disposable crash-diagnostic workspace and its tags are lost after a crash.
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [
+                            taggedWorkspaceSnapshot(currentDirectory: crashDirectory, tags: ["backend"]),
+                            emptyWorkspaceSnapshot(currentDirectory: projectDirectory),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+            crashDirectory,
+            projectDirectory,
+        ])
+    }
+
+    @Test
     func sessionSnapshotPruningDoesNotResolveSymlinkedCrashDirectories() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-crash-storage-symlink-\(UUID().uuidString)", isDirectory: true)
@@ -331,6 +370,15 @@ struct CrashDiagnosticSessionPolicyTests {
             progress: nil,
             gitBranch: nil
         )
+    }
+
+    private func taggedWorkspaceSnapshot(
+        currentDirectory: String,
+        tags: [String]
+    ) -> SessionWorkspaceSnapshot {
+        var snapshot = emptyWorkspaceSnapshot(currentDirectory: currentDirectory)
+        snapshot.customTags = tags
+        return snapshot
     }
 
     private func terminalWorkspaceSnapshot(

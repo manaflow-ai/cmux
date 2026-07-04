@@ -30,6 +30,7 @@ extension View {
 private struct SidebarImmediateObservationState: Equatable {
     let title: String
     let customDescription: String?
+    let customTags: [String]
     let isPinned: Bool
     let customColor: String?
     let latestConversationMessage: String?
@@ -80,6 +81,12 @@ extension Workspace {
             $isPinned,
             $customColor
         )
+        let customTagsDidChange = NotificationCenter.default.publisher(
+            for: .workspaceCustomTagsDidChange,
+            object: self
+        )
+        .map { _ in () }
+        .prepend(())
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -87,11 +94,14 @@ extension Workspace {
         )
 
         return workspaceFields
+            .combineLatest(customTagsDidChange)
             .combineLatest(conversationFields)
-            .map { workspaceFields, conversationFields in
-                SidebarImmediateObservationState(
+            .map { [weak self] workspaceAndTagChange, conversationFields in
+                let workspaceFields = workspaceAndTagChange.0
+                return SidebarImmediateObservationState(
                     title: workspaceFields.0,
                     customDescription: workspaceFields.1,
+                    customTags: self?.customTags ?? [],
                     isPinned: workspaceFields.2,
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,

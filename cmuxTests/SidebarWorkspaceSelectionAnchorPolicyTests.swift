@@ -117,4 +117,105 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
 
         #expect(nextAnchorIndex == 2)
     }
+
+    @MainActor
+    @Test
+    func shiftClickRangeExcludesTagFilterHiddenWorkspaces() {
+        // A(tagged), B(untagged, hidden by the filter), C(tagged). Filtering to
+        // the tag renders only A and C, so Shift-clicking A then C must select
+        // exactly [A, C] and never the hidden B between them.
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 2,
+            liveWorkspaceIds: [a, b, c],
+            tagFilterMatchingIds: [a, c],
+            collapsedGroupHiddenIds: []
+        )
+
+        #expect(rangeIds == [a, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeKeepsFilterMatchingCollapsedGroupMembers() {
+        // A tag filter flattens groups, so a collapsed-group member that matches
+        // the filter is rendered as a flat row and must stay selectable. Even
+        // though C is also in `collapsedGroupHiddenIds`, the active filter means
+        // collapse-hiding is disregarded and the range is clamped only to the
+        // matching set — Shift-clicking A across to C selects [A, C].
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 2,
+            liveWorkspaceIds: [a, b, c],
+            tagFilterMatchingIds: [a, c],
+            collapsedGroupHiddenIds: [c]
+        )
+
+        #expect(rangeIds == [a, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeKeepsEveryIdWhenUnfiltered() {
+        // No tag filter (nil) and no collapsed rows: the range spans the full
+        // inclusive slice in live order.
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 2,
+            clickedIndex: 0,
+            liveWorkspaceIds: [a, b, c],
+            tagFilterMatchingIds: nil,
+            collapsedGroupHiddenIds: []
+        )
+
+        #expect(rangeIds == [a, b, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeExcludesCollapsedGroupHiddenWorkspaces() {
+        // With no tag filter, collapsed-group members are hidden and dropped
+        // from the range.
+        let a = UUID()
+        let hidden = UUID()
+        let c = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 2,
+            liveWorkspaceIds: [a, hidden, c],
+            tagFilterMatchingIds: nil,
+            collapsedGroupHiddenIds: [hidden]
+        )
+
+        #expect(rangeIds == [a, c])
+    }
+
+    @MainActor
+    @Test
+    func shiftClickRangeReturnsEmptyForOutOfBoundsIndices() {
+        let a = UUID()
+        let b = UUID()
+
+        let rangeIds = SidebarWorkspaceSelectionSyncPolicy().shiftClickRangeWorkspaceIds(
+            anchorIndex: 0,
+            clickedIndex: 5,
+            liveWorkspaceIds: [a, b],
+            tagFilterMatchingIds: nil,
+            collapsedGroupHiddenIds: []
+        )
+
+        #expect(rangeIds.isEmpty)
+    }
 }

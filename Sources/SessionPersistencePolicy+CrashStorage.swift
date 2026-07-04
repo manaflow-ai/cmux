@@ -225,6 +225,7 @@ extension SessionPersistencePolicy {
         if workspace.notifications?.isEmpty == false
             || workspace.canvasPanes?.isEmpty == false
             || workspace.environment?.isEmpty == false
+            || workspace.customTags?.isEmpty == false
             || !workspace.statusEntries.isEmpty
             || !workspace.logEntries.isEmpty {
             return true

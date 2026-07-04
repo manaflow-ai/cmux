@@ -73,6 +73,45 @@ public struct SidebarWorkspaceSelectionSyncPolicy {
         return nil
     }
 
+    /// Workspace ids spanned by a shift-click range over the full workspace
+    /// order, dropping rows the sidebar currently hides.
+    ///
+    /// The range endpoints are indices into `liveWorkspaceIds` (the full list),
+    /// but the sidebar renders only a subset, and its two hiding mechanisms are
+    /// *mutually exclusive*:
+    ///
+    ///  - When a tag filter is active (`tagFilterMatchingIds != nil`) the sidebar
+    ///    flattens groups and renders only the matching workspaces as flat rows.
+    ///    Collapse state is ignored, so a collapsed-group member that matches the
+    ///    filter is visible and must stay selectable — the range is clamped to
+    ///    `tagFilterMatchingIds` and `collapsedGroupHiddenIds` is disregarded.
+    ///  - With no filter (`tagFilterMatchingIds == nil`) groups render normally,
+    ///    so non-anchor members of collapsed groups (`collapsedGroupHiddenIds`)
+    ///    are hidden and dropped from the range.
+    ///
+    /// Deciding the mode here (rather than at the call site) keeps the
+    /// filter-vs-collapse resolution in one tested place. Order follows the live
+    /// list.
+    public func shiftClickRangeWorkspaceIds(
+        anchorIndex: Int,
+        clickedIndex: Int,
+        liveWorkspaceIds: [UUID],
+        tagFilterMatchingIds: Set<UUID>?,
+        collapsedGroupHiddenIds: Set<UUID>
+    ) -> [UUID] {
+        let lower = min(anchorIndex, clickedIndex)
+        let upper = max(anchorIndex, clickedIndex)
+        guard lower >= 0, upper < liveWorkspaceIds.count else { return [] }
+        // A tag filter flattens groups, so collapse-hiding never applies under it.
+        let hiddenIds: Set<UUID> = tagFilterMatchingIds == nil ? collapsedGroupHiddenIds : []
+        return liveWorkspaceIds[lower...upper].filter { id in
+            if let tagFilterMatchingIds, !tagFilterMatchingIds.contains(id) {
+                return false
+            }
+            return !hiddenIds.contains(id)
+        }
+    }
+
     /// Resulting anchor index after a workspace click (shift vs plain).
     public func anchorIndexAfterWorkspaceClick(
         isShiftClick: Bool,
