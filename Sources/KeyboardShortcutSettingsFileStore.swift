@@ -1681,7 +1681,9 @@ final class CmuxSettingsFileStore {
                 PaneChromeSettings.notifyDidChange(notificationCenter: notificationCenter)
             }
             if let source = sessionScrollbackPersistenceOptOutSource {
-                AppDelegate.shared?.scrubPersistedSessionScrollbackForOptOut(source: source)
+                Task { @MainActor in
+                    AppDelegate.shared?.scrubPersistedSessionScrollbackForOptOut(source: source)
+                }
             }
         }
         if Thread.isMainThread {
