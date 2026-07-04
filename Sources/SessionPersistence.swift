@@ -1954,7 +1954,12 @@ extension SessionSnapshotStoring where SnapshotValue == AppSessionSnapshot {
         case .loaded(let snapshot):
             let scrubbed = snapshot.removingTerminalScrollback()
             guard scrubbed.removedAny else { return false }
-            return save(scrubbed.snapshot, fileURL: fileURL)
+            guard save(scrubbed.snapshot, fileURL: fileURL) else {
+                // Fail closed: the original snapshot still contains scrollback.
+                removeSnapshot(fileURL: fileURL)
+                return true
+            }
+            return true
         case .missing:
             return false
         case .unusable:

@@ -532,6 +532,33 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: replayURL.path))
     }
 
+    @Test @MainActor func persistedSessionSnapshotScrubDeletesSnapshotWhenScrubbedSaveFails() throws {
+        var workspaceSnapshot = Workspace().sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(workspaceSnapshot.panels.firstIndex { $0.terminal != nil })
+        workspaceSnapshot.panels[panelIndex].terminal?.scrollback = "SENSITIVE_TOKEN_OUTPUT"
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [workspaceSnapshot]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+        let snapshotURL = URL(fileURLWithPath: "/tmp/cmux-scrub-failed-save-\(UUID().uuidString).json")
+        let store = FailingSaveSessionSnapshotStore(snapshotURL: snapshotURL, snapshot: snapshot)
+
+        #expect(store.scrubPersistedTerminalScrollback())
+        #expect(store.savedURLs == [snapshotURL])
+        #expect(store.removedURLs == [snapshotURL])
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -813,5 +840,58 @@ import Testing
             directory.appendPathComponent(component, isDirectory: true)
         }
         return directory.appendingPathComponent(executableName, isDirectory: false).path
+    }
+}
+
+// Test fixture is local to one synchronous test body and never crosses threads.
+private final class FailingSaveSessionSnapshotStore: SessionSnapshotStoring, @unchecked Sendable {
+    let snapshotURL: URL
+    let snapshot: AppSessionSnapshot
+    var savedURLs: [URL] = []
+    var removedURLs: [URL] = []
+
+    init(snapshotURL: URL, snapshot: AppSessionSnapshot) {
+        self.snapshotURL = snapshotURL
+        self.snapshot = snapshot
+    }
+
+    func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<AppSessionSnapshot> {
+        fileURL == snapshotURL ? .loaded(snapshot) : .missing
+    }
+
+    func load(fileURL: URL?) -> AppSessionSnapshot? {
+        guard fileURL == snapshotURL else { return nil }
+        return snapshot
+    }
+
+    func save(_ snapshot: AppSessionSnapshot, fileURL: URL?) -> Bool {
+        if let fileURL {
+            savedURLs.append(fileURL)
+        }
+        return false
+    }
+
+    func removeSnapshot(fileURL: URL?) {
+        if let fileURL {
+            removedURLs.append(fileURL)
+        }
+    }
+
+    func loadReopenSessionSnapshot(fileURL: URL?) -> AppSessionSnapshot? {
+        nil
+    }
+
+    func syncManualRestoreSnapshotCache() {}
+
+    func loadStartupSnapshot() -> AppSessionSnapshot? {
+        snapshot
+    }
+
+    func defaultSnapshotFileURL() -> URL? {
+        snapshotURL
+    }
+
+    func manualRestoreSnapshotFileURL() -> URL? {
+        nil
     }
 }
