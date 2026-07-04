@@ -28,9 +28,10 @@ public struct CustomSidebarDataContextBuilder {
     ///
     /// Mirrors the original `customSidebarDataContext(now:)` output exactly:
     /// `workspaces`, `workspaceCount`, `selectedTitle`, `selectedId`,
-    /// `unreadTotal`, and `clock`.
+    /// `unreadTotal`, `recents`, `recentCount`, and `clock`.
     public func dataContext(for snapshot: CustomSidebarContextSnapshot) -> [String: SwiftValue] {
         let workspaces: [SwiftValue] = snapshot.workspaces.map(workspaceValue(_:))
+        let recents: [SwiftValue] = snapshot.recentFocus.map(recentFocusValue(_:))
         let components = calendar.dateComponents(
             [.hour, .minute, .second, .weekday],
             from: snapshot.now
@@ -52,6 +53,8 @@ public struct CustomSidebarDataContextBuilder {
             "selectedTitle": .string(snapshot.selectedWorkspaceTitle),
             "selectedId": .string(snapshot.selectedWorkspaceId?.uuidString ?? ""),
             "unreadTotal": .int(snapshot.totalUnreadCount),
+            "recents": .array(recents),
+            "recentCount": .int(snapshot.recentFocus.count),
             "clock": clock,
         ]
     }
@@ -120,6 +123,7 @@ public struct CustomSidebarDataContextBuilder {
         var surfaceFields: [String: SwiftValue] = [
             "id": .string(surface.panelId.uuidString),
             "title": .string(surface.title),
+            "kind": .string(surface.kind),
             "focused": .bool(surface.isFocused),
             "pinned": .bool(surface.isPinned),
         ]
@@ -134,5 +138,22 @@ public struct CustomSidebarDataContextBuilder {
             surfaceFields["ports"] = .array(surface.listeningPorts.map { .int($0) })
         }
         return .object(surfaceFields)
+    }
+
+    /// Projects one focus-history item into the interpreter value tree.
+    public func recentFocusValue(_ recent: CustomSidebarRecentFocusSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "workspaceId": .string(recent.workspaceId.uuidString),
+            "workspaceTitle": .string(recent.workspaceTitle),
+            "position": .string(recent.position),
+            "focusedAt": .int(Int(recent.focusedAt.timeIntervalSince1970)),
+        ]
+        if let panelId = recent.panelId {
+            fields["panelId"] = .string(panelId.uuidString)
+        }
+        if let panelTitle = recent.panelTitle, !panelTitle.isEmpty {
+            fields["panelTitle"] = .string(panelTitle)
+        }
+        return .object(fields)
     }
 }

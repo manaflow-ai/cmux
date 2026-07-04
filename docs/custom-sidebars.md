@@ -134,11 +134,17 @@ with:
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`).
-- `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+- `tabs` (per workspace) — array of surfaces. Always: `id`, `title`, `kind`
+  (`terminal`, `browser`, `markdown`, `filepreview`, `rightSidebarTool`,
+  `agentSession`, `project`, or `extensionBrowser`), `focused` (Bool),
+  `pinned` (Bool). When available: `directory`, `branch` + `dirty`, `ports`
+  (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
+- `recents` — array of recently focused workspace/panel targets from cmux focus
+  history, newest first. Always: `workspaceId`, `workspaceTitle`, `position`
+  (`older` or `newer`), `focusedAt` (epoch). Present when available: `panelId`,
+  `panelTitle`. `recentCount` is the number of recent targets.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
   sidebar re-renders about once a second, so clocks/countdowns and workspace
   changes are live.
@@ -155,7 +161,8 @@ Containers: `VStack(alignment:spacing:)`, `HStack`, `ZStack`, `LazyVStack`,
 `ScrollView { ... }` (use `ScrollView(.horizontal) { HStack { ... } }` for a
 horizontal strip — vertical scrolling is automatic), and
 `HSplitView { columnA; columnB }` (two resizable, independently-scrolling
-columns with a persisted divider).
+columns with a persisted divider). `HSplitView` with three or more children
+renders Finder-style fixed-width columns; every column scrolls independently.
 
 Content: `Text("...")`, `Label("Title", systemImage: "folder")`,
 `Image(systemName: "folder.fill")` (SF Symbols),

@@ -10045,8 +10045,7 @@ struct VerticalTabsSidebar: View {
     /// Live, read-only projection of workspace state handed to custom
     /// sidebars so interpreted Swift can bind to it (e.g.
     /// `ForEach(workspaces) { w in Text(w.title) }`) and re-render when it
-    /// changes. A value snapshot built fresh each render, never the store
-    /// itself, so it respects the sidebar snapshot-boundary rule.
+    /// changes. A fresh value snapshot respects the sidebar snapshot-boundary rule.
     private func customSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
@@ -10058,6 +10057,7 @@ struct VerticalTabsSidebar: View {
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: sidebarUnread.totalUnreadCount,
+            recentFocus: customSidebarRecentFocusSnapshots(),
             now: now
         )
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
@@ -10116,7 +10116,7 @@ struct VerticalTabsSidebar: View {
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,
-                        title: tab.title,
+                        title: tab.title, kind: workspace.panels[panelId]?.panelType.rawValue ?? "terminal",
                         isFocused: panelId == focusedPanelId,
                         isPinned: workspace.pinnedPanelIds.contains(panelId),
                         directory: workspace.panelDirectories[panelId],
