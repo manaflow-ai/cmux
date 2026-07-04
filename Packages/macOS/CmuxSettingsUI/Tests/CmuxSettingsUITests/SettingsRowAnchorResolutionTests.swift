@@ -129,6 +129,8 @@ struct SettingsRowAnchorResolutionTests {
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.selectionColor",
+        "workspaceColors.stateColorMode",
+        "workspaceColors.stateColorsEnabled",
     ]
 
     /// Searchable rows anchored with an explicit `settingsSearchAnchors`
@@ -163,9 +165,24 @@ struct SettingsRowAnchorResolutionTests {
         "setting:keyboardShortcuts:reset-defaults",
         "setting:terminal:memory-guardrail",
         "setting:terminal:memory-guardrail-threshold",
+        "setting:workspaceColors:state-colors-running",
+        "setting:workspaceColors:state-colors-needsInput",
+        "setting:workspaceColors:state-colors-idle",
+        "setting:workspaceColors:state-colors-unknown",
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",
+    ]
+
+    /// Physical settings rows that share one dictionary-backed cmux.json
+    /// path but must still expose distinct search anchors.
+    static let repeatedConfigPathRowAnchorIDs: [String: [String]] = [
+        "workspaceColors.stateColors": [
+            "setting:workspaceColors:state-colors-running",
+            "setting:workspaceColors:state-colors-needsInput",
+            "setting:workspaceColors:state-colors-idle",
+            "setting:workspaceColors:state-colors-unknown",
+        ],
     ]
 
     @Test(arguments: rowConfigPaths)
@@ -179,6 +196,30 @@ struct SettingsRowAnchorResolutionTests {
             index.entries.contains { $0.id == anchor },
             "anchor \(anchor) for \(path) is not a real indexed entry"
         )
+    }
+
+    @Test
+    func repeatedConfigPathRowsResolveToIndexedEntries() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let indexedEntryIDs = Set(index.entries.map(\.id))
+        for path in Self.repeatedConfigPathRowAnchorIDs.keys {
+            let anchor = try #require(
+                index.anchorID(forSettingsPath: path),
+                "no anchor for repeated row path \(path) — its search hits won't scroll/highlight"
+            )
+            #expect(
+                index.entries.contains { $0.id == anchor },
+                "anchor \(anchor) for repeated row path \(path) is not a real indexed entry"
+            )
+        }
+        for (path, anchors) in Self.repeatedConfigPathRowAnchorIDs {
+            for anchor in anchors {
+                #expect(
+                    indexedEntryIDs.contains(anchor),
+                    "repeated row anchor \(anchor) for \(path) is not a real indexed entry"
+                )
+            }
+        }
     }
 
     /// The user-facing contract: every result in the sidebar search list
@@ -259,12 +300,20 @@ struct SettingsRowAnchorResolutionTests {
     func rowAnchorsAreUniqueAcrossRows() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         var firstPath: [String: String] = [:]
+        func record(anchor: String, rowDescription: String) {
+            if let prior = firstPath[anchor] {
+                Issue.record("anchor \(anchor) is shared by rows '\(prior)' and '\(rowDescription)' — duplicate .id breaks scrollTo")
+            } else {
+                firstPath[anchor] = rowDescription
+            }
+        }
         for path in Self.rowConfigPaths {
             guard let anchor = index.anchorID(forSettingsPath: path) else { continue }
-            if let prior = firstPath[anchor] {
-                Issue.record("anchor \(anchor) is shared by rows '\(prior)' and '\(path)' — duplicate .id breaks scrollTo")
-            } else {
-                firstPath[anchor] = path
+            record(anchor: anchor, rowDescription: path)
+        }
+        for (path, anchors) in Self.repeatedConfigPathRowAnchorIDs {
+            for anchor in anchors {
+                record(anchor: anchor, rowDescription: "\(path)#\(anchor)")
             }
         }
     }

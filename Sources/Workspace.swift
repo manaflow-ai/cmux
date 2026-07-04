@@ -4734,8 +4734,24 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        recordAgentLifecycleChange(panelId: targetPanelId)
+        let didChange = agentLifecycleStatesByPanelId[targetPanelId]?[key] != lifecycle
+        if didChange {
+            agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        }
+        // Always record the lifecycle heartbeat, even for a repeated value:
+        // hibernation derives `hasUnconfirmedTerminalInput` from
+        // `terminalInputAt > lifecycleChangeAt`, so an agent re-reporting `.idle`
+        // after handling typed input must still advance the timestamp or the
+        // panel stays ineligible for hibernation. Only refresh the sidebar when
+        // the displayed state actually changed, to avoid invalidating it on the
+        // agent's frequent duplicate reports.
+        AgentHibernationController.shared.recordAgentLifecycleChange(
+            workspaceId: id,
+            panelId: targetPanelId
+        )
+        if didChange {
+            postAgentLifecycleSidebarRefresh()
+        }
     }
 
     @discardableResult
@@ -4773,6 +4789,40 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             panelId: panelId
         )
+        postAgentLifecycleSidebarRefresh()
+    }
+
+    private func postAgentLifecycleSidebarRefresh() {
+        // Agent lifecycle is sidebar presentation state, so refresh the sidebar
+        // without broadly invalidating this `Workspace` (a hot agent-monitoring
+        // path with many unrelated observers — the CPU-spin class in CLAUDE.md).
+        // Mounted rows already refresh from the runtime observation model's
+        // change stream; this notification lets the default sidebar also refresh
+        // collapsed group-header state colors whose members have no mounted row.
+        // Mirrors `.workspaceCurrentDirectoryDidChange`.
+        NotificationCenter.default.post(
+            name: .workspaceAgentLifecycleDidChange,
+            object: self,
+            userInfo: ["workspaceId": id]
+        )
+    }
+
+    func sidebarAgentHibernationLifecycleState() -> AgentHibernationLifecycleState {
+        Self.agentHibernationLifecycleState(
+            states: agentLifecycleStatesByPanelId.values.flatMap { $0.values },
+            fallback: .unknown
+        )
+    }
+
+    static func aggregateSidebarAgentHibernationLifecycleState(
+        for workspaces: [Workspace]
+    ) -> AgentHibernationLifecycleState {
+        agentHibernationLifecycleState(
+            states: workspaces.flatMap { workspace in
+                workspace.agentLifecycleStatesByPanelId.values.flatMap { $0.values }
+            },
+            fallback: .unknown
+        )
     }
 
     func agentHibernationLifecycleState(
@@ -4783,12 +4833,18 @@ final class Workspace: Identifiable, ObservableObject {
               !panelStates.isEmpty else {
             return fallback ?? .unknown
         }
-        let states = Array(panelStates.values)
+        return Self.agentHibernationLifecycleState(states: Array(panelStates.values), fallback: fallback ?? .unknown)
+    }
+
+    private static func agentHibernationLifecycleState(
+        states: [AgentHibernationLifecycleState],
+        fallback: AgentHibernationLifecycleState
+    ) -> AgentHibernationLifecycleState {
         if states.contains(.running) { return .running }
         if states.contains(.needsInput) { return .needsInput }
         if states.contains(.unknown) { return .unknown }
         if states.contains(.idle) { return .idle }
-        return fallback ?? .unknown
+        return fallback
     }
 
     func restorableAgentForHibernation(

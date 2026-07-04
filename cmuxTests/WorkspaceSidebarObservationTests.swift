@@ -102,6 +102,67 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func agentLifecycleChangeRefreshesSidebarWithoutBroadWorkspaceInvalidation() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let generationBeforeRecord = workspace.sidebarAgentRuntimeObservation.changeGeneration
+        var workspaceWillChangeCount = 0
+        let objectWillChangeCancellable = workspace.objectWillChange.sink {
+            workspaceWillChangeCount += 1
+        }
+        defer { objectWillChangeCancellable.cancel() }
+
+        // The default sidebar refreshes collapsed group-header state colors off
+        // this notification, since collapsed members have no mounted row.
+        var lifecycleNotificationCount = 0
+        let lifecycleNotificationCancellable = NotificationCenter.default
+            .publisher(for: .workspaceAgentLifecycleDidChange, object: workspace)
+            .sink { _ in lifecycleNotificationCount += 1 }
+        defer { lifecycleNotificationCancellable.cancel() }
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .needsInput)
+
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.changeGeneration > generationBeforeRecord,
+            "Agent lifecycle changes must notify the narrow runtime observation stream that mounted sidebar rows observe."
+        )
+        #expect(
+            workspaceWillChangeCount == 0,
+            "Agent lifecycle color state is sidebar presentation state and must not broadly invalidate Workspace observers."
+        )
+        #expect(
+            lifecycleNotificationCount > 0,
+            "Agent lifecycle changes must post the sidebar group-header refresh notification for collapsed members."
+        )
+    }
+
+    @Test func repeatedIdenticalAgentLifecycleReportDoesNotReinvalidateSidebar() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        let generationBeforeDuplicate = workspace.sidebarAgentRuntimeObservation.changeGeneration
+        var lifecycleNotificationCount = 0
+        let lifecycleNotificationCancellable = NotificationCenter.default
+            .publisher(for: .workspaceAgentLifecycleDidChange, object: workspace)
+            .sink { _ in lifecycleNotificationCount += 1 }
+        defer { lifecycleNotificationCancellable.cancel() }
+
+        // Agents re-report the same lifecycle on a hot path; a no-op report must
+        // not invalidate the sidebar.
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+
+        #expect(
+            lifecycleNotificationCount == 0,
+            "A repeated identical agent lifecycle report must not re-post the sidebar refresh notification."
+        )
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.changeGeneration == generationBeforeDuplicate,
+            "A repeated identical agent lifecycle report must not bump the runtime observation generation."
+        )
+    }
+
     @Test func sidebarImmediateObservationPublisherEmitsForLateTitleSubscriber() {
         let workspace = Workspace()
         workspace.title = "Restored Workspace"

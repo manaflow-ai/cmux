@@ -125,6 +125,12 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //     "Red": "#C0392B",
   //     "Blue": "#1565C0",
   //     "Neon Mint": "#00F5D4"
+  //   },
+  //   "stateColorsEnabled": true,
+  //   "stateColorMode": "replace",
+  //   "stateColors": {
+  //     "running": "#A04000",
+  //     "needsInput": "#1565C0"
   //   }
   // },
 

@@ -17,7 +17,14 @@ extension VerticalTabsSidebar {
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
-        let effectiveColor = group.customColor ?? resolvedConfig?.color
+        let _ = groupAgentLifecycleRevision
+        let manualColor = group.customColor ?? resolvedConfig?.color
+        let stateWorkspaces = (group.isCollapsed ? memberWorkspaceIds : [group.anchorWorkspaceId])
+            .compactMap { renderContext.workspaceById[$0] }
+        let effectiveColor = settings.resolvedWorkspaceColorHex(
+            manualColorHex: manualColor,
+            agentLifecycleState: Workspace.aggregateSidebarAgentHibernationLifecycleState(for: stateWorkspaces)
+        )
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
             explicit: group.iconSymbol,
             configured: resolvedConfig?.iconSymbol
