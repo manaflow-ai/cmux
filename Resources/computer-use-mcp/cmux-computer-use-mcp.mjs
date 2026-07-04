@@ -453,6 +453,13 @@ let sessionPromise = null;
 // app-server child without awaiting a promise.
 let currentSession = null;
 
+function revokeAppState(app) {
+  if (!app || !currentSession?.alive) return;
+  currentSession.boundApps.delete(app);
+  currentSession.snapshotApps.delete(app);
+  currentSession.coordinateApps.delete(app);
+}
+
 async function session() {
   if (!sessionPromise) {
     sessionPromise = (async () => {
@@ -779,6 +786,7 @@ const TOOLS = [
       ) {
         return err(`launching "${app}" was not approved`);
       }
+      revokeAppState(app);
       try {
         const { stdout } = await execFileP("/usr/bin/open", ["-a", app], {
           timeout: TIMEOUT_MS,

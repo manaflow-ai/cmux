@@ -213,6 +213,28 @@ if (!openAccepted.isError || openAccepted.text.includes("not approved")) {
   process.exit(1);
 }
 
+const [openState, openAttempt, staleAfterOpen] = await runCalls({
+  withElicitation: true,
+  expectMessage: "launch or focus",
+  calls: [
+    { tool: "computer_state", args: { app: "OpenRevokesApp" } },
+    { tool: "computer_open", args: { app: "OpenRevokesApp" } },
+    { tool: "computer_click", args: { app: "OpenRevokesApp", element: 0 } },
+  ],
+});
+console.log(
+  `computer_open revokes snapshot -> state=${openState.isError} open=${openAttempt.isError} click=${staleAfterOpen.isError}`
+);
+if (
+  openState.isError ||
+  !openAttempt.isError ||
+  !staleAfterOpen.isError ||
+  !staleAfterOpen.text.includes("run computer_state first")
+) {
+  console.error("FAIL: computer_open should revoke old element indices before the next input");
+  process.exit(1);
+}
+
 const [stateResult, firstClick, staleClick] = await runCalls({
   withElicitation: false,
   calls: [
