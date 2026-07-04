@@ -149,16 +149,17 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
-// `routes` protects every mutation/copy so nonisolated status RPCs avoid a main-actor hop.
-private final class MobileHostPublicStatusSnapshot: @unchecked Sendable {
-    private let routes = OSAllocatedUnfairLock(initialState: [CmxAttachRoute]())
-    func update(routes nextRoutes: [CmxAttachRoute]) {
-        routes.withLock { $0 = nextRoutes }
+private enum MobileHostPublicStatusCache {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
+
+    static func update(routes nextRoutes: [CmxAttachRoute]) {
+        lock.withLock { routes = nextRoutes }
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
-    func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
-        let routesPayload = routes.withLock { $0.map(\.mobileHostJSONObject) }
+    static func result(includeIdentity: Bool = false) -> MobileHostRPCResult {
+        let routesPayload = lock.withLock { routes.map(\.mobileHostJSONObject) }
         return .ok(
             includeIdentity
                 ? MobileHostService.identityStatusPayload(routesPayload: routesPayload)
@@ -356,20 +357,19 @@ final class MobileHostService {
     nonisolated func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
-            return publicStatusSnapshot.result(includeIdentity: false)
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
         }
         let verified = await verifiedStackCaller(for: request)
         if !verified {
             mobileHostLog.error("mobile host status identity withheld: stack verification failed")
         }
-        return publicStatusSnapshot.result(includeIdentity: verified)
+        return MobileHostPublicStatusCache.result(includeIdentity: verified)
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
     let routeAdvertisement = MobileHostRouteAdvertisement()
     var routeResolver: MobileRouteResolver { routeAdvertisement.routeResolver }
     private let ticketStore = MobileAttachTicketStore()
-    nonisolated private let publicStatusSnapshot = MobileHostPublicStatusSnapshot()
     private var listener: NWListener?
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
@@ -935,7 +935,7 @@ final class MobileHostService {
         )
     }
 
-    func updatePublicStatusSnapshot(routes: [CmxAttachRoute]) { publicStatusSnapshot.update(routes: routes) }
+    func updatePublicStatusSnapshot(routes: [CmxAttachRoute]) { MobileHostPublicStatusCache.update(routes: routes) }
 
     /// Reconcile the live listener with current settings (enable/disable and
     /// preferred-port changes). Safe to call on any settings change: it no-ops

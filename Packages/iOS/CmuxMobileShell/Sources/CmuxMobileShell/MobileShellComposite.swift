@@ -1004,21 +1004,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Creates a preview shell store with in-memory manual-host trust.
-    /// - Parameters:
-    ///   - runtime: Optional runtime used by previews or package tests.
-    ///   - manualHostTrustStore: Store used to persist manual-host approvals in the preview shell.
-    /// - Returns: A shell store seeded with preview workspaces.
-    public static func preview(
-        runtime: (any MobileSyncRuntime)? = nil,
-        manualHostTrustStore: any MobileManualHostTrustStoring = InMemoryMobileManualHostTrustStore()
-    ) -> CMUXMobileShellStore {
-        CMUXMobileShellStore(
-            runtime: runtime,
-            workspaces: PreviewMobileHost.workspaces,
-            deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
-            manualHostTrustStore: manualHostTrustStore
-        )
+    public static func preview(runtime: (any MobileSyncRuntime)? = nil) -> CMUXMobileShellStore {
+        MobileShellPreviewFactory(runtime: runtime).makeStore()
     }
 
     public func signIn() {

@@ -681,7 +681,7 @@ final class TerminalOutputCollector {
         stackAccessToken: "stack-token-for-lan"
     )
     let trustStore = InMemoryMobileManualHostTrustStore()
-    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
+    let store = MobileShellPreviewFactory(runtime: runtime, manualHostTrustStore: trustStore).makeStore()
 
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
@@ -723,10 +723,10 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-ipv6"
     )
-    let store = CMUXMobileShellStore.preview(
+    let store = MobileShellPreviewFactory(
         runtime: runtime,
         manualHostTrustStore: InMemoryMobileManualHostTrustStore()
-    )
+    ).makeStore()
 
     store.signIn()
     await store.connectManualHost(name: "IPv6 LAN", host: "[fd00::12]", port: 15433)
@@ -762,7 +762,7 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: approvedResponses),
         stackAccessToken: "stack-token-for-local-dns"
     )
-    let approvedStore = CMUXMobileShellStore.preview(runtime: approvedRuntime, manualHostTrustStore: trustStore)
+    let approvedStore = MobileShellPreviewFactory(runtime: approvedRuntime, manualHostTrustStore: trustStore).makeStore()
 
     approvedStore.signIn()
     await approvedStore.connectManualHost(name: "", host: "studio-mac.local", port: 61234)
@@ -776,7 +776,7 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: blockedResponses),
         stackAccessToken: "stack-token-for-local-dns"
     )
-    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
+    let store = MobileShellPreviewFactory(runtime: runtime, manualHostTrustStore: trustStore).makeStore()
 
     store.signIn()
     await store.connectManualHost(name: "", host: "other-mac.local", port: 61234)
@@ -1916,7 +1916,7 @@ final class TerminalOutputCollector {
         stackAccessToken: "stack-token-for-qr-manual"
     )
     let trustStore = InMemoryMobileManualHostTrustStore()
-    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
+    let store = MobileShellPreviewFactory(runtime: runtime, manualHostTrustStore: trustStore).makeStore()
     let url = "cmux-ios://attach?v=3&pc=1&m=studio-mac.local:61234"
 
     store.signIn()
@@ -1951,10 +1951,10 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-stale-manual-warning"
     )
-    let store = CMUXMobileShellStore.preview(
+    let store = MobileShellPreviewFactory(
         runtime: runtime,
         manualHostTrustStore: InMemoryMobileManualHostTrustStore()
-    )
+    ).makeStore()
 
     store.signIn()
     let firstResult = await store.connectPairingURLResult(
@@ -1979,10 +1979,10 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-signout-manual-warning"
     )
-    let store = CMUXMobileShellStore.preview(
+    let store = MobileShellPreviewFactory(
         runtime: runtime,
         manualHostTrustStore: InMemoryMobileManualHostTrustStore()
-    )
+    ).makeStore()
 
     store.signIn()
     let firstResult = await store.connectPairingURLResult(
@@ -2006,10 +2006,10 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-team-switch-manual-warning"
     )
-    let store = CMUXMobileShellStore.preview(
+    let store = MobileShellPreviewFactory(
         runtime: runtime,
         manualHostTrustStore: InMemoryMobileManualHostTrustStore()
-    )
+    ).makeStore()
 
     store.signIn()
     let firstResult = await store.connectPairingURLResult(
@@ -2032,10 +2032,10 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses),
         stackAccessToken: "stack-token-for-version-manual-warning"
     )
-    let store = CMUXMobileShellStore.preview(
+    let store = MobileShellPreviewFactory(
         runtime: runtime,
         manualHostTrustStore: InMemoryMobileManualHostTrustStore()
-    )
+    ).makeStore()
 
     store.signIn()
     let versionWarningResult = await store.connectPairingURLResult(
@@ -2059,10 +2059,10 @@ final class TerminalOutputCollector {
         transportFactory: FailingRouteTransportFactory(failingRouteID: "tailscale", responses: responses, attempts: RouteAttemptRecorder()),
         stackAccessToken: "stack-token-for-mixed-manual"
     )
-    let store = CMUXMobileShellStore.preview(
+    let store = MobileShellPreviewFactory(
         runtime: runtime,
         manualHostTrustStore: InMemoryMobileManualHostTrustStore()
-    )
+    ).makeStore()
     let url = "cmux-ios://attach?v=3&pc=1&r=100.71.210.41:61234&m=studio-mac.local:61234"
 
     store.signIn()
@@ -2158,7 +2158,7 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: approvedResponses),
         stackAccessToken: "stack-token-for-default-lan"
     )
-    let approvedStore = CMUXMobileShellStore.preview(runtime: approvedRuntime, manualHostTrustStore: trustStore)
+    let approvedStore = MobileShellPreviewFactory(runtime: approvedRuntime, manualHostTrustStore: trustStore).makeStore()
 
     approvedStore.signIn()
     await approvedStore.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
@@ -2172,7 +2172,7 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: blockedResponses),
         stackAccessToken: "stack-token-for-default-lan"
     )
-    let store = CMUXMobileShellStore.preview(runtime: runtime, manualHostTrustStore: trustStore)
+    let store = MobileShellPreviewFactory(runtime: runtime, manualHostTrustStore: trustStore).makeStore()
 
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort + 1)
