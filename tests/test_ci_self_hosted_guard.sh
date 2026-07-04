@@ -92,6 +92,68 @@ check_build_lag_deriveddata_cache_path() {
   echo "PASS: tests-build-and-lag DerivedData cache path matches xcodebuild path"
 }
 
+check_app_host_deriveddata_cache_path() {
+  if ! awk '
+    /^  app-host-unit-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Prepare DerivedData path/ { in_prepare=1; next }
+    in_prepare && /^[[:space:]]*- name:/ { in_prepare=0 }
+    in_prepare && index($0, "DERIVED_DATA_PATH=\"$RUNNER_TEMP/cmux-derived-data-tests-shard-${{ matrix.shard }}\"") { saw_prepare_path=1 }
+    in_prepare && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_prepare_path=1 }
+
+    in_job && /- name: Cache DerivedData/ { in_cache=1; after_cache=1; next }
+    in_cache && /^[[:space:]]*- name:/ { in_cache=0 }
+    in_cache && index($0, "path: ${{ runner.temp }}/cmux-derived-data-tests-shard-${{ matrix.shard }}") { saw_cache_path=1 }
+    in_cache && index($0, "key: deriveddata-tests-shard-${{ matrix.shard }}-") { saw_cache_key=1 }
+    in_cache && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_cache_path=1 }
+
+    END {
+      exit !(saw_prepare_path && saw_cache_path && saw_cache_key && !saw_home_prepare_path && !saw_home_cache_path)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: app-host-unit-tests DerivedData cache must restore into the same stable per-shard RUNNER_TEMP path used by xcodebuild"
+    exit 1
+  fi
+
+  echo "PASS: app-host-unit-tests DerivedData cache path matches xcodebuild path"
+}
+
+check_app_host_build_for_testing_and_summary_guard() {
+  if ! awk '
+    /^  app-host-unit-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Build for testing/ { in_build=1; next }
+    in_build && /^[[:space:]]*- name:/ { in_build=0 }
+    in_build && /scripts\/ci\/run-in-console-session\.sh/ { saw_build_console=1 }
+    in_build && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_build_noninteractive=1 }
+    in_build && /build-for-testing/ { saw_build_for_testing=1 }
+    in_build && /BUILD_OUTPUT=/ { saw_build_output=1 }
+    in_build && index($0, "build_for_testing 2>&1 | tee \"$BUILD_OUTPUT\"") { saw_build_capture=1 }
+    in_build && /Could not resolve package dependencies/ { saw_build_swiftpm_failure_match=1 }
+    in_build && /SwiftPM package resolution failed during build-for-testing/ { saw_build_swiftpm_recovery=1 }
+    in_build && /Failed to resolve Swift packages after 3 attempts in build-for-testing retry path/ { saw_build_resolve_retry_guard=1 }
+    in_build && index($0, "exit \"$EXIT_CODE\"") { saw_build_nonrecoverable_exit=1 }
+
+    in_job && /- name: Run unit tests/ { in_unit=1; next }
+    in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
+    in_unit && /APP_HOST_LOG_NAME=/ { saw_log_name=1 }
+    in_unit && /collect_app_host_logs/ { saw_log_collection=1 }
+    in_unit && /TEST_SUMMARY_RE=/ { saw_summary_re=1 }
+    in_unit && index($0, "grep -qE \"$TEST_SUMMARY_RE\" \"$TEST_OUTPUT\" \"${APP_HOST_LOGS[@]}\"") { saw_summary_logs=1 }
+
+    END {
+      exit !(saw_build_console && saw_build_noninteractive && saw_build_for_testing && saw_build_output && saw_build_capture && saw_build_swiftpm_failure_match && saw_build_swiftpm_recovery && saw_build_resolve_retry_guard && saw_build_nonrecoverable_exit && saw_log_name && saw_log_collection && saw_summary_re && saw_summary_logs)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: app-host-unit-tests must run build-for-testing through the console-session path, recover SwiftPM cache failures, and validate zero-test coverage from the full wrapper logs"
+    exit 1
+  fi
+
+  echo "PASS: app-host-unit-tests build/test split preserves console-session execution, SwiftPM recovery, and full-log summary checks"
+}
+
 check_e2e_runner_fallbacks() {
   if ! awk '
     /^run-name:/ {
@@ -802,6 +864,8 @@ check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
 check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
+check_app_host_deriveddata_cache_path
+check_app_host_build_for_testing_and_summary_guard
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml

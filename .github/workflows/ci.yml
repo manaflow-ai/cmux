@@ -420,13 +420,25 @@ jobs:
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
-      - name: Prepare isolated DerivedData
+      - name: Prepare DerivedData path
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}"
-          rm -rf "$DERIVED_DATA_PATH"
+          # Keep live app-host products under RUNNER_TEMP so
+          # run-app-host-xcodebuild.sh can clean stale test hosts, while using a
+          # stable per-shard path that actions/cache can restore across runs.
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-tests-shard-${{ matrix.shard }}"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Cache DerivedData
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-derived-data-tests-shard-${{ matrix.shard }}
+          key: deriveddata-tests-shard-${{ matrix.shard }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
+          restore-keys: |
+            deriveddata-tests-shard-${{ matrix.shard }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-
+            deriveddata-tests-shard-${{ matrix.shard }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-shard-${{ matrix.shard }}-
 
       - name: Resolve Swift packages
         run: |
@@ -456,6 +468,59 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
+
+      - name: Build for testing
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          build_for_testing() {
+            # Build the app + cmuxTests bundle once. The focused gates and shard
+            # run below all use test-without-building against these products.
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing
+          }
+
+          BUILD_OUTPUT="$RUNNER_TEMP/cmux-build-for-testing-output-shard-${{ matrix.shard }}.txt"
+          set +e
+          build_for_testing 2>&1 | tee "$BUILD_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # A restored SwiftPM/DerivedData cache can still fail during the first
+          # build that consumes it. Recover the same way the test retry path does
+          # so a transient corrupt package cache does not fail the shard before
+          # the retry logic has a chance to repair it.
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$BUILD_OUTPUT"; then
+            echo "SwiftPM package resolution failed during build-for-testing, clearing caches and retrying once"
+            rm -rf ~/Library/Caches/org.swift.swiftpm
+            mkdir -p ~/Library/Caches/org.swift.swiftpm
+            rm -rf "$CMUX_DERIVED_DATA_PATH"
+            mkdir -p "$CMUX_DERIVED_DATA_PATH"
+            for attempt in 1 2 3; do
+              if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+                -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+                -resolvePackageDependencies; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Failed to resolve Swift packages after 3 attempts in build-for-testing retry path" >&2
+                exit 1
+              fi
+              echo "Build-for-testing retry-path package resolution failed on attempt $attempt, retrying..."
+              sleep $((attempt * 5))
+            done
+            build_for_testing
+          elif [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
 
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -504,9 +569,8 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
-            test
+            test-without-building
 
       - name: Run Option/Alt sided-modifier regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -520,14 +584,22 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
-            test
+            test-without-building
 
       - name: Run unit tests
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          APP_HOST_LOG_NAME="cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}-attempt-*.log"
+          find "$RUNNER_TEMP" -maxdepth 1 -name "$APP_HOST_LOG_NAME" -delete 2>/dev/null || true
+          APP_HOST_LOGS=()
+          collect_app_host_logs() {
+            APP_HOST_LOGS=()
+            while IFS= read -r log_path; do
+              APP_HOST_LOGS+=("$log_path")
+            done < <(find "$RUNNER_TEMP" -maxdepth 1 -name "$APP_HOST_LOG_NAME" -print 2>/dev/null | sort)
+          }
           SHARD_ARGS="$RUNNER_TEMP/cmux-unit-shard-${{ matrix.shard }}.args"
           python3 scripts/ci/cmux_unit_test_shard.py \
             --shard-index "${{ matrix.shard }}" \
@@ -554,8 +626,7 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               "${ONLY_TESTING_ARGS[@]}" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
+              test-without-building 2>&1 &
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
@@ -580,27 +651,68 @@ jobs:
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
           OUTPUT=$(cat "$TEST_OUTPUT")
+          collect_app_host_logs
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 124 ] \
+             && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT" "${APP_HOST_LOGS[@]}" 2>/dev/null; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf "$CMUX_DERIVED_DATA_PATH"
             mkdir -p "$CMUX_DERIVED_DATA_PATH"
+            # DerivedData was wiped, so recreate the build products required by
+            # test-without-building before retrying the shard.
+            for attempt in 1 2 3; do
+              if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+                -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+                -resolvePackageDependencies; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Failed to resolve Swift packages after 3 attempts in retry path" >&2
+                exit 1
+              fi
+              echo "Retry-path package resolution failed on attempt $attempt, retrying..."
+              sleep $((attempt * 5))
+            done
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing
             set +e
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
             OUTPUT=$(cat "$TEST_OUTPUT")
+            collect_app_host_logs
             set -e
           fi
 
+          if [ "$EXIT_CODE" -eq 124 ]; then
+            echo "ERROR: app-host unit test shard ${{ matrix.shard }}/4 timed out before xcodebuild completed" >&2
+            exit 1
+          fi
+
+          # A shard must actually execute tests. If selectors match nothing,
+          # xcodebuild can still exit 0 and silently drop coverage.
+          TEST_SUMMARY_RE="Executed [1-9][0-9]* test|Test run with [1-9][0-9]* test"
+          if ! grep -qE "$TEST_SUMMARY_RE" "$TEST_OUTPUT" "${APP_HOST_LOGS[@]}" 2>/dev/null; then
+            echo "ERROR: app-host unit test shard ${{ matrix.shard }}/4 executed 0 tests but selected ${#ONLY_TESTING_ARGS[@]} selectors" >&2
+            exit 1
+          fi
+
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+            SUMMARY=$(grep "Executed.*tests.*with.*failures" "$TEST_OUTPUT" "${APP_HOST_LOGS[@]}" 2>/dev/null | tail -1 || true)
+            if grep -q "(0 unexpected)" <<< "$SUMMARY"; then
               echo "All failures are expected, treating as pass"
             else
               echo "Unexpected test failures detected"
