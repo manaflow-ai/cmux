@@ -86,6 +86,22 @@ struct WorkstreamTests {
         #expect(visible.contains { $0.id == created.id })
     }
 
+    @Test func attachingWorkspaceWhileDrilledInJoinsWorkstream() throws {
+        let source = makeTabManager()
+        let destination = makeTabManager()
+        let workstreamId = destination.createWorkstream(name: "Destination")
+        destination.enterWorkstream(id: workstreamId)
+        let movedId = source.tabs[0].id
+        let moved = try #require(source.detachWorkspace(tabId: movedId))
+
+        destination.attachWorkspace(moved)
+
+        let attached = try #require(destination.tabs.first { $0.id == movedId })
+        #expect(attached.workstreamId == workstreamId)
+        let visible = destination.tabs.filter { $0.workstreamId == destination.drilledInWorkstreamId }
+        #expect(visible.contains { $0.id == movedId })
+    }
+
     @Test func restoringClosedWorkspaceReconcilesDrillInToRestoredWorkstream() throws {
         let manager = makeTabManager()
         let restoredWorkstream = manager.createWorkstream(name: "Restored")
