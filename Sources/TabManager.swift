@@ -2800,6 +2800,27 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
+
+        // A genuinely-local surface explicitly configured to wait after its command exits must
+        // not be torn down when that command finishes: the user asked to keep it open to read
+        // the output (e.g. an agent/subtask split that streams progress and detaches its real
+        // work to the background, or an initial-command pane whose startup script printed an
+        // error). Collapsing it here is the "subagent split pane disappears when clicked while
+        // the task is still running" bug (#6244). This runs before every remote/last-panel
+        // teardown branch so the keep-open contract holds for any pane role, including a local
+        // helper that is the last pane in a remote workspace. The predicate excludes
+        // remote-tracked and pending-remote-exit surfaces, so remote surfaces still fall
+        // through to their dedicated handling below unchanged.
+        if tab.shouldKeepSurfaceOpenAfterCommandExit(surfaceId: surfaceId) {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.close.childExited.keepOpen tab=\(tabId.uuidString.prefix(5)) " +
+                "surface=\(surfaceId.uuidString.prefix(5)) reason=waitAfterCommand"
+            )
+#endif
+            return
+        }
+
         let keepsPersistentRemoteSurfaceOpen =
             tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
         if !keepsPersistentRemoteSurfaceOpen,

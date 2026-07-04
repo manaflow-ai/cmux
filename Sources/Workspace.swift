@@ -5611,6 +5611,50 @@ final class Workspace: Identifiable, ObservableObject {
         isRemoteWorkspace || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
     }
 
+    /// Whether a local surface must stay open after its child process exits because it
+    /// was configured to wait after its command. A surface created with an initial
+    /// command requests this so the user can keep reading its output after the foreground
+    /// command finishes — for example an agent/subtask split spawned via the
+    /// `surface.split` socket `initial_command` that detaches its real work to the
+    /// background, or an initial-command workspace whose startup script printed an error.
+    /// Without honoring it, the child exit silently collapses the surface — the
+    /// "subagent split pane disappears when clicked while the task is still running"
+    /// bug (https://github.com/manaflow-ai/cmux/issues/6244).
+    ///
+    /// `TabManager.closePanelAfterChildExited` consults this before every remote and
+    /// last-panel teardown branch, so the keep-open contract holds for any pane role —
+    /// split, sole pane, or a local helper pane in a remote workspace. Scoping is by the
+    /// surface's own remote state, not the workspace's: a pane created with an explicit
+    /// command is not tracked as a remote terminal surface (see `tracksRemoteTerminalSurface`
+    /// in the split/surface creation paths), even inside a remote workspace, so such a
+    /// subagent pane is kept open here too. Surfaces that are genuinely remote — tracked
+    /// remote terminals, those already routed through remote child-exit demotion, or a
+    /// persistent remote PTY attach whose session ended (still untracked with its own SSH
+    /// attach command + wait-after set, but owned by `shouldKeepPersistentRemoteSurfaceOpenAfterChildExit`)
+    /// — return `false` here so `closePanelAfterChildExited` runs their dedicated persistent-remote
+    /// keep-open branch, which also performs the remote cleanup (`markPersistentRemotePTYAttachFailed`)
+    /// this local path would otherwise skip.
+    @MainActor
+    func shouldKeepSurfaceOpenAfterCommandExit(surfaceId: UUID) -> Bool {
+        guard !isRemoteTerminalSurface(surfaceId),
+              !pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId),
+              !shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId) else {
+            return false
+        }
+        guard let surface = terminalPanel(for: surfaceId)?.surface else { return false }
+        // Gate on the surface's OWN explicit startup command, not the inheritable
+        // wait-after-command config bit alone. Ghostty's `wait_after_command` is copied
+        // into a split's inherited config (`cmuxInheritedSurfaceConfig` ->
+        // `CmuxSurfaceConfigTemplate(cConfig:)`), and the split/surface creation paths only
+        // force it on when the new surface has its own startup command — they never clear an
+        // inherited `true`. So a plain shell split off a wait-after pane can carry
+        // `waitAfterCommand == true` while having no command of its own, and such a pane must
+        // still close on a normal Ctrl-D/child exit. Requiring `initialCommand` keeps keep-open
+        // scoped to genuine subagent / initial-command panes (#6244) and never strands an
+        // ordinary shell open.
+        return surface.initialCommand != nil && surface.waitAfterCommand
+    }
+
     var remoteDisplayTarget: String? {
         remoteConfiguration?.displayTarget
     }
@@ -7273,6 +7317,20 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    // An explicit caller command runs instead of the remote startup script: it wins
+    // in `startupCommand`, and `remoteStartupCommandForEnvironment` is nil'd for it.
+    // Such a surface is a local pane even inside a remote workspace, so it must not
+    // be tracked as a remote terminal surface. A surface carrying a remote PTY
+    // session id is still genuinely remote and stays tracked.
+    private func tracksRemoteTerminalSurface(
+        explicitInitialCommand: String?,
+        remoteTerminalStartupCommand: String?,
+        normalizedRemotePTYSessionID: String?
+    ) -> Bool {
+        (explicitInitialCommand == nil && remoteTerminalStartupCommand != nil)
+            || normalizedRemotePTYSessionID != nil
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -7445,12 +7503,16 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let shouldTrackRemoteTerminalSurface = tracksRemoteTerminalSurface(
+            explicitInitialCommand: explicitInitialCommand,
+            remoteTerminalStartupCommand: remoteTerminalStartupCommand,
+            normalizedRemotePTYSessionID: normalizedRemotePTYSessionID
+        )
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
         }
-        if tracksRemoteTerminalSurface {
+        if shouldTrackRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -7487,7 +7549,7 @@ final class Workspace: Identifiable, ObservableObject {
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
-            if tracksRemoteTerminalSurface {
+            if shouldTrackRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
@@ -7725,12 +7787,16 @@ final class Workspace: Identifiable, ObservableObject {
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
-        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        let shouldTrackRemoteTerminalSurface = tracksRemoteTerminalSurface(
+            explicitInitialCommand: explicitInitialCommand,
+            remoteTerminalStartupCommand: remoteTerminalStartupCommand,
+            normalizedRemotePTYSessionID: normalizedRemotePTYSessionID
+        )
         if let normalizedRemotePTYSessionID {
             remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
             registerRemoteRelayIDAliases(remotePTYSessionID: normalizedRemotePTYSessionID, restoredPanelId: newPanel.id)
         }
-        if tracksRemoteTerminalSurface {
+        if shouldTrackRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -7748,7 +7814,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
-            if tracksRemoteTerminalSurface {
+            if shouldTrackRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
