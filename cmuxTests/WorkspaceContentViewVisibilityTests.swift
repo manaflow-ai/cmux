@@ -101,6 +101,20 @@ final class WorkspaceContentViewVisibilityTests {
             counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
         )
+
+        // The sidebar body stays stable above because the snapshot backing its
+        // rows is reused across non-structural workspace state changes. A
+        // workspace title update (e.g. an agent renaming its tab) must not
+        // rebuild the cached SidebarWorkspaceListSnapshot.
+        let reusedSnapshot = tabManager.sidebarWorkspaceListSnapshot
+        let reusedTabIds = reusedSnapshot.tabIds
+        let reusedVisibleRows = reusedSnapshot.visibleWorkspaceRowIds
+        let renamedWorkspace = try #require(tabManager.tabs.first)
+        renamedWorkspace.setCustomTitle("Agent updated title")
+        let snapshotAfterRename = tabManager.sidebarWorkspaceListSnapshot
+        #expect(snapshotAfterRename === reusedSnapshot)
+        #expect(snapshotAfterRename.tabIds == reusedTabIds)
+        #expect(snapshotAfterRename.visibleWorkspaceRowIds == reusedVisibleRows)
     }
 
     @MainActor

@@ -1,7 +1,8 @@
 import Foundation
+import CmuxWorkspaces
 
 struct WorkspaceGroupMoveToMenuState: Equatable {
-    let groups: [WorkspaceGroupMenuSnapshot.Item]
+    let groups: [WorkspaceGroupMenuSnapshotItem]
 
     var isDisabled: Bool {
         groups.isEmpty

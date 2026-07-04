@@ -3,7 +3,7 @@ import Testing
 
 import CmuxFoundation
 import CmuxSettings
-
+import CmuxWorkspaces
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -186,10 +186,10 @@ struct WorkspaceGroupTests {
         ]))
         manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let items = SidebarWorkspaceRenderItem.renderItems(
+        let items = SidebarWorkspaceListSnapshot(
             tabs: manager.tabs,
-            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
-        )
+            workspaceGroups: manager.workspaceGroups
+        ).workspaceRenderItems
 
         var groupMemberIds: [UUID] = []
         var visibleWorkspaceIds: [UUID] = []

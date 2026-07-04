@@ -14,6 +14,8 @@ let package = Package(
         ),
     ],
     dependencies: [
+        // Sidebar drop-indicator scope values live in CmuxFoundation.
+        .package(path: "../CmuxFoundation"),
         // WorkspaceGroupNewPlacement (the typed setting value for new
         // in-group workspace placement) is owned by CmuxSettings.
         .package(path: "../CmuxSettings"),
@@ -28,6 +30,7 @@ let package = Package(
         .target(
             name: "CmuxWorkspaces",
             dependencies: [
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),

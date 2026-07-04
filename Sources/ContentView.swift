@@ -10206,28 +10206,6 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func sidebarDropIndicatorRowIds(
-        draggedWorkspaceId: UUID,
-        scope: SidebarWorkspaceReorderDropIndicatorScope,
-        tabs: [Workspace],
-        workspaceGroups: [WorkspaceGroup],
-        visibleWorkspaceRowIds: [UUID]
-    ) -> [UUID] {
-        switch scope {
-        case .raw:
-            return tabs.map(\.id)
-        case .topLevel:
-            return tabManager.sidebarReorderWorkspaceIds(
-                forDraggedWorkspaceId: draggedWorkspaceId,
-                usesTopLevelRows: true
-            )
-        case .group(let groupId):
-            guard workspaceGroups.contains(where: { $0.id == groupId }) else { return [] }
-            let visibleIds = Set(visibleWorkspaceRowIds)
-            return tabs.filter { $0.groupId == groupId && visibleIds.contains($0.id) }.map(\.id)
-        }
-    }
-
     private var sidebarTopScrimHeight: CGFloat {
         SidebarWorkspaceListMetrics.topScrimHeight
     }
@@ -10374,7 +10352,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-        let workspaceRenderItems: [SidebarWorkspaceRenderItem]
+        let workspaceRenderItems: [SidebarWorkspaceRenderItem<Workspace>]
         let visibleWorkspaceRowIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
@@ -10384,22 +10362,13 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
 #endif
-        let tabs = tabManager.tabs
-        let workspaceCount = tabs.count
+        let sidebarSnapshot = tabManager.sidebarWorkspaceListSnapshot
+        let tabs = sidebarSnapshot.tabs
+        let workspaceCount = sidebarSnapshot.workspaceCount
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabIds = tabs.map(\.id)
-        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
-            ($0.element.id, $0.offset)
-        })
-        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
-            workspacesById: workspaceById,
-            liveWorkspaceIds: Set(tabIds)
-        )
-        let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
-        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let orderedSelectedTabs = sidebarSnapshot.orderedWorkspaces(for: selectedTabIds)
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
@@ -10409,48 +10378,35 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = tabManager.workspaceGroups
-        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
-        )
-        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
-            groupsById: workspaceGroupById
-        )
-        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         let draggedSidebarTabId = dragState.draggedTabId
         let dropIndicatorScope = dragState.dropIndicatorScope
         let sidebarReorderIds = draggedSidebarTabId.map {
-            sidebarDropIndicatorRowIds(
+            sidebarSnapshot.sidebarDropIndicatorRowIds(
                 draggedWorkspaceId: $0,
-                scope: dropIndicatorScope,
-                tabs: tabs,
-                workspaceGroups: workspaceGroups,
-                visibleWorkspaceRowIds: visibleWorkspaceRowIds
+                scope: dropIndicatorScope
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
-            tabIds: tabIds,
+            tabIds: sidebarSnapshot.tabIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
-            pinResolutionContext: pinResolutionContext,
-            tabIndexById: tabIndexById,
-            workspaceById: workspaceById,
-            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
+            pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext(sidebarSnapshot: sidebarSnapshot),
+            tabIndexById: sidebarSnapshot.tabIndexById,
+            workspaceById: sidebarSnapshot.workspaceById,
+            workspaceGroupIdByWorkspaceId: sidebarSnapshot.workspaceGroupIdByWorkspaceId,
             selectedContextTargetIds: selectedContextTargetIds,
             selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
             allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
-            workspaceGroups: workspaceGroups,
-            workspaceGroupById: workspaceGroupById,
-            workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
-            workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            workspaceGroups: sidebarSnapshot.workspaceGroups,
+            workspaceGroupById: sidebarSnapshot.workspaceGroupById,
+            workspaceGroupMenuSnapshot: sidebarSnapshot.workspaceGroupMenuSnapshot,
+            workspaceRenderItems: sidebarSnapshot.workspaceRenderItems,
+            visibleWorkspaceRowIds: sidebarSnapshot.visibleWorkspaceRowIds
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -15828,8 +15784,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             guard let targetTabId else { return true }
             let usesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
                 forDraggedWorkspaceId: draggedTabId,
-                targetWorkspaceId: targetTabId,
-                workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
+                targetWorkspaceId: targetTabId
             )
             return tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedTabId,
@@ -15906,8 +15861,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         }
         let defaultUsesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,
-            targetWorkspaceId: targetTabId,
-            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
+            targetWorkspaceId: targetTabId
         )
         let explicitGroupId: UUID? = nil
         let usesTopLevelRows = usesTopLevelRowsForDrop(
@@ -16124,8 +16078,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         }
         let defaultUsesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: dragState.draggedTabId,
-            targetWorkspaceId: targetTabId,
-            workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId
+            targetWorkspaceId: targetTabId
         )
         let explicitGroupId: UUID? = nil
         let usesTopLevelRows = usesTopLevelRowsForDrop(

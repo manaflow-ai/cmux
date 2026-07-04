@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -17,7 +18,7 @@ struct WorkspaceGroupMoveToMenuStateTests {
     }
 
     @Test func usesSubmenuWhenGroupsExist() {
-        let group = WorkspaceGroupMenuSnapshot.Item(
+        let group = WorkspaceGroupMenuSnapshotItem(
             id: UUID(),
             name: "Group"
         )
