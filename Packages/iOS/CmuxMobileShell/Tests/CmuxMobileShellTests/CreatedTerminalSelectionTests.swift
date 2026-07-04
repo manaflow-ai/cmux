@@ -38,7 +38,7 @@ import Testing
         #expect(store.selectedTerminalID == created)
     }
 
-    @Test func createdTerminalSelectionSurvivesRefreshBeforeTerminalAppears() throws {
+    @Test func createdTerminalSelectionFallsBackWhenTerminalIsAbsent() throws {
         let store = MobileShellComposite.preview()
         store.signIn()
         store.pairingCode = "debug"
@@ -46,6 +46,7 @@ import Testing
 
         store.createTerminal()
         let created = try #require(store.selectedTerminalID)
+        let fallback = MobileTerminalPreview.ID(rawValue: "terminal-build")
 
         store.replaceForegroundWorkspaceState([
             MobileWorkspacePreview(
@@ -53,7 +54,7 @@ import Testing
                 name: "cmux",
                 terminals: [
                     MobileTerminalPreview(
-                        id: "terminal-build",
+                        id: fallback,
                         name: "Build",
                         isReady: true,
                         isFocused: true
@@ -63,7 +64,8 @@ import Testing
         ])
         store.selectedWorkspaceID = "workspace-main"
 
-        #expect(store.selectedTerminalID == created)
+        #expect(store.selectedTerminalID == fallback)
+        #expect(store.selectedTerminalID != created)
     }
 
     @Test func createdTerminalPinDoesNotLeakAcrossWorkspaceSwitch() throws {
