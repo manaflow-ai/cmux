@@ -2821,7 +2821,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
             DispatchQueue.main.async {
-                surfaceView.updateGhosttyMouseShape(shape)
+                surfaceView.applyGhosttyMouseShape(shape)
             }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
@@ -3429,7 +3429,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return { retention.release() }
     }
 
-    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+    static func cursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
             return .arrow
@@ -3471,10 +3471,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
+    func applyGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
         guard ghosttyMouseShape != shape else { return }
         ghosttyMouseShape = shape
-        window?.invalidateCursorRects(for: self)
+        refreshTerminalCursor()
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -3570,7 +3570,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
-    private var wordPathHoverActive = false
+    /// Whether the Cmd-hover word-path affordance (pointing hand over a
+    /// resolvable filename) is active. Toggling it refreshes the terminal
+    /// cursor so the pointing hand overrides the libghostty-requested mouse
+    /// shape while a hovered path is resolvable.
+    private var wordPathHoverActive = false {
+        didSet {
+            guard wordPathHoverActive != oldValue else { return }
+            refreshTerminalCursor()
+        }
+    }
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
@@ -3852,7 +3861,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Reset any OSC 22 mouse shape carried over from the previous
             // surface; the newly-bound surface re-emits its own shape via
             // GHOSTTY_ACTION_MOUSE_SHAPE if it has one.
-            updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
+            applyGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -3875,11 +3884,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
-        // Balance the cursor stack if the view is removed while hover is active
-        if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
+        // Clear any Cmd-hover affordance when the view changes windows; the
+        // didSet refreshes the cursor rect for the new window.
+        wordPathHoverActive = false
 #if DEBUG
         cmuxDebugLog(
             "surface.view.windowMove surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
@@ -3981,7 +3988,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(bounds, cursor: Self.ghosttyMouseCursor(for: ghosttyMouseShape))
+        addCursorRect(bounds, cursor: effectiveTerminalCursor)
     }
 
     override var isOpaque: Bool { false }
@@ -6651,10 +6658,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) {
         let hoverWasActive = wordPathHoverActive
         guard cmdHeld, !suppressPathHover else {
-            if wordPathHoverActive {
-                wordPathHoverActive = false
-                NSCursor.pop()
-            }
+            wordPathHoverActive = false
 #if DEBUG
             if cmdHeld || suppressPathHover || hoverWasActive {
                 runtimeDebugLog(
@@ -6675,15 +6679,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         let resolution = resolveWordUnderCursorPath(at: point)
-        if resolution != nil {
-            if !wordPathHoverActive {
-                wordPathHoverActive = true
-                NSCursor.pointingHand.push()
-            }
-        } else if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
+        // The didSet refreshes the cursor rect when the hover state flips, which
+        // makes the pointing hand override the libghostty mouse shape.
+        wordPathHoverActive = resolution != nil
 #if DEBUG
         if cmdHeld || hoverWasActive || wordPathHoverActive || resolution != nil {
             var payload: [String: Any] = [
@@ -7400,10 +7398,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
-        if wordPathHoverActive {
-            wordPathHoverActive = false
-            NSCursor.pop()
-        }
+        wordPathHoverActive = false
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
@@ -7540,6 +7535,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let trackingArea {
             addTrackingArea(trackingArea)
         }
+    }
+
+    // MARK: - Mouse cursor shape
+
+    /// The cursor the terminal viewport should display. The libghostty-requested
+    /// shape (`ghosttyMouseShape`) is the default, but the Cmd-hover
+    /// word-path affordance overrides it with a pointing hand while a hovered
+    /// filename is resolvable.
+    var effectiveTerminalCursor: NSCursor {
+        wordPathHoverActive ? .pointingHand : Self.cursor(for: ghosttyMouseShape)
+    }
+
+    /// Re-establish the viewport cursor rect so AppKit re-applies the current
+    /// `effectiveTerminalCursor` at the pointer's location.
+    private func refreshTerminalCursor() {
+        window?.invalidateCursorRects(for: self)
     }
 
     private func windowDidChangeScreen(_ notification: Notification) {
