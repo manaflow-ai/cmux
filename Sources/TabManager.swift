@@ -206,6 +206,25 @@ class TabManager: ObservableObject {
         set { workspaces.workspaceGroups = newValue }
     }
 
+    /// Top-level workstreams (drill-in master list). Array order is the order
+    /// rows appear in. Membership lives on each `Workspace.workstreamId`.
+    var workstreams: [Workstream] {
+        get { workspaces.workstreams }
+        set { workspaces.workstreams = newValue }
+    }
+
+    /// The workstream the sidebar is currently drilled into, or nil for the
+    /// top-level master view. Drives the drill-in sidebar filtering.
+    var drilledInWorkstreamId: UUID? {
+        get { workspaces.drilledInWorkstreamId }
+        set { workspaces.drilledInWorkstreamId = newValue }
+    }
+
+    /// Observed revision bumped on workstream membership add/remove. The sidebar
+    /// reads it so SwiftUI re-renders when a workspace's `workstreamId` changes
+    /// without the `tabs`/`workstreams` arrays themselves changing.
+    var workstreamMembershipRevision: Int { workspaces.workstreamMembershipRevision }
+
     /// Legacy Combine bridge for the remaining `tabManager.$tabs`
     /// subscribers. Driven exclusively from `workspaceTabsWillChange(to:)`,
     /// so it emits the new value during willSet and replays the current
@@ -413,6 +432,7 @@ class TabManager: ObservableObject {
     // (CmuxWorkspaces); creation/teardown/selection invert through
     // WorkspaceGroupHosting.
     let workspaceGrouping: WorkspaceGroupCoordinator<Workspace>
+    let workstreamCoordinator: WorkstreamCoordinator<Workspace>
     private var shouldRecordFocusHistory: Bool {
         focusHistoryNavigation.shouldRecordFocusHistory
     }
@@ -476,6 +496,7 @@ class TabManager: ObservableObject {
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
+        workstreamCoordinator = WorkstreamCoordinator(model: workspaces)
 #if DEBUG
         let isTitleUpdateCoalescingEnabled = PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings)
         let areTitleUpdateDiagnosticsEnabled = PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings)
@@ -1099,6 +1120,14 @@ class TabManager: ObservableObject {
                 from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
+            // When the sidebar is drilled into a workstream, a workspace created
+            // from the shared path (Cmd+N, plus button, group creation) must join
+            // that workstream. Otherwise it keeps workstreamId == nil, fails the
+            // drill-in filter (workstreamId == drilledInWorkstreamId), and becomes
+            // a focused-but-invisible row missing from the list and breadcrumb count.
+            if let drilledInWorkstreamId, newWorkspace.workstreamId != drilledInWorkstreamId {
+                newWorkspace.workstreamId = drilledInWorkstreamId
+            }
             if title != nil {
                 newWorkspace.setCustomTitle(title)
             }
@@ -2047,11 +2076,7 @@ class TabManager: ObservableObject {
             workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: workspace.id)
 
             if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
-                let newIndex = min(index, max(0, tabs.count - 1))
-                selectedTabId = tabs[newIndex].id
+                selectedTabId = fallbackSelectedWorkspaceIdAfterClosingWorkspace(at: index)
             }
         }
         publishCmuxWorkspaceClosed(workspace)
@@ -2072,10 +2097,10 @@ class TabManager: ObservableObject {
         // anchor dissolves the group; non-anchor members stay in tabs as
         // ungrouped workspaces.
         workspaces.dissolveGroupsAnchoredBy(closedWorkspaceId: removed.id)
-        // Clear the detached workspace's own group membership so the
-        // destination window — which has no matching WorkspaceGroup — doesn't
-        // render it as an orphaned indented row with stale grouping state.
+        // Clear detached membership; the destination owns these containers and
+        // may reassign workstream membership when attaching into drill-in.
         removed.groupId = nil
+        removed.workstreamId = nil
         unwireClosedBrowserTracking(for: removed)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: removed.id)
         removed.owningTabManager = nil
@@ -2098,6 +2123,9 @@ class TabManager: ObservableObject {
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
         workspace.owningTabManager = self
+        if let drilledInWorkstreamId, workstreams.contains(where: { $0.id == drilledInWorkstreamId }) {
+            workspace.workstreamId = drilledInWorkstreamId
+        }
         wireClosedBrowserTracking(for: workspace)
         let insertIndex: Int = {
             guard let index else { return tabs.count }
@@ -4150,18 +4178,17 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
-        // The snapshot may carry a groupId for a group that no longer exists
-        // in this TabManager (e.g. the group was dissolved between close and
-        // reopen). Drop those stale references so the restored workspace
-        // doesn't render as an orphaned indented row under no header.
+        // Drop stale group/workstream references from snapshots whose containers
+        // were dissolved while the workspace was closed.
         if let groupId = workspace.groupId,
            !workspaceGroups.contains(where: { $0.id == groupId }) {
             workspace.groupId = nil
         }
-        // When the group DOES still exist, the workspace is about to be
-        // reinserted at its old absolute index, which may now sit inside a
-        // different group section after intervening reorders. Renormalize
-        // so the restored member lands beside its group.
+        if let workstreamId = workspace.workstreamId,
+           !workstreams.contains(where: { $0.id == workstreamId }) {
+            workspace.workstreamId = nil
+        }
+        // Renormalize restored group members after reinserting at their old index.
         let needsNormalize = workspace.groupId != nil && !workspaceGroups.isEmpty
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
@@ -5545,10 +5572,6 @@ extension TabManager {
         hasher.combine(tabs.count)
         let notificationStore = AppDelegate.shared?.notificationStore
 
-        // Workspace groups participate in the session snapshot, so changes
-        // that only touch group metadata (rename / collapse / pin a group,
-        // or move a workspace between groups without reordering tabs) must
-        // bump the fingerprint or the autosave timer skips the write.
         hasher.combine(workspaceGroups.count)
         for group in workspaceGroups {
             hasher.combine(group.id)
@@ -5559,9 +5582,18 @@ extension TabManager {
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
         }
+        hasher.combine(workstreams.count)
+        for workstream in workstreams {
+            hasher.combine(workstream.id)
+            hasher.combine(workstream.name)
+            hasher.combine(workstream.customColor ?? "")
+            hasher.combine(workstream.iconSymbol ?? "")
+        }
+        hasher.combine(drilledInWorkstreamId)
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
+            hasher.combine(workspace.workstreamId)
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")
@@ -5877,10 +5909,27 @@ extension TabManager {
                 }
             return snapshots.isEmpty ? nil : snapshots
         }()
+        // Persist workstreams in master-list order; workspace snapshots carry membership.
+        let workstreamSnapshots: [SessionWorkstreamSnapshot]? = {
+            let snapshots = workstreams.map { workstream in
+                SessionWorkstreamSnapshot(
+                    id: workstream.id,
+                    name: workstream.name,
+                    customColor: workstream.customColor,
+                    iconSymbol: workstream.iconSymbol
+                )
+            }
+            return snapshots.isEmpty ? nil : snapshots
+        }()
+        let drilledInWorkstreamId = workstreams.contains(where: { $0.id == self.drilledInWorkstreamId })
+            ? self.drilledInWorkstreamId
+            : nil
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
             workspaces: workspaceSnapshots,
-            workspaceGroups: groupSnapshots
+            workspaceGroups: groupSnapshots,
+            workstreams: workstreamSnapshots,
+            drilledInWorkstreamId: drilledInWorkstreamId
         )
     }
 
@@ -6025,6 +6074,19 @@ extension TabManager {
             workspace.groupId = nil
         }
         workspaceGroups = restoredGroups
+        // Reconstruct workstreams (stable ids; membership already restored onto
+        // each workspace's workstreamId above). normalizeWorkstreamState clears
+        // any workstreamId / drill-in pointer that no longer resolves.
+        workstreams = (snapshot.workstreams ?? []).map { workstreamSnapshot in
+            Workstream(
+                id: workstreamSnapshot.id,
+                name: workstreamSnapshot.name,
+                customColor: workstreamSnapshot.customColor,
+                iconSymbol: workstreamSnapshot.iconSymbol
+            )
+        }
+        drilledInWorkstreamId = snapshot.drilledInWorkstreamId
+        workspaces.normalizeWorkstreamState()
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)

@@ -6,17 +6,20 @@ import Testing
 private final class StubTab: WorkspaceTabRepresenting {
     let id: UUID
     var groupId: UUID?
+    var workstreamId: UUID?
     var isPinned: Bool
     var currentDirectory: String
 
     init(
         id: UUID = UUID(),
         groupId: UUID? = nil,
+        workstreamId: UUID? = nil,
         isPinned: Bool = false,
         currentDirectory: String = "/tmp"
     ) {
         self.id = id
         self.groupId = groupId
+        self.workstreamId = workstreamId
         self.isPinned = isPinned
         self.currentDirectory = currentDirectory
     }

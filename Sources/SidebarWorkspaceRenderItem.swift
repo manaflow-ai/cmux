@@ -5,13 +5,13 @@ import Foundation
 @MainActor
 enum SidebarWorkspaceRenderItem {
     case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID])
-    case workspace(Workspace)
+    case workspace(Workspace, renderGroupId: UUID?)
 
     var id: SidebarWorkspaceRenderItemID {
         switch self {
         case .groupHeader(let group, _):
             return .group(group.id)
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return .workspace(workspace.id)
         }
     }
@@ -20,9 +20,28 @@ enum SidebarWorkspaceRenderItem {
         switch self {
         case .groupHeader(let group, _):
             return group.anchorWorkspaceId
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return workspace.id
         }
+    }
+
+    static func workspaceGroupIdsByWorkspaceId(_ items: [SidebarWorkspaceRenderItem]) -> [UUID: UUID?] {
+        var idsByWorkspaceId: [UUID: UUID?] = [:]
+        for item in items {
+            switch item {
+            case .groupHeader(let group, let memberWorkspaceIds):
+                for memberId in memberWorkspaceIds {
+                    idsByWorkspaceId[memberId] = group.id
+                }
+            case .workspace(let workspace, let renderGroupId):
+                if let renderGroupId {
+                    idsByWorkspaceId[workspace.id] = renderGroupId
+                } else {
+                    idsByWorkspaceId.removeValue(forKey: workspace.id)
+                }
+            }
+        }
+        return idsByWorkspaceId
     }
 
     static func renderItems(
@@ -30,6 +49,8 @@ enum SidebarWorkspaceRenderItem {
         groupsById: [UUID: WorkspaceGroup]
     ) -> [SidebarWorkspaceRenderItem] {
         guard !tabs.isEmpty else { return [] }
+        let tabIds = Set(tabs.map(\.id))
+        let renderableGroupsById = groupsById.filter { tabIds.contains($0.value.anchorWorkspaceId) }
         var memberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
         for tab in tabs {
             if let gid = tab.groupId {
@@ -37,7 +58,7 @@ enum SidebarWorkspaceRenderItem {
             }
         }
         var items: [SidebarWorkspaceRenderItem] = []
-        items.reserveCapacity(tabs.count + groupsById.count)
+        items.reserveCapacity(tabs.count + renderableGroupsById.count)
         var lastEmittedGroupId: UUID? = nil
         var emittedHeaders: Set<UUID> = []
         var collapsedByGroupId: [UUID: Bool] = [:]
@@ -47,7 +68,7 @@ enum SidebarWorkspaceRenderItem {
             if groupId != lastEmittedGroupId {
                 lastEmittedGroupId = groupId
                 skipChildrenUntilNextGroup = false
-                if let groupId, let group = groupsById[groupId] {
+                if let groupId, let group = renderableGroupsById[groupId] {
                     if !emittedHeaders.contains(groupId) {
                         let memberWorkspaceIds = memberWorkspaceIdsByGroupId[groupId] ?? []
                         items.append(.groupHeader(group, memberWorkspaceIds: memberWorkspaceIds))
@@ -60,13 +81,18 @@ enum SidebarWorkspaceRenderItem {
                 }
             }
             // Anchor workspaces are represented exclusively by the group header.
-            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
+            if let groupId, let group = renderableGroupsById[groupId], group.anchorWorkspaceId == tab.id {
                 continue
             }
             if groupId == nil || !skipChildrenUntilNextGroup {
-                items.append(.workspace(tab))
+                let renderGroupId = groupId.flatMap { renderableGroupsById[$0] == nil ? nil : $0 }
+                items.append(.workspace(tab, renderGroupId: renderGroupId))
             }
         }
         return items
+    }
+
+    static func rowWorkspaceIds(tabs: [Workspace], groupsById: [UUID: WorkspaceGroup]) -> [UUID] {
+        renderItems(tabs: tabs, groupsById: groupsById).map(\.rowWorkspaceId)
     }
 }

@@ -3147,12 +3147,6 @@ class TerminalController {
     // MARK: - V2 Context Resolution
 
     nonisolated func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
-        // Prefer explicit window_id routing. Otherwise prefer group_id (group
-        // methods are the only routing key for cross-window group ops, and
-        // CLI helpers always inject caller workspace_id/surface_id, which
-        // would otherwise win even when the group belongs to a different
-        // window). Fall back to workspace/surface/pane lookup, then the
-        // active window's TabManager.
         if v2HasNonNullParam(params, "window_id") {
             guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
@@ -3190,23 +3184,27 @@ class TerminalController {
 
     @MainActor
     private func v2LocateTabManager(forGroupId groupId: UUID) -> TabManager? {
+        v2LocateTabManager { $0.workspaceGroups.contains(where: { $0.id == groupId }) }
+    }
+
+    @MainActor
+    private func v2LocateTabManager(forWorkstreamId workstreamId: UUID) -> TabManager? {
+        v2LocateTabManager { $0.workstreams.contains(where: { $0.id == workstreamId }) }
+    }
+
+    @MainActor
+    private func v2LocateTabManager(matching predicate: (TabManager) -> Bool) -> TabManager? {
         guard let app = AppDelegate.shared else { return nil }
         for summary in app.listMainWindowSummaries() {
             guard let tm = app.tabManagerFor(windowId: summary.windowId) else { continue }
-            if tm.workspaceGroups.contains(where: { $0.id == groupId }) {
+            if predicate(tm) {
                 return tm
             }
         }
         return nil
     }
 
-    /// Mirrors the former `v2ResolveTabManager` precedence for the
-    /// ``ControlCommandContext`` window resolution, operating on selectors the
-    /// coordinator already resolved through the shared handle registry: explicit
-    /// `window_id` wins (a present-but-unresolvable one yields no target), then
-    /// group, workspace, surface, pane, then the caller's window, then the
-    /// active scriptable window. Lives here so it can read the controller's
-    /// `private` `tabManager` / `v2LocateTabManager`.
+    /// Resolves coordinator routing selectors to a `TabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
@@ -3216,6 +3214,10 @@ class TerminalController {
            let tm = v2LocateTabManager(forGroupId: groupId) {
             return tm
         }
+        if let workstreamId = routing.workstreamID,
+           let tm = v2LocateTabManager(forWorkstreamId: workstreamId) {
+            return tm
+        }
         if let workspaceId = routing.workspaceID {
             if workspaceId == AppDelegate.windowDockAliasWorkspaceId {
                 return tabManager ?? AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
@@ -3223,8 +3225,6 @@ class TerminalController {
             if let tm = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) {
                 return tm
             }
-            // A window-Dock owner id IS its owning window's id, so a Dock-scoped
-            // workspace_id routes to that window rather than the caller's.
             if let tm = AppDelegate.shared?.tabManagerForWindowDockOwner(workspaceId) {
                 return tm
             }
@@ -4046,13 +4046,12 @@ class TerminalController {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
 
             @MainActor
-            func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
+            func closeWorkspaces(_ workspaceIds: [UUID]) -> Int {
                 var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
-                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
-                    guard existedBefore else { continue }
+                for candidateId in workspaceIds where candidateId != workspace.id {
+                    guard let candidate = tabManager.tabs.first(where: { $0.id == candidateId && !$0.isPinned }) else { continue }
                     tabManager.closeWorkspace(candidate)
-                    if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
+                    if !tabManager.tabs.contains(where: { $0.id == candidateId }) {
                         closed += 1
                     }
                 }
@@ -4111,51 +4110,27 @@ class TerminalController {
                 finish(["description": NSNull()])
 
             case "move_up":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: max(currentIndex - 1, 0))
+                _ = tabManager.moveWorkspaceInSidebarScope(tabId: workspace.id, by: -1)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "move_down":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: min(currentIndex + 1, tabManager.tabs.count - 1))
+                _ = tabManager.moveWorkspaceInSidebarScope(tabId: workspace.id, by: 1)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "move_top":
-                tabManager.moveTabToTop(workspace.id)
+                _ = tabManager.moveWorkspaceToTopInSidebarScope(tabId: workspace.id)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "close_others":
-                let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                let closed = closeWorkspaces(tabManager.workspaceIdsForClosingOtherSidebarRows(keeping: [workspace.id]))
                 finish(["closed": closed])
 
             case "close_above":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                let closed = closeWorkspaces(tabManager.workspaceIdsForClosingSidebarRowsAbove(tabId: workspace.id))
                 finish(["closed": closed])
 
             case "close_below":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                let candidates: [Workspace]
-                if index + 1 < tabManager.tabs.count {
-                    candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
-                } else {
-                    candidates = []
-                }
-                let closed = closeWorkspaces(candidates)
+                let closed = closeWorkspaces(tabManager.workspaceIdsForClosingSidebarRowsBelow(tabId: workspace.id))
                 finish(["closed": closed])
 
             case "mark_read":

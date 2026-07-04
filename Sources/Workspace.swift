@@ -125,6 +125,7 @@ extension Workspace {
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
+            workstreamId: workstreamId,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
@@ -215,6 +216,7 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
+        workstreamId = snapshot.workstreamId
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -2257,6 +2259,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
+    /// Identifier of the Workstream this workspace belongs to, or nil if it is
+    /// not in any workstream. Orthogonal to `groupId`: a workspace can be in a
+    /// top-level workstream (the drill-in container) and an inline group at the
+    /// same time. The workstream entity lives in `TabManager.workstreams`.
+    @Published var workstreamId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every

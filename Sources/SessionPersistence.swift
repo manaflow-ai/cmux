@@ -1832,6 +1832,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customColor: String?
     var isPinned: Bool
     var groupId: UUID? = nil
+    /// The owning `Workstream.id`, or nil. Optional with a `nil` default so
+    /// snapshots written before workstreams existed decode unchanged.
+    var workstreamId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
     var notifications: [SessionNotificationSnapshot]? = nil
@@ -1890,10 +1893,28 @@ extension SessionWindowSnapshot {
     }
 }
 
+/// Persisted form of a top-level `Workstream`. Workstream ids are stable
+/// across restart (unlike workspace ids), so membership reconnects directly
+/// from each workspace snapshot's `workstreamId` and the drill-in pointer
+/// resolves without index remapping. Optional fields default to `nil` for
+/// forward/backward compatibility.
+struct SessionWorkstreamSnapshot: Codable, Sendable, Equatable {
+    var id: UUID
+    var name: String
+    var customColor: String? = nil
+    var iconSymbol: String? = nil
+}
+
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
+    /// Top-level workstreams in master-list order. Absent (nil) in snapshots
+    /// written before workstreams existed → restored as no workstreams.
+    var workstreams: [SessionWorkstreamSnapshot]? = nil
+    /// The workstream the sidebar was drilled into, or nil for the top-level
+    /// view. Persisted last-viewed navigation state.
+    var drilledInWorkstreamId: UUID? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

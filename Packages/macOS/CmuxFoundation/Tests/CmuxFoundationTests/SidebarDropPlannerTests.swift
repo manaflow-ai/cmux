@@ -31,4 +31,36 @@ import Testing
                 planner.workspaceAction(for: point, targets: targets)
         )
     }
+
+    @Test func remappedTargetIndexKeepsHiddenRowsOutOfScopedReorders() throws {
+        let first = UUID()
+        let hidden = UUID()
+        let second = UUID()
+        let third = UUID()
+        let planner = SidebarDropPlanner()
+
+        let targetIndex = try #require(planner.remappedTargetIndex(
+            scopedTargetIndex: 1,
+            draggedTabId: first,
+            scopedTabIds: [first, second],
+            destinationTabIds: [first, hidden, second, third]
+        ))
+
+        #expect(targetIndex == 2)
+    }
+
+    @Test func remappedInsertionIndexKeepsHiddenRowsOutOfScopedCrossWindowDrops() {
+        let first = UUID()
+        let hidden = UUID()
+        let second = UUID()
+        let planner = SidebarDropPlanner()
+
+        let insertionIndex = planner.remappedInsertionIndex(
+            scopedInsertionIndex: 1,
+            scopedTabIds: [first, second],
+            destinationTabIds: [first, hidden, second]
+        )
+
+        #expect(insertionIndex == 2)
+    }
 }

@@ -194,16 +194,13 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// The browser pane shown when this workspace has an active browser surface.
-    /// It carries its own navigation chrome, so it does not get the terminal's
-    /// keyboard/safe-area handling. Closing returns to the terminal.
+    /// Browser pane for an active browser surface, with its own navigation chrome.
     @ViewBuilder
     private func browserContent(_ browser: BrowserSurfaceState) -> some View {
         MobileBrowserPane(
             state: browser,
             onClose: { browserStore.closeBrowser(for: workspace.id.rawValue) }
         )
-        // Key on the surface id so switching/reopening rebuilds the WKWebView.
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

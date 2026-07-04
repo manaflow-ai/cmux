@@ -6149,12 +6149,13 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceCanvasLayout,
                 workspace.layoutMode == .canvas
             )
-            let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
-            snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)
+            let workspaceIndex = tabManager.sidebarScopedWorkspaceIndex(tabId: workspace.id)
+            let scopedWorkspaceCount = tabManager.sidebarScopedWorkspaceRowIds().count
+            snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, workspaceIndex != nil && scopedWorkspaceCount > 1)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasAbove, (workspaceIndex ?? 0) > 0)
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasBelow,
-                (workspaceIndex ?? tabManager.tabs.count - 1) < tabManager.tabs.count - 1
+                workspaceIndex.map { $0 < scopedWorkspaceCount - 1 } ?? false
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkRead,
@@ -7788,7 +7789,10 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            tabManager.moveTabsToTop([workspace.id])
+            guard tabManager.moveWorkspaceToTopInSidebarScope(tabId: workspace.id) else {
+                NSSound.beep()
+                return
+            }
             tabManager.selectWorkspace(workspace)
         }
         registry.register(commandId: "palette.closeOtherWorkspaces") {
@@ -9145,17 +9149,9 @@ struct ContentView: View {
         )
     }
 
-    private func selectedWorkspaceIndex() -> Int? {
-        guard let workspace = tabManager.selectedWorkspace else { return nil }
-        return tabManager.tabs.firstIndex { $0.id == workspace.id }
-    }
-
     private func moveSelectedWorkspace(by delta: Int) {
         guard let workspace = tabManager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex() else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+              tabManager.moveWorkspaceInSidebarScope(tabId: workspace.id, by: delta) else { return }
         tabManager.selectWorkspace(workspace)
     }
 
@@ -9165,21 +9161,19 @@ struct ContentView: View {
 
     private func closeOtherSelectedWorkspaces() {
         guard let workspace = tabManager.selectedWorkspace else { return }
-        let workspaceIds = tabManager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
+        let workspaceIds = tabManager.workspaceIdsForClosingOtherSidebarRows(keeping: [workspace.id])
         closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow() {
-        guard tabManager.selectedWorkspace != nil,
-              let anchorIndex = selectedWorkspaceIndex() else { return }
-        let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
+        guard let workspace = tabManager.selectedWorkspace else { return }
+        let workspaceIds = tabManager.workspaceIdsForClosingSidebarRowsBelow(tabId: workspace.id)
         closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove() {
-        guard tabManager.selectedWorkspace != nil,
-              let anchorIndex = selectedWorkspaceIndex() else { return }
-        let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
+        guard let workspace = tabManager.selectedWorkspace else { return }
+        let workspaceIds = tabManager.workspaceIdsForClosingSidebarRowsAbove(tabId: workspace.id)
         closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
@@ -10190,14 +10184,12 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    /// Constructs the drop delegate for the empty area in the parent scope,
-    /// so the child view receives a closure-bundle-equivalent value rather
-    /// than an `@Observable` store.
     private func emptyAreaTabDropDelegate(renderContext: WorkspaceListRenderContext) -> SidebarTabDropDelegate {
         SidebarTabDropDelegate(
             targetTabId: nil,
             tabManager: tabManager,
             workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
+            scopedWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
             dragState: dragState,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -10207,7 +10199,6 @@ struct VerticalTabsSidebar: View {
     }
 
     private func sidebarDropIndicatorRowIds(
-        draggedWorkspaceId: UUID,
         scope: SidebarWorkspaceReorderDropIndicatorScope,
         tabs: [Workspace],
         workspaceGroups: [WorkspaceGroup],
@@ -10217,10 +10208,7 @@ struct VerticalTabsSidebar: View {
         case .raw:
             return tabs.map(\.id)
         case .topLevel:
-            return tabManager.sidebarReorderWorkspaceIds(
-                forDraggedWorkspaceId: draggedWorkspaceId,
-                usesTopLevelRows: true
-            )
+            return visibleWorkspaceRowIds
         case .group(let groupId):
             guard workspaceGroups.contains(where: { $0.id == groupId }) else { return [] }
             let visibleIds = Set(visibleWorkspaceRowIds)
@@ -10353,11 +10341,8 @@ struct VerticalTabsSidebar: View {
 
     struct WorkspaceListRenderContext {
         let tabs: [Workspace]
-        /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
-        /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
-        /// O(n) per row.
+        let reorderTabs: [Workspace]
         let tabIds: [UUID]
-        /// Drag-scope row ids shared by every visible row for this render pass.
         let sidebarReorderIds: [UUID]
         let workspaceCount: Int
         let canCloseWorkspace: Bool
@@ -10376,6 +10361,14 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let visibleWorkspaceRowIndexById: [UUID: Int]
+        // Workstreams (top-level drill-in). When `drilledInWorkstreamId` is nil
+        // and `workstreamRowSnapshots` is empty, every workstream field is
+        // inert and the sidebar renders exactly as it did before workstreams.
+        let drilledInWorkstreamId: UUID?
+        let drilledInWorkstreamName: String?
+        let drilledInWorkstreamWorkspaceCount: Int
+        let workstreamRowSnapshots: [SidebarWorkstreamRowSnapshot]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -10398,8 +10391,30 @@ struct VerticalTabsSidebar: View {
             workspacesById: workspaceById,
             liveWorkspaceIds: Set(tabIds)
         )
-        let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
-        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
+        let workspaceGroups = tabManager.workspaceGroups
+        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
+            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+        )
+        // Drill-in filter: top level shows workstream-less workspaces; drilled-in
+        // shows only that workstream. With no workstreams this is identity.
+        let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
+        let workstreams = tabManager.workstreams
+        // Establish an observation dependency on membership revisions so add/
+        // remove (which only mutate Workspace.workstreamId, not the observed
+        // arrays) re-render this body. `let _ =` (a declaration) is required
+        // here: a bare `_ = expr` statement is rejected by @ViewBuilder.
+        let _ = tabManager.workstreamMembershipRevision
+        let visibleTabs = tabs.filter { $0.workstreamId == drilledInWorkstreamId }
+        let visibleTabIds = Set(visibleTabs.map(\.id))
+        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: visibleTabs,
+            groupsById: workspaceGroupById
+        )
+        let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.workspaceGroupIdsByWorkspaceId(workspaceRenderItems)
+        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let visibleWorkspaceRowIndexById = Dictionary(uniqueKeysWithValues: visibleWorkspaceRowIds.enumerated().map { ($0.element, $0.offset) })
+        let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) && visibleTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
@@ -10409,29 +10424,32 @@ struct VerticalTabsSidebar: View {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = tabManager.workspaceGroups
-        let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
-        )
-        let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
+        // Read unread via the observed `sidebarUnread` projection (NOT the
+        // unobserved notificationStore singleton) so the rollup re-renders when
+        // unread changes — important when every workspace lives in a workstream
+        // and no loose workspace row establishes the observation.
+        let workstreamRowSnapshots = SidebarWorkstreamRenderModel.rowSnapshots(
+            workstreams: workstreams,
             tabs: tabs,
-            groupsById: workspaceGroupById
+            selectedWorkspaceId: tabManager.selectedTabId,
+            unreadCount: { sidebarUnread.unreadCount(forWorkspaceId: $0) }
         )
-        let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let drilledInWorkstreamName = drilledInWorkstreamId
+            .flatMap { id in workstreams.first(where: { $0.id == id })?.name }
+        let drilledInWorkstreamWorkspaceCount = drilledInWorkstreamId == nil ? 0 : visibleTabs.count
         let draggedSidebarTabId = dragState.draggedTabId
         let dropIndicatorScope = dragState.dropIndicatorScope
         let sidebarReorderIds = draggedSidebarTabId.map {
             sidebarDropIndicatorRowIds(
-                draggedWorkspaceId: $0,
                 scope: dropIndicatorScope,
-                tabs: tabs,
+                tabs: visibleTabs,
                 workspaceGroups: workspaceGroups,
                 visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
+            reorderTabs: visibleTabs,
             tabIds: tabIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
@@ -10450,7 +10468,12 @@ struct VerticalTabsSidebar: View {
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            visibleWorkspaceRowIndexById: visibleWorkspaceRowIndexById,
+            drilledInWorkstreamId: drilledInWorkstreamId,
+            drilledInWorkstreamName: drilledInWorkstreamName,
+            drilledInWorkstreamWorkspaceCount: drilledInWorkstreamWorkspaceCount,
+            workstreamRowSnapshots: workstreamRowSnapshots
         )
 
         ZStack(alignment: .bottomLeading) {
@@ -11800,7 +11823,7 @@ struct VerticalTabsSidebar: View {
         // SidebarRowsFillLayout measured it (`sizeThatFits(height: nil)`) every
         // pass, realizing all rows and re-livelocking at scale (#2586 / #5764 /
         // #5845; regressed by #6033). Drop/tap = background; indicator on rows.
-        let content = workspaceRows(
+        let rowsContent = workspaceRows(
             renderContext: renderContext,
             shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
         )
@@ -11845,6 +11868,13 @@ struct VerticalTabsSidebar: View {
                 )
             }
 
+        let content = VStack(spacing: 0) {
+            // Top-level workstream master list / drill-in breadcrumb. Renders
+            // nothing when there are no workstreams (zero regression).
+            workstreamNavigationSection(renderContext: renderContext)
+            rowsContent
+        }
+
         return rowsWithGatedDropTargetReader(
             rows: content,
             renderContext: renderContext,
@@ -11880,9 +11910,10 @@ struct VerticalTabsSidebar: View {
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets, showModifierHoldHints: showModifierHoldHints
                     )
-                case .workspace(let tab):
+                case .workspace(let tab, let renderGroupId):
                     workspaceRow(
                         tab,
+                        renderGroupId: renderGroupId,
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
@@ -12073,7 +12104,7 @@ struct VerticalTabsSidebar: View {
               let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return false
         }
-        return performWorkspaceReorderPlan(plan)
+        return performWorkspaceReorderPlan(plan, renderContext: renderContext)
     }
 
     private func workspaceReorderPlan(
@@ -12082,19 +12113,22 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceReorderDropPlan? {
         guard let draggedTabId = dragState.draggedTabId else { return nil }
+        let reorderTabIds = Set(renderContext.reorderTabs.map(\.id))
+        let reorderGroups = renderContext.workspaceGroups.filter { reorderTabIds.contains($0.anchorWorkspaceId) }
+        let reorderGroupIds = Set(reorderGroups.map(\.id))
         return SidebarWorkspaceReorderDropResolver().plan(
             for: SidebarWorkspaceReorderDropRequest(
                 point: point,
                 draggedWorkspaceId: draggedTabId,
                 foreignDraggedIsPinned: dragState.foreignDraggedIsPinned,
-                workspaces: renderContext.tabs.map {
+                workspaces: renderContext.reorderTabs.map {
                     SidebarWorkspaceReorderWorkspaceSnapshot(
                         id: $0.id,
                         isPinned: $0.isPinned,
-                        groupId: $0.groupId
+                        groupId: $0.groupId.flatMap { reorderGroupIds.contains($0) ? $0 : nil }
                     )
                 },
-                groups: renderContext.workspaceGroups.map {
+                groups: reorderGroups.map {
                     SidebarWorkspaceReorderGroupSnapshot(
                         id: $0.id,
                         anchorWorkspaceId: $0.anchorWorkspaceId,
@@ -12113,9 +12147,25 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+    private func performWorkspaceReorderPlan(
+        _ plan: SidebarWorkspaceReorderDropPlan,
+        renderContext: WorkspaceListRenderContext
+    ) -> Bool {
         switch plan.action {
         case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
+            let scopedRowIds = usesTopLevelRows ? renderContext.visibleWorkspaceRowIds : renderContext.reorderTabs.map(\.id)
+            let destinationRowIds = usesTopLevelRows
+                ? tabManager.sidebarReorderWorkspaceIds(
+                    forDraggedWorkspaceId: plan.draggedWorkspaceId,
+                    usesTopLevelRows: true
+                )
+                : tabManager.tabs.map(\.id)
+            let resolvedTargetIndex = SidebarDropPlanner().remappedTargetIndex(
+                scopedTargetIndex: targetIndex,
+                draggedTabId: plan.draggedWorkspaceId,
+                scopedTabIds: scopedRowIds,
+                destinationTabIds: destinationRowIds
+            ) ?? targetIndex
             let selectionBeforeReorder = selectedTabIds
             let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
                 existingAnchorIndex: lastSidebarSelectionIndex,
@@ -12123,7 +12173,7 @@ struct VerticalTabsSidebar: View {
             )
             let didReorder = tabManager.reorderSidebarWorkspace(
                 tabId: plan.draggedWorkspaceId,
-                toIndex: targetIndex,
+                toIndex: resolvedTargetIndex,
                 isDragOperation: true,
                 usesTopLevelRows: usesTopLevelRows,
                 explicitGroupId: explicitGroupId
@@ -12134,13 +12184,18 @@ struct VerticalTabsSidebar: View {
             )
             return didReorder
         case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
-            return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
+            return performCrossWindowWorkspaceDrop(
+                plan: plan,
+                proposedInsertionIndex: proposedInsertionIndex,
+                renderContext: renderContext
+            )
         }
     }
 
     private func performCrossWindowWorkspaceDrop(
         plan: SidebarWorkspaceReorderDropPlan,
-        proposedInsertionIndex: Int
+        proposedInsertionIndex: Int,
+        renderContext: WorkspaceListRenderContext
     ) -> Bool {
         guard let app = AppDelegate.shared,
               let destinationWindowId = app.windowId(for: tabManager),
@@ -12168,8 +12223,13 @@ struct VerticalTabsSidebar: View {
             let tierIds = movingIds.filter { (pinStateById[$0] ?? false) == isPinnedTier }
             guard !tierIds.isEmpty else { continue }
             let topLevelIds = crossWindowTopLevelWorkspaceIds()
+            let proposedSlot = SidebarDropPlanner().remappedInsertionIndex(
+                scopedInsertionIndex: proposedInsertionIndex,
+                scopedTabIds: renderContext.visibleWorkspaceRowIds,
+                destinationTabIds: topLevelIds
+            )
             let slot = clampedCrossWindowTopLevelSlot(
-                proposedInsertionIndex,
+                proposedSlot,
                 draggedIsPinned: isPinnedTier,
                 topLevelIds: topLevelIds,
                 pinnedTopLevelIds: crossWindowTopLevelPinnedWorkspaceIds()
@@ -12260,6 +12320,7 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func workspaceRow(
         _ tab: Workspace,
+        renderGroupId: UUID?,
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
@@ -12385,6 +12446,8 @@ struct VerticalTabsSidebar: View {
             syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
             onDragStart: onDragStart,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+            visibleWorkspaceRowIndex: renderContext.visibleWorkspaceRowIndexById[tab.id],
+            visibleWorkspaceRowCount: renderContext.visibleWorkspaceRowIds.count,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
@@ -12400,7 +12463,7 @@ struct VerticalTabsSidebar: View {
 
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            .padding(.leading, renderGroupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
     }
@@ -12985,8 +13048,6 @@ private struct SidebarEmptyArea: View {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
-    // Value snapshot + closure bundles instead of an @Observable store
-    // reference (snapshot-boundary rule).
     let topDropIndicatorVisible: Bool
     var tabDropDelegate: SidebarTabDropDelegate? = nil
     let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
@@ -13216,6 +13277,8 @@ struct TabItemView: View, Equatable {
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
+        lhs.visibleWorkspaceRowIndex == rhs.visibleWorkspaceRowIndex &&
+        lhs.visibleWorkspaceRowCount == rhs.visibleWorkspaceRowCount &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
@@ -13234,14 +13297,6 @@ struct TabItemView: View, Equatable {
     let tabManager: TabManager
     let notificationStore: TerminalNotificationStore
     @Environment(\.colorScheme) private var colorScheme
-    // Global font magnification percent, read once per row instead of through a
-    // per-label `CmuxFontModifier`. Each `.cmuxFont(...)` is a custom
-    // `@Environment`-reading `ViewModifier`; with 100+ workspaces continuously
-    // re-rendering rows under agent churn, ~20 of those per row multiplied the
-    // SwiftUI `DynamicBody`/environment node count the sidebar must re-evaluate
-    // on every render pass (issue #6612, regression from #6554). Reading the
-    // percent here and applying a primitive `.font(...)` keeps magnification
-    // working while dropping those per-label modifier bodies.
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
 #if DEBUG
     // Plain-value environment probe (closure struct, not an object reference):
@@ -13263,12 +13318,8 @@ struct TabItemView: View, Equatable {
     @Binding var lastSidebarSelectionIndex: Int?
     let showsModifierShortcutHints: Bool
     let dragAutoScrollController: SidebarDragAutoScrollController
-    // Row receives precomputed drag/drop snapshot values + action closures
-    // instead of an `@Observable` store reference. This keeps TabItemView in
-    // compliance with the snapshot-boundary rule for views under a LazyVStack
-    // (see CLAUDE.md). When drag state changes, the parent recomputes these
-    // per-row snapshots and `==` skips re-render for rows whose snapshot is
-    // unchanged.
+    // Precomputed drag/drop snapshots keep TabItemView inside the LazyVStack
+    // snapshot-boundary rule; `==` skips rows whose snapshot is unchanged.
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
@@ -13278,16 +13329,15 @@ struct TabItemView: View, Equatable {
     let syncSidebarSelectionAfterBonsplitDrop: @MainActor () -> Void
     let onDragStart: () -> NSItemProvider
     let contextMenuWorkspaceIds: [UUID]
+    let visibleWorkspaceRowIndex: Int?
+    let visibleWorkspaceRowCount: Int
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
-    /// Called from this row's contextMenu.onAppear so the parent can freeze
-    /// `showsModifierShortcutHints` to the value it last passed in. Prevents
-    /// modifier-key transitions from flipping the badges on the row sitting
-    /// behind the open context menu.
+    /// Freezes shortcut hints while this row's context menu is open.
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
@@ -14375,15 +14425,15 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveBy(-1)
         }
-        .disabled(index == 0)
+        .disabled((visibleWorkspaceRowIndex ?? 0) <= 0)
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveBy(1)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled((visibleWorkspaceRowIndex ?? visibleWorkspaceRowCount) >= visibleWorkspaceRowCount - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
-            tabManager.moveTabsToTop(Set(targetIds))
+            _ = tabManager.moveWorkspacesToTopInSidebarScope(tabIds: Set(targetIds))
             syncSelectionAfterMutation()
         }
         .disabled(targetIds.isEmpty)
@@ -14425,17 +14475,17 @@ struct TabItemView: View, Equatable {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherTabs(targetIds)
         }
-        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
+        .disabled(visibleWorkspaceRowCount <= 1 || targetIds.count == visibleWorkspaceRowCount)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeTabsBelow(tabId: tab.id)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled((visibleWorkspaceRowIndex ?? visibleWorkspaceRowCount) >= visibleWorkspaceRowCount - 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeTabsAbove(tabId: tab.id)
         }
-        .disabled(index == 0)
+        .disabled((visibleWorkspaceRowIndex ?? 0) <= 0)
 
         Divider()
 
@@ -14517,9 +14567,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func moveBy(_ delta: Int) {
-        let targetIndex = index + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
+        guard tabManager.moveWorkspaceInSidebarScope(tabId: tab.id, by: delta) else { return }
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
@@ -14550,14 +14598,15 @@ struct TabItemView: View, Equatable {
             )
             : nil
 
+        let drilledInWorkstreamId = tabManager.drilledInWorkstreamId
+        let visibleWorkspaceIds = Set(tabManager.tabs.compactMap { $0.workstreamId == drilledInWorkstreamId ? $0.id : nil })
+        if isCommand || isShift { selectedTabIds.formIntersection(visibleWorkspaceIds) }
+
         if isShift, let anchorIndex = shiftAnchorIndex {
             let lower = min(anchorIndex, index)
             let upper = max(anchorIndex, index)
-            // Filter out workspaces hidden inside collapsed groups so a
-            // Shift-click range never silently includes rows the user
-            // can't see (e.g. clicking a collapsed group's anchor and
-            // then Shift-clicking a row below would otherwise sweep
-            // every collapsed child between them).
+            // Filter out workspaces hidden inside collapsed groups so Shift-click
+            // never silently includes rows the user can't see.
             let collapsedGroupIds: Set<UUID> = Set(
                 tabManager.workspaceGroups
                     .filter { $0.isCollapsed }
@@ -14567,6 +14616,9 @@ struct TabItemView: View, Equatable {
                 uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
             )
             let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
+                if tab.workstreamId != drilledInWorkstreamId {
+                    return nil
+                }
                 if let gid = tab.groupId,
                    collapsedGroupIds.contains(gid),
                    anchorIdsByGroup[gid] != tab.id {
@@ -14611,20 +14663,26 @@ struct TabItemView: View, Equatable {
 
     private func closeOtherTabs(_ targetIds: [UUID]) {
         let keepIds = Set(targetIds)
-        let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
+        let idsToClose = currentVisibleWorkspaceRowIds.filter { !keepIds.contains($0) }
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsBelow(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
+        let visibleIds = currentVisibleWorkspaceRowIds
+        guard let anchorIndex = visibleIds.firstIndex(of: tabId) else { return }
+        let idsToClose = Array(visibleIds.suffix(from: anchorIndex + 1))
         closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
+        let visibleIds = currentVisibleWorkspaceRowIds
+        guard let anchorIndex = visibleIds.firstIndex(of: tabId) else { return }
+        let idsToClose = Array(visibleIds.prefix(upTo: anchorIndex))
         closeTabs(idsToClose, allowPinned: true)
+    }
+
+    private var currentVisibleWorkspaceRowIds: [UUID] {
+        tabManager.sidebarScopedWorkspaceRowIds()
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {
@@ -15696,18 +15754,13 @@ struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
     let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
+    let scopedWorkspaceRowIds: [UUID]
     let dragState: SidebarDragState
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let targetRowHeight: CGFloat?
     let dragAutoScrollController: SidebarDragAutoScrollController
 
-    /// The identity of the workspace being dragged, resolved from this window's
-    /// `SidebarDragState` first and falling back to the process-wide
-    /// ``SidebarWorkspaceDragRegistry`` for a drag that originated in another
-    /// window. This single resolver is the one source of truth the drop path
-    /// keys on, so an intra-window reorder and a cross-window move share the same
-    /// code instead of forking into parallel drop delegates.
     private var effectiveDraggedTabId: UUID? {
         dragState.draggedTabId ?? dragState.currentWorkspaceDragId
     }
@@ -15733,11 +15786,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         return sourceManager.workspaceGroups.contains { $0.anchorWorkspaceId == draggedTabId }
     }
 
-    /// The destination's top-level sidebar ids (each group is represented by its
-    /// anchor; members are folded into the run). A workspace moved in from
-    /// another window arrives ungrouped and `attachWorkspace` normalizes it to a
-    /// top-level boundary, so the planner and indicator reason in this space —
-    /// not raw `tabs` — to match where the workspace actually lands.
     private func crossWindowTopLevelTabIds() -> [UUID] {
         tabManager.sidebarReorderWorkspaceIds(
             forDraggedWorkspaceId: nil,
@@ -15754,9 +15802,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         )
     }
 
-    /// Map the hovered destination row to its top-level representative: a group
-    /// member resolves to its group's anchor, since an incoming ungrouped
-    /// workspace lands at the group boundary, never inside the run.
     private func crossWindowTopLevelTarget() -> UUID? {
         guard let targetTabId else { return nil }
         if let groupId = tabManager.tabs.first(where: { $0.id == targetTabId })?.groupId,
@@ -15766,9 +15811,6 @@ struct SidebarTabDropDelegate: DropDelegate {
         return targetTabId
     }
 
-    /// Translate a top-level insertion slot into a raw `tabs` index so the
-    /// attach lands the workspace just before that top-level item's run (or at
-    /// the end); `attachWorkspace` then normalizes the group runs around it.
     private func crossWindowRawInsertIndex(forTopLevelSlot slot: Int, topLevelIds: [UUID]) -> Int {
         guard slot < topLevelIds.count else { return tabManager.tabs.count }
         let topLevelId = topLevelIds[slot]
@@ -15903,6 +15945,17 @@ struct SidebarTabDropDelegate: DropDelegate {
         }
         if isCrossWindowDrag(draggedTabId) {
             return performCrossWindowDrop(draggedTabId: draggedTabId)
+        }
+        if targetTabId == nil, scopedWorkspaceRowIds.contains(draggedTabId) {
+            let previousSelectionIds = selectedTabIds
+            let anchorId = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+                existingAnchorIndex: lastSidebarSelectionIndex, liveWorkspaceIds: tabManager.tabs.map(\.id)
+            )
+            let didReorder = tabManager.reorderWorkspaceInSidebarScope(
+                tabId: draggedTabId, toVisibleIndex: max(0, scopedWorkspaceRowIds.count - 1), isDragOperation: true
+            )
+            syncSidebarSelection(preserving: previousSelectionIds, preferredAnchorWorkspaceId: anchorId)
+            return didReorder
         }
         let defaultUsesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,

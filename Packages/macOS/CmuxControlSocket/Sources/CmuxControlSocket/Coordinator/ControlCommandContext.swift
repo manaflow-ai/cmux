@@ -19,6 +19,7 @@ public protocol ControlCommandContext:
     ControlFeedContext,
     ControlNotificationContext,
     ControlWorkspaceGroupContext,
+    ControlWorkstreamContext,
     ControlPaneContext,
     ControlCanvasContext,
     ControlMobileHostContext,

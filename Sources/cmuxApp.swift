@@ -1188,7 +1188,7 @@ struct cmuxApp: App {
     }
 
     private func selectedWorkspaceIndex(in manager: TabManager, workspaceId: UUID) -> Int? {
-        manager.tabs.firstIndex { $0.id == workspaceId }
+        manager.sidebarScopedWorkspaceIndex(tabId: workspaceId)
     }
 
     private func selectedWorkspaceWindowMoveTargets(in manager: TabManager) -> [AppDelegate.WindowMoveTarget] {
@@ -1209,16 +1209,13 @@ struct cmuxApp: App {
 
     private func moveSelectedWorkspace(in manager: TabManager, by delta: Int) {
         guard let workspace = manager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < manager.tabs.count else { return }
-        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+              manager.moveWorkspaceInSidebarScope(tabId: workspace.id, by: delta) else { return }
         manager.selectWorkspace(workspace)
     }
 
     private func moveSelectedWorkspaceToTop(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
-        manager.moveTabsToTop([workspace.id])
+        guard manager.moveWorkspaceToTopInSidebarScope(tabId: workspace.id) else { return }
         manager.selectWorkspace(workspace)
     }
 
@@ -1242,21 +1239,19 @@ struct cmuxApp: App {
 
     private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
-        let workspaceIds = manager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
+        let workspaceIds = manager.workspaceIdsForClosingOtherSidebarRows(keeping: [workspace.id])
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace,
-              let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let workspaceIds = manager.tabs.suffix(from: anchorIndex + 1).map(\.id)
+        guard let workspace = manager.selectedWorkspace else { return }
+        let workspaceIds = manager.workspaceIdsForClosingSidebarRowsBelow(tabId: workspace.id)
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove(in manager: TabManager) {
-        guard let workspace = manager.selectedWorkspace,
-              let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let workspaceIds = manager.tabs.prefix(upTo: anchorIndex).map(\.id)
+        guard let workspace = manager.selectedWorkspace else { return }
+        let workspaceIds = manager.workspaceIdsForClosingSidebarRowsAbove(tabId: workspace.id)
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
@@ -1284,6 +1279,7 @@ struct cmuxApp: App {
     private func workspaceCommandMenuContent(manager: TabManager) -> some View {
         let workspace = manager.selectedWorkspace
         let workspaceIndex = workspace.flatMap { selectedWorkspaceIndex(in: manager, workspaceId: $0.id) }
+        let scopedWorkspaceCount = manager.sidebarScopedWorkspaceRowIds().count
         let windowMoveTargets = selectedWorkspaceWindowMoveTargets(in: manager)
         let pinState = WorkspacePinCommands.selectedWorkspacePinState(in: manager)
 
@@ -1318,12 +1314,12 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveSelectedWorkspace(in: manager, by: 1)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(workspaceIndex == nil || workspaceIndex == scopedWorkspaceCount - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             moveSelectedWorkspaceToTop(in: manager)
         }
-        .disabled(workspace == nil || workspaceIndex == 0)
+        .disabled(workspaceIndex == nil || workspaceIndex == 0)
 
         Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
@@ -1354,12 +1350,12 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherSelectedWorkspacePeers(in: manager)
         }
-        .disabled(workspace == nil || manager.tabs.count <= 1)
+        .disabled(workspaceIndex == nil || scopedWorkspaceCount <= 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
             closeSelectedWorkspacesBelow(in: manager)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(workspaceIndex == nil || workspaceIndex == scopedWorkspaceCount - 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
             closeSelectedWorkspacesAbove(in: manager)

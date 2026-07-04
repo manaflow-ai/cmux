@@ -213,6 +213,34 @@ extension ControlWorkspaceGroupContext {
     ) -> ControlWorkspaceGroupFocusResolution { .tabManagerUnavailable }
 }
 
+extension ControlWorkstreamContext {
+    func controlWorkstreamList(
+        routing: ControlRoutingSelectors
+    ) -> ControlWorkstreamListResolution { .tabManagerUnavailable }
+
+    func controlCreateWorkstream(
+        routing: ControlRoutingSelectors,
+        name: String,
+        workspaceIDs: [UUID]
+    ) -> ControlWorkstreamCreateResolution { .tabManagerUnavailable }
+
+    func controlRenameWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID, name: String) -> Bool? { nil }
+    func controlDeleteWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID) -> Int? { nil }
+    func controlAddWorkspaceToWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID, workspaceID: UUID) -> Bool? { nil }
+    func controlRemoveWorkspaceFromWorkstream(routing: ControlRoutingSelectors, workspaceID: UUID) -> Bool? { nil }
+
+    func controlMoveWorkstream(
+        routing: ControlRoutingSelectors,
+        workstreamID: UUID,
+        toIndex: Int?,
+        beforeWorkstreamID: UUID?,
+        afterWorkstreamID: UUID?
+    ) -> Bool? { nil }
+
+    func controlEnterWorkstream(routing: ControlRoutingSelectors, workstreamID: UUID) -> Bool? { nil }
+    func controlExitWorkstreamDrillIn(routing: ControlRoutingSelectors) -> Bool? { nil }
+}
+
 extension ControlWorkspaceContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(

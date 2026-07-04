@@ -72,6 +72,7 @@ public final class ControlCommandCoordinator {
         if let result = handleFeed(request) { return result }
         if let result = handleNotification(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
+        if let result = handleWorkstream(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }
@@ -171,6 +172,7 @@ public final class ControlCommandCoordinator {
             hasWindowIDParam: hasNonNull(params, "window_id"),
             windowID: uuid(params, "window_id"),
             groupID: uuid(params, "group_id"),
+            workstreamID: uuid(params, "workstream_id"),
             workspaceID: uuid(params, "workspace_id"),
             surfaceID: uuid(params, "surface_id")
                 ?? uuid(params, "terminal_id")

@@ -9,6 +9,8 @@ public enum ControlHandleKind: String, CaseIterable, Sendable {
     case workspace
     /// A workspace group.
     case workspaceGroup = "workspace_group"
+    /// A top-level workstream (drill-in container).
+    case workstream
     /// A split pane.
     case pane
     /// A terminal/browser surface.
