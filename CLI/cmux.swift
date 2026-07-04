@@ -153,6 +153,7 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
     var workspaceId: String
+    var workspaceIsAuthoritative: Bool?
     var surfaceId: String
     var cwd: String?
     var transcriptPath: String?
@@ -691,6 +692,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        workspaceIsAuthoritative: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -740,6 +742,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                workspaceIsAuthoritative: workspaceIsAuthoritative,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1111,9 +1114,11 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        workspaceIsAuthoritative: Bool? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
+        if let workspaceIsAuthoritative { record.workspaceIsAuthoritative = workspaceIsAuthoritative }
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
         }
@@ -23102,8 +23107,6 @@ struct CMUXCLI {
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
-            // Fork launches report the parent id until UserPromptSubmit mints the forked id.
-            // Leave the parent record untouched until the forked id appears.
             let isForkSessionLaunch = isClaudeForkSessionLaunch(
                 env: ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid
@@ -23131,6 +23134,7 @@ struct CMUXCLI {
                     launchCommand: launchCommand,
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
+                    workspaceIsAuthoritative: hasAuthoritativeWorkspace,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
@@ -23147,8 +23151,6 @@ struct CMUXCLI {
                     )
                 }
             }
-            // Register PID for stale-session detection and OSC suppression. Fork launches
-            // require an authoritative surface so cleanup never targets a borrowed pane.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
                 : shouldPromoteActiveSession ||
@@ -23212,7 +23214,7 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                let rawFeedWorkspace = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId) ??
+                let rawFeedWorkspace = (mappedSession?.workspaceIsAuthoritative == true ? nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId) : nil) ??
                     nonEmptyClaudeHookIdentifier(workspaceArg)
                 let resolvedFeedWorkspace = rawFeedWorkspace.flatMap { try? resolveWorkspaceId($0, client: client) }
                 let hasAuthoritativeWorkspace = resolvedFeedWorkspace == workspaceId ||
@@ -23262,6 +23264,7 @@ struct CMUXCLI {
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                        workspaceIsAuthoritative: true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -23354,7 +23357,15 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            let rawFeedWorkspace = (mappedSession?.workspaceIsAuthoritative == true ? nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId) : nil) ??
+                nonEmptyClaudeHookIdentifier(workspaceArg)
+            let resolvedFeedWorkspace = rawFeedWorkspace.flatMap { try? resolveWorkspaceId($0, client: client) }
+            let hasAuthoritativeWorkspace = resolvedFeedWorkspace == workspaceId ||
+                callerTTYBindingProvider?()?.workspaceId == workspaceId
+            sendClaudeFeedTelemetry(workspaceId: hasAuthoritativeWorkspace ? workspaceId : nil,
+                                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                                    defaultToWorkspaceArg: false)
+            guard hasAuthoritativeWorkspace else { telemetry.breadcrumb("claude-hook.prompt-submit.unknown-workspace"); print("OK"); return }
             let shouldApplyPromptSubmit =
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -23381,12 +23392,6 @@ struct CMUXCLI {
                 return
             }
             if let sessionId = parsedInput.sessionId {
-                // A forked session's first hook is this prompt-submit — its
-                // SessionStart fired under the parent session id — so capture the
-                // pane's pid and launch command here the way session-start does for
-                // normal launches. Only on first sighting, so an established
-                // record's richer capture is never overwritten.
-                // https://github.com/manaflow-ai/cmux/issues/5908
                 let firstSightingLaunchCommand = mappedSession == nil
                     ? agentLaunchCommandFromEnvironment(
                         ProcessInfo.processInfo.environment,
@@ -23405,6 +23410,7 @@ struct CMUXCLI {
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    workspaceIsAuthoritative: hasAuthoritativeWorkspace,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )

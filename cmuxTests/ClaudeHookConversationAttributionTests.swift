@@ -189,6 +189,7 @@ struct ClaudeHookConversationAttributionTests {
         }
         if includeSessionStart {
             try runHook("session-start", eventName: "SessionStart")
+            try runHook("prompt-submit", eventName: "UserPromptSubmit")
         }
         for _ in 0..<repeatCount {
             try runHook("stop", eventName: "Stop")
