@@ -23,7 +23,12 @@ func emit(_ object: [String: Any]) {
 }
 
 func chatDatabasePath() -> String {
-    (NSHomeDirectory() as NSString).appendingPathComponent("Library/Messages/chat.db")
+    // Fixture override for verification; the invoker controls both the env
+    // and the helper binary, so this grants nothing new.
+    if let override = ProcessInfo.processInfo.environment["CMUX_IMSG_DB"], !override.isEmpty {
+        return override
+    }
+    return (NSHomeDirectory() as NSString).appendingPathComponent("Library/Messages/chat.db")
 }
 
 func openChatDatabase() throws -> OpaquePointer {

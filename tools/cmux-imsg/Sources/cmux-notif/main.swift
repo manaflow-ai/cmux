@@ -21,7 +21,12 @@ func emit(_ object: [String: Any]) {
 }
 
 func notificationDatabasePath() -> String {
-    (NSHomeDirectory() as NSString)
+    // Fixture override for verification; the invoker controls both the env
+    // and the helper binary, so this grants nothing new.
+    if let override = ProcessInfo.processInfo.environment["CMUX_NOTIF_DB"], !override.isEmpty {
+        return override
+    }
+    return (NSHomeDirectory() as NSString)
         .appendingPathComponent("Library/Group Containers/group.com.apple.usernoted/db2/db")
 }
 
