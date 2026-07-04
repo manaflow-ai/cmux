@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 import CmuxSettings
@@ -43,6 +44,12 @@ extension CMUXCLI {
             if !customPath.isEmpty,
                FileManager.default.isExecutableFile(atPath: customPath),
                !isCmuxClaudeWrapper(at: customPath) {
+                return true
+            }
+            // A configured launch command (issue #7035) can run claude too.
+            if configuredClaudeLaunchCommand(
+                configuredCandidates: [customPath], environment: env
+            ) != nil {
                 return true
             }
             return resolveClaudeExecutable(searchPath: env["PATH"]) != nil
@@ -109,6 +116,32 @@ extension CMUXCLI {
         let policy = AutoNamingEnvironmentPolicy()
         let customPath = env["CMUX_CUSTOM_CLAUDE_PATH"]?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let summarizerArguments = [
+            "-p",
+            "--model", policy.claudeModel(from: env),
+            "--tools", "",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config", "{}"
+        ]
+        // A configured launch command (issue #7035) runs the summarizer
+        // through /bin/sh with the arguments forwarded via "$@".
+        if let launchCommand = configuredClaudeLaunchCommand(
+            configuredCandidates: [customPath], environment: env
+        ) {
+            var environment = policy.summarizerEnvironment(from: env)
+            environment[ClaudeCustomLaunchValue.commandActiveGuardEnvironmentKey] = "1"
+            let argv = ClaudeCustomLaunchValue().shellCommandArgv(
+                command: launchCommand, arguments: summarizerArguments)
+            return runAutoNamingSummarizer(
+                executable: argv[0],
+                arguments: Array(argv.dropFirst()),
+                prompt: prompt,
+                environment: environment,
+                timeout: timeout
+            )
+        }
         let executable: String? = {
             var isDirectory = ObjCBool(false)
             if !customPath.isEmpty,
@@ -123,15 +156,7 @@ extension CMUXCLI {
         guard let executable else { return nil }
         return runAutoNamingSummarizer(
             executable: executable,
-            arguments: [
-                "-p",
-                "--model", policy.claudeModel(from: env),
-                "--tools", "",
-                "--disable-slash-commands",
-                "--no-session-persistence",
-                "--strict-mcp-config",
-                "--mcp-config", "{}"
-            ],
+            arguments: summarizerArguments,
             prompt: prompt,
             environment: policy.summarizerEnvironment(from: env),
             timeout: timeout

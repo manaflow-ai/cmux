@@ -19339,17 +19339,29 @@ struct CMUXCLI {
         )
         // Check custom path from Settings > Automation > Claude Code first.
         // Never fall back to a cmux-bundled provider binary.
-        guard let claudeExecutablePath = resolveClaudeExecutable(
-            configuredCandidates: [
-                launcherEnvironment["CMUX_CUSTOM_CLAUDE_PATH"],
-                UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
-            ],
-            searchPath: launcherEnvironment["PATH"]
-        ) else {
-            throw CLIError(message: missingProviderExecutableMessage(
-                displayName: "Claude Code",
-                executableName: "claude"
-            ))
+        let configuredClaudeCandidates = [
+            launcherEnvironment["CMUX_CUSTOM_CLAUDE_PATH"],
+            UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
+        ]
+        // https://github.com/manaflow-ai/cmux/issues/7035: the configured value
+        // may also be a /bin/sh launch command forwarding the arguments via
+        // "$@" (so a `claude` shell function/wrapper can be reached).
+        let claudeLaunchCommand = configuredClaudeLaunchCommand(
+            configuredCandidates: configuredClaudeCandidates,
+            environment: launcherEnvironment
+        )
+        var claudeExecutablePath: String?
+        if claudeLaunchCommand == nil {
+            claudeExecutablePath = resolveClaudeExecutable(
+                configuredCandidates: configuredClaudeCandidates,
+                searchPath: launcherEnvironment["PATH"]
+            )
+            guard claudeExecutablePath != nil else {
+                throw CLIError(message: missingProviderExecutableMessage(
+                    displayName: "Claude Code",
+                    executableName: "claude"
+                ))
+            }
         }
         launcherEnvironment["PATH"] = providerExecutableSearchPath(
             searchPath: launcherEnvironment["PATH"],
@@ -19364,7 +19376,6 @@ struct CMUXCLI {
             focusedContext: focusedContext, commandArgs: commandArgs
         )
 
-        let launchPath = claudeExecutablePath
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
@@ -19372,7 +19383,23 @@ struct CMUXCLI {
             arguments: [executablePath, "claude-teams"] + launchArguments,
             workingDirectory: launcherEnvironment["PWD"]
         )
-        var argv = ([launchPath] + claudeTeamsExecArguments(commandArgs: commandArgs)).map { strdup($0) }
+        let execArgv: [String]
+        if let claudeLaunchCommand {
+            // One-shot guard: descendant `claude` invocations resolve via PATH
+            // instead of re-applying the custom command (loop protection).
+            setenv(ClaudeCustomLaunchValue.commandActiveGuardEnvironmentKey, "1", 1)
+            execArgv = ClaudeCustomLaunchValue().shellCommandArgv(
+                command: claudeLaunchCommand,
+                arguments: claudeTeamsExecArguments(commandArgs: commandArgs)
+            )
+        } else {
+            // claudeExecutablePath is non-nil here: the nil-command branch
+            // above either resolved it or threw.
+            execArgv = [claudeExecutablePath ?? "claude"]
+                + claudeTeamsExecArguments(commandArgs: commandArgs)
+        }
+        let launchPath = execArgv[0]
+        var argv = execArgv.map { strdup($0) }
         defer {
             for item in argv {
                 free(item)

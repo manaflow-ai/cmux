@@ -183,6 +183,81 @@ cmux_claude_wrapper_exec_resolved_claude() {
 
 cmux_claude_wrapper_init_reexec_guard
 
+# Custom launch *command* support: https://github.com/manaflow-ai/cmux/issues/7035
+# A `claude` defined as a shell function/wrapper in the user's rc is invisible
+# to cmux's non-interactive launch paths, so CMUX_CUSTOM_CLAUDE_PATH (Settings >
+# Automation > Claude Binary Path) also accepts a /bin/sh launch command that
+# receives the agent arguments as "$@" (with $0 set to `claude`), e.g.:
+#   /bin/zsh -lic 'claude "$@"' claude "$@"
+# Classification must stay in sync with the Swift classifier
+# `ClaudeCustomLaunchValue` in Packages/macOS/CMUXAgentLaunch:
+#   1. an existing executable file keeps binary mode (find_real_claude);
+#   2. otherwise a value containing the literal $@ argument reference is a
+#      launch command (the marker is required — a working command must forward
+#      the arguments via "$@" anyway, and inferring command mode from
+#      whitespace would hard-fail stale spaced paths and silently drop the
+#      arguments of values like $HOME/bin/claude);
+#   3. anything else keeps the historical PATH fallback.
+# CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE is exported while the command runs so a
+# command whose inner `claude` re-enters cmux's shim/wrapper falls back to
+# normal PATH resolution instead of looping. It intentionally stays exported
+# into the launched claude process (the wrapper cannot observe where the user's
+# command hands off to the real binary).
+cmux_claude_custom_launch_command() {
+    [[ -z "${CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE:-}" ]] || return 1
+    local custom="${CMUX_CUSTOM_CLAUDE_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
+    custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
+    [[ -n "$custom" ]] || return 1
+    if [[ -f "$custom" && -x "$custom" ]]; then
+        return 1
+    fi
+    if [[ "$custom" == *'$@'* ]]; then
+        printf '%s' "$custom"
+        return 0
+    fi
+    return 1
+}
+
+cmux_claude_wrapper_exec_custom_command() {
+    local launch_command="$1"
+    shift
+    export CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE=1
+    exec /bin/sh -c "$launch_command" claude "$@"
+}
+
+cmux_custom_launch_command_value=""
+if cmux_custom_launch_candidate="$(cmux_claude_custom_launch_command)"; then
+    cmux_custom_launch_command_value="$cmux_custom_launch_candidate"
+fi
+unset cmux_custom_launch_candidate
+
+cmux_claude_wrapper_fail_not_found() {
+    if [[ -n "${CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE:-}" ]]; then
+        # Nested invocation inside a custom-launch-command session: the
+        # configured command is deliberately not re-applied here (that is the
+        # loop guard), so pointing the user back at the setting they already
+        # set would be a dead end.
+        cat >&2 <<'EOF'
+Error: claude not found in PATH
+This `claude` was invoked from inside a custom launch command session
+(CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE is set). Nested invocations resolve via
+PATH by design — the configured launch command is not re-applied — so a real
+claude binary must be reachable on PATH for nested use.
+EOF
+        exit 127
+    fi
+    cat >&2 <<'EOF'
+Error: claude not found in PATH
+If your `claude` is a shell function or alias defined in your shell profile,
+cmux cannot see it from non-interactive launches. Set Settings > Automation >
+Claude Binary Path (CMUX_CUSTOM_CLAUDE_PATH) to the real claude binary, or to
+a launch command that forwards the arguments via "$@", e.g.:
+  /bin/zsh -lic 'claude "$@"' claude "$@"
+EOF
+    exit 127
+}
+
 # Find the real claude binary, skipping cmux's wrapper and temp shell shims.
 find_real_claude() {
     # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
@@ -590,6 +665,23 @@ exec_real_claude_passthrough() {
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
+# Passthrough twin of exec_real_claude_passthrough for custom launch commands:
+# same cmux env cleanup, then the command-mode exec (which re-exports the
+# one-shot CMUX_CLAUDE_CUSTOM_COMMAND_ACTIVE guard after the CMUX_* sweep).
+exec_custom_launch_command_passthrough() {
+    local launch_command="$1"
+    shift
+    if [[ "$IN_CMUX" == "1" ]]; then
+        clear_inherited_claude_session_env
+        local cmux_key
+        for cmux_key in "${!CMUX_@}"; do
+            unset "$cmux_key"
+        done
+        unset TERMINFO
+    fi
+    cmux_claude_wrapper_exec_custom_command "$launch_command" "$@"
+}
+
 if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     # User-managed hooks need the original cmux terminal environment.
     if [[ "$IN_CMUX" == "1" ]]; then
@@ -599,7 +691,10 @@ if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     if [[ "$IN_CMUX" == "1" ]]; then
         reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     fi
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    if [[ -n "$cmux_custom_launch_command_value" ]]; then
+        cmux_claude_wrapper_exec_custom_command "$cmux_custom_launch_command_value" "$@"
+    fi
+    REAL_CLAUDE="$(find_real_claude)" || cmux_claude_wrapper_fail_not_found
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
@@ -613,12 +708,21 @@ if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
     if [[ "$IN_CMUX" == "1" ]]; then
         reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
     fi
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    if [[ -n "$cmux_custom_launch_command_value" ]]; then
+        exec_custom_launch_command_passthrough "$cmux_custom_launch_command_value" "$@"
+    fi
+    REAL_CLAUDE="$(find_real_claude)" || cmux_claude_wrapper_fail_not_found
     exec_real_claude_passthrough "$@"
 fi
 
-# Find real claude.
-REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+# Find real claude. In command mode there may be no claude binary anywhere;
+# the bare name keeps launch captures (CMUX_AGENT_LAUNCH_EXECUTABLE / argv)
+# canonical instead of persisting /bin/sh or the command string.
+if [[ -n "$cmux_custom_launch_command_value" ]]; then
+    REAL_CLAUDE="claude"
+else
+    REAL_CLAUDE="$(find_real_claude)" || cmux_claude_wrapper_fail_not_found
+fi
 
 ensure_node_options_restore_module() {
     local guard_dir="${TMPDIR:-/tmp}"
@@ -838,6 +942,9 @@ if (( cmux_claude_wrapper_reexec_hops > 0 )); then
     export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
     export CMUX_AGENT_LAUNCH_CWD="$PWD"
     install_cmux_node_options
+    if [[ -n "$cmux_custom_launch_command_value" ]]; then
+        cmux_claude_wrapper_exec_custom_command "$cmux_custom_launch_command_value" "$@"
+    fi
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 fi
 
@@ -845,6 +952,9 @@ fi
 # pass through so Claude subcommands do not receive session/hook flags.
 if ! should_inject_claude_hooks "$@"; then
     clear_inherited_claude_auth_selection_env
+    if [[ -n "$cmux_custom_launch_command_value" ]]; then
+        exec_custom_launch_command_passthrough "$cmux_custom_launch_command_value" "$@"
+    fi
     exec_real_claude_passthrough "$@"
 fi
 
@@ -1012,8 +1122,14 @@ process.stdout.write(JSON.stringify(acc));
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    if [[ -n "$cmux_custom_launch_command_value" ]]; then
+        cmux_claude_wrapper_exec_custom_command "$cmux_custom_launch_command_value" --settings "$HOOKS_JSON" "$@"
+    fi
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    if [[ -n "$cmux_custom_launch_command_value" ]]; then
+        cmux_claude_wrapper_exec_custom_command "$cmux_custom_launch_command_value" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    fi
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi

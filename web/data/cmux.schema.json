@@ -1054,7 +1054,7 @@
         "claudeBinaryPath": {
           "type": "string",
           "default": "",
-          "description": "Custom path to the claude binary."
+          "description": "Custom path to the claude binary, or a launch command containing \"$@\" to forward the agent arguments."
         },
         "workspaceAutoNaming": {
           "type": "boolean",

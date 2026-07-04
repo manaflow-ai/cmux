@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxSettings
 import Foundation
 
@@ -30,6 +31,10 @@ struct AgentExecutableResolver {
         let searchDirectories = resolvedSearchDirectories()
         if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
             return launchPlan(provider: provider, executableURL: configuredURL, searchDirectories: searchDirectories)
+        }
+        if let command = configuredShellCommand(for: provider) {
+            return shellCommandLaunchPlan(
+                provider: provider, command: command, searchDirectories: searchDirectories)
         }
 
         for directory in searchDirectories {
@@ -166,6 +171,53 @@ struct AgentExecutableResolver {
             provider: provider,
             executableURL: executableURL,
             arguments: provider.launchArguments,
+            environment: launchEnvironment
+        )
+    }
+
+    // https://github.com/manaflow-ai/cmux/issues/7035: the configured Claude
+    // Binary Path may be a /bin/sh launch command (receiving the agent
+    // arguments as "$@") so a `claude` defined as a shell function in the
+    // user's rc can be reached. Skipped when the one-shot guard is already in
+    // the environment, so a command whose inner `claude` re-enters cmux falls
+    // back to PATH resolution instead of looping.
+    private func configuredShellCommand(for provider: AgentSessionProviderID) -> String? {
+        // Guard is active iff non-empty, matching the bash mirror's `-z` check.
+        guard provider == .claude,
+              (environment[ClaudeCustomLaunchValue.commandActiveGuardEnvironmentKey] ?? "").isEmpty,
+              case .shellCommand(let command) = ClaudeCustomLaunchValue().classify(
+                  configuredValue: configuredExecutablePaths[provider],
+                  isExecutableFile: isExecutableNonDirectoryFile(atPath:)
+              )
+        else {
+            return nil
+        }
+        return command
+    }
+
+    private func isExecutableNonDirectoryFile(atPath path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: path, isDirectory: &isDirectory)
+            && !isDirectory.boolValue
+            && fileManager.isExecutableFile(atPath: path)
+    }
+
+    private func shellCommandLaunchPlan(
+        provider: AgentSessionProviderID,
+        command: String,
+        searchDirectories: [String]
+    ) -> AgentSessionLaunchPlan {
+        var launchEnvironment = environment
+        launchEnvironment["PATH"] = searchDirectories
+            .filter { !shouldSkipSearchDirectory($0) }
+            .joined(separator: ":")
+        launchEnvironment[ClaudeCustomLaunchValue.commandActiveGuardEnvironmentKey] = "1"
+        let launch = ClaudeCustomLaunchValue()
+        let argv = launch.shellCommandArgv(command: command, arguments: provider.launchArguments)
+        return AgentSessionLaunchPlan(
+            provider: provider,
+            executableURL: URL(fileURLWithPath: argv[0], isDirectory: false),
+            arguments: Array(argv.dropFirst()),
             environment: launchEnvironment
         )
     }
