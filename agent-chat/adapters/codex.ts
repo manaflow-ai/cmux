@@ -230,7 +230,7 @@ function handleServerMessage(srv: AppServer, msg: any) {
 
   // Server -> client request (approvals such as command execution / patches).
   if (msg.id != null && msg.method) {
-    const approve = sess ? sess.autoApprove : false;
+    const approve = sess ? codexState(sess).approvals === "never" : false;
     srv.write({ jsonrpc: "2.0", id: msg.id, result: { decision: approve ? "approved" : "denied" } });
     if (sess && !approve) {
       sess.emit({ kind: "status", text: `denied: ${truncate(String(p.command ?? msg.method), 120)} (auto-approve is off)` });

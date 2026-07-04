@@ -28,6 +28,7 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
             { value: "plan", label: "plan" },
           ],
         },
+        { id: "autoApprove", label: "Auto-approve", kind: "toggle", value: true, role: "approval" },
       ],
     },
     async send(sess, prompt) {
@@ -68,7 +69,7 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       emitAcpState(sess, st);
     },
     async listOptions(cwd) {
-      return fetchAcpOptions(def, cwd, adapter.capabilities?.options ?? []);
+      return withAcpLocalOptions(await fetchAcpOptions(def, cwd, adapter.capabilities?.options ?? []), true);
     },
     async listCommands(cwd) {
       return [{ trigger: "/", commands: await fetchAcpCommands(def, cwd) }];
@@ -84,6 +85,7 @@ interface AcpState {
   notify(method: string, params: unknown): void;
   options: SessionOption[];
   sources: Map<string, "config" | "mode" | "model">;
+  autoApprove: boolean;
   commands: CommandEntry[];
   initialApplied: boolean;
 }
@@ -104,7 +106,8 @@ async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> 
 
 async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
   const cmd = [...(def.cmd ?? [])];
-  if (sess.autoApprove && def.autoApproveArgs) cmd.push(...def.autoApproveArgs);
+  const autoApprove = typeof sess.startOptions.autoApprove === "boolean" ? sess.startOptions.autoApprove : sess.autoApprove;
+  if (autoApprove && def.autoApproveArgs) cmd.push(...def.autoApproveArgs);
   const proc = Bun.spawn(cmd, {
     cwd: sess.cwd,
     stdin: "pipe",
@@ -136,6 +139,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
     notify,
     options: [],
     sources: new Map(),
+    autoApprove,
     commands: [],
     initialApplied: false,
   };
@@ -183,11 +187,17 @@ async function applyInitialOptions(sess: SessionCtx, st: AcpState) {
   if (st.initialApplied) return;
   st.initialApplied = true;
   for (const [id, value] of Object.entries(sess.startOptions)) {
-    if (st.sources.has(id)) await setAcpOption(sess, st, id, value);
+    if (id === "autoApprove" || st.sources.has(id)) await setAcpOption(sess, st, id, value);
   }
 }
 
 async function setAcpOption(sess: SessionCtx, st: AcpState, id: string, value: OptionValue) {
+  if (id === "autoApprove") {
+    if (typeof value !== "boolean") throw new Error("autoApprove must be boolean");
+    st.autoApprove = value;
+    emitAcpState(sess, st);
+    return;
+  }
   const source = st.sources.get(id);
   if (!source) throw new Error(`unsupported ${sess.provider} option: ${id}`);
   if (source === "config") {
@@ -297,8 +307,15 @@ function updateLocalOption(st: AcpState, id: string, value: OptionValue) {
 }
 
 function emitAcpState(sess: SessionCtx, st: AcpState) {
-  if (st.options.length) sess.emit({ kind: "options", options: st.options });
+  sess.emit({ kind: "options", options: withAcpLocalOptions(st.options, st.autoApprove) });
   if (st.commands.length) sess.emit({ kind: "commands", trigger: "/", commands: st.commands });
+}
+
+function withAcpLocalOptions(options: SessionOption[], autoApprove: boolean): SessionOption[] {
+  return [
+    ...options.filter((o) => o.id !== "autoApprove"),
+    { id: "autoApprove", label: "Auto-approve", kind: "toggle", value: autoApprove, role: "approval" },
+  ];
 }
 
 // Notifications and reverse requests from the agent.
@@ -367,7 +384,7 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, msg: any, writeMsg: 
     const allow = options.find((o) => o.kind === "allow_always")
       ?? options.find((o) => o.kind === "allow_once");
     const reject = options.find((o) => o.kind?.startsWith("reject")) ?? options[0];
-    const choice = sess.autoApprove && allow ? allow : reject;
+    const choice = st.autoApprove && allow ? allow : reject;
     if (choice !== allow) {
       const tc = msg.params?.toolCall;
       sess.emit({ kind: "status", text: `denied: ${truncate(tc?.title ?? "tool", 120)} (auto-approve is off)` });

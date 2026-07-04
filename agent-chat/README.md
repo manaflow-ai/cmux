@@ -27,7 +27,7 @@ bun test/e2e.ts               # or: bun test/e2e.ts codex pi
 The frontend is a small React app built with Bun and styled to match the
 terminal. Dropdowns and controls use `@base-ui-components/react` (Base UI),
 the same component library the cmux web app uses: `Select` for the provider
-picker, `Popover` for the working-directory editor, `Switch` for auto-approve.
+picker and `Popover` for the working-directory editor and overflow menus.
 Base UI ships unstyled, so every part is themed with the resolved Ghostty
 colors. The server bundles `src/main.tsx` with `Bun.build` on startup and
 serves it as `/app.js`; the HTML shell injects the theme CSS variables and
@@ -58,10 +58,10 @@ Capability differences are absorbed by the schema, not the UI:
 
 | provider  | transport            | streaming | tools visible | multi-turn                 | permissions |
 |-----------|----------------------|-----------|---------------|----------------------------|-------------|
-| claude    | persistent stdio     | deltas    | yes           | persistent proc            | permission-mode / allowedTools |
-| codex     | app-server JSON-RPC  | deltas    | yes           | thread per session         | approval requests |
-| opencode  | ACP persistent stdio | deltas    | yes           | ACP session                | request_permission round-trip |
-| gemini    | ACP persistent stdio | deltas    | yes           | ACP session                | `--yolo` or request_permission |
+| claude    | persistent stdio     | deltas    | yes           | persistent proc            | permission mode |
+| codex     | app-server JSON-RPC  | deltas    | yes           | thread per session         | approvals + sandbox options |
+| opencode  | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle for request_permission |
+| gemini    | ACP persistent stdio | deltas    | yes           | ACP session                | auto-approve toggle (`--yolo` at start) |
 | pi        | persistent stdio     | deltas    | yes           | persistent proc            | none (always executes) |
 
 Runtime options are declared by adapters as `SessionOption[]` and replayed as
@@ -80,6 +80,7 @@ stays in adapters.
 | codex | approvals, sandbox | `approvalPolicy` and `sandboxPolicy` turn/thread overrides |
 | codex | mode | real `collaborationMode/list` + `collaborationMode` setter; app-server requires `experimentalApi` capability |
 | codex | skills | `skills/list`, emitted as `$` commands |
+| opencode/gemini ACP | auto-approve | local `autoApprove` toggle answers `session/request_permission`; gemini also maps the start value to `--yolo` |
 | pi | model | RPC `get_available_models` / `set_model {provider, modelId}` |
 | pi | thinking | RPC `set_thinking_level` |
 | pi | commands | RPC `get_commands`, emitted as `/` commands |
@@ -99,6 +100,14 @@ keyboard handler both call the same `setOption` path:
 | `Ctrl+Shift+M` | toggle plan mode |
 | `Esc` | interrupt running turn, else close popup/overlay |
 | `Ctrl+/` or `?` on an empty input | shortcut help overlay |
+| `ArrowDown` / `Ctrl+N` | next item while a `/`, `$`, or `@` popup is open |
+| `ArrowUp` / `Ctrl+P` | previous item while a `/`, `$`, or `@` popup is open |
+| `Enter` / `Tab` | accept the selected popup item |
+| `Ctrl+J` | insert newline by default; set `agentChat.keys.ctrlJ` to `"menu"` in `~/.config/cmux/cmux.json` to make it next-item while a popup is open |
+
+Typing `@` at a token start opens the same popup UI for file references. The
+server lists git-tracked/untracked files for the cwd when possible and falls
+back to a capped directory walk outside git repositories.
 
 Adding a provider is either one registry entry (ACP-speaking: id + cmd) or one small adapter file (bespoke stream-JSON). Nothing in the UI changes.
 

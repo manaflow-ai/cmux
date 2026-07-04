@@ -1,6 +1,8 @@
 import type {
   Adapter,
   AgentEvent,
+  CommandEntry,
+  CommandTrigger,
   OptionValue,
   ProviderCapabilities,
   ProviderDef,
@@ -14,7 +16,9 @@ import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { resolveGhosttyTheme } from "./theme";
 import { existsSync } from "node:fs";
-import { extname, isAbsolute, relative, resolve } from "node:path";
+import { readdir, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
 const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 
@@ -29,18 +33,21 @@ const ROOT = import.meta.dir;
 const DEFAULT_CWD = `${ROOT}/scratch`;
 const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
 const CATALOG_TTL_MS = 10 * 60_000;
+const FILES_TTL_MS = 30_000;
+const FILES_LIMIT = 5_000;
 
 const PROVIDERS: ProviderDef[] = [
-  { id: "claude", label: "Claude Code", adapter: "claude" },
-  { id: "codex", label: "Codex", adapter: "codex" },
-  { id: "opencode", label: "OpenCode", adapter: "acp", cmd: ["opencode", "acp"] },
-  { id: "pi", label: "pi", adapter: "pi" },
+  { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
+  { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
+  { id: "opencode", label: "OpenCode", adapter: "acp", cmd: ["opencode", "acp"], installCommand: "npm i -g opencode-ai" },
+  { id: "pi", label: "pi", adapter: "pi", cmd: ["pi"], installCommand: "npm i -g @mariozechner/pi" },
   {
     id: "gemini",
     label: "Gemini",
     adapter: "acp",
     cmd: ["gemini", "--acp", "--model", "gemini-3.1-pro-preview"],
     autoApproveArgs: ["--yolo"],
+    installCommand: "npm i -g @google/gemini-cli",
   },
 ];
 
@@ -68,6 +75,13 @@ const optionCatalog = new Map<string, {
   fetchedAt: number;
   refreshing?: Promise<SessionOption[]>;
 }>();
+const commandCatalog = new Map<string, {
+  groups: { trigger: CommandTrigger; commands: CommandEntry[] }[];
+  fetchedAt: number;
+  refreshing?: Promise<{ trigger: CommandTrigger; commands: CommandEntry[] }[]>;
+}>();
+const fileCatalog = new Map<string, { files: string[]; fetchedAt: number; refreshing?: Promise<string[]> }>();
+const keyConfig = await readKeyConfig();
 
 function sessionSummary(s: Session) {
   return {
@@ -90,7 +104,16 @@ function capabilitiesMap(): Record<string, ProviderCapabilities> {
 }
 
 function providerInfo(p: ProviderDef) {
-  return { id: p.id, label: p.label, ...(providerIconInfo.get(p.id) ?? {}) };
+  return {
+    id: p.id,
+    label: p.label,
+    // Bun.which ignores runtime process.env.PATH mutations (it reads the
+    // process's original environ), so pass the prepended PATH explicitly or
+    // every provider reads as uninstalled under launchd's minimal PATH.
+    installed: Boolean(Bun.which(p.cmd?.[0] ?? p.id, { PATH: process.env.PATH })),
+    installCommand: p.installCommand,
+    ...(providerIconInfo.get(p.id) ?? {}),
+  };
 }
 
 function broadcastSessions() {
@@ -159,6 +182,7 @@ function refreshSession(sess: Session) {
 
 async function forkSession(source: Session): Promise<Session> {
   if (!source.adapter.forkSession) throw new Error(`${source.provider} does not support fork`);
+  await assertCwd(source.cwd);
   const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions });
   fork.events = source.events.slice();
   try {
@@ -173,11 +197,39 @@ async function forkSession(source: Session): Promise<Session> {
   }
 }
 
+async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const s = await stat(cwd);
+    if (s.isDirectory()) return { ok: true };
+  } catch {
+    // Fall through to the stable user-facing message.
+  }
+  return { ok: false, message: `working directory does not exist: ${cwd}` };
+}
+
+async function assertCwd(cwd: string) {
+  const res = await checkCwd(cwd);
+  if (!res.ok) throw new Error(res.message);
+}
+
 function parseOptions(raw: unknown): Record<string, OptionValue> {
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, OptionValue> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof v === "string" || typeof v === "boolean") out[k] = v;
+  }
+  return out;
+}
+
+function applyAutoApproveDefaults(provider: string, autoApprove: boolean, raw: Record<string, OptionValue>): Record<string, OptionValue> {
+  const out = { ...raw };
+  if (provider === "claude") {
+    if (out.permissionMode === undefined) out.permissionMode = autoApprove ? "acceptEdits" : "default";
+  } else if (provider === "codex") {
+    if (out.approvals === undefined) out.approvals = autoApprove ? "never" : "on-request";
+    if (out.sandbox === undefined) out.sandbox = autoApprove ? "workspace-write" : "read-only";
+  } else if (provider === "opencode" || provider === "gemini") {
+    if (out.autoApprove === undefined) out.autoApprove = autoApprove;
   }
   return out;
 }
@@ -254,6 +306,130 @@ async function catalogOptions(provider: string, cwd: string, opts: { refreshMiss
   } catch {
     return fallbackOptions(provider);
   }
+}
+
+async function cachedCommands(provider: string, cwd: string): Promise<{ trigger: CommandTrigger; commands: CommandEntry[] }[]> {
+  const adapter = adapters.get(provider);
+  if (!adapter) throw new Error(`unknown provider: ${provider}`);
+  const key = `${provider}:${resolve(cwd || DEFAULT_CWD)}`;
+  const entry = commandCatalog.get(key);
+  if (entry) {
+    if (!entry.fetchedAt && entry.refreshing) return entry.refreshing;
+    if (Date.now() - entry.fetchedAt <= CATALOG_TTL_MS) return entry.groups;
+    if (entry.refreshing) return entry.groups;
+  }
+  const refreshing = Promise.resolve(adapter.listCommands?.(cwd) ?? [])
+    .then((groups) => {
+      commandCatalog.set(key, { groups, fetchedAt: Date.now() });
+      return groups;
+    })
+    .catch((err) => {
+      if (!commandCatalog.has(key)) commandCatalog.set(key, { groups: [], fetchedAt: Date.now() });
+      throw err;
+    })
+    .finally(() => {
+      const current = commandCatalog.get(key);
+      if (current?.refreshing === refreshing) commandCatalog.set(key, { groups: current.groups, fetchedAt: current.fetchedAt });
+    });
+  commandCatalog.set(key, { groups: entry?.groups ?? [], fetchedAt: entry?.fetchedAt ?? 0, refreshing });
+  return refreshing;
+}
+
+async function readKeyConfig(): Promise<{ ctrlJ: "newline" | "menu" }> {
+  try {
+    const text = await Bun.file(resolve(homedir(), ".config/cmux/cmux.json")).text();
+    const parsed = JSON.parse(text);
+    const value = parsed?.agentChat?.keys?.ctrlJ;
+    return { ctrlJ: value === "menu" ? "menu" : "newline" };
+  } catch {
+    return { ctrlJ: "newline" };
+  }
+}
+
+async function cachedFiles(cwd: string): Promise<string[]> {
+  const key = resolve(cwd || DEFAULT_CWD);
+  const entry = fileCatalog.get(key);
+  if (entry) {
+    if (!entry.fetchedAt && entry.refreshing) return entry.refreshing;
+    if (Date.now() - entry.fetchedAt <= FILES_TTL_MS) return entry.files;
+    if (!entry.refreshing) {
+      const refreshing = loadFiles(key)
+        .then((files) => {
+          fileCatalog.set(key, { files, fetchedAt: Date.now() });
+          return files;
+        })
+        .catch((err) => {
+          console.warn(`file catalog refresh failed for ${key}: ${String(err)}`);
+          return entry.files;
+        });
+      fileCatalog.set(key, { ...entry, refreshing });
+    }
+    return entry.files;
+  }
+  const refreshing = loadFiles(key).then((files) => {
+    fileCatalog.set(key, { files, fetchedAt: Date.now() });
+    return files;
+  });
+  fileCatalog.set(key, { files: [], fetchedAt: 0, refreshing });
+  return refreshing;
+}
+
+async function loadFiles(cwd: string): Promise<string[]> {
+  try {
+    return limitFiles(await gitFiles(cwd));
+  } catch {
+    return limitFiles(await walkFiles(cwd));
+  }
+}
+
+function limitFiles(files: string[]): string[] {
+  return [...new Set(files.filter(Boolean).map((f) => f.replaceAll("\\", "/")))]
+    .filter((f) => !f.startsWith("../") && f !== "..")
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, FILES_LIMIT);
+}
+
+async function gitFiles(cwd: string): Promise<string[]> {
+  const proc = Bun.spawn(["git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  if (code !== 0) throw new Error("not a git repo");
+  return out.split(/\r?\n/);
+}
+
+async function walkFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  const skip = new Set([".git", "node_modules", ".hg", ".svn", ".cache", ".next", "dist", "build"]);
+  async function visit(dir: string, depth: number) {
+    if (out.length >= FILES_LIMIT || depth > 5) return;
+    let entries: Awaited<ReturnType<typeof readdir>>;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (out.length >= FILES_LIMIT) return;
+      if (ent.name.startsWith(".") || skip.has(ent.name)) continue;
+      const full = join(dir, ent.name);
+      const rel = relative(root, full).replaceAll("\\", "/");
+      if (ent.isDirectory()) {
+        await visit(full, depth + 1);
+      } else if (ent.isFile()) {
+        out.push(rel);
+      } else if (ent.isSymbolicLink()) {
+        try {
+          if ((await stat(full)).isFile()) out.push(rel);
+        } catch {
+          // Ignore broken links.
+        }
+      }
+    }
+  }
+  await visit(root, 0);
+  return out;
 }
 
 function iconFile(provider: string, dark: boolean): string | null {
@@ -386,7 +562,10 @@ const server = Bun.serve<WsData>({
       const title = prompt ? (prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt) : `${provider} chat`;
       let sess: Session;
       try {
-        sess = createSession(provider, cwd, body.autoApprove !== false, title, await sanitizeStartOptions(provider, cwd, parseOptions(body.options)));
+        await assertCwd(cwd);
+        const autoApprove = body.autoApprove !== false;
+        const options = applyAutoApproveDefaults(provider, autoApprove, parseOptions(body.options));
+        sess = createSession(provider, cwd, autoApprove, title, await sanitizeStartOptions(provider, cwd, options));
       } catch (err) {
         return Response.json({ error: String(err) }, { status: 400 });
       }
@@ -407,6 +586,7 @@ const server = Bun.serve<WsData>({
         providers: PROVIDERS.map(providerInfo),
         capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
+        keys: keyConfig,
       }));
       ws.send(JSON.stringify({
         kind: "sessions",
@@ -428,11 +608,15 @@ const server = Bun.serve<WsData>({
       try {
         handleMessage(ws, msg);
       } catch (err) {
-        ws.send(JSON.stringify({ kind: "error", message: String(err) }));
+        sendWsError(ws, String(msg.op ?? ""), err);
       }
     },
   },
 });
+
+function sendWsError(ws: Bun.ServerWebSocket<WsData>, op: string, err: unknown) {
+  ws.send(JSON.stringify({ kind: "error", op, message: String(err) }));
+}
 
 function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
   switch (msg.op) {
@@ -442,15 +626,24 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const cwd = String(msg.cwd || DEFAULT_CWD);
       const title = prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt;
       const provider = String(msg.provider);
-      Promise.resolve(sanitizeStartOptions(provider, cwd, parseOptions(msg.options))).then((options) => {
-        const sess = createSession(provider, cwd, Boolean(msg.autoApprove), title, options);
+      const autoApprove = msg.autoApprove !== false;
+      const rawOptions = applyAutoApproveDefaults(provider, autoApprove, parseOptions(msg.options));
+      Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
+        const sess = createSession(provider, cwd, autoApprove, title, options);
         subscribe(ws, sess);
         ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess) }));
         refreshSession(sess);
         sendPrompt(sess, prompt);
       }).catch((err) => {
-        ws.send(JSON.stringify({ kind: "error", message: String(err) }));
+        sendWsError(ws, "start", err);
       });
+      break;
+    }
+    case "check-cwd": {
+      const cwd = String(msg.cwd || DEFAULT_CWD);
+      Promise.resolve(checkCwd(cwd))
+        .then((res) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ...res })))
+        .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err) })));
       break;
     }
     case "send": {
@@ -502,26 +695,33 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     case "list-options": {
       const provider = String(msg.provider ?? "");
       if (!adapters.has(provider)) {
-        ws.send(JSON.stringify({ kind: "error", message: `unknown provider: ${provider}` }));
+        sendWsError(ws, "list-options", `unknown provider: ${provider}`);
         return;
       }
       const cwd = String(msg.cwd || DEFAULT_CWD);
       Promise.resolve(catalogOptions(provider, cwd))
         .then((options) => ws.send(JSON.stringify({ kind: "options-list", provider, options })))
-        .catch((err) => ws.send(JSON.stringify({ kind: "error", message: String(err) })));
+        .catch((err) => sendWsError(ws, "list-options", err));
       break;
     }
     case "list-commands": {
       const provider = String(msg.provider ?? "");
       const adapter = adapters.get(provider);
       if (!adapter) {
-        ws.send(JSON.stringify({ kind: "error", message: `unknown provider: ${provider}` }));
+        sendWsError(ws, "list-commands", `unknown provider: ${provider}`);
         return;
       }
       const cwd = String(msg.cwd || DEFAULT_CWD);
-      Promise.resolve(adapter.listCommands?.(cwd) ?? [])
+      Promise.resolve(cachedCommands(provider, cwd))
         .then((groups) => ws.send(JSON.stringify({ kind: "commands-list", provider, groups })))
-        .catch((err) => ws.send(JSON.stringify({ kind: "error", message: String(err) })));
+        .catch((err) => sendWsError(ws, "list-commands", err));
+      break;
+    }
+    case "list-files": {
+      const cwd = String(msg.cwd || DEFAULT_CWD);
+      Promise.resolve(cachedFiles(cwd))
+        .then((files) => ws.send(JSON.stringify({ kind: "files-list", cwd, files })))
+        .catch((err) => sendWsError(ws, "list-files", err));
       break;
     }
     case "delete": {

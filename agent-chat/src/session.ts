@@ -17,14 +17,14 @@ export type AgentEvent =
 
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
-export type CommandTrigger = "/" | "$";
+export type CommandTrigger = "/" | "$" | "@";
 export interface OptionChoice { value: string; label: string; description?: string; }
 export interface SessionOption {
   id: string;
   label: string;
   kind: OptionKind;
   value: OptionValue;
-  role?: "effort" | "thinking-budget";
+  role?: "effort" | "thinking-budget" | "approval" | "context";
   choices?: OptionChoice[];
   disabled?: boolean;
   description?: string;
@@ -43,8 +43,9 @@ export type Block =
   | { kind: "error"; text: string }
   | { kind: "footer"; text: string };
 
-export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; }
+export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
 export interface SessionSummary { id: string; provider: string; cwd: string; title: string; status: string; capabilities?: ProviderCapabilities; }
+export type CtrlJMode = "newline" | "menu";
 
 function closeStreaming(blocks: Block[]): Block[] {
   const last = blocks[blocks.length - 1];
@@ -95,7 +96,7 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   }
 }
 
-interface Hello { providers: Provider[]; defaultCwd: string; }
+interface Hello { providers: Provider[]; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
 
 export interface SessionState {
   ready: boolean;
@@ -103,6 +104,7 @@ export interface SessionState {
   providers: Provider[];
   capabilities: Record<string, ProviderCapabilities>;
   defaultCwd: string;
+  ctrlJ: CtrlJMode;
   phase: "composer" | "chat";
   session: SessionSummary | null;
   blocks: Block[];
@@ -111,7 +113,10 @@ export interface SessionState {
   commands: CommandGroup[];
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
-  start(opts: { provider: string; cwd: string; prompt: string; autoApprove: boolean; options?: Record<string, OptionValue> }): void;
+  filesByCwd: Record<string, string[]>;
+  cwdChecks: Record<string, { ok: boolean; message?: string }>;
+  lastError: string;
+  start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): void;
   compose(): void;
   reply(text: string): void;
   stop(): void;
@@ -119,6 +124,9 @@ export interface SessionState {
   fork(): void;
   requestProviderOptions(provider: string, cwd: string): void;
   requestProviderCommands(provider: string, cwd: string): void;
+  requestFiles(cwd: string, query?: string): void;
+  checkCwd(cwd: string): void;
+  clearError(): void;
 }
 
 const routedSessionId = (location.pathname.match(/^\/s\/([\w-]+)/) || [])[1] || null;
@@ -129,6 +137,7 @@ export function useSession(): SessionState {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [capabilities, setCapabilities] = useState<Record<string, ProviderCapabilities>>({});
   const [defaultCwd, setDefaultCwd] = useState("");
+  const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
   const [phase, setPhase] = useState<"composer" | "chat">(routedSessionId ? "chat" : "composer");
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -137,6 +146,9 @@ export function useSession(): SessionState {
   const [commands, setCommands] = useState<CommandGroup[]>([]);
   const [providerOptions, setProviderOptions] = useState<Record<string, SessionOption[]>>({});
   const [providerCommands, setProviderCommands] = useState<Record<string, CommandGroup[]>>({});
+  const [filesByCwd, setFilesByCwd] = useState<Record<string, string[]>>({});
+  const [cwdChecks, setCwdChecks] = useState<Record<string, { ok: boolean; message?: string }>>({});
+  const [lastError, setLastError] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
 
@@ -161,6 +173,7 @@ export function useSession(): SessionState {
             setProviders(h.providers);
             setCapabilities(h.capabilities ?? {});
             setDefaultCwd(h.defaultCwd);
+            setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
             setReady(true);
             setConnectionEpoch((n) => n + 1);
             break;
@@ -218,6 +231,15 @@ export function useSession(): SessionState {
           case "commands-list":
             setProviderCommands((m) => ({ ...m, [msg.provider]: msg.groups ?? [] }));
             break;
+          case "files-list":
+            setFilesByCwd((m) => ({ ...m, [msg.cwd]: msg.files ?? [] }));
+            break;
+          case "cwd-check":
+            setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            break;
+          case "error":
+            if (msg.op === "start") setLastError(String(msg.message ?? ""));
+            break;
         }
       };
       ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
@@ -226,7 +248,7 @@ export function useSession(): SessionState {
     return () => { closed = true; wsRef.current?.close(); };
   }, [sendRaw]);
 
-  const start = useCallback((opts: { provider: string; cwd: string; prompt: string; autoApprove: boolean; options?: Record<string, OptionValue> }) => {
+  const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     sendRaw({ op: "start", ...opts });
   }, [sendRaw]);
   const compose = useCallback(() => {
@@ -258,6 +280,13 @@ export function useSession(): SessionState {
   const requestProviderCommands = useCallback((provider: string, cwd: string) => {
     sendRaw({ op: "list-commands", provider, cwd });
   }, [sendRaw]);
+  const requestFiles = useCallback((cwd: string, query?: string) => {
+    sendRaw({ op: "list-files", cwd, query });
+  }, [sendRaw]);
+  const checkCwd = useCallback((cwd: string) => {
+    sendRaw({ op: "check-cwd", cwd });
+  }, [sendRaw]);
+  const clearError = useCallback(() => setLastError(""), []);
 
   return {
     ready,
@@ -265,6 +294,7 @@ export function useSession(): SessionState {
     providers,
     capabilities,
     defaultCwd,
+    ctrlJ,
     phase,
     session,
     blocks,
@@ -273,6 +303,9 @@ export function useSession(): SessionState {
     commands,
     providerOptions,
     providerCommands,
+    filesByCwd,
+    cwdChecks,
+    lastError,
     start,
     compose,
     reply,
@@ -281,6 +314,9 @@ export function useSession(): SessionState {
     fork,
     requestProviderOptions,
     requestProviderCommands,
+    requestFiles,
+    checkCwd,
+    clearError,
   };
 }
 

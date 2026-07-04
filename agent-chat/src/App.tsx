@@ -1,20 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
-import { Select } from "@base-ui-components/react/select";
 import { Popover } from "@base-ui-components/react/popover";
 import { Tooltip } from "@base-ui-components/react/tooltip";
+import { Command } from "cmdk";
 import {
   useSession,
   type Block,
   type CommandEntry,
   type CommandGroup,
   type OptionValue,
+  type CtrlJMode,
   type Provider,
   type SessionActions,
   type SessionOption,
   type SessionState,
 } from "./session";
 import { renderMd } from "./md";
-import { KEYMAP, actionForKey, type KeyAction } from "./keymap";
+import { KEYMAP, MENU_KEYMAP, actionForKey, menuActionForKey, type KeyAction } from "./keymap";
 
 // One WebSocket-backed session state, created once in App and shared.
 const Ctx = createContext<SessionState | null>(null);
@@ -116,9 +117,29 @@ const SparkIcon = () => (
 const BoltIcon = () => (
   <svg viewBox="0 0 16 16" width="15" height="15"><path d="M8.8 1.8L3.9 8.7h3.6l-.5 5.5 5.1-7.1H8.4l.4-5.3z" fill="currentColor" /></svg>
 );
-const BarsIcon = () => (
-  <svg viewBox="0 0 16 16" width="15" height="15"><path d="M3 12V9.8M6.3 12V7.8M9.6 12V5.6M12.9 12V3.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>
-);
+function BarsIcon({ filled = 4, bars = 4 }: { filled?: number; bars?: number }) {
+  const count = Math.max(1, bars);
+  const active = Math.max(0, Math.min(count, filled));
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => {
+        const x = 3 + (i * 10) / Math.max(1, count - 1);
+        const h = 2.2 + (i * 8.2) / Math.max(1, count - 1);
+        return (
+          <path
+            key={i}
+            d={`M${x.toFixed(1)} 12V${(12 - h).toFixed(1)}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            opacity={i < active ? 1 : 0.35}
+          />
+        );
+      })}
+    </svg>
+  );
+}
 const PlanIcon = () => (
   <svg viewBox="0 0 16 16" width="15" height="15"><path d="M2.5 4.3l3.4-1.5 4.2 1.5 3.4-1.5v8.9l-3.4 1.5-4.2-1.5-3.4 1.5V4.3zM5.9 2.8v8.9M10.1 4.3v8.9" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" /></svg>
 );
@@ -173,32 +194,103 @@ function HintTooltip({ label, action, children }: { label: string; action?: KeyA
   );
 }
 
-function ProviderSelect({ providers, value, onChange }: { providers: Provider[]; value: string; onChange: (v: string) => void }) {
-  const selected = providers.find((p) => p.id === value) ?? { id: value, label: value };
-  const label = selected.label;
-  return (
-    <Select.Root value={value} onValueChange={(v) => onChange(v as string)}>
-      <HintTooltip label="Switch harness">
-        <Select.Trigger className="row-control provider-trigger select-trigger">
-          <ProviderIcon provider={selected} />
-          <span className="row-value">{label}</span>
-          <Select.Icon className="chev"><Chevron /></Select.Icon>
-        </Select.Trigger>
-      </HintTooltip>
-      <Select.Portal>
-        <Select.Positioner className="select-positioner" sideOffset={8} align="start">
-          <Select.Popup className="menu">
-            {providers.map((p) => (
-              <Select.Item key={p.id} value={p.id} className="menu-item">
-                <ProviderIcon provider={p} />
-                <Select.ItemText>{p.label}</Select.ItemText>
-                <Select.ItemIndicator className="mi-check"><Check /></Select.ItemIndicator>
-              </Select.Item>
+interface CmdkItem {
+  id: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+  selected?: boolean;
+  icon?: ReactNode;
+  value?: string;
+  onSelect(): void;
+}
+interface CmdkGroup {
+  id: string;
+  label?: string;
+  icon?: ReactNode;
+  items: CmdkItem[];
+}
+
+function CmdkMenu({
+  groups,
+  open,
+  onOpenChange,
+  trigger,
+  className = "",
+  inline = false,
+}: {
+  groups: CmdkGroup[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: ReactElement;
+  className?: string;
+  inline?: boolean;
+}) {
+  const count = groups.reduce((n, g) => n + g.items.length, 0);
+  const content = (
+    <Command
+      className={`cmdk menu ${className}`}
+      loop
+      onKeyDown={(e) => {
+        if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key.toLowerCase() === "n" || e.key.toLowerCase() === "p")) {
+          e.preventDefault();
+          e.currentTarget.dispatchEvent(new KeyboardEvent("keydown", {
+            key: e.key.toLowerCase() === "n" ? "ArrowDown" : "ArrowUp",
+            bubbles: true,
+          }));
+        } else if (e.key === "Escape") {
+          onOpenChange?.(false);
+        }
+      }}
+    >
+      {count > 8 ? <Command.Input className="cmdk-input" placeholder="Search…" autoFocus /> : null}
+      <Command.List className="cmdk-list">
+        <Command.Empty className="cmdk-empty">No matches</Command.Empty>
+        {groups.map((group) => (
+          <Command.Group
+            key={group.id}
+            className="cmdk-group"
+            heading={group.label ? (
+              <div className="cmdk-heading">
+                {group.icon}
+                <span>{group.label}</span>
+              </div>
+            ) : undefined}
+          >
+            {group.items.map((item) => (
+              <Command.Item
+                key={item.id}
+                value={item.value ?? `${group.label ?? ""} ${item.label} ${item.description ?? ""}`}
+                disabled={item.disabled}
+                className="menu-item cmdk-item"
+                onSelect={() => {
+                  item.onSelect();
+                  if (!inline) onOpenChange?.(false);
+                }}
+              >
+                {item.icon ? <span className="menu-choice-icon">{item.icon}</span> : null}
+                <span className="cmdk-item-main">
+                  <span className="cmdk-item-label">{item.label}</span>
+                  {item.description ? <span className="cmd-desc">{item.description}</span> : null}
+                </span>
+                {item.selected ? <span className="mi-check selected"><Check /></span> : null}
+              </Command.Item>
             ))}
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
+          </Command.Group>
+        ))}
+      </Command.List>
+    </Command>
+  );
+  if (inline) return content;
+  return (
+    <Popover.Root open={open} onOpenChange={onOpenChange}>
+      {trigger ? <Popover.Trigger render={trigger} /> : null}
+      <Popover.Portal>
+        <Popover.Positioner className="select-positioner" sideOffset={8} align="start">
+          <Popover.Popup>{content}</Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -251,6 +343,13 @@ function visibleChoices(option: SessionOption) {
   return option.role === "effort" ? choices.filter((c) => !isOffLikeValue(c.value)) : choices;
 }
 
+function effortFill(option: SessionOption, value: OptionValue = option.value, bars = 4): number {
+  const choices = visibleChoices(option);
+  const count = choices.length || 1;
+  const index = Math.max(0, choices.findIndex((c) => c.value === value));
+  return Math.max(1, Math.round(((index + 1) / count) * bars));
+}
+
 function prettyValue(option?: SessionOption): string {
   const choice = currentChoice(option);
   if (!choice) return "";
@@ -274,6 +373,7 @@ function optionAction(id: string): KeyAction | undefined {
 
 function optionTooltip(option: SessionOption): string {
   if (option.id === "model") return "Adjust model";
+  if (option.id === "context") return "Adjust context window";
   if (option.id === "effort") return "Adjust effort level";
   if (option.id === "thinking") return "Adjust thinking level";
   if (option.id === "fastMode") return "Toggle fast mode";
@@ -284,6 +384,7 @@ function optionTooltip(option: SessionOption): string {
 function InlineSelect({
   option,
   icon,
+  choiceIcon,
   label,
   onChange,
   open,
@@ -291,6 +392,7 @@ function InlineSelect({
 }: {
   option: SessionOption;
   icon: ReactNode;
+  choiceIcon?: (value: string) => ReactNode;
   label: string;
   onChange: (id: string, value: OptionValue) => void;
   open: boolean;
@@ -302,33 +404,34 @@ function InlineSelect({
     ? visible
     : (value ? [{ value, label: value }] : []);
   const current = choices.find((c) => c.value === value)?.label ?? (value || option.label);
+  const trigger = (
+    <button type="button" className="row-control row-select select-trigger" aria-label={option.label} disabled={option.disabled || !choices.length}>
+      <span className="row-icon">{icon}</span>
+      <span className="row-value">{label || current}</span>
+    </button>
+  );
   return (
-    <Select.Root
-      value={value}
-      disabled={option.disabled || !choices.length}
-      open={open}
-      onOpenChange={(next) => onOpenChange(next)}
-      onValueChange={(v) => onChange(option.id, String(v))}
-    >
-      <HintTooltip label={optionTooltip(option)} action={optionAction(option.id)}>
-        <Select.Trigger className="row-control row-select select-trigger" aria-label={option.label}>
-          <span className="row-icon">{icon}</span>
-          <span className="row-value">{label || current}</span>
-        </Select.Trigger>
-      </HintTooltip>
-      <Select.Portal>
-        <Select.Positioner className="select-positioner" sideOffset={8} align="start">
-          <Select.Popup className="menu option-menu">
-            {choices.map((c) => (
-              <Select.Item key={c.value} value={c.value} className="menu-item" title={c.description}>
-                <Select.ItemText>{c.label}</Select.ItemText>
-                <Select.ItemIndicator className="mi-check"><Check /></Select.ItemIndicator>
-              </Select.Item>
-            ))}
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
+    <HintTooltip label={optionTooltip(option)} action={optionAction(option.id)}>
+      <span>
+        <CmdkMenu
+          open={open}
+          onOpenChange={onOpenChange}
+          trigger={trigger}
+          className="option-menu"
+          groups={[{
+            id: option.id,
+            items: choices.map((c) => ({
+              id: c.value,
+              label: c.label,
+              description: c.description,
+              icon: choiceIcon?.(c.value),
+              selected: c.value === option.value,
+              onSelect: () => onChange(option.id, String(c.value)),
+            })),
+          }]}
+        />
+      </span>
+    </HintTooltip>
   );
 }
 
@@ -340,14 +443,35 @@ function cycleSelect(option: SessionOption, onChange: (id: string, value: Option
   if (next) onChange(option.id, next.value);
 }
 
-const INLINE_OPTION_IDS = new Set(["model", "fastMode", "mode", "permissionMode"]);
+const INLINE_OPTION_IDS = new Set(["model", "context", "fastMode", "mode", "permissionMode"]);
 
 function isInlineOption(option: SessionOption): boolean {
-  return INLINE_OPTION_IDS.has(option.id) || option.role === "effort";
+  return INLINE_OPTION_IDS.has(option.id) || option.role === "effort" || option.role === "approval";
 }
 
 function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChange: (id: string, value: OptionValue) => void }) {
   if (!options.length) return null;
+  const groups: CmdkGroup[] = options.map((option) => ({
+    id: option.id,
+    label: option.label,
+    items: option.kind === "toggle"
+      ? [{
+          id: `${option.id}:toggle`,
+          label: option.label,
+          description: option.value ? "Currently on" : "Currently off",
+          selected: Boolean(option.value),
+          disabled: option.disabled,
+          onSelect: () => onChange(option.id, !option.value),
+        }]
+      : (option.choices ?? []).map((choice) => ({
+          id: `${option.id}:${choice.value}`,
+          label: choice.label,
+          description: choice.description,
+          selected: choice.value === option.value,
+          disabled: option.disabled,
+          onSelect: () => onChange(option.id, choice.value),
+        })),
+  }));
   return (
     <Popover.Root>
       <HintTooltip label="More options">
@@ -358,35 +482,7 @@ function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChang
       <Popover.Portal>
         <Popover.Positioner sideOffset={8} align="end">
           <Popover.Popup className="overflow-menu menu">
-            {options.map((option) => (
-              <div className="overflow-option" key={option.id}>
-                <div className="overflow-title">{option.label}</div>
-                {option.kind === "toggle" ? (
-                  <button
-                    type="button"
-                    className={"overflow-toggle" + (option.value ? " active" : "")}
-                    disabled={option.disabled}
-                    onClick={() => onChange(option.id, !option.value)}
-                  >
-                    {option.value ? "On" : "Off"}
-                  </button>
-                ) : (
-                  <div className="overflow-choices">
-                    {(option.choices ?? []).map((choice) => (
-                      <button
-                        type="button"
-                        key={choice.value}
-                        className={"overflow-choice" + (choice.value === option.value ? " active" : "")}
-                        disabled={option.disabled}
-                        onClick={() => onChange(option.id, choice.value)}
-                      >
-                        {choice.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+            <CmdkMenu groups={groups} inline />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -416,10 +512,105 @@ function StaticCwd({ cwd }: { cwd: string }) {
   );
 }
 
+function modelOption(options: SessionOption[]): SessionOption | undefined {
+  return options.find((o) => o.id === "model" && o.kind === "select");
+}
+
+function HarnessModelPicker({
+  provider,
+  providers,
+  options,
+  allProviderOptions,
+  open,
+  onOpenChange,
+  onSelect,
+}: {
+  provider: string;
+  providers: Provider[];
+  options: SessionOption[];
+  allProviderOptions: Record<string, SessionOption[]>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSelect: (provider: string, model: string) => void;
+}) {
+  const installed = providers.filter((p) => p.installed !== false);
+  const missing = providers.filter((p) => p.installed === false);
+  const currentProvider = providers.find((p) => p.id === provider) ?? { id: provider, label: provider };
+  const currentModel = modelOption(options);
+  const label = currentChoice(currentModel)?.label ?? String(currentModel?.value || currentProvider.label);
+  const groups: CmdkGroup[] = installed.map((p) => {
+    const opts = p.id === provider ? options : (allProviderOptions[p.id] ?? []);
+    const model = modelOption(opts);
+    const choices = model?.choices?.length ? model.choices : [];
+    const items = choices.length
+      ? choices.map((choice) => ({
+          id: `${p.id}:${choice.value}`,
+          label: choice.label,
+          description: choice.description,
+          icon: <ProviderIcon provider={p} />,
+          selected: p.id === provider && choice.value === model?.value,
+          value: `${p.label} ${choice.label} ${choice.value}`,
+          onSelect: () => onSelect(p.id, choice.value),
+        }))
+      : [{
+          id: `${p.id}:default`,
+          label: "Default",
+          description: "Model loads at start",
+          icon: <ProviderIcon provider={p} />,
+          selected: p.id === provider && !model?.value,
+          value: `${p.label} default`,
+          onSelect: () => onSelect(p.id, ""),
+        }];
+    return {
+      id: p.id,
+      label: p.label,
+      icon: <ProviderIcon provider={p} />,
+      items,
+    };
+  });
+  if (missing.length) {
+    groups.push({
+      id: "not-installed",
+      label: "Not installed",
+      items: missing.map((p) => ({
+        id: `missing:${p.id}`,
+        label: p.label,
+        description: p.installCommand,
+        icon: <ProviderIcon provider={p} />,
+        value: `${p.label} ${p.installCommand ?? ""}`,
+        onSelect: () => {
+          if (p.installCommand) navigator.clipboard?.writeText(p.installCommand).catch(() => {});
+        },
+      })),
+    });
+  }
+  const trigger = (
+    <button type="button" className="row-control provider-model-trigger select-trigger" aria-label="Switch harness or model">
+      <ProviderIcon provider={currentProvider} />
+      <span className="row-value">{label}</span>
+      <span className="chev"><Chevron /></span>
+    </button>
+  );
+  return (
+    <HintTooltip label="Switch harness or model" action="open-model">
+      <span>
+        <CmdkMenu
+          open={open}
+          onOpenChange={onOpenChange}
+          trigger={trigger}
+          className="model-picker-menu"
+          groups={groups}
+        />
+      </span>
+    </HintTooltip>
+  );
+}
+
 function StatusRow({
   provider,
   providers,
-  onProviderChange,
+  allProviderOptions,
+  onProviderModelChange,
   cwd,
   onCwdChange,
   onCwdCommit,
@@ -427,13 +618,12 @@ function StatusRow({
   onChange,
   openOptionId,
   setOpenOptionId,
-  autoApprove,
-  setAutoApprove,
   trailing,
 }: {
   provider: string;
   providers?: Provider[];
-  onProviderChange?: (v: string) => void;
+  allProviderOptions?: Record<string, SessionOption[]>;
+  onProviderModelChange?: (provider: string, model: string) => void;
   cwd: string;
   onCwdChange?: (v: string) => void;
   onCwdCommit?: (v: string) => void;
@@ -441,32 +631,31 @@ function StatusRow({
   onChange: (id: string, value: OptionValue) => void;
   openOptionId: string | null;
   setOpenOptionId: (id: string | null) => void;
-  autoApprove?: boolean;
-  setAutoApprove?: (v: boolean) => void;
   trailing?: ReactNode;
 }) {
-  const model = options.find((o) => o.id === "model" && o.kind === "select");
   const effortLike = options.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
+  const context = options.find((o) => o.id === "context" && o.kind === "select");
   const fast = options.find((o) => o.id === "fastMode" && o.kind === "toggle");
+  const approval = options.find((o) => o.role === "approval" && o.kind === "toggle");
   const mode = options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
   const overflow = options.filter((o) => !isInlineOption(o));
   const modeLabel = mode && !["", "default", "build"].includes(String(mode.value)) ? prettyValue(mode) : "";
   const providerInfo = providers?.find((p) => p.id === provider) ?? { id: provider, label: provider };
   return (
     <div className="status-row">
-      {providers && onProviderChange
-        ? <ProviderSelect providers={providers} value={provider} onChange={onProviderChange} />
+      {providers && onProviderModelChange
+        ? (
+          <HarnessModelPicker
+            provider={provider}
+            providers={providers}
+            options={options}
+            allProviderOptions={allProviderOptions ?? {}}
+            open={openOptionId === "modelPicker"}
+            onOpenChange={(open) => setOpenOptionId(open ? "modelPicker" : null)}
+            onSelect={onProviderModelChange}
+          />
+        )
         : <StaticProvider provider={providerInfo} />}
-      {model ? (
-        <InlineSelect
-          option={model}
-          icon={<SparkIcon />}
-          label={currentChoice(model)?.label ?? String(model.value || "Model")}
-          onChange={onChange}
-          open={openOptionId === model.id}
-          onOpenChange={(open) => setOpenOptionId(open ? model.id : null)}
-        />
-      ) : null}
       {fast ? (
         <HintTooltip label={optionTooltip(fast)} action="toggle-fast">
           <button
@@ -484,13 +673,24 @@ function StatusRow({
         <InlineSelect
           key={option.id}
           option={option}
-          icon={<BarsIcon />}
+          icon={<BarsIcon filled={effortFill(option)} />}
+          choiceIcon={(value) => <BarsIcon filled={effortFill(option, value)} />}
           label={prettyValue(option)}
           onChange={onChange}
           open={openOptionId === option.id}
           onOpenChange={(open) => setOpenOptionId(open ? option.id : null)}
         />
       ))}
+      {context ? (
+        <InlineSelect
+          option={context}
+          icon={<SparkIcon />}
+          label={prettyValue(context)}
+          onChange={onChange}
+          open={openOptionId === context.id}
+          onOpenChange={(open) => setOpenOptionId(open ? context.id : null)}
+        />
+      ) : null}
       {mode && modeLabel ? (
         <HintTooltip label={optionTooltip(mode)} action="cycle-mode">
           <button type="button" className="row-control" onClick={() => cycleSelect(mode, onChange)}>
@@ -500,13 +700,14 @@ function StatusRow({
         </HintTooltip>
       ) : null}
       {onCwdChange && onCwdCommit ? <CwdPopover cwd={cwd} onChange={onCwdChange} onCommit={onCwdCommit} /> : <StaticCwd cwd={cwd} />}
-      {setAutoApprove ? (
-        <HintTooltip label="Toggle auto-approve">
+      {approval ? (
+        <HintTooltip label={optionTooltip(approval)}>
           <button
             type="button"
-            aria-label="Auto-approve"
-            className={"row-control row-icon-only shield-toggle" + (autoApprove ? " active" : "")}
-            onClick={() => setAutoApprove(!autoApprove)}
+            aria-label={approval.label}
+            disabled={approval.disabled}
+            className={"row-control row-icon-only shield-toggle" + (approval.value ? " active" : "")}
+            onClick={() => onChange(approval.id, !approval.value)}
           >
             <ShieldIcon />
           </button>
@@ -520,21 +721,56 @@ function StatusRow({
 }
 
 function commandContext(text: string, caret: number, groups: CommandGroup[]) {
-  const slash = groups.find((g) => g.trigger === "/");
+  const byTrigger = new Map(groups.map((g) => [g.trigger, g.commands]));
+  const slash = byTrigger.get("/");
   if (slash && text.startsWith("/") && caret >= 1 && !/\s/.test(text.slice(1, caret))) {
-    return { trigger: "/" as const, start: 0, query: text.slice(1, caret), commands: slash.commands };
+    return { trigger: "/" as const, start: 0, query: text.slice(1, caret), commands: slash };
   }
-  const dollar = groups.find((g) => g.trigger === "$");
-  if (!dollar) return null;
   for (let i = caret - 1; i >= 0; i--) {
-    if (text[i] === "$" && (i === 0 || /\s/.test(text[i - 1]))) {
+    if (/\s/.test(text[i])) break;
+    const trigger = text[i] as CommandGroup["trigger"];
+    const commands = byTrigger.get(trigger);
+    if (commands && trigger !== "/" && (i === 0 || /\s/.test(text[i - 1]))) {
       const q = text.slice(i + 1, caret);
-      if (!/\s/.test(q)) return { trigger: "$" as const, start: i, query: q, commands: dollar.commands };
+      if (!/\s/.test(q)) return { trigger, start: i, query: q, commands };
       return null;
     }
-    if (/\s/.test(text[i])) break;
   }
   return null;
+}
+
+function fuzzyScore(name: string, query: string): number {
+  const n = name.toLowerCase();
+  const q = query.toLowerCase();
+  if (!q) return 0;
+  const direct = n.indexOf(q);
+  if (direct >= 0) return direct;
+  let pos = -1;
+  let score = 0;
+  for (const ch of q) {
+    const next = n.indexOf(ch, pos + 1);
+    if (next < 0) return Number.POSITIVE_INFINITY;
+    score += next - pos;
+    pos = next;
+  }
+  return score + n.length / 1000;
+}
+
+function isCtrlJ(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+  return e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "j";
+}
+
+function insertNewlineAtCaret(text: string, setText: (v: string) => void, ref: RefObject<HTMLTextAreaElement | null>) {
+  const el = ref.current;
+  const start = el?.selectionStart ?? text.length;
+  const end = el?.selectionEnd ?? start;
+  const next = text.slice(0, start) + "\n" + text.slice(end);
+  setText(next);
+  requestAnimationFrame(() => {
+    const pos = start + 1;
+    ref.current?.focus();
+    ref.current?.setSelectionRange(pos, pos);
+  });
 }
 
 function useCommandMenu(
@@ -542,6 +778,7 @@ function useCommandMenu(
   setText: (v: string) => void,
   groups: CommandGroup[],
   ref: RefObject<HTMLTextAreaElement | null>,
+  ctrlJ: CtrlJMode,
 ) {
   const [selected, setSelected] = useState(0);
   const [caret, setCaret] = useState(text.length);
@@ -556,12 +793,20 @@ function useCommandMenu(
   const [dismissedKey, setDismissedKey] = useState("");
   const items = useMemo(() => {
     if (!ctx) return [];
-    const q = ctx.query.toLowerCase();
     return ctx.commands
-      .filter((c) => c.name.toLowerCase().includes(q))
+      .map((c) => ({ command: c, score: fuzzyScore(c.name, ctx.query) }))
+      .filter((c) => Number.isFinite(c.score))
+      .sort((a, b) => a.score - b.score || a.command.name.localeCompare(b.command.name))
+      .map((c) => c.command)
       .slice(0, 12);
   }, [ctx?.trigger, ctx?.query, ctx?.commands]);
   const open = Boolean(ctx && items.length && dismissedKey !== ctxKey);
+  useEffect(() => {
+    setSelected(0);
+  }, [ctxKey]);
+  useEffect(() => {
+    if (selected >= items.length) setSelected(0);
+  }, [items.length, selected]);
   const close = useCallback(() => {
     setSelected(0);
     setDismissedKey(ctxKey);
@@ -582,46 +827,50 @@ function useCommandMenu(
   }, [ctx, ref, setText, text]);
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open) return false;
-    if (e.key === "ArrowDown") {
+    const action = menuActionForKey(e.nativeEvent, ctrlJ);
+    if (action === "menu-next") {
       e.preventDefault();
       e.stopPropagation();
       setSelected((i) => (i + 1) % items.length);
       return true;
     }
-    if (e.key === "ArrowUp") {
+    if (action === "menu-prev") {
       e.preventDefault();
       e.stopPropagation();
       setSelected((i) => (i + items.length - 1) % items.length);
       return true;
     }
-    if (e.key === "Enter" || e.key === "Tab") {
+    if (action === "menu-accept") {
       e.preventDefault();
       e.stopPropagation();
       insert(items[selected] ?? items[0]);
       setSelected(0);
       return true;
     }
-    if (e.key === "Escape") {
+    if (action === "menu-close") {
       e.preventDefault();
       e.stopPropagation();
       close();
       return true;
     }
     return false;
-  }, [insert, items, open, selected]);
+  }, [close, ctrlJ, insert, items, open, selected]);
   const menu = open ? (
-    <div className="command-menu menu">
-      {items.map((cmd, i) => (
-        <button
-          key={cmd.name}
-          type="button"
-          className={"command-item menu-item" + (i === selected ? " active" : "")}
-          onMouseDown={(e) => { e.preventDefault(); insert(cmd); }}
-        >
-          <span className="cmd-name">{ctx!.trigger}{cmd.name}</span>
-          {cmd.description ? <span className="cmd-desc">{cmd.description}</span> : null}
-        </button>
-      ))}
+    <div className="command-menu">
+      <CmdkMenu
+        inline
+        className="mention-menu"
+        groups={[{
+          id: ctx!.trigger,
+          items: items.map((cmd, i) => ({
+            id: cmd.name,
+            label: `${ctx!.trigger}${cmd.name}`,
+            description: cmd.description,
+            onSelect: () => insert(cmd),
+            value: `${cmd.name} ${cmd.description ?? ""}`,
+          })),
+        }]}
+      />
     </div>
   ) : null;
   return { open, close, onKeyDown, onSelect: syncCaret, menu };
@@ -666,8 +915,9 @@ function useKeymap({
   stop,
   helpOpen,
   setHelpOpen,
-  commandOpen,
-  closeCommand,
+  popupOpen,
+  closePopup,
+  ctrlJ,
   inputRef,
   openModel,
 }: {
@@ -677,16 +927,18 @@ function useKeymap({
   stop: () => void;
   helpOpen: boolean;
   setHelpOpen: (v: boolean) => void;
-  commandOpen: boolean;
-  closeCommand: () => void;
+  popupOpen: boolean;
+  closePopup: () => void;
+  ctrlJ: CtrlJMode;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   openModel: () => void;
 }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      const menuAction = menuActionForKey(e, ctrlJ);
+      if (popupOpen && menuAction && menuAction !== "menu-close" && actionForKey(e)) return;
       const action = actionForKey(e);
       if (!action) return;
-      if (commandOpen && e.key === "Tab") return;
       if (action === "help" && e.key === "?" && inputRef.current && inputRef.current.value.trim()) return;
       if (action === "interrupt") {
         if (helpOpen) {
@@ -694,9 +946,9 @@ function useKeymap({
           setHelpOpen(false);
           return;
         }
-        if (commandOpen) {
+        if (popupOpen) {
           e.preventDefault();
-          closeCommand();
+          closePopup();
           return;
         }
         if (!running) return;
@@ -719,10 +971,11 @@ function useKeymap({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeCommand, commandOpen, helpOpen, inputRef, openModel, options, running, setHelpOpen, setOption, stop]);
+  }, [closePopup, ctrlJ, helpOpen, inputRef, openModel, options, popupOpen, running, setHelpOpen, setOption, stop]);
 }
 
-function ShortcutOverlay({ provider, options, running, onClose }: { provider: string; options: SessionOption[]; running: boolean; onClose: () => void }) {
+function ShortcutOverlay({ provider, options, running, ctrlJ, onClose }: { provider: string; options: SessionOption[]; running: boolean; ctrlJ: CtrlJMode; onClose: () => void }) {
+  const menuRows = MENU_KEYMAP.filter((k) => !k.ctrlJMode || k.ctrlJMode === ctrlJ);
   return (
     <div className="shortcut-backdrop" onMouseDown={onClose}>
       <div className="shortcut-panel" onMouseDown={(e) => e.stopPropagation()}>
@@ -736,6 +989,12 @@ function ShortcutOverlay({ provider, options, running, onClose }: { provider: st
             </div>
           );
         })}
+        {menuRows.map((k) => (
+          <div key={`${k.combo}:${k.action}`} className="shortcut-row">
+            <kbd>{k.combo}</kbd>
+            <span>{k.description}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -801,23 +1060,123 @@ function useDefaultCwd(
 
 function useProviderFallback(providers: Provider[], provider: string, setProvider: (v: string) => void) {
   useEffect(() => {
-    if (providers.length && !providers.some((p) => p.id === provider)) setProvider(providers[0].id);
+    const installed = providers.filter((p) => p.installed !== false);
+    if (installed.length && !installed.some((p) => p.id === provider)) setProvider(installed[0].id);
   }, [providers, provider, setProvider]);
 }
 
-function useProviderCatalog(
+function useProviderCatalogs(
   ready: boolean,
   connectionEpoch: number,
-  provider: string,
+  providers: Provider[],
+  activeProvider: string,
   cwd: string,
   requestProviderOptions: (provider: string, cwd: string) => void,
   requestProviderCommands: (provider: string, cwd: string) => void,
 ) {
   useEffect(() => {
-    if (!ready || !provider || !cwd) return;
-    requestProviderOptions(provider, cwd);
-    requestProviderCommands(provider, cwd);
-  }, [connectionEpoch, cwd, provider, ready, requestProviderCommands, requestProviderOptions]);
+    if (!ready || !cwd) return;
+    for (const provider of providers) {
+      if (provider.installed === false) continue;
+      requestProviderOptions(provider.id, cwd);
+    }
+    if (activeProvider && providers.some((p) => p.id === activeProvider && p.installed !== false)) {
+      requestProviderCommands(activeProvider, cwd);
+    }
+  }, [activeProvider, connectionEpoch, cwd, providers, ready, requestProviderCommands, requestProviderOptions]);
+}
+
+function useFileCatalog(
+  ready: boolean,
+  connectionEpoch: number,
+  cwd: string,
+  requestFiles: (cwd: string, query?: string) => void,
+) {
+  useEffect(() => {
+    if (!ready || !cwd) return;
+    requestFiles(cwd);
+  }, [connectionEpoch, cwd, ready, requestFiles]);
+}
+
+function withFileTrigger(groups: CommandGroup[], files: string[]): CommandGroup[] {
+  return [
+    ...groups,
+    { trigger: "@", commands: files.map((name) => ({ name, description: "file" })) },
+  ];
+}
+
+function providerOptionMap(providers: Provider[], providerOptions: Record<string, SessionOption[]>, capabilities: Record<string, { options: SessionOption[] }>): Record<string, SessionOption[]> {
+  return Object.fromEntries(providers.map((p) => [
+    p.id,
+    providerOptions[p.id]?.length ? providerOptions[p.id] : capabilities[p.id]?.options ?? [],
+  ]));
+}
+
+function useCwdValidation(
+  ready: boolean,
+  connectionEpoch: number,
+  cwd: string,
+  defaultCwd: string,
+  cwdChecks: Record<string, { ok: boolean; message?: string }>,
+  checkCwd: (cwd: string) => void,
+  setCwd: (cwd: string) => void,
+  setCommittedCwd: (cwd: string) => void,
+) {
+  useEffect(() => {
+    if (ready && cwd) checkCwd(cwd);
+  }, [checkCwd, connectionEpoch, cwd, ready]);
+  useEffect(() => {
+    const checked = cwdChecks[cwd];
+    if (!checked || checked.ok || !defaultCwd) return;
+    setCwd(defaultCwd);
+    setCommittedCwd(defaultCwd);
+    localStorage.setItem("agentui.cwd", defaultCwd);
+  }, [cwd, cwdChecks, defaultCwd, setCommittedCwd, setCwd]);
+}
+
+function useCwdErrorFallback(
+  message: string,
+  defaultCwd: string,
+  setCwd: (cwd: string) => void,
+  setCommittedCwd: (cwd: string) => void,
+) {
+  useEffect(() => {
+    if (!message.includes("working directory does not exist") || !defaultCwd) return;
+    setCwd(defaultCwd);
+    setCommittedCwd(defaultCwd);
+    localStorage.setItem("agentui.cwd", defaultCwd);
+  }, [defaultCwd, message, setCommittedCwd, setCwd]);
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === "textarea" || tag === "input" || tag === "select" || target.isContentEditable;
+}
+
+function primaryTextarea(): HTMLTextAreaElement | null {
+  return document.querySelector<HTMLTextAreaElement>("[data-primary-textarea='true']");
+}
+
+function useTypeToFocus() {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing || isEditableTarget(e.target) || e.defaultPrevented) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.length !== 1) return;
+      primaryTextarea()?.focus();
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      if (isEditableTarget(e.target) || e.defaultPrevented) return;
+      primaryTextarea()?.focus();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("paste", onPaste, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("paste", onPaste, true);
+    };
+  }, []);
 }
 
 function Composer() {
@@ -829,8 +1188,15 @@ function Composer() {
     defaultCwd,
     providerOptions,
     providerCommands,
+    filesByCwd,
+    cwdChecks,
+    lastError,
+    ctrlJ,
     requestProviderOptions,
     requestProviderCommands,
+    requestFiles,
+    checkCwd,
+    clearError,
     start,
   } = useCtx();
   const [provider, setProvider] = useState(() => localStorage.getItem("agentui.provider") || "claude");
@@ -841,7 +1207,6 @@ function Composer() {
     sessionStorage.removeItem("agentui.draft");
     return draft;
   });
-  const [autoApprove, setAutoApprove] = useState(true);
   const [startOptionsByProvider, setStartOptionsByProvider] = useState<Record<string, Record<string, OptionValue>>>(() => ({
     [provider]: readProviderOptions(provider),
   }));
@@ -849,14 +1214,18 @@ function Composer() {
   const [helpOpen, setHelpOpen] = useState(false);
   const taRef = useAutoGrow(prompt, 300);
   const baseOptions = providerOptions[provider]?.length ? providerOptions[provider] : capabilities[provider]?.options ?? [];
+  const allProviderOptions = providerOptionMap(providers, providerOptions, capabilities);
   const startOptions = startOptionsByProvider[provider] ?? {};
   const options = withLocalValues(baseOptions, startOptions);
-  const commandGroups = providerCommands[provider] ?? [];
-  const commandMenu = useCommandMenu(prompt, setPrompt, commandGroups, taRef);
+  const commandGroups = useMemo(() => withFileTrigger(providerCommands[provider] ?? [], filesByCwd[committedCwd] ?? []), [committedCwd, filesByCwd, provider, providerCommands]);
+  const commandMenu = useCommandMenu(prompt, setPrompt, commandGroups, taRef, ctrlJ);
 
   useDefaultCwd(defaultCwd, cwd, setCwd, committedCwd, setCommittedCwd);
   useProviderFallback(providers, provider, setProvider);
-  useProviderCatalog(ready, connectionEpoch, provider, committedCwd, requestProviderOptions, requestProviderCommands);
+  useProviderCatalogs(ready, connectionEpoch, providers, provider, committedCwd, requestProviderOptions, requestProviderCommands);
+  useFileCatalog(ready, connectionEpoch, committedCwd, requestFiles);
+  useCwdValidation(ready, connectionEpoch, committedCwd, defaultCwd, cwdChecks, checkCwd, setCwd, setCommittedCwd);
+  useCwdErrorFallback(lastError, defaultCwd, setCwd, setCommittedCwd);
 
   const setLocalOption = useCallback((id: string, value: OptionValue) => {
     setStartOptionsByProvider((all) => {
@@ -872,10 +1241,14 @@ function Composer() {
     stop: () => {},
     helpOpen,
     setHelpOpen,
-    commandOpen: commandMenu.open,
-    closeCommand: commandMenu.close,
+    popupOpen: commandMenu.open || Boolean(openOptionId),
+    closePopup: () => {
+      commandMenu.close();
+      setOpenOptionId(null);
+    },
+    ctrlJ,
     inputRef: taRef,
-    openModel: () => setOpenOptionId("model"),
+    openModel: () => setOpenOptionId("modelPicker"),
   });
 
   const submit = () => {
@@ -884,7 +1257,7 @@ function Composer() {
     const runCwd = cwd.trim();
     localStorage.setItem("agentui.provider", provider);
     localStorage.setItem("agentui.cwd", runCwd);
-    start({ provider, cwd: runCwd, prompt: text, autoApprove, options: sanitizeStartOptions(startOptions, options) });
+    start({ provider, cwd: runCwd, prompt: text, options: sanitizeStartOptions(startOptions, options) });
     setPrompt("");
   };
   const changeCwd = (v: string) => { setCwd(v); };
@@ -899,6 +1272,17 @@ function Composer() {
     setStartOptionsByProvider((all) => all[v] ? all : { ...all, [v]: readProviderOptions(v) });
     localStorage.setItem("agentui.provider", v);
   };
+  const changeProviderModel = (nextProvider: string, model: string) => {
+    changeProvider(nextProvider);
+    setStartOptionsByProvider((all) => {
+      const nextForProvider = { ...(all[nextProvider] ?? readProviderOptions(nextProvider)) };
+      if (model) nextForProvider.model = model;
+      else delete nextForProvider.model;
+      writeProviderOptions(nextProvider, nextForProvider);
+      return { ...all, [nextProvider]: nextForProvider };
+    });
+    setOpenOptionId(null);
+  };
 
   return (
     <section id="composer-view">
@@ -907,6 +1291,7 @@ function Composer() {
           <textarea
             ref={taRef}
             id="prompt-input"
+            data-primary-textarea="true"
             placeholder="Describe a task or ask a question…"
             value={prompt}
             autoFocus
@@ -916,15 +1301,18 @@ function Composer() {
             onClick={commandMenu.onSelect}
             onKeyDown={(e) => {
               if (commandMenu.onKeyDown(e)) return;
+              if (isCtrlJ(e)) { e.preventDefault(); insertNewlineAtCaret(prompt, setPrompt, taRef); return; }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
             }}
+            onFocus={clearError}
           />
           {commandMenu.menu}
         </div>
         <StatusRow
           provider={provider}
           providers={providers}
-          onProviderChange={changeProvider}
+          allProviderOptions={allProviderOptions}
+          onProviderModelChange={changeProviderModel}
           cwd={cwd}
           onCwdChange={changeCwd}
           onCwdCommit={commitCwd}
@@ -932,8 +1320,6 @@ function Composer() {
           onChange={setLocalOption}
           openOptionId={openOptionId}
           setOpenOptionId={setOpenOptionId}
-          autoApprove={autoApprove}
-          setAutoApprove={setAutoApprove}
           trailing={(
             <button className="send" type="button" aria-label="Start" disabled={!prompt.trim()} onClick={submit}>
               <ArrowUp />
@@ -941,8 +1327,9 @@ function Composer() {
           )}
         />
       </div>
+      {lastError ? <div className="composer-error">{lastError}</div> : null}
       <div id="composer-hint">Enter to start · Shift+Enter for newline · Ctrl+/ for shortcuts</div>
-      {helpOpen ? <ShortcutOverlay provider={provider} options={options} running={false} onClose={() => setHelpOpen(false)} /> : null}
+      {helpOpen ? <ShortcutOverlay provider={provider} options={options} running={false} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}
     </section>
   );
 }
@@ -1030,16 +1417,21 @@ function Blocks({ blocks, actions, onFork }: { blocks: Block[]; actions: Session
 }
 
 function Chat() {
-  const { providers, session, blocks, options, actions, commands, reply, stop, setOption, fork, compose } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, providerCommands, session, blocks, options, actions, commands, filesByCwd, ctrlJ, reply, stop, setOption, fork, compose, requestProviderOptions, requestProviderCommands, requestFiles } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const taRef = useAutoGrow(text, 200);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
-  const commandMenu = useCommandMenu(text, setText, commands, taRef);
+  const cwd = session?.cwd ?? "";
+  const commandGroups = useMemo(() => withFileTrigger(commands, filesByCwd[cwd] ?? []), [commands, cwd, filesByCwd]);
+  const commandMenu = useCommandMenu(text, setText, commandGroups, taRef, ctrlJ);
+  const allProviderOptions = providerOptionMap(providers, providerOptions, capabilities);
   const running = session?.status === "running";
 
+  useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", cwd, requestProviderOptions, requestProviderCommands);
+  useFileCatalog(ready, connectionEpoch, cwd, requestFiles);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
@@ -1051,10 +1443,14 @@ function Chat() {
     stop,
     helpOpen,
     setHelpOpen,
-    commandOpen: commandMenu.open,
-    closeCommand: commandMenu.close,
+    popupOpen: commandMenu.open || Boolean(openOptionId),
+    closePopup: () => {
+      commandMenu.close();
+      setOpenOptionId(null);
+    },
+    ctrlJ,
     inputRef: taRef,
-    openModel: () => setOpenOptionId("model"),
+    openModel: () => setOpenOptionId("modelPicker"),
   });
 
   const onScroll = () => {
@@ -1068,8 +1464,17 @@ function Chat() {
     reply(t);
     setText("");
   };
-  const switchHarness = (provider: string) => {
-    if (!session || provider === session.provider) return;
+  const switchHarnessModel = (provider: string, model: string) => {
+    if (!session) return;
+    if (provider === session.provider) {
+      if (model) setOption("model", model);
+      setOpenOptionId(null);
+      return;
+    }
+    const nextOptions = { ...readProviderOptions(provider) };
+    if (model) nextOptions.model = model;
+    else delete nextOptions.model;
+    writeProviderOptions(provider, nextOptions);
     localStorage.setItem("agentui.provider", provider);
     localStorage.setItem("agentui.cwd", session.cwd);
     sessionStorage.setItem("agentui.draft", text);
@@ -1087,6 +1492,7 @@ function Chat() {
             <textarea
               ref={taRef}
               id="chat-input"
+              data-primary-textarea="true"
               placeholder="Reply…"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -1095,6 +1501,7 @@ function Chat() {
               onClick={commandMenu.onSelect}
               onKeyDown={(e) => {
                 if (commandMenu.onKeyDown(e)) return;
+                if (isCtrlJ(e)) { e.preventDefault(); insertNewlineAtCaret(text, setText, taRef); return; }
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
               }}
             />
@@ -1103,7 +1510,8 @@ function Chat() {
           <StatusRow
             provider={session?.provider ?? "agent"}
             providers={providers}
-            onProviderChange={switchHarness}
+            allProviderOptions={allProviderOptions}
+            onProviderModelChange={switchHarnessModel}
             cwd={session?.cwd ?? ""}
             options={options}
             onChange={setOption}
@@ -1120,13 +1528,14 @@ function Chat() {
           />
         </div>
       </div>
-      {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={options} running={running} onClose={() => setHelpOpen(false)} /> : null}
+      {helpOpen ? <ShortcutOverlay provider={session?.provider ?? "agent"} options={options} running={running} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}
     </section>
   );
 }
 
 export function App() {
   const s = useSession();
+  useTypeToFocus();
   return (
     <Ctx.Provider value={s}>
       <main id="main">

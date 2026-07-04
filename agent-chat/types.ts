@@ -16,7 +16,7 @@ export type AgentEvent =
 export type SessionStatus = "idle" | "running" | "exited" | "error";
 export type OptionKind = "select" | "toggle";
 export type OptionValue = string | boolean;
-export type CommandTrigger = "/" | "$";
+export type CommandTrigger = "/" | "$" | "@";
 
 export interface OptionChoice {
   value: string;
@@ -29,7 +29,7 @@ export interface SessionOption {
   label: string;
   kind: OptionKind;
   value: OptionValue;
-  role?: "effort" | "thinking-budget";
+  role?: "effort" | "thinking-budget" | "approval" | "context";
   choices?: OptionChoice[];
   disabled?: boolean;
   description?: string;
@@ -85,4 +85,5 @@ export interface ProviderDef {
   // Extra spawn config consumed by the adapter.
   cmd?: string[];
   autoApproveArgs?: string[];
+  installCommand?: string;
 }
