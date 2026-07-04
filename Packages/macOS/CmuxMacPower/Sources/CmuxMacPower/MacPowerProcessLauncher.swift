@@ -39,7 +39,7 @@ struct MacPowerProcessLauncher {
             if let pipe {
                 let outputDescriptor = pipe.fileHandleForReading.fileDescriptor
                 Task.detached {
-                    let data = Self.readToEnd(fileDescriptor: outputDescriptor)
+                    let data = macPowerReadToEnd(fileDescriptor: outputDescriptor)
                     if let completed = await state.recordOutput(data) {
                         continuation.resume(returning: completed)
                     }
@@ -70,7 +70,6 @@ struct MacPowerProcessLauncher {
             try? pipe?.fileHandleForWriting.close()
 
             guard let timeout else { return }
-            let processID = process.processIdentifier
             let timer = DispatchSource.makeTimerSource(queue: timerQueue)
             timer.schedule(deadline: .now() + max(timeout, 0))
             timer.setEventHandler {
@@ -78,8 +77,10 @@ struct MacPowerProcessLauncher {
                 Task {
                     if await state.claim(failure) {
                         continuation.resume(returning: failure)
-                        Darwin.kill(processID, SIGTERM)
-                        self.scheduleSigkill(pid: processID)
+                        if process.isRunning {
+                            process.terminate()
+                            self.scheduleSigkill(process)
+                        }
                     }
                 }
             }
@@ -87,35 +88,40 @@ struct MacPowerProcessLauncher {
         }
     }
 
-    private func scheduleSigkill(pid: Int32) {
+    private func scheduleSigkill(_ process: Process) {
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(deadline: .now() + sigkillGraceSeconds)
         timer.setEventHandler {
-            Darwin.kill(pid, SIGKILL)
+            // Only SIGKILL if the Process is still running. If it already exited
+            // during the grace window, the raw pid could now belong to another
+            // process.
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+            }
             timer.cancel()
         }
         timer.resume()
     }
+}
 
-    private static func readToEnd(fileDescriptor: Int32) -> Data {
-        var data = Data()
-        let chunkSize = 64 * 1024
-        var buffer = [UInt8](repeating: 0, count: chunkSize)
-        while true {
-            let bytesRead = buffer.withUnsafeMutableBytes { pointer -> Int in
-                guard let baseAddress = pointer.baseAddress else { return 0 }
-                return Darwin.read(fileDescriptor, baseAddress, chunkSize)
-            }
-            if bytesRead > 0 {
-                data.append(contentsOf: buffer[0..<bytesRead])
-            } else if bytesRead == 0 {
-                break
-            } else if errno == EINTR {
-                continue
-            } else {
-                break
-            }
+private func macPowerReadToEnd(fileDescriptor: Int32) -> Data {
+    var data = Data()
+    let chunkSize = 64 * 1024
+    var buffer = [UInt8](repeating: 0, count: chunkSize)
+    while true {
+        let bytesRead = buffer.withUnsafeMutableBytes { pointer -> Int in
+            guard let baseAddress = pointer.baseAddress else { return 0 }
+            return Darwin.read(fileDescriptor, baseAddress, chunkSize)
         }
-        return data
+        if bytesRead > 0 {
+            data.append(contentsOf: buffer[0..<bytesRead])
+        } else if bytesRead == 0 {
+            break
+        } else if errno == EINTR {
+            continue
+        } else {
+            break
+        }
     }
+    return data
 }
