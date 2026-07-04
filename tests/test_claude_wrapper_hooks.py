@@ -1095,6 +1095,12 @@ def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(fail
             f"computer use inject: expected the explicit sandbox codex pinned via env, got {config}",
             failures,
         )
+        codex_home = server.get("env", {}).get("CODEX_HOME", "")
+        expect(
+            codex_home.endswith("/codex-home"),
+            f"computer use inject: expected sandbox CODEX_HOME pinned via env, got {config}",
+            failures,
+        )
     inject_index = injected_mcp_config_index(real_argv)
     expect(
         inject_index is not None and inject_index < real_argv.index("hello"),

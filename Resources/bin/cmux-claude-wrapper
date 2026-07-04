@@ -879,7 +879,8 @@ cmux_computer_use_mcp_config() {
     done
     local node_binary
     node_binary="$(cmux_computer_use_resolve_node)" || return 1
-    [[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]] || return 1
+    local codex_home="${CODEX_HOME:-$HOME/.codex}"
+    [[ -f "$codex_home/auth.json" ]] || return 1
     local codex_binary
     codex_binary="$(cmux_computer_use_resolve_codex)" || return 1
     local self_dir candidate
@@ -888,10 +889,11 @@ cmux_computer_use_mcp_config() {
         "$self_dir/../cmux-computer-use-mcp.mjs" \
         "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
         if [[ -f "$candidate" ]]; then
-            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"],"env":{"CMUX_CU_CODEX":"%s"}}}}' \
+            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"],"env":{"CMUX_CU_CODEX":"%s","CODEX_HOME":"%s"}}}}' \
                 "$(cmux_computer_use_json_escape "$node_binary")" \
                 "$(cmux_computer_use_json_escape "$candidate")" \
-                "$(cmux_computer_use_json_escape "$codex_binary")"
+                "$(cmux_computer_use_json_escape "$codex_binary")" \
+                "$(cmux_computer_use_json_escape "$codex_home")"
             return 0
         fi
     done

@@ -383,6 +383,7 @@ class AppServerSession {
   }
 
   async ensureStarted() {
+    throwIfActiveToolCancelled();
     if (this.alive) return;
     if (!this.startPromise) {
       this.startPromise = this.start().finally(() => {
@@ -390,6 +391,7 @@ class AppServerSession {
       });
     }
     await this.startPromise;
+    throwIfActiveToolCancelled();
   }
 
   async start() {
@@ -397,6 +399,7 @@ class AppServerSession {
     this.exitError = null;
     this.computerUseStatus = null;
     const launch = await codexLaunch(this.codexBinary, ["app-server"]);
+    throwIfActiveToolCancelled();
     const child = spawn(launch.command, launch.args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: childEnv(),
@@ -409,13 +412,19 @@ class AppServerSession {
     child.stderr.on("data", (chunk) => {
       process.stderr.write(`[codex app-server] ${chunk}`);
     });
-    child.on("error", (error) => this.onExit(`failed to spawn codex app-server: ${error.message}`));
-    child.on("exit", (code, signal) => {
-      this.onExit(
-        `codex app-server exited before returning a response (code ${code ?? "?"}, signal ${signal ?? "none"})`
-      );
+    child.on("error", (error) => {
+      if (this.child === child) this.onExit(`failed to spawn codex app-server: ${error.message}`);
     });
-    createInterface({ input: child.stdout }).on("line", (line) => this.onLine(line));
+    child.on("exit", (code, signal) => {
+      if (this.child === child) {
+        this.onExit(
+          `codex app-server exited before returning a response (code ${code ?? "?"}, signal ${signal ?? "none"})`
+        );
+      }
+    });
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      if (this.child === child) this.onLine(line);
+    });
 
     await this.request("initialize", {
       clientInfo: { name: "cmux-computer-use", version: "0.2.0" },
@@ -432,18 +441,24 @@ class AppServerSession {
     this.threadId = threadId;
   }
 
-  onExit(message) {
-    if (this.exitError === null) this.exitError = message;
-    this.threadId = null;
-    this.boundApps.clear();
-    this.snapshotApps.clear();
-    this.coordinateApps.clear();
+  rejectPending(message) {
     const pending = [...this.pending.values()];
     this.pending.clear();
     for (const entry of pending) {
       clearTimeout(entry.timer);
-      entry.reject(new Error(this.exitError));
+      entry.reject(new Error(message));
     }
+  }
+
+  onExit(message) {
+    if (this.exitError === null) this.exitError = message;
+    const reason = this.exitError;
+    this.child = null;
+    this.threadId = null;
+    this.boundApps.clear();
+    this.snapshotApps.clear();
+    this.coordinateApps.clear();
+    this.rejectPending(reason);
   }
 
   onLine(line) {
@@ -566,15 +581,17 @@ class AppServerSession {
     });
   }
 
-  dispose() {
+  dispose(reason = localizedMessage("toolCallCancelled")) {
     const child = this.child;
     this.child = null;
     this.threadId = null;
+    this.exitError = reason;
     this.boundApps.clear();
     this.snapshotApps.clear();
     this.coordinateApps.clear();
+    this.rejectPending(reason);
     if (child) {
-      child.removeAllListeners("exit");
+      child.removeAllListeners();
       child.kill();
     }
   }
@@ -585,6 +602,10 @@ let sessionPromise = null;
 // app-server child without awaiting a promise.
 let currentSession = null;
 
+function throwIfActiveToolCancelled() {
+  if (activeToolToken?.canceled) throw new Error(localizedMessage("toolCallCancelled"));
+}
+
 function revokeAppState(app) {
   if (!app || !currentSession?.alive) return;
   currentSession.boundApps.delete(app);
@@ -593,9 +614,12 @@ function revokeAppState(app) {
 }
 
 async function session() {
+  throwIfActiveToolCancelled();
   if (!sessionPromise) {
     sessionPromise = (async () => {
-      currentSession = new AppServerSession(await resolveCodexBinary());
+      const codexBinary = await resolveCodexBinary();
+      throwIfActiveToolCancelled();
+      currentSession = new AppServerSession(codexBinary);
       return currentSession;
     })();
     sessionPromise.catch(() => {
@@ -603,7 +627,9 @@ async function session() {
       currentSession = null;
     });
   }
-  return sessionPromise;
+  const s = await sessionPromise;
+  throwIfActiveToolCancelled();
+  return s;
 }
 
 function isColdStartError(error) {
@@ -834,14 +860,46 @@ print(String(data: data, encoding: .utf8) ?? "[]")
 `;
 
 function runWithStdin(command, args, input) {
+  const token = activeToolToken;
+  if (token?.canceled) return Promise.reject(new Error(localizedMessage("toolCallCancelled")));
+  const controller = token ? new AbortController() : null;
+  if (controller) token.abortControllers.add(controller);
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: childEnv() });
+    let child = null;
+    let timer = null;
+    let settled = false;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (controller) token.abortControllers.delete(controller);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const succeed = (stdout) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(stdout);
+    };
+    try {
+      child = spawn(command, args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: childEnv(),
+        signal: controller?.signal,
+      });
+    } catch (error) {
+      fail(error);
+      return;
+    }
     child.stdin.on("error", () => {}); // spawn failure surfaces via the error/close handlers
     let stdout = "";
     let stderr = "";
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       child.kill();
-      reject(new Error(`${command} timed out after ${TIMEOUT_MS}ms`));
+      fail(new Error(`${command} timed out after ${TIMEOUT_MS}ms`));
     }, TIMEOUT_MS);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -852,13 +910,12 @@ function runWithStdin(command, args, input) {
       stderr += chunk;
     });
     child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+      if (error?.name === "AbortError") fail(new Error(localizedMessage("toolCallCancelled")));
+      else fail(error);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(stdout);
-      else reject(new Error(stderr.trim() || `${command} exited with code ${code}`));
+      if (code === 0) succeed(stdout);
+      else fail(new Error(stderr.trim() || `${command} exited with code ${code}`));
     });
     child.stdin.end(input);
   });

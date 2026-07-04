@@ -12,6 +12,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -131,27 +133,67 @@ async function runConcurrentElementRace() {
 }
 
 async function runCancellationSmoke() {
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [serverPath],
-    env: { ...process.env, CMUX_CU_CODEX: fakeCodex },
-    stderr: "pipe",
+  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
+  delete env.CMUX_CU_AUTO_APPROVE;
+  const child = spawn(process.execPath, [serverPath], { stdio: ["pipe", "pipe", "pipe"], env });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  const pending = new Map();
+  const lines = createInterface({ input: child.stdout });
+  const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+  const request = (id, method, params, timeoutMs = 1000) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method} timed out`));
+      }, timeoutMs);
+      pending.set(id, { resolve, reject, timer });
+      send({ id, method, params });
+    });
+  const notify = (method, params) => send({ method, params });
+  lines.on("line", (line) => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    const entry = pending.get(message.id);
+    if (!entry) return;
+    pending.delete(message.id);
+    clearTimeout(entry.timer);
+    entry.resolve(message);
   });
-  const client = new Client({ name: "cu-elicitation-smoke", version: "0.0.1" });
-  await client.connect(transport);
-  const controller = new AbortController();
-  const call = client
-    .callTool(
+  child.on("exit", () => {
+    for (const [id, entry] of pending) {
+      pending.delete(id);
+      clearTimeout(entry.timer);
+      entry.reject(new Error("server exited"));
+    }
+  });
+  try {
+    await request("init", "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+    const slow = request(
+      "slow-state",
+      "tools/call",
       { name: "computer_state", arguments: { app: "SlowStateApp" } },
-      undefined,
-      { signal: controller.signal }
+      1000
     )
-    .then((result) => summarizeResult(result))
-    .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
-  setTimeout(() => controller.abort("cancel smoke"), 25);
-  const result = await call;
-  await client.close();
-  return result;
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+    setTimeout(() => notify("notifications/cancelled", { requestId: "slow-state", reason: "cancel smoke" }), 25);
+    const afterCancel = await request(
+      "after-cancel",
+      "tools/call",
+      { name: "computer_target", arguments: {} },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+    return { result: await slow, afterCancel };
+  } finally {
+    child.kill();
+  }
 }
 
 const accepted = await run({ withElicitation: true, expectMessage: "Allow Codex to use TestApp?" });
@@ -180,9 +222,15 @@ if (unknownRequest.isError || !unknownRequest.text.includes("unknown-request:rej
 }
 
 const cancelled = await runCancellationSmoke();
-console.log(`cancelled tool call -> isError=${cancelled.isError}`);
-if (!cancelled.isError) {
+console.log(
+  `cancelled tool call -> isError=${cancelled.result.isError} followUp=${cancelled.afterCancel.isError} text=${cancelled.afterCancel.text}`
+);
+if (!cancelled.result.isError) {
   console.error("FAIL: cancelled tool call should not complete successfully");
+  process.exit(1);
+}
+if (cancelled.afterCancel.isError) {
+  console.error("FAIL: cancellation should release the tool queue for the next call");
   process.exit(1);
 }
 
