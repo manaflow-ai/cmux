@@ -10,9 +10,9 @@ public struct CmuxTaskManagerCodingAgentDefinition: Equatable, Sendable {
     public let displayName: String
     /// Asset catalog name for the agent icon, or `nil` when no icon is bundled.
     public let assetName: String?
-    let launchKinds: [String]
-    let directBasenames: [String]
-    let argumentNeedles: [String]
+    public let launchKinds: [String]
+    public let directBasenames: [String]
+    public let argumentNeedles: [String]
 
     /// The registry of all coding agents the Task Manager can detect.
     public static let builtIns: [CmuxTaskManagerCodingAgentDefinition] = [
