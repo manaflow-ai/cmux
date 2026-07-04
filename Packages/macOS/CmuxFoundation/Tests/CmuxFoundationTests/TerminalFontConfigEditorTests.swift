@@ -34,22 +34,24 @@ struct TerminalFontConfigEditorTests {
         let url = directory.appendingPathComponent("config.ghostty")
         try """
         font-family = Menlo
+        font-family = LXGW WenKai Mono TC
         font-size = 12
         """.write(to: url, atomically: true, encoding: .utf8)
 
         let editor = CmuxGhosttyConfigSettingEditor()
-        try editor.writeSetting(
+        try editor.writeEditableSetting(
             key: CmuxGhosttyConfigSettingEditor.terminalFontFamilyKey,
             value: "SF Mono",
             to: url
         )
-        try editor.writeSetting(
+        try editor.writeEditableSetting(
             key: CmuxGhosttyConfigSettingEditor.terminalFontSizeKey,
             value: "14.5",
             to: url
         )
 
         let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.contains("font-family = LXGW WenKai Mono TC"))
         #expect(editor.parsedTerminalFontFamily(in: contents) == "SF Mono")
         #expect(editor.parsedTerminalFontSize(in: contents) == 14.5)
     }
