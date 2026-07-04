@@ -18,6 +18,7 @@ final class InboxRuntime {
     var filter: InboxListFilter = .actionable
     var selectedSource: InboxSource?
     var rows: [InboxRowSnapshot] = []
+    var feedSections: [InboxFeedSection] = []
     var sourceChips: [InboxSourceChipSnapshot] = []
     var accounts: [InboxAccount] = []
     var statuses: [InboxConnectorStatus] = []
@@ -120,6 +121,7 @@ final class InboxRuntime {
                 statuses: statuses
             )
             rows = presenter.rows(items: items, threads: threads)
+            feedSections = presenter.feedSections(rows: rows, now: Date())
             updateNotificationState(items: notificationCandidates, seed: seedNotifications)
             if let selectedThread {
                 try await refreshThread(threadID: selectedThread.threadID)

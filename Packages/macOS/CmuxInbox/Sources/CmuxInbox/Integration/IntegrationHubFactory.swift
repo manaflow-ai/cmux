@@ -8,11 +8,16 @@ public struct IntegrationHubFactory: Sendable {
 
     /// Creates a hub factory.
     /// - Parameters:
-    ///   - tokenStore: Secure token store.
+    ///   - tokenStore: Secure token store. The default layers Keychain over the
+    ///     secure file vault so linking still works in tagged Debug builds,
+    ///     where Keychain writes fail with `errSecMissingEntitlement`.
     ///   - httpClient: HTTP transport.
     ///   - iMessageHelperPaths: Candidate helper binary paths.
     public init(
-        tokenStore: any InboxTokenStoring = InboxKeychainTokenVault(),
+        tokenStore: any InboxTokenStoring = InboxLayeredTokenStore(
+            primary: InboxKeychainTokenVault(),
+            fallback: InboxFileTokenVault()
+        ),
         httpClient: any InboxHTTPClient = URLSessionInboxHTTPClient(),
         iMessageHelperPaths: [URL] = LocalIMessageHelperClient.defaultHelperPaths()
     ) {

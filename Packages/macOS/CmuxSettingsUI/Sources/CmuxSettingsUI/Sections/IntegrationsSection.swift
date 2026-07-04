@@ -6,8 +6,7 @@ public struct IntegrationsSection: View {
     private let hostActions: SettingsHostActions
 
     @State private var snapshot: IntegrationSettingsSnapshot
-    @State private var accountDrafts: [IntegrationSettingsSource: String] = [:]
-    @State private var tokenDrafts: [IntegrationSettingsSource: String] = [:]
+    @State private var connectSheetSource: IntegrationSettingsSource?
     @State private var isSyncingAll = false
 
     public init(hostActions: SettingsHostActions) {
@@ -42,6 +41,14 @@ public struct IntegrationsSection: View {
             }
             .settingsSearchAnchors(["setting:integrations:integrations"])
         }
+        .sheet(item: $connectSheetSource) { source in
+            IntegrationConnectSheet(
+                source: source,
+                hostActions: hostActions,
+                sourceTitle: sourceTitle(source),
+                onUpdated: { snapshot = hostActions.integrationSettingsSnapshot() }
+            )
+        }
         .task { await observeUpdates() }
     }
 
@@ -49,7 +56,7 @@ public struct IntegrationsSection: View {
         VStack(alignment: .leading, spacing: 5) {
             Label(String(localized: "settings.integrations.privacy.title", defaultValue: "Local-first inbox"), systemImage: "lock.shield")
                 .cmuxFont(size: 12, weight: .semibold)
-            Text(String(localized: "settings.integrations.privacy.body", defaultValue: "Normalized inbox data is stored locally in ~/.cmuxterm/inbox.sqlite3. Credentials are stored only in Keychain. AI drafting runs only when you request a draft, and external replies are never sent until you approve Send."))
+            Text(String(localized: "settings.integrations.privacy.body", defaultValue: "Normalized inbox data is stored locally in ~/.cmuxterm/inbox.sqlite3. Credentials live only in the local credential vault (Keychain when available). AI drafting runs only when you request a draft, and external replies are never sent until you approve Send."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -85,7 +92,9 @@ public struct IntegrationsSection: View {
 
             let accounts = snapshot.accounts(for: source)
             if accounts.isEmpty {
-                connectRow(source)
+                if source != .agent {
+                    connectRow(source)
+                }
             } else {
                 ForEach(accounts) { account in
                     SettingsCardDivider()
@@ -118,51 +127,16 @@ public struct IntegrationsSection: View {
             configurationReview: .action,
             searchAnchorID: "setting:integrations:\(source.rawValue):connect",
             connectTitle(source),
-            subtitle: connectSubtitle(source),
-            controlWidth: 260
+            subtitle: connectSubtitle(source)
         ) {
-            VStack(alignment: .trailing, spacing: 6) {
-                if source.requiresAccountField {
-                    TextField(
-                        String(localized: "settings.integrations.account.placeholder", defaultValue: "Account ID"),
-                        text: Binding(
-                            get: { accountDrafts[source] ?? "default" },
-                            set: { accountDrafts[source] = $0 }
-                        )
-                    )
-                    .textFieldStyle(.roundedBorder)
-                }
-                if source.requiresTokenField {
-                    SecureField(
-                        String(localized: "settings.integrations.token.placeholder", defaultValue: "Token"),
-                        text: Binding(
-                            get: { tokenDrafts[source] ?? "" },
-                            set: { tokenDrafts[source] = $0 }
-                        )
-                    )
-                    .textFieldStyle(.roundedBorder)
-                }
-                Button(String(localized: "settings.integrations.connect", defaultValue: "Connect")) {
-                    connect(source)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            Button {
+                connectSheetSource = source
+            } label: {
+                Text(String(localized: "settings.integrations.connectEllipsis", defaultValue: "Connect…"))
             }
-        }
-    }
-
-    private func connect(_ source: IntegrationSettingsSource) {
-        let accountID = (accountDrafts[source] ?? "default").trimmingCharacters(in: .whitespacesAndNewlines)
-        let token = tokenDrafts[source]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            _ = await hostActions.connectIntegration(
-                source: source,
-                accountID: accountID.isEmpty ? "default" : accountID,
-                displayName: nil,
-                token: token?.isEmpty == false ? token : nil
-            )
-            tokenDrafts[source] = nil
-            snapshot = hostActions.integrationSettingsSnapshot()
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("IntegrationsSection.connect.\(source.rawValue)")
         }
     }
 
@@ -223,7 +197,7 @@ public struct IntegrationsSection: View {
 
     private func connectSubtitle(_ source: IntegrationSettingsSource) -> String {
         source.requiresTokenField
-            ? String(localized: "settings.integrations.connect.token.subtitle", defaultValue: "Paste a token to store it in Keychain. It is not written to settings or the inbox database.")
+            ? String(localized: "settings.integrations.connect.token.subtitle", defaultValue: "Opens a guided setup that stores the token in the local credential vault and verifies the connection.")
             : String(localized: "settings.integrations.connect.noToken.subtitle", defaultValue: "Records this source locally and reports helper or credential status.")
     }
 }
@@ -231,9 +205,5 @@ public struct IntegrationsSection: View {
 private extension IntegrationSettingsSource {
     var requiresTokenField: Bool {
         self == .gmail || self == .slack || self == .discord
-    }
-
-    var requiresAccountField: Bool {
-        self != .agent
     }
 }

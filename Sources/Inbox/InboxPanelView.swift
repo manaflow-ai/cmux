@@ -122,28 +122,37 @@ private struct InboxPanelContentView: View {
 
     private var itemList: some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
-                if runtime.rows.isEmpty {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if runtime.feedSections.isEmpty {
                     emptyState
                 } else {
-                    ForEach(runtime.rows) { row in
-                        InboxRowView(
-                            row: row,
-                            sourceLabel: InboxLocalized.sourceLabel(row.source),
-                            ageLabel: Self.ageFormatter.localizedString(for: row.timestamp, relativeTo: Date()),
-                            isSelected: row.threadID == runtime.selectedThread?.threadID,
-                            actions: InboxRowActions(
-                                select: { runtime.selectThread(row.threadID) },
-                                markRead: { runtime.markRead(itemID: row.itemID) },
-                                openOriginal: { runtime.openOriginal(row: row) }
-                            )
-                        )
-                        Divider()
+                    ForEach(runtime.feedSections) { section in
+                        Section {
+                            ForEach(section.rows) { row in
+                                feedRow(row)
+                            }
+                        } header: {
+                            InboxFeedSectionHeaderView(label: InboxLocalized.bucketLabel(section.bucket))
+                        }
                     }
                 }
             }
         }
         .accessibilityIdentifier("InboxItemList")
+    }
+
+    private func feedRow(_ row: InboxRowSnapshot) -> some View {
+        InboxRowView(
+            row: row,
+            sourceLabel: InboxLocalized.sourceLabel(row.source),
+            ageLabel: Self.ageFormatter.localizedString(for: row.timestamp, relativeTo: Date()),
+            isSelected: row.threadID == runtime.selectedThread?.threadID,
+            actions: InboxRowActions(
+                select: { runtime.selectThread(row.threadID) },
+                markRead: { runtime.markRead(itemID: row.itemID) },
+                openOriginal: { runtime.openOriginal(row: row) }
+            )
+        )
     }
 
     private var emptyState: some View {

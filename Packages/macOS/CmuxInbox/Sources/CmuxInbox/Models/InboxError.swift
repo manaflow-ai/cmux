@@ -16,8 +16,10 @@ public enum InboxError: Error, Equatable, Sendable, CustomStringConvertible {
     case unsupported(String)
     /// A connector is unavailable or not configured.
     case connectorUnavailable(String)
-    /// A required credential is not available in Keychain.
+    /// A required credential is not available in secure storage.
     case tokenUnavailable(InboxSource, String)
+    /// Secure credential storage rejected an operation.
+    case credentialStoreFailed(String)
 
     /// User-safe description for CLI and socket errors.
     public var description: String {
@@ -38,6 +40,8 @@ public enum InboxError: Error, Equatable, Sendable, CustomStringConvertible {
             return message
         case .tokenUnavailable(let source, let accountID):
             return "Missing \(source.rawValue) credential for \(accountID)"
+        case .credentialStoreFailed(let message):
+            return message
         }
     }
 }

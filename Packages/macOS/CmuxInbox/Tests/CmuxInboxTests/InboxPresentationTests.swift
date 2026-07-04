@@ -60,4 +60,43 @@ import CmuxInbox
         #expect(model.sendState(for: fixtures.draft(body: "Sent", status: .sent)) == .sent)
         #expect(model.sendState(for: fixtures.draft(body: "Failed", status: .failed)) == .failed)
     }
+
+    @Test func feedSectionsBucketRowsByRecencyAndDropEmptyBuckets() {
+        let model = InboxPresentationModel()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        // 2023-11-15 12:00:00 UTC
+        let now = Date(timeIntervalSince1970: 1_700_049_600)
+        let thread = fixtures.thread()
+
+        func row(minutesAgo: Double, suffix: String) -> InboxRowSnapshot {
+            let item = InboxItem(
+                itemID: "item-\(suffix)",
+                threadID: thread.threadID,
+                source: .generic,
+                accountID: "default",
+                externalMessageID: "external-\(suffix)",
+                sender: InboxParticipant(displayName: "Sender"),
+                timestamp: now.addingTimeInterval(-minutesAgo * 60),
+                bodyPreview: suffix
+            )
+            return InboxRowSnapshot(item: item, thread: thread)
+        }
+
+        let rows = [
+            row(minutesAgo: -30, suffix: "future"),
+            row(minutesAgo: 60, suffix: "today"),
+            row(minutesAgo: 26 * 60, suffix: "yesterday"),
+            row(minutesAgo: 4 * 24 * 60, suffix: "this-week"),
+            row(minutesAgo: 30 * 24 * 60, suffix: "earlier"),
+        ]
+        let sections = model.feedSections(rows: rows, now: now, calendar: calendar)
+
+        #expect(sections.map(\.bucket) == [.today, .yesterday, .thisWeek, .earlier])
+        #expect(sections.first?.rows.map(\.preview) == ["future", "today"])
+        #expect(sections.last?.rows.map(\.preview) == ["earlier"])
+
+        let recentOnly = model.feedSections(rows: [rows[1]], now: now, calendar: calendar)
+        #expect(recentOnly.map(\.bucket) == [.today])
+    }
 }

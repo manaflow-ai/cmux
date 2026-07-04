@@ -23,6 +23,19 @@ enum InboxLocalized {
         }
     }
 
+    static func bucketLabel(_ bucket: InboxFeedSection.Bucket) -> String {
+        switch bucket {
+        case .today:
+            return String(localized: "inbox.section.today", defaultValue: "Today")
+        case .yesterday:
+            return String(localized: "inbox.section.yesterday", defaultValue: "Yesterday")
+        case .thisWeek:
+            return String(localized: "inbox.section.thisWeek", defaultValue: "This Week")
+        case .earlier:
+            return String(localized: "inbox.section.earlier", defaultValue: "Earlier")
+        }
+    }
+
     static func filterLabel(_ filter: InboxListFilter) -> String {
         switch filter {
         case .actionable:

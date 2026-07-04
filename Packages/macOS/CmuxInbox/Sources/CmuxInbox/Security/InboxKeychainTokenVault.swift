@@ -26,7 +26,7 @@ public actor InboxKeychainTokenVault: InboxTokenStoring {
             status = SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else {
-            throw InboxError.stepFailed(Int32(status), "Keychain save failed")
+            throw InboxError.credentialStoreFailed("Keychain save failed (\(status))")
         }
     }
 
@@ -39,7 +39,7 @@ public actor InboxKeychainTokenVault: InboxTokenStoring {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else {
-            throw InboxError.stepFailed(Int32(status), "Keychain read failed")
+            throw InboxError.credentialStoreFailed("Keychain read failed (\(status))")
         }
         return result as? Data
     }
@@ -48,7 +48,7 @@ public actor InboxKeychainTokenVault: InboxTokenStoring {
     public func deleteToken(source: InboxSource, accountID: String) async throws {
         let status = SecItemDelete(baseQuery(source: source, accountID: accountID) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw InboxError.stepFailed(Int32(status), "Keychain delete failed")
+            throw InboxError.credentialStoreFailed("Keychain delete failed (\(status))")
         }
     }
 
