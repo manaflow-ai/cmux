@@ -48,6 +48,7 @@ private func legacyDecoder() -> JSONDecoder {
         macAppBuild: "42",
         routes: [try hostPortRoute(priority: 1)],
         expiresAt: wholeSecondFutureExpiry(),
+        ticketRef: "ticket-ref-123",
         authToken: "ticket-secret"
     )
 
@@ -59,7 +60,7 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(!json.contains("ticket-secret"))
     #expect(!json.contains("workspaceID"))
     #expect(!json.contains("version"))
-    #expect(json.contains("\"v\":1"))
+    #expect(json.contains("\"v\":2"))
     #expect(json.contains("\"w\":\"workspace-1\""))
     #expect(json.contains("\"d\":\"mac-1\""))
     #expect(!json.contains("user@example.com"))
@@ -67,6 +68,7 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(json.contains("\"pc\":1"))
     #expect(json.contains("\"av\":\"0.64.15\""))
     #expect(json.contains("\"ab\":\"42\""))
+    #expect(json.contains("\"q\":\"ticket-ref-123\""))
     // The grammar no longer carries the display name or an expiry: the name
     // arrives post-handshake via `mobile.host.status`, and a pairing QR never
     // expires.
@@ -111,6 +113,7 @@ private func legacyDecoder() -> JSONDecoder {
         macAppBuild: "42",
         routes: routes,
         expiresAt: wholeSecondFutureExpiry(),
+        ticketRef: "ticket-ref-123",
         authToken: "ticket-secret"
     )
 
@@ -127,11 +130,13 @@ private func legacyDecoder() -> JSONDecoder {
     #expect(decoded.macPairingCompatibilityVersion == ticket.macPairingCompatibilityVersion)
     #expect(decoded.macAppVersion == ticket.macAppVersion)
     #expect(decoded.macAppBuild == ticket.macAppBuild)
+    #expect(decoded.ticketRef == "ticket-ref-123")
     // Routes round-trip losslessly even with custom ids ("ws" differs from
     // the synthesized "websocket", so it is carried verbatim).
     #expect(decoded.routes == ticket.routes)
-    // Dropped by design: the auth token never authorizes anything, the name
-    // arrives via `mobile.host.status`, and a pairing QR never expires.
+    // Dropped by design: the auth token is redeemed from the reference after
+    // Stack auth, the name arrives via `mobile.host.status`, and expiry stays
+    // on the host-side ticket record.
     #expect(decoded.authToken == nil)
     #expect(decoded.macDisplayName == nil)
     #expect(decoded.expiresAt == nil)
@@ -147,6 +152,34 @@ private func legacyDecoder() -> JSONDecoder {
 
     #expect(decoded.macUserEmail == "user@example.com")
     #expect(decoded.macUserID == nil)
+}
+
+@Test func compactDecodeUsesGrammarVersionForAccountIdentityField() throws {
+    let currentPayload = """
+    {"v":2,"d":"mac-1","u":"user@opaque-id","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    """
+
+    let decoded = try compactCoder.decode(Data(currentPayload.utf8))
+
+    #expect(decoded.macUserEmail == nil)
+    #expect(decoded.macUserID == "user@opaque-id")
+}
+
+@Test func compactDecodeKeepsLegacyOpaqueUserIDAsAccountID() throws {
+    // Older Macs stamped the compact grammar as `v == 1` while writing the
+    // opaque Stack user id (no `@`) into `u`, and the original decoder told an
+    // email from an id with an `@` probe. A phone on the new grammar must keep
+    // recovering that `u` as `macUserID`: routing it to `macUserEmail` makes
+    // the account preflight compare the signed-in email to an opaque id and
+    // reject a still-valid pairing before dialing.
+    let legacyUserIDPayload = """
+    {"v":1,"d":"mac-1","u":"user_mac_123","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    """
+
+    let decoded = try compactCoder.decode(Data(legacyUserIDPayload.utf8))
+
+    #expect(decoded.macUserEmail == nil)
+    #expect(decoded.macUserID == "user_mac_123")
 }
 
 @Test func compactRoundTripsMacWidePairingTicketAndDropsEmptyFields() throws {
@@ -308,9 +341,9 @@ private func legacyDecoder() -> JSONDecoder {
     // revision that bumps the version has to fail loudly on today's phones,
     // not silently misdecode as a version-1 ticket.
     let futureVersion = Data("""
-    {"v":2,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
+    {"v":3,"d":"mac-1","r":[{"k":"tailscale","e":{"h":"100.64.1.2","p":49831}}]}
     """.utf8)
-    #expect(throws: CmxAttachTicketError.unsupportedVersion(2)) {
+    #expect(throws: CmxAttachTicketError.unsupportedVersion(3)) {
         try compactCoder.decode(futureVersion)
     }
 }

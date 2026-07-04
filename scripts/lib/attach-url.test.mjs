@@ -29,7 +29,7 @@ function samplePayload() {
 function samplePayloadWithCanonicalURL() {
   return {
     ...samplePayload(),
-    attach_url: "cmux-ios://attach?v=2&r=100.1.2.3:8080",
+    attach_url: "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.1.2.3:8080",
   };
 }
 
@@ -99,14 +99,65 @@ test("defaults version to 1 when the ticket omits it", () => {
 
 test("prefers the canonical attach_url returned by the Mac RPC", () => {
   const { attachURL, routes, payload } = buildAttachURL(samplePayloadWithCanonicalURL());
-  assert.equal(attachURL, "cmux-ios://attach?v=2&r=100.1.2.3:8080");
+  assert.equal(attachURL, "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.1.2.3:8080");
   assert.equal(payload.attach_url, attachURL);
-  assert.equal(routes.length, 2);
+  assert.equal(routes.length, 1);
+  assert.equal(routes[0].kind, "tailscale");
+  assert.deepEqual(payload.ticket.routes, routes);
+});
+
+test("prefers dev-scheme canonical attach_url returned by debug Mac builds", () => {
+  const payload = {
+    ...samplePayloadWithCanonicalURL(),
+    attach_url: "cmux-ios-dev://attach?v=3&tr=ticket-ref-123&r=100.1.2.3:8080",
+  };
+  const { attachURL } = buildAttachURL(payload);
+  assert.equal(attachURL, payload.attach_url);
+});
+
+test("does not reuse secret-bearing payload attach_url returned by older Macs", () => {
+  const payload = {
+    ...samplePayloadWithCanonicalURL(),
+    attach_url: "cmux-ios://attach?v=1&payload=secret-bearing-payload",
+  };
+  const { attachURL } = buildAttachURL(payload);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+  assert.notEqual(attachURL, payload.attach_url);
+});
+
+test("does not reuse v2 attach_url without a ticket reference", () => {
+  const payload = {
+    ...samplePayloadWithCanonicalURL(),
+    attach_url: "cmux-ios://attach?v=2&r=100.1.2.3:8080",
+  };
+  const { attachURL } = buildAttachURL(payload);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+  assert.notEqual(attachURL, payload.attach_url);
+});
+
+test("does not reuse v3 attach_url without a route", () => {
+  const payload = {
+    ...samplePayloadWithCanonicalURL(),
+    attach_url: "cmux-ios://attach?v=3&tr=ticket-ref-123",
+  };
+  const { attachURL } = buildAttachURL(payload);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+  assert.notEqual(attachURL, payload.attach_url);
+});
+
+test("does not reuse v3 attach_url whose routes do not match the payload", () => {
+  const payload = {
+    ...samplePayloadWithCanonicalURL(),
+    attach_url: "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.9.9.9:8080",
+  };
+  const { attachURL } = buildAttachURL(payload);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+  assert.notEqual(attachURL, payload.attach_url);
 });
 
 test("does not reuse canonical attach_url after local route filtering", () => {
   const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), { routeKind: "tailscale" });
-  assert.match(attachURL, /^cmux-ios:\/\/attach\?v=1&payload=/);
+  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
   assert.equal(routes.length, 1);
   const decoded = decodePayload(attachURL);
   assert.equal(decoded.routes.length, 1);

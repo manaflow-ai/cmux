@@ -150,9 +150,15 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
     }
 }
 
+/// Errors thrown while validating or decoding a ``CmxAttachTicket``.
 public enum CmxAttachTicketError: Error, Equatable, Sendable {
+    /// The encoded ticket used a grammar version this build cannot decode.
     case unsupportedVersion(Int)
+    /// The ticket carried no routes, so the phone has nowhere to attach.
     case noRoutes
+    /// The ticket declared a ticket reference whose value was empty.
+    case emptyTicketRef
+    /// The ticket declared an attach token whose value was empty.
     case emptyAuthToken
 }
 
@@ -182,6 +188,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         case macAppBuild
         case routes
         case expiresAt
+        case ticketRef
         case authToken = "auth_token"
     }
 
@@ -213,12 +220,19 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
     /// The Mac app's build number, displayed with version mismatch warnings when present.
     public let macAppBuild: String?
     public let routes: [CmxAttachRoute]
-    /// When the ticket's attach token stops being usable, or `nil` for tickets
-    /// that never expire (the pairing QR carries no token and no expiry; Stack
-    /// auth is the host's sole authorization gate). Expiry is data for the
-    /// token consumers (`MobileCoreRPCClient`, the host's ticket store), not a
-    /// structural validity condition; see ``isExpired(at:)``.
+    /// When the ticket's attach token stops being usable, or `nil` when this
+    /// value carries no inline token expiry. Compact QR tickets carry a
+    /// `ticketRef` instead; the host-side record owns that reference's TTL.
+    /// Expiry is data for token consumers (`MobileCoreRPCClient`, the host's
+    /// ticket store), not a structural validity condition; see
+    /// ``isExpired(at:)``.
     public let expiresAt: Date?
+    /// Non-secret host-side reference used by compact pairing QR codes.
+    ///
+    /// The reference is resolved only after the phone authenticates to the Mac
+    /// with Stack auth. It is not a bearer credential; it lets the QR point at
+    /// the ticket record without carrying the ticket's `authToken`.
+    public let ticketRef: String?
     public let authToken: String?
 
     public init(from decoder: Decoder) throws {
@@ -239,6 +253,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
             macAppBuild: container.decodeIfPresent(String.self, forKey: .macAppBuild),
             routes: container.decode([CmxAttachRoute].self, forKey: .routes),
             expiresAt: container.decodeIfPresent(Date.self, forKey: .expiresAt),
+            ticketRef: container.decodeIfPresent(String.self, forKey: .ticketRef),
             authToken: try Self.decodeAuthToken(from: decoder)
         )
         try validate()
@@ -271,6 +286,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         macAppBuild: String? = nil,
         routes: [CmxAttachRoute],
         expiresAt: Date? = nil,
+        ticketRef: String? = nil,
         authToken: String? = nil
     ) throws {
         self.version = version
@@ -285,17 +301,23 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.macAppBuild = macAppBuild
         self.routes = routes
         self.expiresAt = expiresAt
+        self.ticketRef = ticketRef
         self.authToken = authToken
         try validate()
     }
 
     /// Structural validity only. Expiry is intentionally NOT validated here:
-    /// a scanned pairing QR must keep working however long it sat on screen
-    /// (the host authorizes by Stack account, not by ticket age). Token-based
-    /// consumers check ``isExpired(at:)`` where the token is actually used.
+    /// scanned pairing QR URLs carry no inline expiry, and the host-side
+    /// reference/token record owns age checks. Token-based consumers check
+    /// ``isExpired(at:)`` where the token is actually used.
     public func validate() throws {
         guard version == Self.currentVersion else {
             throw CmxAttachTicketError.unsupportedVersion(version)
+        }
+        if let ticketRef {
+            guard !ticketRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CmxAttachTicketError.emptyTicketRef
+            }
         }
         if let authToken {
             guard !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -310,9 +332,9 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         }
     }
 
-    /// Whether the ticket's attach token lifetime has elapsed at `now`.
-    /// Tickets without an expiry (`expiresAt == nil`, e.g. decoded from the
-    /// pairing QR) never expire.
+    /// Whether this value's inline attach-token lifetime has elapsed at `now`.
+    /// Tickets without an inline expiry (`expiresAt == nil`, e.g. decoded from
+    /// the pairing QR before redeeming `ticketRef`) return `false` here.
     public func isExpired(at now: Date) -> Bool {
         guard let expiresAt else {
             return false

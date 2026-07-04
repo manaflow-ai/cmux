@@ -4,9 +4,9 @@ import Testing
 @testable import CMUXMobileCore
 
 @Suite struct CmxPairingQRBitmapTests {
-    private let oneRoutePayload = "cmux-ios://attach?v=2&r=100.64.0.5:52341"
+    private let oneRoutePayload = "cmux-ios://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:52341"
     private let twoRoutePayload =
-        "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
+        "cmux-ios://attach?v=3&tr=ticket-ref-123&r=lawrences-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
 
     /// The full 4-module quiet zone is part of the bitmap itself, so it
     /// scales with the code and cannot be cropped away by view layout. Also

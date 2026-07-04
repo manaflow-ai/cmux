@@ -53,13 +53,28 @@ struct MissingTestStackAccessToken: Error {}
 /// Async-safe one-shot boolean flag used to observe task progress in tests.
 actor AsyncFlag {
     private var value = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func set() {
         value = true
+        let waiters = waiters
+        self.waiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 
     func isSet() -> Bool {
         value
+    }
+
+    func wait() async {
+        if value {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }
 
@@ -69,6 +84,7 @@ struct RecordedRPCRequest: Sendable {
     var method: String?
     var workspaceID: String?
     var terminalID: String?
+    var ticketRef: String?
     var text: String?
     var hasAuth: Bool
     var attachToken: String?
@@ -84,6 +100,7 @@ func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest {
         method: request["method"] as? String,
         workspaceID: params["workspace_id"] as? String,
         terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
+        ticketRef: params["ticket_ref"] as? String,
         text: params["text"] as? String,
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
@@ -103,6 +120,18 @@ func hostPortRoute(
         endpoint: .hostPort(host: host, port: port),
         priority: priority
     )
+}
+
+extension MobileCoreRPCClient {
+    func waitUntilTicketRedemptionWaiters(count: Int) async -> Bool {
+        for _ in 0..<200 {
+            if (await ticketRedemptionGate.current?.waiters ?? 0) >= count {
+                return true
+            }
+            await Task.yield()
+        }
+        return (await ticketRedemptionGate.current?.waiters ?? 0) >= count
+    }
 }
 
 /// Transport that blocks its first `send` until released, recording payloads so

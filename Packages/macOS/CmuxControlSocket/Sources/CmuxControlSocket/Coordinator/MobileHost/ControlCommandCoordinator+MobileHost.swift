@@ -17,10 +17,11 @@ internal import Foundation
 /// bare `workspace.list` stays on the legacy `v2WorkspaceList`), the
 /// `mobile.terminal.*` verbs each with their bare `terminal.*` alias, plus
 /// `mobile.terminal.paste` / `terminal.paste` and the local debug
-/// `chat.sessions.dump`. The worker-lane `mobile.attach_ticket.create` and the
-/// mobile-data-plane-only verbs are NOT handled here: they reach the Mac only
-/// through the mobile data-plane RPC (`TerminalController.mobileHostHandleRPC`),
-/// which dispatches its `v2Mobile*` bodies directly — it speaks
+/// `chat.sessions.dump`. The worker-lane `mobile.attach_ticket.create` /
+/// `mobile.attach_ticket.redeem` and the mobile-data-plane-only verbs are NOT
+/// handled here: they reach the Mac only through the mobile data-plane RPC
+/// (`TerminalController.mobileHostHandleRPC`), which dispatches its `v2Mobile*`
+/// bodies directly — it speaks
 /// `MobileHostRPCRequest` / `MobileHostRPCResult`, so routing it through this
 /// coordinator (native `ControlCallResult`) would only add a pointless type
 /// round-trip.

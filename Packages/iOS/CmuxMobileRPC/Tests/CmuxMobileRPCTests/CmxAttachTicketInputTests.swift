@@ -3,10 +3,9 @@ import Foundation
 import Testing
 @testable import CmuxMobileRPC
 
-/// URL-level coverage for ``CmxAttachTicketInput`` across the two attach
-/// payload grammars: the compact short-key form newer Macs put in the
-/// pairing QR, and the legacy full-key form older Macs and stored fixtures
-/// still produce. Both ride the same `cmux-ios://attach?v=1&payload=` URL.
+/// URL-level coverage for ``CmxAttachTicketInput`` across the bare-route pairing
+/// URL and the two attach payload grammars: the compact short-key form and the
+/// legacy full-key form older Macs and stored fixtures still produce.
 @Suite struct CmxAttachTicketInputTests {
     private func makeTicket(authToken: String? = nil) throws -> CmxAttachTicket {
         try CmxAttachTicket(
@@ -55,7 +54,8 @@ import Testing
         #expect(decoded.routes == ticket.routes)
         // The compact QR grammar intentionally drops the auth token (it
         // authorizes nothing), the display name (read post-handshake from
-        // `mobile.host.status`), and the expiry (a pairing QR never expires).
+        // `mobile.host.status`), and inline expiry (the host-side ticket
+        // reference owns expiry).
         #expect(decoded.authToken == nil)
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
@@ -63,7 +63,7 @@ import Testing
 
     @Test func missingCompactCompatibilityDecodesAsUnknown() throws {
         let payload = """
-        {"v":1,"d":"mac-1","u":"user_mac_123","r":[{"k":"tailscale","e":{"h":"100.64.0.5","p":8443}}]}
+        {"v":2,"d":"mac-1","u":"user_mac_123","r":[{"k":"tailscale","e":{"h":"100.64.0.5","p":8443}}]}
         """
         let decoded = try CmxAttachTicketInput.decode(
             attachURL(payload: Data(payload.utf8))
@@ -116,10 +116,10 @@ import Testing
     }
 
     @Test func staleQRCodesStillDecodeInBothGrammars() throws {
-        // A QR keeps pairing however long it sat on the Mac's screen: the
-        // host authorizes by Stack account, not ticket age. Both a
-        // first-revision compact payload (explicit `e` expiry long past) and
-        // a legacy full-key payload with a past `expiresAt` must decode.
+        // URL decoding is structural: host-side ticket references own expiry
+        // for current QRs. Both a first-revision compact payload (explicit `e`
+        // expiry long past) and a legacy full-key payload with a past
+        // `expiresAt` must decode.
         let firstRevisionCompact = """
         {"v":1,"d":"mac-1","e":1000,"r":[{"i":"tailscale","k":"tailscale","e":{"t":"host_port","h":"100.64.0.5","p":8443}}]}
         """
@@ -148,22 +148,23 @@ import Testing
 
     @Test func garbagePayloadIsRejected() {
         let url = attachURL(payload: Data("definitely not json".utf8))
-        #expect(throws: Error.self) {
+        #expect(throws: (any Error).self) {
             try CmxAttachTicketInput.decode(url)
         }
     }
 
     @Test func decodesMinimalPairingCodeURL() throws {
-        // New-phone-scans-new-QR: the minimal v2 grammar (bare routes, no
+        // New-phone-scans-new-QR: the minimal v3 grammar (bare routes, no
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=3&tr=ticket-ref-123&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
         )
         #expect(decoded.workspaceID == "")
         #expect(decoded.macDeviceID == "")
         #expect(decoded.macDisplayName == nil)
         #expect(decoded.expiresAt == nil)
+        #expect(decoded.ticketRef == "ticket-ref-123")
         #expect(decoded.authToken == nil)
         #expect(decoded.macUserEmail == nil)
         #expect(decoded.macUserID == "user_mac_123")
@@ -176,15 +177,28 @@ import Testing
     }
 
     @Test func minimalPairingCodeRejectsLoopback() {
-        // A scanned v2 code must never point the phone at itself. The legacy
+        // A scanned bare-route code must never point the phone at itself. The legacy
         // v1 payload grammar is intentionally NOT gated: the dev/simulator
         // auto-pair flow injects loopback attach URLs in that grammar.
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
-            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=127.0.0.1:58465")
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=3&tr=ticket-ref-123&r=127.0.0.1:58465")
         }
         #expect(throws: MobileSyncPairingPayloadError.loopbackRouteRejected) {
-            try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=localhost:58465")
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=3&tr=ticket-ref-123&r=localhost:58465")
         }
+    }
+
+    @Test func minimalPairingCodeRequiresTicketReference() {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxAttachTicketInput.decode("cmux-ios://attach?v=3&r=100.64.0.5:58465")
+        }
+    }
+
+    @Test func legacyV2PairingCodeDecodesWithoutTicketReference() throws {
+        let decoded = try CmxAttachTicketInput.decode("cmux-ios://attach?v=2&r=100.64.0.5:58465")
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.ticketRef == nil)
+        #expect(decoded.authToken == nil)
     }
 
     @Test func legacyPairURLDecodesCompatibilityAsUnknown() throws {
@@ -231,16 +245,17 @@ import Testing
         // phone on either channel pairs from a QR minted by either channel.
         for scheme in CmxPairingURLScheme.all {
             let decoded = try CmxAttachTicketInput.decode(
-                "\(scheme)://attach?v=2&r=100.64.0.5:58465"
+                "\(scheme)://attach?v=3&tr=ticket-ref-123&r=100.64.0.5:58465"
             )
             #expect(decoded.routes.count == 1)
             #expect(decoded.routes.first?.kind == .tailscale)
+            #expect(decoded.ticketRef == "ticket-ref-123")
         }
     }
 
     @Test func newerGrammarVersionThrowsUnrecognizedVersion() {
         // A QR minted by a newer cmux whose grammar version this build predates
-        // (the field report: beta 1.0.2 scanned a v2 QR a newer Mac emitted).
+        // (the field report: beta 1.0.2 scanned a newer QR a newer Mac emitted).
         // It must surface distinctly so the UI says "update the app" instead of
         // the generic invalid-code copy. Use one past the build's known version
         // so the test tracks the constant rather than hardcoding 3.
@@ -256,7 +271,7 @@ import Testing
         // The current grammar version is not "newer", so it decodes normally
         // rather than tripping the unrecognized-version path.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&tr=ticket-ref-123&r=100.64.0.5:58465"
         )
         #expect(decoded.routes.count == 1)
     }

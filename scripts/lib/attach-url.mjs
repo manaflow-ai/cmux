@@ -53,8 +53,10 @@ export function filterRoutes(routes, { routeID = "", routeKind = "" } = {}) {
 /**
  * Build the `<scheme>://attach` deep link from a raw attach-ticket payload.
  *
- * The returned `attachURL` is a bearer credential: it grants the holder the
- * paired Mac's terminals for the ticket's TTL. Never log it.
+ * When the Mac returns a canonical `attach_url`, this preserves that
+ * non-secret ticket-reference URL. When the caller locally filters routes and
+ * this module reconstructs the legacy v1 payload, the returned `attachURL`
+ * includes the bearer ticket and must not be logged.
  *
  * @param {object} payload The raw `mobile.attach_ticket.create` result.
  * @param {{routeID?: string, routeKind?: string, scheme?: string}} [filter]
@@ -74,23 +76,32 @@ export function buildAttachURL(payload, filter = {}) {
 
   const { routeID, routeKind, scheme = DEV_URL_SCHEME } = filter;
   const routes = filterRoutes(payload.ticket.routes, { routeID, routeKind });
+  const didFilter = Boolean(
+    String(routeID || "").trim() || String(routeKind || "").trim(),
+  );
 
   const ticket = { ...payload.ticket, routes };
   const result = { ...payload, ticket, routes };
 
   // Newer Mac builds return the canonical pairing URL from the Swift ticket
   // store. Prefer it when the caller did not narrow the route set locally:
-  // the Swift path may emit the v2 bare-route QR grammar, while this JS module
+  // the Swift path may emit the v3 bare-route QR grammar, while this JS module
   // can only reconstruct the older v1 JSON payload. If a caller filters an
   // unfiltered payload locally, the canonical URL may point at a different
   // route set, so fall through to the lossless v1 reconstruction.
+  const canonicalRoutes =
+    typeof payload.attach_url === "string"
+      ? routesForCanonicalAttachURL(payload.attach_url, payload.ticket.routes)
+      : null;
   if (
-    typeof payload.attach_url === "string" &&
-    payload.attach_url.startsWith("cmux-ios://attach?") &&
-    routes.length === payload.ticket.routes.length
+    !didFilter &&
+    canonicalRoutes &&
+    isCanonicalAttachURL(payload.attach_url, canonicalRoutes.length)
   ) {
+    result.routes = canonicalRoutes;
+    result.ticket = { ...payload.ticket, routes: canonicalRoutes };
     result.attach_url = payload.attach_url;
-    return { attachURL: result.attach_url, routes, payload: result };
+    return { attachURL: result.attach_url, routes: canonicalRoutes, payload: result };
   }
 
   const encodedPayload = Buffer.from(JSON.stringify(ticket)).toString(
@@ -100,4 +111,84 @@ export function buildAttachURL(payload, filter = {}) {
   result.attach_url = `${scheme}://attach?v=${version}&payload=${encodedPayload}`;
 
   return { attachURL: result.attach_url, routes, payload: result };
+}
+
+function isCanonicalAttachURL(value, expectedRouteCount) {
+  const url = parsedCanonicalAttachURL(value);
+  if (!url) {
+    return false;
+  }
+  return url.searchParams.getAll("r").length === expectedRouteCount;
+}
+
+function parsedCanonicalAttachURL(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (
+    url.protocol !== `${RELEASE_URL_SCHEME}:` &&
+    url.protocol !== `${DEV_URL_SCHEME}:`
+  ) {
+    return null;
+  }
+  if (url.hostname !== "attach") {
+    return null;
+  }
+  const params = url.searchParams;
+  const ticketRef = params.get("tr")?.trim() ?? "";
+  if (
+    params.get("v") !== "3" ||
+    ticketRef.length === 0 ||
+    params.has("payload")
+  ) {
+    return null;
+  }
+  return url;
+}
+
+function routesForCanonicalAttachURL(value, routes) {
+  const url = parsedCanonicalAttachURL(value);
+  if (!url) {
+    return null;
+  }
+  const routeKeys = url.searchParams.getAll("r").map(routeKey);
+  if (routeKeys.length === 0) {
+    return null;
+  }
+  const remaining = [...routes];
+  const matched = [];
+  for (const key of routeKeys) {
+    const index = remaining.findIndex(
+      (route) => routeEndpointKey(route) === key,
+    );
+    if (index === -1) {
+      return null;
+    }
+    matched.push(remaining[index]);
+    remaining.splice(index, 1);
+  }
+  return matched;
+}
+
+function routeEndpointKey(route) {
+  const endpoint = route?.endpoint ?? {};
+  if (endpoint.type !== "host_port") {
+    return "";
+  }
+  return `${endpoint.host}:${endpoint.port}`;
+}
+
+function routeKey(value) {
+  const text = String(value || "").trim();
+  if (text.startsWith("[")) {
+    const closing = text.indexOf("]");
+    if (closing <= 1 || text[closing + 1] !== ":") {
+      return "";
+    }
+    return `${text.slice(1, closing)}:${text.slice(closing + 2)}`;
+  }
+  return text;
 }

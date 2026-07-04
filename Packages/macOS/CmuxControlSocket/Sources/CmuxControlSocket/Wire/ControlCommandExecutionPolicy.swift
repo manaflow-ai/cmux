@@ -63,6 +63,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        "mobile.attach_ticket.redeem",
         // `mobile.terminal.set_font` only validates params and emits a
         // `terminal.set_font` push event via thread-safe MobileHostService
         // statics (no main-actor UI access), so it runs on the socket worker
