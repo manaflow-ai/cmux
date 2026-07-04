@@ -4732,7 +4732,7 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         }
 
         private func inlineCompletionSelectionIsActive(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
-            suffixSelectionMatchesInline(editor, inline: inline) || selectionIsTypedPrefixBoundary(editor, inline: inline)
+            suffixSelectionMatchesInline(editor, inline: inline) || selectionIsInlineBoundary(editor, inline: inline)
         }
 
         private func suffixSelectionMatchesInline(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
@@ -4741,11 +4741,10 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             return NSEqualRanges(selected, inline.suffixRange)
         }
 
-        private func selectionIsTypedPrefixBoundary(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
+        private func selectionIsInlineBoundary(_ editor: NSTextView?, inline: OmnibarInlineCompletion?) -> Bool {
             guard let editor, let inline else { return false }
             let selected = editor.selectedRange()
-            let typedCount = inline.typedText.utf16.count
-            return selected.location == typedCount && selected.length == 0
+            return selected.length == 0 && (selected.location == inline.typedText.utf16.count || selected.location == inline.displayText.utf16.count)
         }
 
         func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {

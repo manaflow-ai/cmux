@@ -32,6 +32,27 @@ struct OmnibarInlineDeletionSwiftTests {
         #expect(harness.inlineCompletion?.displayText == "gmail.com")
     }
 
+    @Test("plain Backspace command deletes a single character at the inline display boundary")
+    func plainBackspaceCommandDeletesSingleCharacterAtInlineDisplayBoundary() {
+        let harness = OmnibarInlineDeletionSwiftHarness(
+            typedText: "gma",
+            displayText: "gmail.com",
+            suggestions: [
+                .history(url: "https://gmail.com/", title: "Gmail"),
+            ]
+        )
+
+        let handled = harness.commandHandled(
+            #selector(NSResponder.deleteBackward(_:)),
+            selectionRange: NSRange(location: "gmail.com".utf16.count, length: 0)
+        )
+
+        #expect(handled)
+        #expect(harness.state.buffer == "gm")
+        #expect(harness.inlineCompletion?.typedText == "gm")
+        #expect(harness.inlineCompletion?.displayText == "gmail.com")
+    }
+
     @Test("plain Backspace command does not intercept a mid-prefix caret")
     func plainBackspaceCommandDoesNotInterceptMidPrefixCaret() {
         let harness = OmnibarInlineDeletionSwiftHarness(

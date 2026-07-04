@@ -579,16 +579,9 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        // Drive Backspace as a real HID key event through XCUITest so it reaches
-        // the focused omnibar and invokes `deleteBackward(_:)` — the exact command
-        // BrowserPanelView intercepts for inline-completion boundary deletion.
-        // We intentionally avoid routing this through the control socket's
-        // `simulate_shortcut`: that path hops to the main thread via
-        // `DispatchQueue.main.sync`, which can be starved by concurrent XCUITest
-        // main-thread traffic right after the suggestions render and hang without
-        // ever writing its ack (whereas HID key delivery uses the always-serviced
-        // event path, as the sibling Cmd+A test relies on).
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        // Target the text field directly so CI accessibility focus churn cannot
+        // route the key to the suggestions list or web view.
+        omnibar.typeText(XCUIKeyboardKey.delete.rawValue)
 
         var valueAfterDelete = ""
         let revealedTypedPrefix = waitForCondition(timeout: 3.0) {
