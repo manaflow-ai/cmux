@@ -54,6 +54,7 @@ extension DockSocketLifecycleTests {
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            panelScopedMutationSourceWorkspaceIds: [],
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,

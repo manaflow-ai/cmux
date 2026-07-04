@@ -3175,7 +3175,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
     ) -> Workspace.DetachedSurfaceTransfer {
         let panel = DetachedWorkspaceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
-            sourceWorkspaceId: sourceWorkspaceId,
+            sourceWorkspaceId: sourceWorkspaceId, panelScopedMutationSourceWorkspaceIds: [],
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,

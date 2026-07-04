@@ -18,7 +18,7 @@ extension Workspace {
 
     struct DetachedSurfaceTransfer {
         let sourceWorkspaceId: UUID
-        let panelScopedMutationSourceWorkspaceIds: Set<UUID> = []
+        let panelScopedMutationSourceWorkspaceIds: Set<UUID>
         let panelId: UUID
         let panel: any Panel
         let title: String
