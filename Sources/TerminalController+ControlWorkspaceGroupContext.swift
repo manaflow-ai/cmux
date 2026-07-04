@@ -128,6 +128,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         let createdGroupId = tabManager.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childIds,
+            parentGroupId: tabManager.commonWorkspaceGroupId(for: childIds),
             anchorWorkingDirectory: cwd,
             selectAnchor: false,
             collapseSidebarSelection: false

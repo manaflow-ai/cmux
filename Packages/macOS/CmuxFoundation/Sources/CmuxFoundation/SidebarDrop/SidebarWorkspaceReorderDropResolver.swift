@@ -299,9 +299,9 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
 
+        let draggedGroup = groupByAnchorId[draggedWorkspace.id]
         let promotesGroupedWorkspace = usesTopLevelRows &&
-            draggedWorkspace.groupId != nil &&
-            groupByAnchorId[draggedWorkspace.id] == nil
+            ((draggedWorkspace.groupId != nil && draggedGroup == nil) || draggedGroup?.parentGroupId != nil)
         let plannedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: rootTarget.workspaceId,
