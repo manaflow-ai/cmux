@@ -1042,6 +1042,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the shell store is discarded.
     public func shutdown() {
         cancelBackgroundWorkAndDisconnect()
+        invalidatePairingAttempt()
         // `shutdown()` runs from the reversible SwiftUI `onDisappear`. If SwiftUI
         // reuses this view's identity and re-appears with the same `@State` store,
         // the reconnect-on-appear gate (`MobileRootAuthGate.shouldReconnectStoredMac`)

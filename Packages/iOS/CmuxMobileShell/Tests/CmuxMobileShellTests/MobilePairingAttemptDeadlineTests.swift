@@ -132,6 +132,28 @@ import Testing
         #expect(store.macConnectionStatus == .unavailable)
     }
 
+    @Test func shutdownResetsInFlightPairingChecklist() async {
+        let transport = CountingSlowIgnoringCancellationTransport()
+        let runtime = PairingDeadlineRuntime(
+            transportFactory: CountingSlowIgnoringCancellationTransportFactory(transport: transport)
+        )
+        let store = makeStore(runtime: runtime)
+
+        let pairingTask = Task {
+            await store.connectPairingURLResult(Self.qrURL)
+        }
+        await transport.waitForConnectCount(1)
+        #expect(store.pairingChecklist == .inProgress)
+
+        store.shutdown()
+        #expect(store.pairingChecklist == .idle)
+
+        await transport.releaseConnects()
+        let result = await pairingTask.value
+        #expect(result == .superseded)
+        #expect(store.pairingChecklist == .idle)
+    }
+
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
 
     private func makeStore(
