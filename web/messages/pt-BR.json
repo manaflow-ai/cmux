@@ -2006,6 +2006,11 @@
                 "terminal OpenGL rápido e mínimo"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Emulador de terminal Rust/OpenGL, não Electron/Tauri"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -2071,6 +2076,11 @@
                 "Função principal",
                 "Terminal nativo do macOS para supervisionar muitos agentes CLI",
                 "workspace empacotado para tarefas de agentes"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "App para Mac; o stack de desktop não é especificado publicamente"
               ],
               [
                 "Visibilidade de agentes",
@@ -2213,6 +2223,11 @@
                 "Workspace de orquestração de agentes"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "App desktop Electron/React com xterm.js e node-pty"
+              ],
+              [
                 "Runtime",
                 "Swift/AppKit mais libghostty",
                 "App desktop Electron"
@@ -2285,6 +2300,11 @@
                 "Editor, chat, hosted agents"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Editor Electron derivado do VS Code"
+              ],
+              [
                 "Escolha de agente",
                 "Qualquer agente CLI",
                 "Fluxo de IA centrado no Cursor mais integrações"
@@ -2350,6 +2370,11 @@
                 "Função principal",
                 "Terminal nativo do macOS para supervisionar muitos agentes CLI",
                 "plataforma gerenciada de AI software engineer"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Plataforma em nuvem mais Devin Desktop derivado do VS Code"
               ],
               [
                 "Visibilidade de agentes",
@@ -2419,6 +2444,11 @@
                 "terminal geral para macOS"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "App nativo de terminal para macOS, não Electron/Tauri"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -2486,6 +2516,11 @@
                 "terminal GPU rápido e cheio de recursos"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Emulador de terminal GPU compilado nativamente, não Electron/Tauri"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -2539,7 +2574,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr é multiplexer terminal-native para agentes. cmux é um terminal e browser workspace nativo do macOS para supervisionar localmente agentes CLI, shells, testes, verificações no browser e scripts com notification rings, Cmd+Shift+U e Cmd+Control+U.",
           "summaryTitle": "Workspace local para agentes vs outra camada de ferramenta",
-          "summaryBody": "Use Herdr quando quiser o workflow específico dele. Use cmux quando quiser uma superfície de terminal local e programável que mantém agentes, notificações, browser panes e navegação unread visíveis no Mac.",
+          "summaryBody": "Use Herdr quando quiser um multiplexador de agentes estilo tmux dentro de qualquer terminal, especialmente por SSH ou em uma tela pequena. Use cmux quando quiser um app de terminal nativo para Mac com renderização libghostty, workspaces no nível do app, automação de navegador integrada, anéis de notificação, Cmd+Shift+U, Cmd+Control+U e controle local programável. Muitos fluxos usam os dois: Herdr dentro de uma sessão SSH, com cmux como o host do lado Mac ao redor.",
           "table": {
             "headers": [
               "Dimensão",
@@ -2551,6 +2586,11 @@
                 "Função principal",
                 "Terminal nativo do macOS para supervisionar muitos agentes CLI",
                 "multiplexer terminal-native para agentes"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Binário Rust nativo de terminal, não app desktop Electron/Tauri"
               ],
               [
                 "Visibilidade de agentes",
@@ -2577,7 +2617,7 @@
           "sections": [
             {
               "title": "cmux mantém agentes visíveis",
-              "body": "cmux organiza terminais, verificações no browser, portas, branches e a saída mais recente para que muitas sessões longas de agentes continuem legíveis."
+              "body": "O argumento mais forte do Herdr é portabilidade: rode em um servidor, desconecte, reconecte e mantenha panes reais de terminal vivos. Muitos desenvolvedores rodam Herdr dentro de sessões SSH abertas pelo cmux, uma boa combinação: Herdr mantém panes remotos persistentes, enquanto o cmux entrega o app nativo do lado Mac, panes de navegador, notificações e atalhos de não lidos ao redor do workspace SSH."
             },
             {
               "title": "Os atalhos fazem parte do modelo de atenção",
@@ -2606,7 +2646,7 @@
           "title": "cmux vs OpenCode",
           "intro": "OpenCode é coding agent open source. cmux é um terminal e browser workspace nativo do macOS para supervisionar localmente agentes CLI, shells, testes, verificações no browser e scripts com notification rings, Cmd+Shift+U e Cmd+Control+U.",
           "summaryTitle": "Workspace local para agentes vs outra camada de ferramenta",
-          "summaryBody": "Use OpenCode quando quiser o workflow específico dele. Use cmux quando quiser uma superfície de terminal local e programável que mantém agentes, notificações, browser panes e navegação unread visíveis no Mac.",
+          "summaryBody": "Use OpenCode quando quiser um agente de programação open source. Use cmux quando quiser um workspace nativo de macOS que supervisione OpenCode, Claude Code, Codex CLI, fluxos do app Codex e de extensões de IDE, Gemini CLI, Aider, Amp, Cursor CLI e trabalho comum de shell juntos.",
           "table": {
             "headers": [
               "Dimensão",
@@ -2618,6 +2658,11 @@
                 "Função principal",
                 "Terminal nativo do macOS para supervisionar muitos agentes CLI",
                 "coding agent open source"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "TUI de terminal mais beta desktop Electron"
               ],
               [
                 "Visibilidade de agentes",
@@ -2644,7 +2689,7 @@
           "sections": [
             {
               "title": "cmux mantém agentes visíveis",
-              "body": "cmux organiza terminais, verificações no browser, portas, branches e a saída mais recente para que muitas sessões longas de agentes continuem legíveis."
+              "body": "OpenCode é um agente. cmux é a superfície de terminal que mantém OpenCode, Claude Code, Codex CLI e outros agentes de shell visíveis juntos. Os fluxos do app Codex e de extensões de IDE podem ficar nas próprias superfícies enquanto o cmux supervisiona os terminais de longa duração onde agentes, testes, servidores e logs realmente ficam."
             },
             {
               "title": "Os atalhos fazem parte do modelo de atenção",
@@ -2685,6 +2730,11 @@
                 "Função principal",
                 "Terminal nativo do macOS para supervisionar muitos agentes CLI",
                 "terminal multiplexer portátil"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Multiplexador de terminal rodando dentro do seu terminal"
               ],
               [
                 "Visibilidade de agentes",
@@ -2754,6 +2804,11 @@
                 "editor e plataforma de extensões"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Editor desktop Electron"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -2819,6 +2874,11 @@
                 "Função principal",
                 "Terminal nativo do macOS para supervisionar muitos agentes CLI",
                 "superfície IDE para agentes"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Editor Devin Desktop derivado do VS Code"
               ],
               [
                 "Visibilidade de agentes",
@@ -2888,6 +2948,11 @@
                 "editor colaborativo rápido"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Editor nativo Rust/GPUI, não Electron/Tauri"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -2953,6 +3018,11 @@
                 "Fluxo principal",
                 "Supervisionar muitos agentes CLI",
                 "Experiência de terminal com IA"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Cliente de terminal open source; stack de desktop não especificado aqui"
               ],
               [
                 "Escolha de agente",
@@ -3022,6 +3092,11 @@
                 "terminal e multiplexer cross-platform"
               ],
               [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "Emulador e multiplexador de terminal GPU em Rust"
+              ],
+              [
                 "Visibilidade de agentes",
                 "Workspaces verticais, metadados de branch e porta, estado unread",
                 "Depende do workflow da ferramenta"
@@ -3087,6 +3162,11 @@
                 "Função principal",
                 "Supervisão de agentes e multitarefa",
                 "Terminal de uso geral"
+              ],
+              [
+                "Stack de desktop",
+                "App nativo de macOS em Swift/AppKit, construído sobre libghostty",
+                "App de terminal nativo construído em torno do libghostty"
               ],
               [
                 "Renderização",

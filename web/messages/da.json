@@ -2002,6 +2002,11 @@
                 "Agentorkestrerings-workspace"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Electron/React-desktopapp med xterm.js og node-pty"
+              ],
+              [
                 "Runtime",
                 "Swift/AppKit plus libghostty",
                 "Electron desktop-app"
@@ -2074,6 +2079,11 @@
                 "Editor, chat, hostede agenter"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Electron-editor afledt af VS Code"
+              ],
+              [
                 "Agentvalg",
                 "Enhver CLI-agent",
                 "Cursor-centreret AI-workflow plus integrationer"
@@ -2139,6 +2149,11 @@
                 "Kerneflow",
                 "Overvåg mange CLI-agenter",
                 "AI-terminaloplevelse"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Open source-terminalklient; desktop-stack er ikke angivet her"
               ],
               [
                 "Agentvalg",
@@ -2208,6 +2223,11 @@
                 "Generel terminal"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Native terminalapp bygget omkring libghostty"
+              ],
+              [
                 "Rendering",
                 "Bygget på libghostty",
                 "Ghostty-terminalmotor"
@@ -2273,6 +2293,11 @@
                 "Primær opgave",
                 "Supervisere mange agenter og lokale workflows",
                 "Det sammenlignede værktøjs hovedrolle"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Rust/OpenGL-terminalemulator, ikke Electron/Tauri"
               ],
               [
                 "Renderingsmotor",
@@ -2351,6 +2376,11 @@
                 "Det sammenlignede værktøjs hovedrolle"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Mac-app; desktop-stack er ikke offentligt angivet"
+              ],
+              [
                 "Renderingsmotor",
                 "Bygget på libghostty til en moderne og hurtig terminal",
                 "Værktøjets egen rendering eller overflade"
@@ -2425,6 +2455,11 @@
                 "Primær opgave",
                 "Supervisere mange agenter og lokale workflows",
                 "Det sammenlignede værktøjs hovedrolle"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Cloudplatform plus Devin Desktop afledt af VS Code"
               ],
               [
                 "Renderingsmotor",
@@ -2503,6 +2538,11 @@
                 "Det sammenlignede værktøjs hovedrolle"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Native macOS-terminalapp, ikke Electron/Tauri"
+              ],
+              [
                 "Renderingsmotor",
                 "Bygget på libghostty til en moderne og hurtig terminal",
                 "Værktøjets egen rendering eller overflade"
@@ -2579,6 +2619,11 @@
                 "Det sammenlignede værktøjs hovedrolle"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Native kompileret GPU-terminalemulator, ikke Electron/Tauri"
+              ],
+              [
                 "Renderingsmotor",
                 "Bygget på libghostty til en moderne og hurtig terminal",
                 "Værktøjets egen rendering eller overflade"
@@ -2641,7 +2686,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr er en open source-terminal-native agent-multiplekser, der kører inde i den terminal, du allerede bruger, og som kan holde ægte ruder i live over SSH. cmux er en GPL-licenseret indbygget macOS-app bygget på libghostty med lodrette arbejdsområder, meddelelsesringe, browserruder og en socket-API til lokale agent-arbejdsgange.",
           "summaryTitle": "Native Mac-app vs terminal-native multiplexer",
-          "summaryBody": "Brug Herdr, når du vil have en tmux-lignende agent multiplexer inde i enhver terminal, især over SSH eller fra en lille skærm. Brug cmux, når du vil have en indbygget Mac-terminalapp med libghostty-gengivelse, arbejdsområder på app-niveau, indbygget browserautomatisering, meddelelsesringe, Cmd+Shift+U, Cmd+Control+U og programmerbar lokal kontrol.",
+          "summaryBody": "Brug Herdr, når du vil have en tmux-lignende agent-multiplexer inde i enhver terminal, især over SSH eller fra en lille skærm. Brug cmux, når du vil have en native Mac-terminalapp med libghostty-rendering, workspaces på appniveau, indbygget browserautomatisering, notifikationsringe, Cmd+Shift+U, Cmd+Control+U og programmerbar lokal kontrol. Mange workflows bruger begge: Herdr inde i en SSH-session, med cmux som Mac-side værten omkring den.",
           "table": {
             "headers": [
               "Dimension",
@@ -2653,6 +2698,11 @@
                 "Primær overflade",
                 "Native macOS-terminal- og browserapp",
                 "Terminalnative multiplexer inde i en eksisterende terminal"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Rust terminal-native binær, ikke Electron/Tauri-desktopapp"
               ],
               [
                 "Runtime-model",
@@ -2689,7 +2739,7 @@
           "sections": [
             {
               "title": "cmux er uafhængig af agenten",
-              "body": "cmux kan køre enhver CLI-agent eller shell-kommando uden at flytte arbejdet ind i en bestemt runtime. Claude Code, Codex, OpenCode, Gemini CLI, Aider, SSH, scripts og lokale servere kan leve i samme app."
+              "body": "Herdrs stærkeste argument er portabilitet: kør det på en server, detach, forbind igen, og hold rigtige terminalpanes i live. Mange udviklere kører Herdr inde i SSH-sessioner åbnet fra cmux, og det er en god kombination: Herdr holder remote panes persistente, mens cmux giver den native Mac-app, browserpanes, notifikationer og unread-genveje omkring SSH-workspacet."
             },
             {
               "title": "Konteksten forbliver synlig",
@@ -2718,7 +2768,7 @@
           "title": "cmux vs OpenCode",
           "intro": "OpenCode er en open source-kodeagent i terminal-, desktop- og IDE-flader. cmux er det native terminal- og browser-workspace, hvor OpenCode og andre CLI-agenter kan køre side om side.",
           "summaryTitle": "Agent vs agent-workspace",
-          "summaryBody": "Brug OpenCode, når du vil have en open source-kodeagent. Brug cmux, når du vil have et native macOS-workspace, der kan supervisere OpenCode, Claude Code, Codex, Gemini CLI, Aider, Amp, Cursor CLI og almindelige shellflows sammen.",
+          "summaryBody": "Brug OpenCode, når du vil have en open source-kodeagent. Brug cmux, når du vil have et native macOS-workspace, der overvåger OpenCode, Claude Code, Codex CLI, Codex-app- og IDE-udvidelsesflows, Gemini CLI, Aider, Amp, Cursor CLI og almindeligt shellarbejde samlet.",
           "table": {
             "headers": [
               "Dimension",
@@ -2730,6 +2780,11 @@
                 "Primær opgave",
                 "Supervisere mange agenter og lokale workflows",
                 "Det sammenlignede værktøjs hovedrolle"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Terminal-TUI plus Electron-desktopbeta"
               ],
               [
                 "Renderingsmotor",
@@ -2756,7 +2811,7 @@
           "sections": [
             {
               "title": "cmux er uafhængig af agenten",
-              "body": "cmux kan køre enhver CLI-agent eller shell-kommando uden at flytte arbejdet ind i en bestemt runtime. Claude Code, Codex, OpenCode, Gemini CLI, Aider, SSH, scripts og lokale servere kan leve i samme app."
+              "body": "OpenCode er en agent. cmux er terminalfladen, der kan holde OpenCode, Claude Code, Codex CLI og andre shell-agenter synlige sammen. Codex-app- og IDE-udvidelsesflows kan blive i deres egne flader, mens cmux overvåger de langvarige terminaler, hvor agenter, tests, servere og logs faktisk kører."
             },
             {
               "title": "Konteksten forbliver synlig",
@@ -2797,6 +2852,11 @@
                 "Primær opgave",
                 "Supervisere mange agenter og lokale workflows",
                 "Det sammenlignede værktøjs hovedrolle"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Terminalmultiplexer der kører inde i din terminal"
               ],
               [
                 "Renderingsmotor",
@@ -2875,6 +2935,11 @@
                 "Det sammenlignede værktøjs hovedrolle"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Electron-desktopeditor"
+              ],
+              [
                 "Renderingsmotor",
                 "Bygget på libghostty til en moderne og hurtig terminal",
                 "Værktøjets egen rendering eller overflade"
@@ -2945,6 +3010,11 @@
                 "Primær opgave",
                 "Supervisere mange agenter og lokale workflows",
                 "Det sammenlignede værktøjs hovedrolle"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Devin Desktop-editor afledt af VS Code"
               ],
               [
                 "Renderingsmotor",
@@ -3019,6 +3089,11 @@
                 "Det sammenlignede værktøjs hovedrolle"
               ],
               [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Native Rust/GPUI-editor, ikke Electron/Tauri"
+              ],
+              [
                 "Renderingsmotor",
                 "Bygget på libghostty til en moderne og hurtig terminal",
                 "Værktøjets egen rendering eller overflade"
@@ -3089,6 +3164,11 @@
                 "Primær opgave",
                 "Supervisere mange agenter og lokale workflows",
                 "Det sammenlignede værktøjs hovedrolle"
+              ],
+              [
+                "Desktop-stack",
+                "Native Swift/AppKit-macOS-app bygget på libghostty",
+                "Rust GPU-terminalemulator og multiplexer"
               ],
               [
                 "Renderingsmotor",

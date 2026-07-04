@@ -2350,6 +2350,11 @@
                 "Fast general-purpose terminal"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Rust/OpenGL terminal emulator, not Electron/Tauri"
+              ],
+              [
                 "Rendering engine",
                 "Built on libghostty for modern GPU-accelerated terminal rendering",
                 "OpenGL terminal renderer"
@@ -2424,6 +2429,11 @@
                 "Primary surface",
                 "Native terminal, browser, workspaces, splits",
                 "Mac app for parallel coding-agent tasks"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Mac app; desktop stack is not publicly specified"
               ],
               [
                 "Agent model",
@@ -2575,6 +2585,11 @@
                 "Agent orchestration workspace"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Electron/React desktop app with xterm.js and node-pty"
+              ],
+              [
                 "Runtime",
                 "Swift/AppKit plus libghostty",
                 "Electron desktop app"
@@ -2656,6 +2671,11 @@
                 "Editor, chat, hosted agents"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "VS Code-derived Electron editor"
+              ],
+              [
                 "Agent choice",
                 "Any CLI agent",
                 "Cursor-centered AI workflow plus integrations"
@@ -2726,6 +2746,11 @@
                 "Primary job",
                 "Supervise local terminal and browser workflows",
                 "Plan and execute delegated engineering tasks"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Cloud platform plus VS Code-derived Devin Desktop"
               ],
               [
                 "Where work runs",
@@ -2804,6 +2829,11 @@
                 "General-purpose macOS terminal"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Native macOS terminal app, not Electron/Tauri"
+              ],
+              [
                 "Agent visibility",
                 "Vertical workspaces, latest output, branch and port metadata",
                 "Manual tabs, windows, splits, and profiles"
@@ -2880,6 +2910,11 @@
                 "Fast feature-rich terminal emulation"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Native compiled GPU terminal emulator, not Electron/Tauri"
+              ],
+              [
                 "Rendering engine",
                 "Built on libghostty for modern GPU-accelerated terminal rendering",
                 "Kitty terminal renderer and protocol ecosystem"
@@ -2942,7 +2977,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr is an open-source terminal-native agent multiplexer that runs inside the terminal you already use and can keep real panes alive over SSH. cmux is a GPL-licensed native macOS app built on libghostty, with vertical workspaces, notification rings, browser panes, and a socket API for local agent workflows.",
           "summaryTitle": "Native Mac app vs terminal-native multiplexer",
-          "summaryBody": "Use Herdr when you want a tmux-like agent multiplexer inside any terminal, especially over SSH or from a small screen. Use cmux when you want a native Mac terminal app with libghostty rendering, app-level workspaces, built-in browser automation, notification rings, Cmd+Shift+U, Cmd+Control+U, and programmable local control.",
+          "summaryBody": "Use Herdr when you want a tmux-like agent multiplexer inside any terminal, especially over SSH or from a small screen. Use cmux when you want a native Mac terminal app with libghostty rendering, app-level workspaces, built-in browser automation, notification rings, Cmd+Shift+U, Cmd+Control+U, and programmable local control. Many workflows use both: Herdr inside an SSH session, with cmux as the Mac-side host around it.",
           "table": {
             "headers": [
               "Dimension",
@@ -2954,6 +2989,11 @@
                 "Primary surface",
                 "Native macOS terminal and browser app",
                 "Terminal-native multiplexer inside an existing terminal"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Rust terminal-native binary, not an Electron/Tauri desktop app"
               ],
               [
                 "Runtime model",
@@ -2990,7 +3030,7 @@
           "sections": [
             {
               "title": "Herdr lives inside your terminal",
-              "body": "Herdr's strongest claim is portability: run it on a server, detach, reconnect, and keep real terminal panes alive. That is a different product shape from cmux, which owns the Mac app shell around terminals and browsers."
+              "body": "Herdr's strongest claim is portability: run it on a server, detach, reconnect, and keep real terminal panes alive. Many developers run Herdr inside SSH sessions opened from cmux, which is a good pairing: Herdr keeps remote panes persistent, while cmux gives the Mac-side native app, browser panes, notifications, and unread shortcuts around the SSH workspace."
             },
             {
               "title": "cmux owns the native desktop surface",
@@ -3019,7 +3059,7 @@
           "title": "cmux vs OpenCode",
           "intro": "OpenCode is an open source coding agent available in terminal, desktop, and IDE surfaces. cmux is the native terminal and browser workspace where OpenCode and other CLI agents can run side by side.",
           "summaryTitle": "Agent vs agent workspace",
-          "summaryBody": "Use OpenCode when you want an open source coding agent. Use cmux when you want a native macOS workspace that can supervise OpenCode, Claude Code, Codex, Gemini CLI, Aider, Amp, Cursor CLI, and ordinary shell workflows together.",
+          "summaryBody": "Use OpenCode when you want an open source coding agent. Use cmux when you want a native macOS workspace that can supervise OpenCode, Claude Code, Codex CLI, Codex app and IDE extension workflows, Gemini CLI, Aider, Amp, Cursor CLI, and ordinary shell workflows together.",
           "table": {
             "headers": [
               "Dimension",
@@ -3031,6 +3071,11 @@
                 "Primary job",
                 "Terminal and browser supervision layer",
                 "Open source coding agent"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Terminal TUI plus Electron desktop beta"
               ],
               [
                 "Agent choice",
@@ -3057,7 +3102,7 @@
           "sections": [
             {
               "title": "OpenCode can run inside cmux",
-              "body": "The comparison is not either-or. OpenCode is an agent. cmux is the terminal surface that can keep multiple OpenCode sessions visible next to Claude Code, Codex, tests, browsers, and logs."
+              "body": "OpenCode is an agent. cmux is the terminal surface that can keep OpenCode, Claude Code, Codex CLI, and other shell agents visible together. Codex app and IDE extension workflows can stay in their own surfaces while cmux supervises the long-running terminals where agents, tests, servers, and logs actually sit."
             },
             {
               "title": "cmux keeps agent choice portable",
@@ -3098,6 +3143,11 @@
                 "Primary job",
                 "Native macOS agent supervision",
                 "Terminal multiplexing"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Terminal multiplexer running inside your terminal"
               ],
               [
                 "Platform",
@@ -3176,6 +3226,11 @@
                 "Editor, extensions, terminals, and agent views"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Electron desktop editor"
+              ],
+              [
                 "Source model",
                 "Free and open source GPL app",
                 "Code OSS is MIT; Microsoft VS Code distribution has Microsoft product licensing"
@@ -3246,6 +3301,11 @@
                 "Primary surface",
                 "Terminal, browser, workspaces, splits",
                 "IDE with agent command center"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "VS Code-derived Devin Desktop editor"
               ],
               [
                 "Editor lock-in",
@@ -3320,6 +3380,11 @@
                 "Code editor with collaboration and AI features"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Rust/GPUI native editor, not Electron/Tauri"
+              ],
+              [
                 "Source model",
                 "Free and open source GPL app",
                 "Open source editor"
@@ -3390,6 +3455,11 @@
                 "Core workflow",
                 "Supervise many CLI agents",
                 "AI terminal experience"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Open-source terminal client; desktop stack is not publicly specified here"
               ],
               [
                 "Rendering engine",
@@ -3469,6 +3539,11 @@
                 "Cross-platform terminal emulator and multiplexer"
               ],
               [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Rust GPU terminal emulator and multiplexer"
+              ],
+              [
                 "Rendering engine",
                 "Built on libghostty for modern GPU-accelerated terminal rendering",
                 "WezTerm terminal renderer and multiplexer"
@@ -3543,6 +3618,11 @@
                 "Primary job",
                 "Agent supervision and multitasking",
                 "General-purpose terminal"
+              ],
+              [
+                "Desktop stack",
+                "Native Swift/AppKit macOS app built on libghostty",
+                "Native terminal app built around libghostty"
               ],
               [
                 "Rendering",

@@ -353,7 +353,7 @@
         "p3": "最优秀的开发者一直在构建自己的工具。目前还没有人找到与 agent 协作的最佳方式，那些构建封闭产品的团队当然也没有。最接近自己代码库的开发者会最先找到答案。",
         "p4": "给一百万开发者可组合的基础组件，他们集体找到最高效工作流的速度会比任何产品团队自上而下设计的都快。"
       },
-                "claudeCodeBestWorktreeManager": {
+      "claudeCodeBestWorktreeManager": {
         "title": "Claude Code 是最好的工作树管理器",
         "summary": "使用 Claude Code、Codex、脚本和 cmux 原语构建您的代码库实际需要的工作树工作流。",
         "date": "2026 年 7 月 3 日",
@@ -1929,6 +1929,11 @@
                 "快速通用终端"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "Rust/OpenGL 终端模拟器，不是 Electron/Tauri"
+              ],
+              [
                 "渲染引擎",
                 "基于 libghostty 构建，用于现代 GPU 加速终端渲染",
                 "OpenGL 终端渲染器"
@@ -2003,6 +2008,11 @@
                 "主表面",
                 "本机终端、浏览器、工作区、拆分",
                 "用于并行编码代理任务的 Mac 应用程序"
+              ],
+              [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "Mac 应用；桌面技术栈未公开明确说明"
               ],
               [
                 "代理模式",
@@ -2154,6 +2164,11 @@
                 "代理编排工作区"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "使用 xterm.js 和 node-pty 的 Electron/React 桌面应用"
+              ],
+              [
                 "运行时",
                 "Swift/AppKit 加上 libghostty",
                 "电子桌面应用程序"
@@ -2235,6 +2250,11 @@
                 "编辑器、聊天、托管代理"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "源自 VS Code 的 Electron 编辑器"
+              ],
+              [
                 "代理商选择",
                 "任何 CLI 代理",
                 "以光标为中心的人工智能工作流程以及集成"
@@ -2305,6 +2325,11 @@
                 "主要工作",
                 "监督本地终端和浏览器工作流程",
                 "计划和执行委托的工程任务"
+              ],
+              [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "云平台加源自 VS Code 的 Devin Desktop"
               ],
               [
                 "工作在哪里进行",
@@ -2383,6 +2408,11 @@
                 "通用 macOS 终端"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "原生 macOS 终端应用，不是 Electron/Tauri"
+              ],
+              [
                 "代理可见性",
                 "垂直工作区、最新输出、分支和端口元数据",
                 "手动选项卡、窗口、分割和配置文件"
@@ -2459,6 +2489,11 @@
                 "快速、功能丰富的终端仿真"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "原生编译的 GPU 终端模拟器，不是 Electron/Tauri"
+              ],
+              [
                 "渲染引擎",
                 "基于 libghostty 构建，用于现代 GPU 加速终端渲染",
                 "Kitty 终端渲染器和协议生态系统"
@@ -2521,7 +2556,7 @@
           "title": "cmux 与 Herdr",
           "intro": "Herdr 是一个开源终端本地代理多路复用器，它在您已使用的终端内运行，并且可以通过 SSH 保持真实窗格的活动。 cmux 是一款基于 libghostty 构建的 GPL 许可的本机 macOS 应用程序，具有垂直工作区、通知环、浏览器窗格和用于本地代理工作流程的套接字 API。",
           "summaryTitle": "本机 Mac 应用程序与终端本机多路复用器",
-          "summaryBody": "当您想要在任何终端内使用类似 tmux 的代理多路复用器时，尤其是通过 SSH 或在小屏幕上使用 Herdr。当您需要具有 libghostty 渲染、应用程序级工作区、内置浏览器自动化、通知环、Cmd+Shift+U、Cmd+Control+U 和可编程本地控制的本机 Mac 终端应用程序时，请使用 cmux。",
+          "summaryBody": "如果想在任何终端里使用类似 tmux 的代理复用器，尤其是通过 SSH 或小屏幕使用，选择 Herdr。如果想要带 libghostty 渲染、应用级工作区、内置浏览器自动化、通知环、Cmd+Shift+U、Cmd+Control+U 和可编程本地控制的原生 Mac 终端应用，选择 cmux。很多工作流会同时使用两者：Herdr 跑在 SSH 会话里，cmux 作为 Mac 侧宿主包住它。",
           "table": {
             "headers": [
               "维度",
@@ -2533,6 +2568,11 @@
                 "主表面",
                 "本机 macOS 终端和浏览器应用程序",
                 "现有终端内的终端本机多路复用器"
+              ],
+              [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "Rust 终端原生二进制，不是 Electron/Tauri 桌面应用"
               ],
               [
                 "运行时模型",
@@ -2569,7 +2609,7 @@
           "sections": [
             {
               "title": "Herdr 住在你的航站楼内",
-              "body": "Herdr 最强有力的主张是可移植性：在服务器上运行它、分离、重新连接并保持真正的终端窗格处于活动状态。这是与 cmux 不同的产品形态，cmux 拥有围绕终端和浏览器的 Mac 应用外壳。"
+              "body": "Herdr 最强的主张是可移植性：在服务器上运行，分离，重新连接，并让真实终端 pane 保持存活。很多开发者会在从 cmux 打开的 SSH 会话里运行 Herdr，这是很好的组合：Herdr 让远程 pane 持久存在，cmux 则在 SSH 工作区外提供 Mac 侧原生应用、浏览器 pane、通知和未读快捷键。"
             },
             {
               "title": "cmux 拥有本机桌面表面",
@@ -2598,7 +2638,7 @@
           "title": "cmux 与 OpenCode",
           "intro": "OpenCode 是一种开源编码代理，可在终端、桌面和 IDE 界面中使用。 cmux 是本机终端和浏览器工作区，OpenCode 和其他 CLI 代理可以在其中并行运行。",
           "summaryTitle": "代理与代理工作区",
-          "summaryBody": "当您需要开源编码代理时，请使用 OpenCode。当您需要一个可以一起监督 OpenCode、Claude Code、Codex、Gemini CLI、Aider、Amp、Cursor CLI 和普通 shell 工作流程的本机 macOS 工作区时，请使用 cmux。",
+          "summaryBody": "需要开源编码代理时使用 OpenCode。需要原生 macOS 工作区来同时监督 OpenCode、Claude Code、Codex CLI、Codex 应用和 IDE 扩展工作流、Gemini CLI、Aider、Amp、Cursor CLI 以及普通 shell 工作时使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -2610,6 +2650,11 @@
                 "主要工作",
                 "终端和浏览器监管层",
                 "开源编码代理"
+              ],
+              [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "终端 TUI 加 Electron 桌面 beta"
               ],
               [
                 "代理商选择",
@@ -2636,7 +2681,7 @@
           "sections": [
             {
               "title": "OpenCode 可以在 cmux 中运行",
-              "body": "比较不是非此即彼的。 OpenCode 是一个代理。 cmux 是一个终端界面，可以在 Claude Code、Codex、测试、浏览器和日志旁边保持多个 OpenCode 会话可见。"
+              "body": "OpenCode 是一个代理。cmux 是终端工作界面，可以把 OpenCode、Claude Code、Codex CLI 和其他 shell 代理放在一起保持可见。Codex 应用和 IDE 扩展工作流可以留在自己的界面中，而 cmux 监督真正长期运行代理、测试、服务器和日志的终端。"
             },
             {
               "title": "cmux 使代理选择可移植",
@@ -2677,6 +2722,11 @@
                 "主要工作",
                 "本机 macOS 代理监督",
                 "终端复用"
+              ],
+              [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "运行在你现有终端里的终端复用器"
               ],
               [
                 "平台",
@@ -2755,6 +2805,11 @@
                 "编辑器、扩展、终端和代理视图"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "Electron 桌面编辑器"
+              ],
+              [
                 "源模型",
                 "免费开源 GPL 应用程序",
                 "OSS代码是MIT； Microsoft VS Code 发行版拥有 Microsoft 产品许可"
@@ -2825,6 +2880,11 @@
                 "主表面",
                 "终端、浏览器、工作区、拆分",
                 "带有代理指挥中心的 IDE"
+              ],
+              [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "源自 VS Code 的 Devin Desktop 编辑器"
               ],
               [
                 "编辑器锁定",
@@ -2899,6 +2959,11 @@
                 "具有协作和人工智能功能的代码编辑器"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "Rust/GPUI 原生编辑器，不是 Electron/Tauri"
+              ],
+              [
                 "源模型",
                 "免费开源 GPL 应用程序",
                 "开源编辑器"
@@ -2969,6 +3034,11 @@
                 "核心工作流程",
                 "监督许多 CLI 代理",
                 "AI终端体验"
+              ],
+              [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "开源终端客户端；不是 Electron/Tauri 外壳"
               ],
               [
                 "渲染引擎",
@@ -3048,6 +3118,11 @@
                 "跨平台终端仿真器和多路复用器"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "Rust GPU 终端模拟器和复用器"
+              ],
+              [
                 "渲染引擎",
                 "基于 libghostty 构建，用于现代 GPU 加速终端渲染",
                 "WezTerm 终端渲染器和多路复用器"
@@ -3124,6 +3199,11 @@
                 "通用终端"
               ],
               [
+                "桌面技术栈",
+                "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
+                "围绕 libghostty 构建的原生终端应用"
+              ],
+              [
                 "渲染",
                 "基于 libghostty 构建",
                 "幽灵般的终端引擎"
@@ -3171,7 +3251,7 @@
           "faqQ3": "我什么时候应该使用 cmux 而不是 Ghostty？",
           "faqA3": "当您运行多个编码代理并需要工作区、通知环、未读导航、浏览器窗格以及围绕它们的可编程性时，请使用 cmux。"
         }
-}
+      }
     },
     "cta": {
       "freeOpenSource": "cmux 是面向 macOS 的免费开源软件。",

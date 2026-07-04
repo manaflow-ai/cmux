@@ -2006,6 +2006,11 @@
                 "brz, minimalan OpenGL terminal"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Rust/OpenGL terminal emulator, nije Electron/Tauri"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2071,6 +2076,11 @@
                 "Glavni posao",
                 "Nativni macOS terminal za nadzor mnogih CLI agenata",
                 "pakovan workspace za zadatke agenata"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Mac aplikacija; desktop stack nije javno naveden"
               ],
               [
                 "Vidljivost agenata",
@@ -2140,6 +2150,11 @@
                 "managed AI software engineer platforma"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Cloud platforma plus Devin Desktop izveden iz VS Code-a"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2205,6 +2220,11 @@
                 "Glavni posao",
                 "Nativni macOS terminal za nadzor mnogih CLI agenata",
                 "opšti macOS terminal"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Nativna macOS terminal aplikacija, nije Electron/Tauri"
               ],
               [
                 "Vidljivost agenata",
@@ -2274,6 +2294,11 @@
                 "brz GPU terminal s mnogo funkcija"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Nativno kompajliran GPU terminal emulator, nije Electron/Tauri"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2327,7 +2352,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr je terminal-native agent multiplexer. cmux je nativni macOS terminal i browser workspace za lokalni nadzor CLI agenata, shellova, testova, browser provjera i skripti uz notification rings, Cmd+Shift+U i Cmd+Control+U.",
           "summaryTitle": "Lokalni agent workspace vs drugi sloj alata",
-          "summaryBody": "Koristite Herdr kada želite njegov specifični workflow. Koristite cmux kada želite lokalnu, programabilnu terminalsku površinu koja drži agente, notifikacije, browser panes i unread navigaciju vidljivima na Macu.",
+          "summaryBody": "Koristi Herdr kada želiš tmux-sličan agent multiplexer unutar bilo kojeg terminala, posebno preko SSH-a ili s malog ekrana. Koristi cmux kada želiš native Mac terminal app s libghostty renderingom, workspaceima na nivou appa, ugrađenom browser automatizacijom, notification ringovima, Cmd+Shift+U, Cmd+Control+U i programabilnom lokalnom kontrolom. Mnogi workflowi koriste oboje: Herdr unutar SSH sesije, a cmux kao Mac-side host oko nje.",
           "table": {
             "headers": [
               "Dimenzija",
@@ -2339,6 +2364,11 @@
                 "Glavni posao",
                 "Nativni macOS terminal za nadzor mnogih CLI agenata",
                 "terminal-native agent multiplexer"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Rust terminal-native binarij, nije Electron/Tauri desktop aplikacija"
               ],
               [
                 "Vidljivost agenata",
@@ -2365,7 +2395,7 @@
           "sections": [
             {
               "title": "cmux drži agente vidljivim",
-              "body": "cmux organizuje terminale, browser provjere, portove, grane i najnoviji izlaz tako da više dugih agent sesija ostane čitljivo."
+              "body": "Herdr-ova najjača tvrdnja je portabilnost: pokreni ga na serveru, detachuj, ponovo se poveži i zadrži stvarne terminal paneove živim. Mnogi developeri pokreću Herdr unutar SSH sesija otvorenih iz cmux-a. To je dobra kombinacija: Herdr održava remote paneove persistentnim, dok cmux daje native Mac app, browser paneove, notifikacije i unread shortcutove oko SSH workspacea."
             },
             {
               "title": "Prečice su dio modela pažnje",
@@ -2394,7 +2424,7 @@
           "title": "cmux vs OpenCode",
           "intro": "OpenCode je open source coding agent. cmux je nativni macOS terminal i browser workspace za lokalni nadzor CLI agenata, shellova, testova, browser provjera i skripti uz notification rings, Cmd+Shift+U i Cmd+Control+U.",
           "summaryTitle": "Lokalni agent workspace vs drugi sloj alata",
-          "summaryBody": "Koristite OpenCode kada želite njegov specifični workflow. Koristite cmux kada želite lokalnu, programabilnu terminalsku površinu koja drži agente, notifikacije, browser panes i unread navigaciju vidljivima na Macu.",
+          "summaryBody": "Koristi OpenCode kada želiš open source coding agenta. Koristi cmux kada želiš native macOS workspace koji zajedno nadgleda OpenCode, Claude Code, Codex CLI, tokove Codex aplikacije i IDE ekstenzija, Gemini CLI, Aider, Amp, Cursor CLI i običan shell rad.",
           "table": {
             "headers": [
               "Dimenzija",
@@ -2406,6 +2436,11 @@
                 "Glavni posao",
                 "Nativni macOS terminal za nadzor mnogih CLI agenata",
                 "open source coding agent"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Terminal TUI plus Electron desktop beta"
               ],
               [
                 "Vidljivost agenata",
@@ -2432,7 +2467,7 @@
           "sections": [
             {
               "title": "cmux drži agente vidljivim",
-              "body": "cmux organizuje terminale, browser provjere, portove, grane i najnoviji izlaz tako da više dugih agent sesija ostane čitljivo."
+              "body": "OpenCode je agent. cmux je terminalska površina koja može držati OpenCode, Claude Code, Codex CLI i druge shell agente vidljivim zajedno. Tokovi Codex aplikacije i IDE ekstenzija mogu ostati u svojim površinama, dok cmux nadgleda dugotrajne terminale gdje agenti, testovi, serveri i logovi stvarno rade."
             },
             {
               "title": "Prečice su dio modela pažnje",
@@ -2473,6 +2508,11 @@
                 "Glavni posao",
                 "Nativni macOS terminal za nadzor mnogih CLI agenata",
                 "prenosivi terminal multiplexer"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Terminal multiplexer koji radi unutar vašeg terminala"
               ],
               [
                 "Vidljivost agenata",
@@ -2542,6 +2582,11 @@
                 "editor i extension platforma"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Electron desktop editor"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2607,6 +2652,11 @@
                 "Glavni posao",
                 "Nativni macOS terminal za nadzor mnogih CLI agenata",
                 "IDE površina za agente"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Devin Desktop editor izveden iz VS Code-a"
               ],
               [
                 "Vidljivost agenata",
@@ -2676,6 +2726,11 @@
                 "brz kolaborativni editor"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Nativni Rust/GPUI editor, nije Electron/Tauri"
+              ],
+              [
                 "Vidljivost agenata",
                 "Vertikalni workspaceovi, metadata grane i portova, unread stanje",
                 "Zavisi od workflowa tog alata"
@@ -2741,6 +2796,11 @@
                 "Glavni posao",
                 "Nativni macOS terminal za nadzor mnogih CLI agenata",
                 "cross-platform terminal i multiplexer"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Rust GPU terminal emulator i multiplexer"
               ],
               [
                 "Vidljivost agenata",
@@ -2883,6 +2943,11 @@
                 "Agent orchestration workspace"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Electron/React desktop aplikacija sa xterm.js i node-pty"
+              ],
+              [
                 "Runtime",
                 "Swift/AppKit plus libghostty",
                 "Electron desktop aplikacija"
@@ -2955,6 +3020,11 @@
                 "Editor, chat, hosted agents"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Electron editor izveden iz VS Code-a"
+              ],
+              [
                 "Izbor agenta",
                 "Bilo koji CLI agent",
                 "AI workflow centriran oko Cursora plus integracije"
@@ -3022,6 +3092,11 @@
                 "AI terminal experience"
               ],
               [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Open source terminal klijent; desktop stack ovdje nije javno naveden"
+              ],
+              [
                 "Izbor agenta",
                 "Bilo koji shell-based agent",
                 "Warp product workflow"
@@ -3087,6 +3162,11 @@
                 "Primarni posao",
                 "Agent supervision i multitasking",
                 "Terminal opće namjene"
+              ],
+              [
+                "Desktop stack",
+                "Nativna Swift/AppKit macOS aplikacija izgrađena na libghostty",
+                "Nativna terminal aplikacija izgrađena oko libghostty"
               ],
               [
                 "Rendering",

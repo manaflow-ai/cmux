@@ -1929,6 +1929,11 @@
                 "Hızlı genel amaçlı terminal"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Rust/OpenGL terminal emülatörü, Electron/Tauri değil"
+              ],
+              [
                 "İşleme motoru",
                 "Modern GPU ile hızlandırılmış terminal oluşturma için libghostty üzerine kurulmuştur",
                 "OpenGL terminal oluşturucu"
@@ -2003,6 +2008,11 @@
                 "Birincil yüzey",
                 "Yerel terminal, tarayıcı, çalışma alanları, bölmeler",
                 "Paralel kodlama aracısı görevleri için Mac uygulaması"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Mac uygulaması; masaüstü yığını herkese açık belirtilmemiş"
               ],
               [
                 "Aracı modeli",
@@ -2154,6 +2164,11 @@
                 "Aracı orkestrasyonu çalışma alanı"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "xterm.js ve node-pty kullanan Electron/React masaüstü uygulaması"
+              ],
+              [
                 "Çalışma zamanı",
                 "Swift/AppKit artı libghostty",
                 "Electron masaüstü uygulaması"
@@ -2235,6 +2250,11 @@
                 "Editör, sohbet, barındırılan temsilciler"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "VS Code türevi Electron editörü"
+              ],
+              [
                 "Temsilci seçimi",
                 "Herhangi bir CLI aracısı",
                 "İmleç merkezli AI iş akışı ve entegrasyonlar"
@@ -2305,6 +2325,11 @@
                 "Birincil iş",
                 "Yerel terminal ve tarayıcı iş akışlarını denetleyin",
                 "Yetki verilen mühendislik görevlerini planlayın ve yürütün"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "VS Code türevi Devin Desktop ile bulut platformu"
               ],
               [
                 "İşin yürütüldüğü yer",
@@ -2383,6 +2408,11 @@
                 "Genel amaçlı macOS terminali"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Native macOS terminal uygulaması, Electron/Tauri değil"
+              ],
+              [
                 "Temsilci görünürlüğü",
                 "Dikey çalışma alanları, en son çıktı, dal ve bağlantı noktası meta verileri",
                 "Manuel sekmeler, pencereler, bölmeler ve profiller"
@@ -2459,6 +2489,11 @@
                 "Hızlı, zengin özelliklere sahip terminal emülasyonu"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Native derlenmiş GPU terminal emülatörü, Electron/Tauri değil"
+              ],
+              [
                 "İşleme motoru",
                 "Modern GPU ile hızlandırılmış terminal oluşturma için libghostty üzerine kurulmuştur",
                 "Kitty terminal oluşturucu ve protokol ekosistemi"
@@ -2521,7 +2556,7 @@
           "title": "cmux ve Herdr",
           "intro": "Herdr, halihazırda kullandığınız terminalin içinde çalışan ve gerçek bölmeleri SSH üzerinden canlı tutabilen, açık kaynaklı bir terminal-yerel aracı çoklayıcıdır. cmux, dikey çalışma alanları, bildirim halkaları, tarayıcı bölmeleri ve yerel aracı iş akışları için bir API soketi içeren, libghostty üzerine kurulmuş, GPL lisanslı bir yerel macOS uygulamasıdır.",
           "summaryTitle": "Yerel Mac uygulaması ve terminal-yerel çoklayıcı karşılaştırması",
-          "summaryBody": "Herhangi bir terminalin içinde, özellikle SSH üzerinden veya küçük bir ekrandan tmux benzeri bir aracı çoklayıcı istiyorsanız Herdr kullanın. libghostty oluşturma, uygulama düzeyinde çalışma alanları, yerleşik tarayıcı otomasyonu, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve programlanabilir yerel kontrol içeren yerel bir Mac terminal uygulaması istediğinizde cmux kullanın.",
+          "summaryBody": "Özellikle SSH üzerinden veya küçük ekrandan, herhangi bir terminalin içinde tmux benzeri ajan multiplexer istediğinizde Herdr kullanın. libghostty render, uygulama düzeyi workspace’ler, yerleşik tarayıcı otomasyonu, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve programlanabilir yerel kontrol olan native Mac terminal uygulaması istediğinizde cmux kullanın. Birçok iş akışı ikisini birlikte kullanır: SSH oturumunun içinde Herdr, etrafında Mac tarafı host olarak cmux.",
           "table": {
             "headers": [
               "Boyut",
@@ -2533,6 +2568,11 @@
                 "Birincil yüzey",
                 "Yerel macOS terminali ve tarayıcı uygulaması",
                 "Mevcut bir terminalin içindeki terminale özgü çoklayıcı"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Terminal-native Rust binary, Electron/Tauri masaüstü uygulaması değil"
               ],
               [
                 "Çalışma zamanı modeli",
@@ -2569,7 +2609,7 @@
           "sections": [
             {
               "title": "Herdr terminalinizin içinde yaşıyor",
-              "body": "Herdr'nin en güçlü iddiası taşınabilirliktir: onu bir sunucuda çalıştırın, ayırın, yeniden bağlayın ve gerçek terminal bölmelerini canlı tutun. Bu, terminaller ve tarayıcılar etrafındaki Mac uygulama kabuğuna sahip olan cmux'den farklı bir ürün şeklidir."
+              "body": "Herdr’nin en güçlü iddiası taşınabilirliktir: sunucuda çalıştır, ayır, yeniden bağlan ve gerçek terminal pane’lerini canlı tut. Birçok geliştirici Herdr’yi cmux’ten açılan SSH oturumlarının içinde çalıştırır. Bu iyi bir eşleşmedir: Herdr uzak pane’leri kalıcı tutar, cmux ise SSH workspace çevresinde Mac tarafı native uygulamayı, tarayıcı pane’lerini, bildirimleri ve unread kısayollarını verir."
             },
             {
               "title": "cmux yerel masaüstü yüzeyinin sahibidir",
@@ -2598,7 +2638,7 @@
           "title": "cmux ve OpenCode",
           "intro": "OpenCode terminal, masaüstü ve IDE yüzeylerinde kullanılabilen açık kaynaklı bir kodlama aracısıdır. cmux, OpenCode ve diğer CLI aracılarının yan yana çalışabileceği yerel terminal ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "Temsilci ve temsilci çalışma alanı",
-          "summaryBody": "Açık kaynak kodlama aracısı istediğinizde OpenCode kullanın. OpenCode, Claude Code, Codex, Gemini CLI, Aider, Amp, Cursor CLI ve sıradan kabuk iş akışlarını birlikte denetleyebilecek yerel bir macOS çalışma alanı istediğinizde cmux kullanın.",
+          "summaryBody": "Açık kaynak bir kodlama ajanı istediğinizde OpenCode kullanın. OpenCode, Claude Code, Codex CLI, Codex uygulaması ve IDE eklentisi iş akışları, Gemini CLI, Aider, Amp, Cursor CLI ve normal shell işleri birlikte denetlenecekse yerel macOS çalışma alanı olarak cmux kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -2610,6 +2650,11 @@
                 "Birincil iş",
                 "Terminal ve tarayıcı denetim katmanı",
                 "Açık kaynak kodlama aracısı"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Terminal TUI ve Electron masaüstü betası"
               ],
               [
                 "Temsilci seçimi",
@@ -2636,7 +2681,7 @@
           "sections": [
             {
               "title": "OpenCode, cmux içinde çalışabilir",
-              "body": "Karşılaştırma ya ya da değil. OpenCode bir aracıdır. cmux, birden fazla OpenCode oturumunu Claude Code, Codex, testler, tarayıcılar ve günlüklerin yanında görünür tutabilen terminal yüzeyidir."
+              "body": "OpenCode bir ajandır. cmux, OpenCode, Claude Code, Codex CLI ve diğer shell ajanlarını birlikte görünür tutan terminal yüzeyidir. Codex uygulaması ve IDE eklentisi iş akışları kendi yüzeylerinde kalabilir; cmux ise ajanların, testlerin, sunucuların ve logların gerçekten uzun süre çalıştığı terminalleri denetler."
             },
             {
               "title": "cmux temsilci seçimini taşınabilir tutar",
@@ -2677,6 +2722,11 @@
                 "Birincil iş",
                 "Yerel macOS aracı denetimi",
                 "Terminal çoğullama"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Terminalinizin içinde çalışan terminal multiplexer"
               ],
               [
                 "platformu",
@@ -2755,6 +2805,11 @@
                 "Düzenleyici, uzantılar, terminaller ve aracı görünümleri"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Electron masaüstü editörü"
+              ],
+              [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
                 "Code OSS, MIT'dir; Microsoft VS Code dağıtımı Microsoft ürün lisansına sahiptir"
@@ -2825,6 +2880,11 @@
                 "Birincil yüzey",
                 "Terminal, tarayıcı, çalışma alanları, bölmeler",
                 "Temsilci komuta merkezi ile IDE"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "VS Code türevi Devin Desktop editörü"
               ],
               [
                 "Editörün kilitlenmesi",
@@ -2899,6 +2959,11 @@
                 "İşbirliği ve AI özelliklerine sahip kod düzenleyici"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Rust/GPUI native editör, Electron/Tauri değil"
+              ],
+              [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
                 "Açık kaynak düzenleyici"
@@ -2969,6 +3034,11 @@
                 "Temel iş akışı",
                 "Birçok CLI temsilcisini denetleyin",
                 "AI terminal deneyimi"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Açık kaynak terminal istemcisi; Electron/Tauri shell değil"
               ],
               [
                 "İşleme motoru",
@@ -3048,6 +3118,11 @@
                 "Çapraz platform terminal emülatörü ve çoklayıcı"
               ],
               [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "Rust GPU terminal emülatörü ve multiplexer"
+              ],
+              [
                 "İşleme motoru",
                 "Modern GPU ile hızlandırılmış terminal oluşturma için libghostty üzerine kurulmuştur",
                 "WezTerm terminal oluşturucu ve çoklayıcı"
@@ -3122,6 +3197,11 @@
                 "Birincil iş",
                 "Temsilci denetimi ve çoklu görev",
                 "Genel amaçlı terminal"
+              ],
+              [
+                "Masaüstü yığını",
+                "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
+                "libghostty etrafında kurulmuş native terminal uygulaması"
               ],
               [
                 "İşleme",

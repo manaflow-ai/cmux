@@ -2006,6 +2006,11 @@
                 "rask, minimal OpenGL-terminal"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Rust/OpenGL-terminalemulator, ikke Electron/Tauri"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -2071,6 +2076,11 @@
                 "Hovedjobb",
                 "Native macOS-terminal for å overvåke mange CLI-agenter",
                 "pakket workspace for agentoppgaver"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Mac-app; skrivebordsstacken er ikke offentlig spesifisert"
               ],
               [
                 "Agentsynlighet",
@@ -2213,6 +2223,11 @@
                 "Agentorkestreringsarbeidsområde"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Electron/React-skrivebordsapp med xterm.js og node-pty"
+              ],
+              [
                 "Runtime",
                 "Swift/AppKit pluss libghostty",
                 "Electron desktop-app"
@@ -2285,6 +2300,11 @@
                 "Editor, chat, hosted agents"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Electron-editor avledet fra VS Code"
+              ],
+              [
                 "Agentvalg",
                 "Enhver CLI-agent",
                 "Cursor-sentrert AI-arbeidsflyt pluss integrasjoner"
@@ -2350,6 +2370,11 @@
                 "Hovedjobb",
                 "Native macOS-terminal for å overvåke mange CLI-agenter",
                 "managed AI software engineer-plattform"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Skyplattform pluss Devin Desktop avledet fra VS Code"
               ],
               [
                 "Agentsynlighet",
@@ -2419,6 +2444,11 @@
                 "generell macOS-terminal"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Innebygd macOS-terminalapp, ikke Electron/Tauri"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -2486,6 +2516,11 @@
                 "rask GPU-terminal med mange funksjoner"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Innebygd kompilert GPU-terminalemulator, ikke Electron/Tauri"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -2539,7 +2574,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr er terminal-native agent multiplexer. cmux er et native macOS terminal- og browser-workspace for lokal overvåking av CLI-agenter, shells, tester, browsersjekker og skript med notification rings, Cmd+Shift+U og Cmd+Control+U.",
           "summaryTitle": "Lokalt agent-workspace vs et annet verktøylag",
-          "summaryBody": "Bruk Herdr når du vil ha den spesifikke workflowen. Bruk cmux når du vil ha en lokal, programmerbar terminalflate som holder agenter, varsler, browser panes og unread-navigasjon synlig på Mac.",
+          "summaryBody": "Bruk Herdr når du vil ha en tmux-lignende agent-multiplekser inne i enhver terminal, særlig over SSH eller fra en liten skjerm. Bruk cmux når du vil ha en native Mac-terminalapp med libghostty-rendering, arbeidsområder på appnivå, innebygd nettleserautomatisering, varslingsringer, Cmd+Shift+U, Cmd+Control+U og programmerbar lokal kontroll. Mange arbeidsflyter bruker begge: Herdr inne i en SSH-økt, med cmux som Mac-side vert rundt den.",
           "table": {
             "headers": [
               "Dimensjon",
@@ -2551,6 +2586,11 @@
                 "Hovedjobb",
                 "Native macOS-terminal for å overvåke mange CLI-agenter",
                 "terminal-native agent multiplexer"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Rust terminalnær binær, ikke Electron/Tauri-skrivebordsapp"
               ],
               [
                 "Agentsynlighet",
@@ -2577,7 +2617,7 @@
           "sections": [
             {
               "title": "cmux holder agenter synlige",
-              "body": "cmux organiserer terminaler, browsersjekker, porter, branches og siste output slik at mange lange agentsesjoner forblir lesbare."
+              "body": "Herdrs sterkeste argument er portabilitet: kjør den på en server, koble fra, koble til igjen og hold ekte terminalpanes i live. Mange utviklere kjører Herdr inne i SSH-økter åpnet fra cmux. Det er en god kombinasjon: Herdr holder remote panes persistente, mens cmux gir native Mac-app, nettleserpanes, varsler og unread-snarveier rundt SSH-arbeidsområdet."
             },
             {
               "title": "Snarveiene er en del av oppmerksomhetsmodellen",
@@ -2606,7 +2646,7 @@
           "title": "cmux vs OpenCode",
           "intro": "OpenCode er open source coding agent. cmux er et native macOS terminal- og browser-workspace for lokal overvåking av CLI-agenter, shells, tester, browsersjekker og skript med notification rings, Cmd+Shift+U og Cmd+Control+U.",
           "summaryTitle": "Lokalt agent-workspace vs et annet verktøylag",
-          "summaryBody": "Bruk OpenCode når du vil ha den spesifikke workflowen. Bruk cmux når du vil ha en lokal, programmerbar terminalflate som holder agenter, varsler, browser panes og unread-navigasjon synlig på Mac.",
+          "summaryBody": "Bruk OpenCode når du vil ha en åpen kildekode-agent. Bruk cmux når du vil ha et native macOS-arbeidsområde som overvåker OpenCode, Claude Code, Codex CLI, Codex-app- og IDE-utvidelsesflyter, Gemini CLI, Aider, Amp, Cursor CLI og vanlig shellarbeid samlet.",
           "table": {
             "headers": [
               "Dimensjon",
@@ -2618,6 +2658,11 @@
                 "Hovedjobb",
                 "Native macOS-terminal for å overvåke mange CLI-agenter",
                 "open source coding agent"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Terminal-TUI pluss Electron-skrivebordsbeta"
               ],
               [
                 "Agentsynlighet",
@@ -2644,7 +2689,7 @@
           "sections": [
             {
               "title": "cmux holder agenter synlige",
-              "body": "cmux organiserer terminaler, browsersjekker, porter, branches og siste output slik at mange lange agentsesjoner forblir lesbare."
+              "body": "OpenCode er en agent. cmux er terminalflaten som kan holde OpenCode, Claude Code, Codex CLI og andre shell-agenter synlige sammen. Codex-app- og IDE-utvidelsesflyter kan bli i sine egne flater mens cmux overvåker de langvarige terminalene der agenter, tester, servere og logger faktisk kjører."
             },
             {
               "title": "Snarveiene er en del av oppmerksomhetsmodellen",
@@ -2685,6 +2730,11 @@
                 "Hovedjobb",
                 "Native macOS-terminal for å overvåke mange CLI-agenter",
                 "portabel terminal multiplexer"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Terminalmultiplekser som kjører inne i terminalen din"
               ],
               [
                 "Agentsynlighet",
@@ -2754,6 +2804,11 @@
                 "editor og extension-plattform"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Electron-skrivebordseditor"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -2819,6 +2874,11 @@
                 "Hovedjobb",
                 "Native macOS-terminal for å overvåke mange CLI-agenter",
                 "IDE-flate for agenter"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Devin Desktop-editor avledet fra VS Code"
               ],
               [
                 "Agentsynlighet",
@@ -2888,6 +2948,11 @@
                 "rask samarbeidseditor"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Innebygd Rust/GPUI-editor, ikke Electron/Tauri"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -2953,6 +3018,11 @@
                 "Kjernearbeidsflyt",
                 "Overvåk mange CLI-agenter",
                 "AI-terminalopplevelse"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Open source-terminalklient; skrivebordsstacken er ikke spesifisert her"
               ],
               [
                 "Agentvalg",
@@ -3022,6 +3092,11 @@
                 "cross-platform terminal og multiplexer"
               ],
               [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Rust GPU-terminalemulator og multiplekser"
+              ],
+              [
                 "Agentsynlighet",
                 "Vertikale workspaces, branch- og portmetadata, unread state",
                 "Avhenger av verktøyets workflow"
@@ -3087,6 +3162,11 @@
                 "Primær jobb",
                 "Agentovervåking og multitasking",
                 "Terminal for generell bruk"
+              ],
+              [
+                "Skrivebordsstack",
+                "Innebygd Swift/AppKit-macOS-app bygget på libghostty",
+                "Innebygd terminalapp bygget rundt libghostty"
               ],
               [
                 "Rendering",

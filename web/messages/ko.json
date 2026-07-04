@@ -1865,6 +1865,11 @@
                 "고속 범용 터미널"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "Rust/OpenGL 터미널 에뮬레이터, Electron/Tauri 아님"
+              ],
+              [
                 "렌더링 엔진",
                 "최신 GPU 가속 터미널 렌더링을 위해 libghostty를 기반으로 구축",
                 "OpenGL 터미널 렌더러"
@@ -1939,6 +1944,11 @@
                 "기본 표면",
                 "기본 터미널, 브라우저, 작업 공간, 분할",
                 "병렬 코딩 에이전트 작업을 위한 Mac 앱"
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "Mac 앱, 데스크톱 스택은 공개적으로 명시되지 않음"
               ],
               [
                 "에이전트 모델",
@@ -2090,6 +2100,11 @@
                 "에이전트 오케스트레이션 워크스페이스"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "xterm.js와 node-pty를 쓰는 Electron/React 데스크톱 앱"
+              ],
+              [
                 "런타임",
                 "Swift/AppKit plus libghostty",
                 "Electron 데스크톱 앱"
@@ -2162,6 +2177,11 @@
                 "에디터, 채팅, 호스팅 에이전트"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "VS Code 기반 Electron 에디터"
+              ],
+              [
                 "에이전트 선택",
                 "모든 CLI 에이전트",
                 "Cursor 중심 AI 워크플로와 통합"
@@ -2227,6 +2247,11 @@
                 "주요 직업",
                 "로컬 터미널 및 브라우저 워크플로우 감독",
                 "위임된 엔지니어링 업무를 계획하고 실행합니다."
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "클라우드 플랫폼 및 VS Code 기반 Devin Desktop"
               ],
               [
                 "작업이 실행되는 곳",
@@ -2305,6 +2330,11 @@
                 "범용 macOS 단자"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "네이티브 macOS 터미널 앱, Electron/Tauri 아님"
+              ],
+              [
                 "상담원 가시성",
                 "수직 작업 공간, 최신 출력, 지점 및 포트 메타데이터",
                 "수동 탭, 창, 분할 및 프로필"
@@ -2381,6 +2411,11 @@
                 "빠르고 기능이 풍부한 터미널 에뮬레이션"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "네이티브 컴파일 GPU 터미널 에뮬레이터, Electron/Tauri 아님"
+              ],
+              [
                 "렌더링 엔진",
                 "최신 GPU 가속 터미널 렌더링을 위해 libghostty를 기반으로 구축",
                 "Kitty 터미널 렌더러 및 프로토콜 에코시스템"
@@ -2443,7 +2478,7 @@
           "title": "cmux 대 Herdr",
           "intro": "Herdr는 이미 사용하고 있는 터미널 내부에서 실행되고 SSH를 통해 실제 창을 활성 상태로 유지할 수 있는 오픈 소스 터미널 네이티브 에이전트 멀티플렉서입니다. cmux는 libghostty를 기반으로 구축된 GPL 라이선스 네이티브 macOS 앱으로, 수직 작업 공간, 알림 링, 브라우저 창 및 로컬 에이전트 워크플로우를 위한 소켓 API를 갖추고 있습니다.",
           "summaryTitle": "네이티브 Mac 앱과 터미널 네이티브 멀티플렉서",
-          "summaryBody": "특히 SSH를 통해 또는 작은 화면에서 터미널 내부에 tmux와 유사한 에이전트 멀티플렉서를 원할 때 Herdr를 사용하십시오. libghostty 렌더링, 앱 수준 작업 공간, 내장 브라우저 자동화, 알림 링, Cmd+Shift+U, Cmd+Control+U 및 프로그래밍 가능한 로컬 제어 기능을 갖춘 기본 Mac 터미널 앱을 원할 때 cmux를 사용하세요.",
+          "summaryBody": "특히 SSH나 작은 화면에서 어떤 터미널 안에서도 tmux 같은 에이전트 멀티플렉서를 원하면 Herdr를 쓰세요. libghostty 렌더링, 앱 수준 워크스페이스, 내장 브라우저 자동화, 알림 링, Cmd+Shift+U, Cmd+Control+U, 프로그래밍 가능한 로컬 제어가 있는 네이티브 Mac 터미널 앱을 원하면 cmux를 쓰세요. 많은 워크플로는 둘 다 씁니다. SSH 세션 안에는 Herdr, 그 주변의 Mac 쪽 호스트는 cmux입니다.",
           "table": {
             "headers": [
               "차원",
@@ -2455,6 +2490,11 @@
                 "기본 표면",
                 "기본 macOS 터미널 및 브라우저 앱",
                 "기존 터미널 내부의 터미널 네이티브 멀티플렉서"
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "Rust 터미널 네이티브 바이너리, Electron/Tauri 데스크톱 앱 아님"
               ],
               [
                 "런타임 모델",
@@ -2491,7 +2531,7 @@
           "sections": [
             {
               "title": "Herdr는 터미널 내부에 있습니다.",
-              "body": "Herdr의 가장 강력한 주장은 이식성입니다. 서버에서 실행하고, 분리하고, 다시 연결하고, 실제 터미널 창을 활성 상태로 유지합니다. 이는 터미널과 브라우저 주변에 Mac 앱 셸을 보유하고 있는 cmux와는 다른 제품 형태입니다."
+              "body": "Herdr의 가장 강한 주장은 휴대성입니다. 서버에서 실행하고, 분리하고, 다시 연결해 실제 터미널 pane을 계속 살려둘 수 있습니다. 많은 개발자가 cmux에서 연 SSH 세션 안에서 Herdr를 실행합니다. 좋은 조합입니다. Herdr는 원격 pane을 지속시키고, cmux는 SSH 워크스페이스 주변에 Mac 쪽 네이티브 앱, 브라우저 pane, 알림, unread 단축키를 제공합니다."
             },
             {
               "title": "cmux는 기본 데스크탑 표면을 소유하고 있습니다.",
@@ -2520,7 +2560,7 @@
           "title": "cmux 대 OpenCode",
           "intro": "OpenCode는 터미널, 데스크톱 및 IDE 표면에서 사용할 수 있는 오픈 소스 코딩 에이전트입니다. cmux는 OpenCode 및 기타 CLI 에이전트가 나란히 실행될 수 있는 기본 터미널 및 브라우저 작업 공간입니다.",
           "summaryTitle": "상담원 및 상담원 작업 영역",
-          "summaryBody": "오픈소스 코딩 에이전트를 원할 경우 OpenCode를 사용하세요. OpenCode, Claude Code, Codex, Gemini CLI, Aider, Amp, Cursor CLI 및 일반 셸 워크플로를 함께 감독할 수 있는 기본 macOS 작업 공간을 원하는 경우 cmux를 사용하세요.",
+          "summaryBody": "OpenCode는 오픈 소스 코딩 에이전트가 필요할 때 쓰세요. cmux는 OpenCode, Claude Code, Codex CLI, Codex 앱과 IDE 확장 워크플로, Gemini CLI, Aider, Amp, Cursor CLI, 일반 셸 작업을 함께 감독하는 네이티브 macOS 워크스페이스가 필요할 때 쓰세요.",
           "table": {
             "headers": [
               "차원",
@@ -2532,6 +2572,11 @@
                 "주요 직업",
                 "터미널 및 브라우저 감독 계층",
                 "오픈소스 코딩 에이전트"
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "터미널 TUI 및 Electron 데스크톱 베타"
               ],
               [
                 "에이전트 선택",
@@ -2558,7 +2603,7 @@
           "sections": [
             {
               "title": "OpenCode는 cmux 내부에서 실행될 수 있습니다.",
-              "body": "비교는 둘 중 하나가 아닙니다. OpenCode는 에이전트입니다. cmux는 Claude Code, Codex, 테스트, 브라우저 및 로그 옆에 여러 OpenCode 세션을 표시할 수 있는 터미널 표면입니다."
+              "body": "OpenCode는 에이전트입니다. cmux는 OpenCode, Claude Code, Codex CLI, 다른 셸 에이전트를 함께 보이게 두는 터미널 표면입니다. Codex 앱과 IDE 확장 워크플로는 각자 표면에 두고, cmux는 에이전트, 테스트, 서버, 로그가 오래 실행되는 터미널을 감독합니다."
             },
             {
               "title": "cmux는 상담원 선택의 이동성을 유지합니다.",
@@ -2599,6 +2644,11 @@
                 "주요 직업",
                 "기본 macOS 에이전트 감독",
                 "터미널 다중화"
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "현재 터미널 안에서 실행되는 터미널 멀티플렉서"
               ],
               [
                 "플랫폼",
@@ -2677,6 +2727,11 @@
                 "편집기, 확장, 터미널 및 에이전트 보기"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "Electron 데스크톱 에디터"
+              ],
+              [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
                 "Code OSS는 MIT입니다. Microsoft VS Code 배포판에는 Microsoft 제품 라이선스가 있습니다."
@@ -2747,6 +2802,11 @@
                 "기본 표면",
                 "터미널, 브라우저, 작업 공간, 분할",
                 "에이전트 명령 센터가 있는 IDE"
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "VS Code 기반 Devin Desktop 에디터"
               ],
               [
                 "편집자 잠금",
@@ -2821,6 +2881,11 @@
                 "협업 및 AI 기능을 갖춘 코드 편집기"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "Rust/GPUI 네이티브 에디터, Electron/Tauri 아님"
+              ],
+              [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
                 "오픈소스 편집기"
@@ -2893,6 +2958,11 @@
                 "AI 터미널 경험"
               ],
               [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "오픈 소스 터미널 클라이언트, Electron/Tauri 셸 아님"
+              ],
+              [
                 "에이전트 선택",
                 "모든 shell 기반 에이전트",
                 "Warp 제품 워크플로"
@@ -2958,6 +3028,11 @@
                 "주요 직업",
                 "기본 macOS 에이전트 감독",
                 "크로스 플랫폼 터미널 에뮬레이터 및 멀티플렉서"
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "Rust GPU 터미널 에뮬레이터 및 멀티플렉서"
               ],
               [
                 "렌더링 엔진",
@@ -3034,6 +3109,11 @@
                 "주요 역할",
                 "에이전트 감독과 멀티태스킹",
                 "범용 터미널"
+              ],
+              [
+                "데스크톱 스택",
+                "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
+                "libghostty 중심으로 만든 네이티브 터미널 앱"
               ],
               [
                 "렌더링",

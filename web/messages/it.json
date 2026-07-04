@@ -1938,6 +1938,11 @@
                 "Workspace di orchestrazione agenti"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "App desktop Electron/React con xterm.js e node-pty"
+              ],
+              [
                 "Runtime",
                 "Swift/AppKit più libghostty",
                 "App desktop Electron"
@@ -2019,6 +2024,11 @@
                 "Editor, chat, agenti ospitati"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Editor Electron derivato da VS Code"
+              ],
+              [
                 "Scelta dell’agente",
                 "Qualsiasi agente CLI",
                 "Workflow IA centrato su Cursor più integrazioni"
@@ -2089,6 +2099,11 @@
                 "Workflow principale",
                 "Supervisionare molti agenti CLI",
                 "Esperienza terminale IA"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Client terminale open source; stack desktop non specificato qui"
               ],
               [
                 "Motore di rendering",
@@ -2168,6 +2183,11 @@
                 "Terminale generico"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "App terminale nativa costruita attorno a libghostty"
+              ],
+              [
                 "Rendering",
                 "Costruito su libghostty",
                 "Motore terminale Ghostty"
@@ -2233,6 +2253,11 @@
                 "Compito principale",
                 "Supervisionare molti agenti e workflow locali",
                 "Ruolo principale dello strumento confrontato"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Emulatore di terminale Rust/OpenGL, non Electron/Tauri"
               ],
               [
                 "Motore di rendering",
@@ -2311,6 +2336,11 @@
                 "Ruolo principale dello strumento confrontato"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "App Mac; stack desktop non specificato pubblicamente"
+              ],
+              [
                 "Motore di rendering",
                 "Basato su libghostty per un terminale moderno e veloce",
                 "Rendering o superficie propria dello strumento"
@@ -2385,6 +2415,11 @@
                 "Compito principale",
                 "Supervisionare molti agenti e workflow locali",
                 "Ruolo principale dello strumento confrontato"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Piattaforma cloud più Devin Desktop derivato da VS Code"
               ],
               [
                 "Motore di rendering",
@@ -2463,6 +2498,11 @@
                 "Ruolo principale dello strumento confrontato"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "App terminale macOS nativa, non Electron/Tauri"
+              ],
+              [
                 "Motore di rendering",
                 "Basato su libghostty per un terminale moderno e veloce",
                 "Rendering o superficie propria dello strumento"
@@ -2539,6 +2579,11 @@
                 "Ruolo principale dello strumento confrontato"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Emulatore terminale GPU compilato nativamente, non Electron/Tauri"
+              ],
+              [
                 "Motore di rendering",
                 "Basato su libghostty per un terminale moderno e veloce",
                 "Rendering o superficie propria dello strumento"
@@ -2601,7 +2646,7 @@
           "title": "cmux vs Herdr",
           "intro": "Herdr è un multiplexer di agenti nativi del terminale open source che viene eseguito all'interno del terminale che già utilizzi e può mantenere attivi i riquadri reali su SSH. cmux è un'app macOS nativa con licenza GPL basata su libghostty, con aree di lavoro verticali, anelli di notifica, riquadri del browser e un'API socket per flussi di lavoro dell'agente locale.",
           "summaryTitle": "App Mac nativa vs multiplexer dentro il terminale",
-          "summaryBody": "Usa Herdr quando desideri un multiplexer di agenti simile a tmux all'interno di qualsiasi terminale, specialmente su SSH o da un piccolo schermo. Utilizza cmux quando desideri un'app terminale Mac nativa con rendering libghostty, aree di lavoro a livello di app, automazione del browser integrata, anelli di notifica, Cmd+Shift+U, Cmd+Control+U e controllo locale programmabile.",
+          "summaryBody": "Usa Herdr quando vuoi un multiplexer di agenti in stile tmux dentro qualsiasi terminale, soprattutto via SSH o da uno schermo piccolo. Usa cmux quando vuoi un’app terminale nativa per Mac con rendering libghostty, workspace a livello app, automazione browser integrata, anelli di notifica, Cmd+Shift+U, Cmd+Control+U e controllo locale programmabile. Molti workflow usano entrambi: Herdr dentro una sessione SSH, con cmux come host lato Mac attorno.",
           "table": {
             "headers": [
               "Dimensione",
@@ -2613,6 +2658,11 @@
                 "Superficie principale",
                 "App terminale e browser nativa per macOS",
                 "Multiplexer nativo del terminale dentro un terminale esistente"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Binario Rust nativo del terminale, non app desktop Electron/Tauri"
               ],
               [
                 "Modello runtime",
@@ -2649,7 +2699,7 @@
           "sections": [
             {
               "title": "cmux resta indipendente dall’agente",
-              "body": "cmux esegue qualunque agente CLI o comando shell senza spostare il lavoro in un runtime specifico. Puoi usare Claude Code, Codex, OpenCode, Gemini CLI, Aider, SSH, script e server locali nello stesso spazio."
+              "body": "Il punto più forte di Herdr è la portabilità: eseguilo su un server, scollegati, riconnettiti e mantieni vivi veri pane terminale. Molti sviluppatori eseguono Herdr dentro sessioni SSH aperte da cmux, una buona combinazione: Herdr mantiene persistenti i pane remoti, mentre cmux offre l’app nativa lato Mac, pane browser, notifiche e scorciatoie unread attorno al workspace SSH."
             },
             {
               "title": "Il contesto resta visibile",
@@ -2678,7 +2728,7 @@
           "title": "cmux vs OpenCode",
           "intro": "OpenCode è un agente di programmazione open source disponibile in terminale, desktop e IDE. cmux è il workspace nativo di terminale e browser dove OpenCode e altri agenti CLI possono girare affiancati.",
           "summaryTitle": "Agente vs workspace per agenti",
-          "summaryBody": "Usa OpenCode se vuoi un agente di programmazione open source. Usa cmux se vuoi un workspace macOS nativo che supervisioni insieme OpenCode, Claude Code, Codex, Gemini CLI, Aider, Amp, Cursor CLI e workflow shell ordinari.",
+          "summaryBody": "Usa OpenCode quando vuoi un agente di coding open source. Usa cmux quando vuoi uno spazio di lavoro macOS nativo che supervisioni insieme OpenCode, Claude Code, Codex CLI, flussi dell’app Codex e delle estensioni IDE, Gemini CLI, Aider, Amp, Cursor CLI e normali workflow shell.",
           "table": {
             "headers": [
               "Dimensione",
@@ -2690,6 +2740,11 @@
                 "Compito principale",
                 "Supervisionare molti agenti e workflow locali",
                 "Ruolo principale dello strumento confrontato"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "TUI terminale più beta desktop Electron"
               ],
               [
                 "Motore di rendering",
@@ -2716,7 +2771,7 @@
           "sections": [
             {
               "title": "cmux resta indipendente dall’agente",
-              "body": "cmux esegue qualunque agente CLI o comando shell senza spostare il lavoro in un runtime specifico. Puoi usare Claude Code, Codex, OpenCode, Gemini CLI, Aider, SSH, script e server locali nello stesso spazio."
+              "body": "OpenCode è un agente. cmux è la superficie terminale che può tenere visibili insieme OpenCode, Claude Code, Codex CLI e altri agenti shell. I workflow dell’app Codex e delle estensioni IDE possono restare nelle proprie superfici mentre cmux supervisiona i terminali a lunga esecuzione dove stanno agenti, test, server e log."
             },
             {
               "title": "Il contesto resta visibile",
@@ -2757,6 +2812,11 @@
                 "Compito principale",
                 "Supervisionare molti agenti e workflow locali",
                 "Ruolo principale dello strumento confrontato"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Multiplexer terminale che gira dentro il tuo terminale"
               ],
               [
                 "Motore di rendering",
@@ -2835,6 +2895,11 @@
                 "Ruolo principale dello strumento confrontato"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Editor desktop Electron"
+              ],
+              [
                 "Motore di rendering",
                 "Basato su libghostty per un terminale moderno e veloce",
                 "Rendering o superficie propria dello strumento"
@@ -2905,6 +2970,11 @@
                 "Compito principale",
                 "Supervisionare molti agenti e workflow locali",
                 "Ruolo principale dello strumento confrontato"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Editor Devin Desktop derivato da VS Code"
               ],
               [
                 "Motore di rendering",
@@ -2979,6 +3049,11 @@
                 "Ruolo principale dello strumento confrontato"
               ],
               [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Editor nativo Rust/GPUI, non Electron/Tauri"
+              ],
+              [
                 "Motore di rendering",
                 "Basato su libghostty per un terminale moderno e veloce",
                 "Rendering o superficie propria dello strumento"
@@ -3049,6 +3124,11 @@
                 "Compito principale",
                 "Supervisionare molti agenti e workflow locali",
                 "Ruolo principale dello strumento confrontato"
+              ],
+              [
+                "Stack desktop",
+                "App macOS nativa Swift/AppKit costruita su libghostty",
+                "Emulatore terminale GPU Rust e multiplexer"
               ],
               [
                 "Motore di rendering",
