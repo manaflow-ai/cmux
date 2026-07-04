@@ -766,7 +766,6 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
         let panelDirectories: [UUID: String]
-        let remoteDirectoryReportPanelIds: Set<UUID>
         let activeRemoteTerminalSessionCount: Int
     }
 
@@ -783,7 +782,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 return tabManager.tabs.first(where: { $0.id == tabId })
             }
             .removeDuplicates(by: { $0?.id == $1?.id })
-            .map { workspace -> AnyPublisher<Snapshot, Never> in
+            .map { workspace -> AnyPublisher<(Snapshot, UInt64), Never> in
                 guard let workspace else {
                     return Just(
                         Snapshot(
@@ -794,12 +793,20 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionDetail: nil,
                             remoteDaemonStatus: nil,
                             panelDirectories: [:],
-                            remoteDirectoryReportPanelIds: [],
                             activeRemoteTerminalSessionCount: 0
                         )
                     )
+                    .map { ($0, UInt64(0)) }
                     .eraseToAnyPublisher()
                 }
+                let directoryChangeRevision = NotificationCenter.default
+                    .publisher(for: .workspaceCurrentDirectoryDidChange)
+                    .filter { notification in
+                        notification.userInfo?["workspaceId"] as? UUID == workspace.id
+                    }
+                    .map { _ in () }
+                    .scan(UInt64(0)) { revision, _ in revision &+ 1 }
+                    .prepend(0)
                 return workspace.$currentDirectory
                     .combineLatest(
                         workspace.$remoteConfiguration,
@@ -811,8 +818,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         workspace.$panelDirectories,
                         workspace.$activeRemoteTerminalSessionCount
                     )
-                    .combineLatest(workspace.$remoteDirectoryReportPanelIds)
-                    .map { values, remoteDirectoryReportPanelIds in
+                    .map { values in
                         let (
                             previousValues,
                             remoteDaemonStatus,
@@ -833,14 +839,14 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionDetail: remoteConnectionDetail,
                             remoteDaemonStatus: remoteDaemonStatus,
                             panelDirectories: panelDirectories,
-                            remoteDirectoryReportPanelIds: remoteDirectoryReportPanelIds,
                             activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
                         )
                     }
+                    .combineLatest(directoryChangeRevision)
                     .eraseToAnyPublisher()
             }
             .switchToLatest()
-            .removeDuplicates()
+            .removeDuplicates { lhs, rhs in lhs.0 == rhs.0 && lhs.1 == rhs.1 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.directoryChangeGeneration &+= 1

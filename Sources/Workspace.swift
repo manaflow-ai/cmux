@@ -2607,7 +2607,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
-    @Published private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
+    private(set) var remoteDirectoryReportPanelIds: Set<UUID> = []
     private var endedPersistentRemotePTYAttachSurfaceIds: Set<UUID> = []
     private var remotePTYSessionIDsByPanelId: [UUID: String] = [:]
     private var remoteRelayWorkspaceIDAliases: [UUID: UUID] = [:]
@@ -4687,11 +4687,13 @@ final class Workspace: Identifiable, ObservableObject {
         if source == .liveReport, isRemoteTerminalSurface(panelId) {
             return false
         }
-        let directoryChanged = panelDirectories[panelId] != trimmed
-        if directoryChanged { panelDirectories[panelId] = trimmed }
-        if source.establishesRemoteProvenance, isRemoteTerminalSurface(panelId) {
+        let establishesRemoteProvenance = source.establishesRemoteProvenance && isRemoteTerminalSurface(panelId)
+        let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
+        if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId)
         }
+        let directoryChanged = panelDirectories[panelId] != trimmed
+        if directoryChanged || provenanceChanged { panelDirectories[panelId] = trimmed }
         let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
@@ -4709,6 +4711,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if isRemoteWorkspace {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
+            if provenanceChanged && previousPresentedDirectory == presentedCurrentDirectory {
+                postWorkspaceCurrentDirectoryDidChange()
+            }
         }
         return true
     }

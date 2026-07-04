@@ -42,8 +42,8 @@ private struct SidebarObservationState: Equatable {
     let extensionSidebarProjectRootPath: String?
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
-    let remoteDirectoryReportPanelIds: Set<UUID>
     let panelDirectoryDisplayLabels: [UUID: String]
+    let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
@@ -150,6 +150,15 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
+        let directoryChangeRevision = NotificationCenter.default
+            .publisher(for: .workspaceCurrentDirectoryDidChange)
+            .filter { [weak self] notification in
+                guard let self else { return false }
+                return notification.userInfo?["workspaceId"] as? UUID == self.id
+            }
+            .map { _ in () }
+            .scan(UInt64(0)) { revision, _ in revision &+ 1 }
+            .prepend(0)
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
@@ -157,8 +166,8 @@ extension Workspace {
             remoteFields
         )
             .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
-            .combineLatest($remoteDirectoryReportPanelIds)
-            .compactMap { [weak self] values, remoteDirectoryReportPanelIds -> SidebarObservationState? in
+            .combineLatest(directoryChangeRevision)
+            .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
                 let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
@@ -170,8 +179,8 @@ extension Workspace {
                     extensionSidebarProjectRootPath: workspaceFields.1,
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
-                    remoteDirectoryReportPanelIds: remoteDirectoryReportPanelIds,
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
+                    directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,
