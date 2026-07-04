@@ -187,13 +187,17 @@ import CmuxGit
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
     }
 
-    /// Toggling only the CI-status setting invalidates the repo cache so the
-    /// next normal PR poll can include or drop rollup data, without treating
-    /// PR visibility itself as disabled.
-    @Test func changingCIStatusSettingClearsRepoCacheWithoutClearingBadges() {
+    /// Toggling only the CI-status setting invalidates the repo cache and
+    /// forces tracked PR rows due without treating PR visibility as disabled.
+    @Test func changingCIStatusSettingClearsRepoCacheAndForcesTrackedRowsDue() {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
+        host.mobileHostActive = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 9, status: .open)
         let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        service.workspacePullRequestNextPollAtByKey[key] = Date().addingTimeInterval(60)
         service.workspacePullRequestRepoCacheBySlug["o/r"] = WorkspacePullRequestRepoCacheEntry(
             fetchedAt: Date(),
             pullRequestsByBranch: [:]
@@ -203,6 +207,7 @@ import CmuxGit
         service.sidebarPullRequestPollingSettingsDidChange()
 
         #expect(service.workspacePullRequestRepoCacheBySlug.isEmpty)
+        #expect(service.workspacePullRequestNextPollAtByKey[key] == .distantPast)
         #expect(!host.events.contains(.clearAllPullRequestMetadata))
     }
 

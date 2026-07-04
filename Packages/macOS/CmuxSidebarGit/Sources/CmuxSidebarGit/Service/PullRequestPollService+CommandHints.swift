@@ -25,11 +25,30 @@ extension PullRequestPollService {
             host?.clearAllSidebarPullRequestMetadata()
             return
         }
+        if ciStatusChanged {
+            forceTrackedWorkspacePullRequestPanelsDue()
+        }
 
         refreshTrackedWorkspacePullRequestsIfNeeded(
             reason: pollingChanged ? "pullRequestVisibilityEnabled" : "pullRequestCIStatusVisibilityChanged",
             allowCachedResultsOverride: ciStatusChanged ? false : nil
         )
+    }
+
+    func forceTrackedWorkspacePullRequestPanelsDue() {
+        guard let host else { return }
+        for workspaceId in host.orderedWorkspaceIds() {
+            let panelIds = host.panelGitBranchPanelIds(in: workspaceId)
+                .union(host.panelPullRequestPanelIds(in: workspaceId))
+            for panelId in panelIds {
+                let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+                if case .inFlight = workspacePullRequestProbeStateByKey[key] {
+                    markWorkspacePullRequestProbeRerunPending(for: key, bypassRepoCache: true)
+                } else {
+                    workspacePullRequestNextPollAtByKey[key] = .distantPast
+                }
+            }
+        }
     }
 
     // MARK: Command hints
