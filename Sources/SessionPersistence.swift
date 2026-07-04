@@ -1918,6 +1918,57 @@ extension AppSessionSnapshot: SessionSnapshotRepresenting {
     var hasWindows: Bool { !windows.isEmpty }
 }
 
+extension AppSessionSnapshot {
+    func removingTerminalScrollback() -> (snapshot: AppSessionSnapshot, removedAny: Bool) {
+        var snapshot = self
+        var removedAny = false
+
+        for windowIndex in snapshot.windows.indices {
+            for workspaceIndex in snapshot.windows[windowIndex].tabManager.workspaces.indices {
+                for panelIndex in snapshot.windows[windowIndex].tabManager.workspaces[workspaceIndex].panels.indices {
+                    var panel = snapshot.windows[windowIndex].tabManager.workspaces[workspaceIndex].panels[panelIndex]
+                    guard panel.terminal?.scrollback != nil else { continue }
+                    panel.terminal?.scrollback = nil
+                    snapshot.windows[windowIndex].tabManager.workspaces[workspaceIndex].panels[panelIndex] = panel
+                    removedAny = true
+                }
+            }
+        }
+
+        return (snapshot, removedAny)
+    }
+}
+
+extension SessionSnapshotStoring where SnapshotValue == AppSessionSnapshot {
+    @discardableResult
+    func scrubPersistedTerminalScrollback() -> Bool {
+        let scrubbedPrimary = scrubPersistedTerminalScrollback(fileURL: defaultSnapshotFileURL())
+        let scrubbedManualRestore = scrubPersistedTerminalScrollback(fileURL: manualRestoreSnapshotFileURL())
+        return scrubbedPrimary || scrubbedManualRestore
+    }
+
+    private func scrubPersistedTerminalScrollback(fileURL: URL?) -> Bool {
+        guard let fileURL else { return false }
+
+        switch loadOutcome(fileURL: fileURL) {
+        case .loaded(let snapshot):
+            let scrubbed = snapshot.removingTerminalScrollback()
+            guard scrubbed.removedAny else { return false }
+            guard save(scrubbed.snapshot, fileURL: fileURL) else {
+                // Fail closed: the original snapshot still contains scrollback.
+                removeSnapshot(fileURL: fileURL)
+                return true
+            }
+            return true
+        case .missing:
+            return false
+        case .unusable:
+            removeSnapshot(fileURL: fileURL)
+            return true
+        }
+    }
+}
+
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
     private static let directoryName = "cmux-session-scrollback"
@@ -1936,6 +1987,21 @@ enum SessionScrollbackReplayStore {
             return [:]
         }
         return [environmentKey: replayFileURL.path]
+    }
+
+    @discardableResult
+    static func removeReplayFiles(
+        tempDirectory: URL = FileManager.default.temporaryDirectory,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let directory = replayDirectoryURL(tempDirectory: tempDirectory)
+        guard fileManager.fileExists(atPath: directory.path) else { return false }
+        do {
+            try fileManager.removeItem(at: directory)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
@@ -2058,7 +2124,7 @@ enum SessionScrollbackReplayStore {
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
-        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        let directory = replayDirectoryURL(tempDirectory: tempDirectory)
 
         do {
             try FileManager.default.createDirectory(
@@ -2074,5 +2140,9 @@ enum SessionScrollbackReplayStore {
         } catch {
             return nil
         }
+    }
+
+    private static func replayDirectoryURL(tempDirectory: URL) -> URL {
+        tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
     }
 }

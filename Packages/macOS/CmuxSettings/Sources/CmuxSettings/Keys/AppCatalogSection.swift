@@ -47,6 +47,16 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceInheritWorkingDirectory"
     )
 
+    /// When `true` (the default), terminal scrollback is captured into the
+    /// on-disk session snapshot and replayed on restart. When `false`, tabs,
+    /// layout, and working directories still restore, but scrollback is never
+    /// written to disk — an opt-out for users with sensitive on-screen output.
+    public let persistTerminalScrollback = DefaultsKey<Bool>(
+        id: "app.persistTerminalScrollback",
+        defaultValue: true,
+        userDefaultsKey: "persistTerminalScrollback"
+    )
+
     public let presentationMode = DefaultsKey<WorkspacePresentationMode>(
         id: "app.minimalMode",
         defaultValue: .standard,

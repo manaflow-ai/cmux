@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
@@ -387,6 +388,177 @@ import Testing
         #expect(!codexOutput.contains(staleExecutablePath), "\(codexOutput)")
     }
 
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/6597:
+    // `app.persistTerminalScrollback` opts out of writing terminal scrollback
+    // into the on-disk session snapshot. cmux carries scrollback across
+    // restarts by re-persisting whatever a prior launch restored
+    // (`restoredTerminalScrollbackByPanelId`), so seed that fallback and verify
+    // the next snapshot drops it when the setting is off — proving sensitive
+    // output never reaches disk — while still keeping it when the setting is on.
+    @Test @MainActor func sessionSnapshotOmitsRestoredScrollbackWhenPersistenceDisabled() throws {
+        let suiteName = "cmux-persist-scrollback-off-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+
+        let workspace = Workspace(sessionScrollbackPersistenceDefaults: defaults)
+        let panelId = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.terminal != nil }?.id
+        )
+        workspace.restoredTerminalScrollbackByPanelId[panelId] = "SENSITIVE_TOKEN_OUTPUT"
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: true)
+        let panel = try #require(snapshot.panels.first { $0.id == panelId })
+
+        // Tabs/layout/working directory still restore; only scrollback is withheld.
+        #expect(panel.terminal != nil)
+        #expect(panel.terminal?.scrollback == nil)
+        // The in-memory restored copy is purged so it can't leak into later saves.
+        #expect(workspace.restoredTerminalScrollbackByPanelId[panelId] == nil)
+    }
+
+    @Test @MainActor func sessionSnapshotKeepsRestoredScrollbackWhenPersistenceEnabled() throws {
+        let suiteName = "cmux-persist-scrollback-on-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+
+        let workspace = Workspace(sessionScrollbackPersistenceDefaults: defaults)
+        let panelId = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.terminal != nil }?.id
+        )
+        workspace.restoredTerminalScrollbackByPanelId[panelId] = "SENSITIVE_TOKEN_OUTPUT"
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: true)
+        let panel = try #require(snapshot.panels.first { $0.id == panelId })
+
+        #expect(panel.terminal?.scrollback == "SENSITIVE_TOKEN_OUTPUT")
+    }
+
+    // The opt-out must also apply on restore: an existing on-disk snapshot that
+    // still contains scrollback must not be replayed onto the screen or seeded
+    // back into `restoredTerminalScrollbackByPanelId` once the setting is off,
+    // so turning it off before relaunch fully protects the user (#6597).
+    @Test @MainActor func restoreDoesNotReplayScrollbackWhenPersistenceDisabled() throws {
+        // Mint a snapshot whose terminal carries scrollback, using an enabled
+        // workspace and the same restored-scrollback fallback restart uses.
+        let onSuite = "cmux-restore-scrollback-on-\(UUID().uuidString)"
+        let onDefaults = try #require(UserDefaults(suiteName: onSuite))
+        defer { onDefaults.removePersistentDomain(forName: onSuite) }
+        onDefaults.set(true, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+
+        let source = Workspace(sessionScrollbackPersistenceDefaults: onDefaults)
+        let sourcePanelId = try #require(
+            source.sessionSnapshot(includeScrollback: false).panels.first { $0.terminal != nil }?.id
+        )
+        source.restoredTerminalScrollbackByPanelId[sourcePanelId] = "SENSITIVE_TOKEN_OUTPUT"
+        let snapshot = source.sessionSnapshot(includeScrollback: true)
+        #expect(snapshot.panels.contains { $0.terminal?.scrollback == "SENSITIVE_TOKEN_OUTPUT" })
+
+        // Disabled: restoring that snapshot must not seed the scrollback fallback.
+        let offSuite = "cmux-restore-scrollback-off-\(UUID().uuidString)"
+        let offDefaults = try #require(UserDefaults(suiteName: offSuite))
+        defer { offDefaults.removePersistentDomain(forName: offSuite) }
+        offDefaults.set(false, forKey: SessionScrollbackPersistenceSettings.persistScrollbackKey)
+        let disabledWorkspace = Workspace(sessionScrollbackPersistenceDefaults: offDefaults)
+        disabledWorkspace.restoreSessionSnapshot(snapshot)
+        #expect(disabledWorkspace.restoredTerminalScrollbackByPanelId.isEmpty)
+
+        // Enabled: restoring the same snapshot still seeds the fallback as before.
+        let enabledWorkspace = Workspace(sessionScrollbackPersistenceDefaults: onDefaults)
+        enabledWorkspace.restoreSessionSnapshot(snapshot)
+        #expect(enabledWorkspace.restoredTerminalScrollbackByPanelId.values.contains("SENSITIVE_TOKEN_OUTPUT"))
+    }
+
+    @Test @MainActor func persistedSessionSnapshotsAndReplayFilesScrubScrollbackWhenPersistenceDisabled() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-persisted-scrollback-scrub-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let repository = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests",
+            appSupportDirectory: root
+        )
+        let primaryURL = try #require(repository.defaultSnapshotFileURL())
+        let backupURL = try #require(repository.manualRestoreSnapshotFileURL())
+        var workspaceSnapshot = Workspace().sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(workspaceSnapshot.panels.firstIndex { $0.terminal != nil })
+        workspaceSnapshot.panels[panelIndex].terminal?.scrollback = "SENSITIVE_TOKEN_OUTPUT"
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [workspaceSnapshot]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        #expect(repository.save(snapshot, fileURL: nil))
+        #expect(repository.save(snapshot, fileURL: backupURL))
+        let primaryBefore = try #require(String(data: Data(contentsOf: primaryURL), encoding: .utf8))
+        let backupBefore = try #require(String(data: Data(contentsOf: backupURL), encoding: .utf8))
+        #expect(primaryBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
+        #expect(backupBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
+
+        let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+            for: "SENSITIVE_TOKEN_OUTPUT",
+            tempDirectory: root
+        )
+        let replayPath = try #require(replayEnvironment[SessionScrollbackReplayStore.environmentKey])
+        let replayURL = URL(fileURLWithPath: replayPath)
+        let replayBefore = try #require(String(data: Data(contentsOf: replayURL), encoding: .utf8))
+        #expect(replayBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
+
+        #expect(repository.scrubPersistedTerminalScrollback())
+        #expect(SessionScrollbackReplayStore.removeReplayFiles(tempDirectory: root))
+
+        for fileURL in [primaryURL, backupURL] {
+            let contents = try #require(String(data: Data(contentsOf: fileURL), encoding: .utf8))
+            #expect(!contents.contains("SENSITIVE_TOKEN_OUTPUT"))
+            let loaded = try #require(repository.load(fileURL: fileURL))
+            let terminal = try #require(
+                loaded.windows.first?.tabManager.workspaces.first?.panels.first { $0.terminal != nil }?.terminal
+            )
+            #expect(terminal.scrollback == nil)
+        }
+        #expect(!FileManager.default.fileExists(atPath: replayURL.path))
+    }
+
+    @Test @MainActor func persistedSessionSnapshotScrubDeletesSnapshotWhenScrubbedSaveFails() throws {
+        var workspaceSnapshot = Workspace().sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(workspaceSnapshot.panels.firstIndex { $0.terminal != nil })
+        workspaceSnapshot.panels[panelIndex].terminal?.scrollback = "SENSITIVE_TOKEN_OUTPUT"
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [workspaceSnapshot]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+        let snapshotURL = URL(fileURLWithPath: "/tmp/cmux-scrub-failed-save-\(UUID().uuidString).json")
+        let store = FailingSaveSessionSnapshotStore(snapshotURL: snapshotURL, snapshot: snapshot)
+
+        #expect(store.scrubPersistedTerminalScrollback())
+        #expect(store.savedURLs == [snapshotURL])
+        #expect(store.removedURLs == [snapshotURL])
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -668,5 +840,58 @@ import Testing
             directory.appendPathComponent(component, isDirectory: true)
         }
         return directory.appendingPathComponent(executableName, isDirectory: false).path
+    }
+}
+
+// Test fixture is local to one synchronous test body and never crosses threads.
+private final class FailingSaveSessionSnapshotStore: SessionSnapshotStoring, @unchecked Sendable {
+    let snapshotURL: URL
+    let snapshot: AppSessionSnapshot
+    var savedURLs: [URL] = []
+    var removedURLs: [URL] = []
+
+    init(snapshotURL: URL, snapshot: AppSessionSnapshot) {
+        self.snapshotURL = snapshotURL
+        self.snapshot = snapshot
+    }
+
+    func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<AppSessionSnapshot> {
+        fileURL == snapshotURL ? .loaded(snapshot) : .missing
+    }
+
+    func load(fileURL: URL?) -> AppSessionSnapshot? {
+        guard fileURL == snapshotURL else { return nil }
+        return snapshot
+    }
+
+    func save(_ snapshot: AppSessionSnapshot, fileURL: URL?) -> Bool {
+        if let fileURL {
+            savedURLs.append(fileURL)
+        }
+        return false
+    }
+
+    func removeSnapshot(fileURL: URL?) {
+        if let fileURL {
+            removedURLs.append(fileURL)
+        }
+    }
+
+    func loadReopenSessionSnapshot(fileURL: URL?) -> AppSessionSnapshot? {
+        nil
+    }
+
+    func syncManualRestoreSnapshotCache() {}
+
+    func loadStartupSnapshot() -> AppSessionSnapshot? {
+        snapshot
+    }
+
+    func defaultSnapshotFileURL() -> URL? {
+        snapshotURL
+    }
+
+    func manualRestoreSnapshotFileURL() -> URL? {
+        nil
     }
 }

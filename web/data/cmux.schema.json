@@ -315,6 +315,11 @@
           "default": true,
           "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
         },
+        "persistTerminalScrollback": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, terminal scrollback is saved to the on-disk session snapshot and replayed on restart. When false, tabs, layout, and working directories still restore but terminal scrollback is never written to disk."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,

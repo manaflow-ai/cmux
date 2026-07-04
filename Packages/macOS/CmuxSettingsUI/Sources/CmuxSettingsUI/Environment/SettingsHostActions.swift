@@ -53,6 +53,10 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Scrubs terminal scrollback already present in persisted session
+    /// snapshots after the user disables scrollback persistence.
+    func scrubPersistedTerminalScrollback()
+
     /// Persists an explicit menu-bar-only preference change in the host app.
     ///
     /// The host pairs the visible `app.menuBarOnly` setting with any hidden
@@ -168,6 +172,9 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for package previews/tests without app session persistence.
+    func scrubPersistedTerminalScrollback() {}
 
     func openMobilePairingWindow() {}
 

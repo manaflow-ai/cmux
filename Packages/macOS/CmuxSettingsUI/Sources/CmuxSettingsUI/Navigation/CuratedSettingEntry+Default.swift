@@ -33,6 +33,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "app-icon", title: "App Icon", synonyms: "app.appIcon dock icon application icon app switcher alternate icon"),
             .init(section: .app, id: "new-workspace-placement", title: "New Workspace Placement", synonyms: "app.newWorkspacePlacement new tab insert position order top bottom end"),
             .init(section: .app, id: "workspace-inherit-working-directory", title: "Inherit Workspace Working Directory", synonyms: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused working-directory"),
+            .init(section: .app, id: "persist-terminal-scrollback", title: String(localized: "settings.app.persistTerminalScrollback", defaultValue: "Persist Terminal Scrollback"), synonyms: "app.persistTerminalScrollback scrollback history persist save disk session snapshot restore replay privacy sensitive secret clear"),
             .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
             .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open When Closing Last Surface", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
             .init(section: .app, id: "focus-pane-first-click", title: "Focus Pane on First Click", synonyms: "app.focusPaneOnFirstClick click to focus focus follows mouse first click mouse activation"),

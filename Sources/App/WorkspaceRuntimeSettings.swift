@@ -1,3 +1,4 @@
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -253,6 +254,24 @@ enum AgentSessionAutoResumeSettings {
 
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
         notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+/// Controls whether terminal scrollback is captured into the on-disk session
+/// snapshot. The key and default are sourced from the shared settings catalog
+/// (`app.persistTerminalScrollback`) so the Settings UI, `cmux.json` parsing,
+/// and this runtime read all agree on a single storage key. When disabled,
+/// tabs/layout/working-directories still restore, but scrollback is never
+/// written to disk (https://github.com/manaflow-ai/cmux/issues/6597).
+enum SessionScrollbackPersistenceSettings {
+    static let persistScrollbackKey = AppCatalogSection().persistTerminalScrollback.userDefaultsKey
+    static let defaultPersistScrollback = AppCatalogSection().persistTerminalScrollback.defaultValue
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: persistScrollbackKey) != nil else {
+            return defaultPersistScrollback
+        }
+        return defaults.bool(forKey: persistScrollbackKey)
     }
 }
 

@@ -162,6 +162,12 @@ final class HostSettingsActions: SettingsHostActions {
         window.orderFrontRegardless()
     }
 
+    func scrubPersistedTerminalScrollback() {
+        AppDelegate.shared?.scrubPersistedSessionScrollbackForOptOut(
+            source: "settings.app.persistTerminalScrollback"
+        )
+    }
+
     func setMenuBarOnly(_ enabled: Bool) -> Bool {
         MenuBarOnlySettings.setEnabled(enabled)
         return true

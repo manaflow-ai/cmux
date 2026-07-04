@@ -28,6 +28,7 @@ public struct AppSection: View {
     @State private var appIcon: DefaultsValueModel<AppIconMode>
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
+    @State private var persistScrollback: DefaultsValueModel<Bool>
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
     @State private var keepWorkspaceOpen: DefaultsValueModel<Bool>
     @State private var firstClick: DefaultsValueModel<Bool>
@@ -78,6 +79,7 @@ public struct AppSection: View {
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
+        _persistScrollback = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.persistTerminalScrollback))
         _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
         _keepWorkspaceOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.keepWorkspaceOpenWhenClosingLastSurface))
         _firstClick = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.focusPaneOnFirstClick))
@@ -134,7 +136,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, persistScrollback, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -226,6 +228,30 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsWorkspaceInheritWorkingDirectoryToggle")
+            }
+            SettingsCardDivider()
+
+            // Persist Terminal Scrollback
+            SettingsCardRow(
+                configurationReview: .json("app.persistTerminalScrollback"),
+                String(localized: "settings.app.persistTerminalScrollback", defaultValue: "Persist Terminal Scrollback"),
+                subtitle: persistScrollback.current
+                    ? String(localized: "settings.app.persistTerminalScrollback.subtitleOn", defaultValue: "Terminal scrollback is saved to disk and replayed when cmux restarts.")
+                    : String(localized: "settings.app.persistTerminalScrollback.subtitleOff", defaultValue: "Tabs, layout, and working directories still restore, but terminal scrollback is never written to disk.")
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { persistScrollback.current },
+                    set: { enabled in
+                        persistScrollback.set(enabled) {
+                            if !enabled {
+                                hostActions.scrubPersistedTerminalScrollback()
+                            }
+                        }
+                    }
+                ))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsPersistTerminalScrollbackToggle")
             }
             SettingsCardDivider()
 
