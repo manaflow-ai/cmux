@@ -15,6 +15,7 @@ import Testing
         ("mailto:a%40x.com,%20b%40y.com?subject=Team", BrowserSemanticLinkCopyValue.Kind.emailAddress, "a@x.com,b@y.com"),
         ("tel:+1%20555%20123%204567", BrowserSemanticLinkCopyValue.Kind.phoneNumber, "+1 555 123 4567"),
         ("TEL:%2B81%203%201234%205678?ignored=true", BrowserSemanticLinkCopyValue.Kind.phoneNumber, "+81 3 1234 5678"),
+        ("tel:*67#", BrowserSemanticLinkCopyValue.Kind.phoneNumber, "*67#"),
     ])
     func extractsSemanticCopyValue(
         rawURL: String,

@@ -45,14 +45,29 @@ struct BrowserSemanticLinkCopyValue: Equatable, Sendable {
     }
 
     private static func telephoneNumber(from url: URL) -> String? {
-        guard let decodedPath = decodedPath(from: url),
-              decodedPath.rangeOfCharacter(from: CharacterSet.decimalDigits) != nil
-                || decodedPath.contains("+")
-                || decodedPath.contains("*")
-                || decodedPath.contains("#") else {
+        guard let value = decodedTelephonePath(from: url),
+              value.rangeOfCharacter(from: CharacterSet.decimalDigits) != nil
+                || value.contains("+")
+                || value.contains("*")
+                || value.contains("#") else {
             return nil
         }
-        return decodedPath
+        return value
+    }
+
+    private static func decodedTelephonePath(from url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        var value = components.path
+        if components.percentEncodedFragment != nil {
+            value += "#"
+            value += components.fragment ?? ""
+        }
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return value
     }
 
     private static func decodedPath(from url: URL) -> String? {
