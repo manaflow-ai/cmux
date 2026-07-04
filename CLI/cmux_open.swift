@@ -1844,7 +1844,7 @@ extension CMUXCLI {
            !upstream.isEmpty {
             return upstream
         }
-        throw CLIError(message: "Unable to find a branch diff base. Set an upstream branch or create origin/main.")
+        throw CLIError(message: "Couldn't find a branch diff base. Set an upstream branch or create origin/main.")
     }
 
     private func resolvedGitBranchDiffBaseRef(_ rawBaseRef: String?, in repoRoot: String) throws -> String {

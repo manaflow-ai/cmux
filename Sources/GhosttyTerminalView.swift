@@ -1926,6 +1926,12 @@ class GhosttyApp {
                 CmuxTypingTiming.logDuration(path: "terminal.handleAction.RENDER", startedAt: renderTimingStart)
             }
             return false
+        case GHOSTTY_ACTION_MOUSE_SHAPE:
+            let shape = action.action.mouse_shape
+            DispatchQueue.main.async {
+                surfaceView.updateGhosttyMouseShape(shape)
+            }
+            return true
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbarTimingStart = CmuxTypingTiming.start()
             defer {
@@ -2579,11 +2585,60 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     private let _renderedFrameLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
+    private var ghosttyMouseShape: ghostty_action_mouse_shape_e = GHOSTTY_MOUSE_SHAPE_TEXT
 
     static func retainRenderedFrameNotifications() -> () -> Void {
         // See GhosttyApp.retainTickNotifications() on the idempotent release.
         let retention = GhosttyApp.renderedFrameNotificationDemand.retain()
         return { retention.release() }
+    }
+
+    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+        switch shape {
+        case GHOSTTY_MOUSE_SHAPE_DEFAULT:
+            return .arrow
+        case GHOSTTY_MOUSE_SHAPE_TEXT:
+            return .iBeam
+        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
+            return .iBeamCursorForVerticalLayout
+        case GHOSTTY_MOUSE_SHAPE_POINTER:
+            return .pointingHand
+        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR,
+             GHOSTTY_MOUSE_SHAPE_CELL:
+            return .crosshair
+        case GHOSTTY_MOUSE_SHAPE_GRAB:
+            return .openHand
+        case GHOSTTY_MOUSE_SHAPE_GRABBING,
+             GHOSTTY_MOUSE_SHAPE_MOVE:
+            return .closedHand
+        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED,
+             GHOSTTY_MOUSE_SHAPE_NO_DROP:
+            return .operationNotAllowed
+        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+            return .contextualMenu
+        case GHOSTTY_MOUSE_SHAPE_COPY:
+            return .dragCopy
+        case GHOSTTY_MOUSE_SHAPE_ALIAS:
+            return .dragLink
+        case GHOSTTY_MOUSE_SHAPE_W_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_E_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_EW_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_COL_RESIZE:
+            return .resizeLeftRight
+        case GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_NS_RESIZE,
+             GHOSTTY_MOUSE_SHAPE_ROW_RESIZE:
+            return .resizeUpDown
+        default:
+            return .arrow
+        }
+    }
+
+    fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
+        guard ghosttyMouseShape != shape else { return }
+        ghosttyMouseShape = shape
+        window?.invalidateCursorRects(for: self)
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -2895,6 +2950,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         let isAlreadyAttached = surface.isAttached(to: self)
         if !isSameSurface {
             appliedColorScheme = nil
+            // Reset any OSC 22 mouse shape carried over from the previous
+            // surface; the newly-bound surface re-emits its own shape via
+            // GHOSTTY_ACTION_MOUSE_SHAPE if it has one.
+            updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -3013,6 +3072,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapplyIfReady(
             reason: "becomeFirstResponder.hiddenOrTiny.layout"
         )
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateSurfaceSize(bypassLiveResizeCoalescing: true)
+        invalidateTextInputCoordinates()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: Self.ghosttyMouseCursor(for: ghosttyMouseShape))
     }
 
     override var isOpaque: Bool { false }
@@ -5575,6 +5645,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.
         ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, event.terminalGhosttyMouseMods)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        // Forward right-button drags so mouse-reporting apps receive pointer
+        // motion while the right button is held. Without this, tmux's
+        // right-click context menu (press to open, drag to highlight, release
+        // to select) never sees the drag and cannot track hover state. Mirrors
+        // mouseDragged and matches upstream Ghostty, which funnels every drag
+        // variant to the same position-forwarding path.
+        mouseDragged(with: event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        // Only the middle button (buttonNumber 2) is forwarded to Ghostty, to
+        // stay consistent with otherMouseDown/otherMouseUp above.
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        mouseDragged(with: event)
     }
 
 #if DEBUG

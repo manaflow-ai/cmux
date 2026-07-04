@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxSettings
+import CmuxTerminalCore
 import CryptoKit
 import Foundation
 @preconcurrency import Network
@@ -50,6 +51,29 @@ final class MobileHostService {
     /// real instance type with no static state); `nonisolated` because the
     /// connection and request paths bump it off the main actor.
     nonisolated static let sharedRequestActivity = MobileHostRequestActivity()
+    /// The single shape every public `mobile.host.status` reply uses (the
+    /// public-status cache, the network status gate, and
+    /// `TerminalController`'s no-private-metadata branch), so the fields
+    /// cannot drift. Identity-free: routes, fidelity, and capabilities are a
+    /// reachability probe any peer may ask for, but the Mac's stable identity
+    /// (`mac_device_id`, `mac_display_name`) is never on this unauthenticated
+    /// surface — see ``networkStatusResult(for:)`` for the verified-caller
+    /// reply that carries it.
+    nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
+        // The Mac's resolved terminal theme is caller-independent, so it rides
+        // the public payload (identity merges on top). `GhosttyConfig.load()`
+        // resolves named ghostty themes, cmux's managed defaults, and explicit
+        // color overrides into a complete effective palette; the phone applies
+        // it so its embedded terminal renders with the Mac's colors instead of
+        // the built-in Monokai default.
+        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
+        return [
+            "routes": routesPayload,
+            "terminal_fidelity": "render_grid",
+            "capabilities": mobileHostCapabilities,
+            "theme": theme.mobileHostJSONObject,
+        ]
+    }
 
     /// The process-wide mobile-host per-topic subscriber counter, shared by the
     /// decoupled subsystems that touch it: this service's emit path and each
