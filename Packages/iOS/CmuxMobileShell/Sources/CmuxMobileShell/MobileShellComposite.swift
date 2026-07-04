@@ -4106,9 +4106,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
-            // Bail before pinning selection when another create is in flight.
+            // Avoid stranding selection if another create is already in flight.
             guard createTerminalTask == nil else { return }
-            // Pin to the workspace the caller intended before async work runs.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
             let taskID = UUID()
             createTerminalTaskID = taskID
@@ -5861,8 +5860,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            if selectedWorkspaceID == rowWorkspaceID,
-               let createdID = response.createdTerminalID {
+            let selectedRow = explicitlySelectedWorkspace
+            if let selectedRow, let createdID = response.createdTerminalID,
+               workspaceMatchesRemoteID(selectedRow, remoteID: requestedWorkspaceID, macDeviceID: foregroundMacDeviceID) {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
                 createdTerminalSelectionID = createdTerminalID
                 selectedTerminalID = createdTerminalID
