@@ -42,7 +42,7 @@ public struct IntegrationsSection: View {
             }
             .settingsSearchAnchors(["setting:integrations:integrations"])
         }
-        .task { observeUpdates() }
+        .task { await observeUpdates() }
     }
 
     private var privacyNote: some View {
@@ -175,12 +175,14 @@ public struct IntegrationsSection: View {
         }
     }
 
-    private func observeUpdates() {
+    /// Follows host integration updates for the lifetime of the enclosing
+    /// SwiftUI `.task` so the subscription ends when the section disappears.
+    /// Spawning an inner unstructured task here leaked one live host stream
+    /// (and its refresh work) per appearance until process exit.
+    private func observeUpdates() async {
         snapshot = hostActions.integrationSettingsSnapshot()
-        Task {
-            for await next in hostActions.integrationSettingsUpdates() {
-                snapshot = next
-            }
+        for await next in hostActions.integrationSettingsUpdates() {
+            snapshot = next
         }
     }
 

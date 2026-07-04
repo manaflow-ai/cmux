@@ -23,7 +23,11 @@ extension HostSettingsActions {
                 }
                 continuation.yield(self.integrationSettingsSnapshot())
                 for await _ in await inboxRuntime.hub.changes() {
-                    await inboxRuntime.refresh(seedNotifications: true)
+                    // seedNotifications must stay false here: seeding marks new
+                    // unread items as already seen, so a live Settings stream
+                    // would silently suppress inbox notification previews for
+                    // every change that arrives while the pane is open.
+                    await inboxRuntime.refresh(seedNotifications: false)
                     continuation.yield(self.integrationSettingsSnapshot())
                 }
             }
