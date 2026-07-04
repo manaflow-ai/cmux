@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const envKeys = [
   "SKIP_ENV_VALIDATION",
@@ -20,7 +20,6 @@ const getUser = mock(async () => {
 const checkRateLimit = mock(async () => ({ rateLimited: true, error: null }));
 const fetchMock = mock(async () => new Response("{}", { status: 200 }));
 const originalFetch = globalThis.fetch;
-globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -51,7 +50,6 @@ mock.module("../app/env", () => ({
 const analyticsRoute = await import("../app/api/analytics/events/route");
 
 afterAll(() => {
-  globalThis.fetch = originalFetch;
   for (const key of envKeys) {
     const value = originalEnv[key];
     if (typeof value === "undefined") {
@@ -62,6 +60,10 @@ afterAll(() => {
   }
 });
 
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
 beforeEach(() => {
   process.env.SKIP_ENV_VALIDATION = "1";
   process.env.VERCEL = "1";
@@ -70,6 +72,7 @@ beforeEach(() => {
   checkRateLimit.mockClear();
   checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
   fetchMock.mockClear();
+  globalThis.fetch = fetchMock as unknown as typeof fetch;
 });
 
 function invalidAnalyticsRequest(): Request {
