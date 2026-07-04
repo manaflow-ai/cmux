@@ -4099,26 +4099,46 @@ final class BrowserPanel: Panel, ObservableObject {
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
-            if let url = initialRequest.url,
-               insecureHTTPBypassHostOnce == nil,
-               shouldBlockInsecureHTTPNavigation(to: url) {
-                presentInsecureHTTPAlert(
-                    for: initialRequest,
-                    intent: .currentTab,
-                    recordTypedNavigation: false
-                )
+            let navigateInitialRequest = { [self] in
+                if let url = initialRequest.url,
+                   insecureHTTPBypassHostOnce == nil,
+                   shouldBlockInsecureHTTPNavigation(to: url) {
+                    presentInsecureHTTPAlert(
+                        for: initialRequest,
+                        intent: .currentTab,
+                        recordTypedNavigation: false
+                    )
+                } else {
+                    navigateWithoutInsecureHTTPPrompt(
+                        request: initialRequest,
+                        recordTypedNavigation: false
+                    )
+                }
+            }
+            if #available(macOS 15.4, *), let manager = BrowserWebExtensionsManager.shared, !manager.isLoaded {
+                Task { @MainActor in
+                    await manager.waitUntilLoaded()
+                    guard !isClosingWebViewLifecycle else { return }
+                    navigateInitialRequest()
+                }
             } else {
-                navigateWithoutInsecureHTTPPrompt(
-                    request: initialRequest,
-                    recordTypedNavigation: false
-                )
+                navigateInitialRequest()
             }
         } else if let url = initialURL {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
             guard renderInitialNavigation else { return }
-            navigate(to: url)
+            let navigateInitialURL = { [self] in navigate(to: url) }
+            if #available(macOS 15.4, *), let manager = BrowserWebExtensionsManager.shared, !manager.isLoaded {
+                Task { @MainActor in
+                    await manager.waitUntilLoaded()
+                    guard !isClosingWebViewLifecycle else { return }
+                    navigateInitialURL()
+                }
+            } else {
+                navigateInitialURL()
+            }
         }
     }
 

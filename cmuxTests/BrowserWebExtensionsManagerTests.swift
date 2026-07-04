@@ -44,8 +44,8 @@ struct BrowserWebExtensionsManagerTests {
         ],
     ]
 
+    @available(macOS 15.4, *)
     @Test func candidateDiscoveryFindsDirectoriesAndZipsOnly() throws {
-        guard #available(macOS 15.4, *) else { return }
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         _ = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
@@ -57,8 +57,8 @@ struct BrowserWebExtensionsManagerTests {
         #expect(names == ["archive.zip", "sample"])
     }
 
+    @available(macOS 15.4, *)
     @Test func loadsUnpackedExtensionAndGrantsRequestedPermissions() async throws {
-        guard #available(macOS 15.4, *) else { return }
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let dir = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
@@ -104,8 +104,24 @@ struct BrowserWebExtensionsManagerTests {
         #expect(context.grantedPermissionMatchPatterns.contains { $0.matches(url) })
     }
 
+    @available(macOS 15.4, *)
+    @Test func waitUntilLoadedAwaitsStartedLoadTask() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try Self.writeExtension(named: "sample", in: root, manifest: Self.minimalManifest)
+        try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        manager.startLoading()
+        await manager.waitUntilLoaded()
+
+        #expect(manager.isLoaded)
+        #expect(manager.loadErrors.isEmpty)
+        #expect(manager.loadedContexts.count == 1)
+    }
+
+    @available(macOS 15.4, *)
     @Test func runtimePermissionPromptsGrantOnlyManifestDeclaredSet() async throws {
-        guard #available(macOS 15.4, *) else { return }
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         var manifest = Self.minimalManifest
@@ -130,8 +146,8 @@ struct BrowserWebExtensionsManagerTests {
         #expect(granted == [.cookies])
     }
 
+    @available(macOS 15.4, *)
     @Test func recordsErrorForInvalidManifestAndKeepsLoadingOthers() async throws {
-        guard #available(macOS 15.4, *) else { return }
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let broken = root.appendingPathComponent("broken", isDirectory: true)

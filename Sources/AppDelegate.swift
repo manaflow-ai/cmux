@@ -1280,6 +1280,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
+        if #available(macOS 15.4, *) {
+            // Start extension loads before restored browser panels navigate and keep discovery off first panel creation.
+            _ = BrowserWebExtensionsManager.shared
+        }
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {

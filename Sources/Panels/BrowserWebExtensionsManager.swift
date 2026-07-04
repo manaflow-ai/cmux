@@ -10,8 +10,9 @@ import WebKit
 /// launch; add or remove entries and relaunch cmux to apply.
 ///
 /// Installing an extension into the directory is treated as consent: every
-/// permission and host match pattern the manifest requests is granted at load,
-/// and runtime requests for optional permissions are granted without prompting.
+/// permission, host match pattern, and content-script match pattern the manifest
+/// requests is granted at load, and runtime requests for optional permissions
+/// are granted without prompting.
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionsManager: NSObject {
@@ -36,13 +37,14 @@ final class BrowserWebExtensionsManager: NSObject {
         let directory = defaultDirectory
         guard !candidateURLs(in: directory).isEmpty else { return nil }
         let manager = BrowserWebExtensionsManager(directory: directory)
-        manager.loadTask = Task { await manager.loadExtensions() }
+        manager.startLoading()
         return manager
     }()
 
     let controller: WKWebExtensionController
     let directory: URL
     var loadTask: Task<Void, Never>?
+    private(set) var isLoaded = false
     private(set) var loadedContexts: [WKWebExtensionContext] = []
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
 
@@ -73,7 +75,18 @@ final class BrowserWebExtensionsManager: NSObject {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
+    func startLoading() {
+        guard loadTask == nil else { return }
+        loadTask = Task { await loadExtensions() }
+    }
+
+    func waitUntilLoaded() async {
+        guard !isLoaded, let loadTask else { return }
+        await loadTask.value
+    }
+
     func loadExtensions() async {
+        defer { isLoaded = true }
         for url in Self.candidateURLs(in: directory) {
             do {
                 let webExtension = try await WKWebExtension(resourceBaseURL: url)
@@ -89,7 +102,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 cmuxDebugLog(
                     "browser.extensions.loaded name=\(webExtension.displayName ?? url.lastPathComponent) " +
                     "permissions=\(webExtension.requestedPermissions.count) " +
-                    "patterns=\(webExtension.requestedPermissionMatchPatterns.count)"
+                    "patterns=\(webExtension.allRequestedMatchPatterns.count)"
                 )
 #endif
             } catch {
@@ -105,7 +118,7 @@ final class BrowserWebExtensionsManager: NSObject {
         for permission in webExtension.requestedPermissions {
             context.setPermissionStatus(.grantedExplicitly, for: permission)
         }
-        for pattern in webExtension.requestedPermissionMatchPatterns {
+        for pattern in webExtension.allRequestedMatchPatterns {
             context.setPermissionStatus(.grantedExplicitly, for: pattern)
         }
     }
@@ -155,7 +168,7 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     }
 
     private static func declaredMatchPatterns(of webExtension: WKWebExtension) -> Set<WKWebExtension.MatchPattern> {
-        webExtension.requestedPermissionMatchPatterns
+        webExtension.allRequestedMatchPatterns
             .union(webExtension.optionalPermissionMatchPatterns)
     }
 }
