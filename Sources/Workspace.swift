@@ -4691,6 +4691,16 @@ final class Workspace: Identifiable, ObservableObject {
         updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel, source: .remoteReport)
     }
 
+    /// Records a trusted remote directory through the TabManager metadata path when available.
+    @discardableResult
+    func updateRemotePanelDirectoryWithMetadata(panelId: UUID, directory: String, displayLabel: String? = nil) -> Bool {
+        if let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) {
+            manager.updateRemoteSurfaceDirectory(tabId: id, surfaceId: panelId, directory: directory, displayLabel: displayLabel)
+            return true
+        }
+        return updateRemotePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
+    }
+
     func discardRemoteDirectoryTrustState(panelId: UUID) {
         remoteDirectoryTrustRequiredPanelIds.remove(panelId)
     }
@@ -6489,7 +6499,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         pendingRemoteSurfacePWD = nil
         pendingRemoteSurfacePWDSurfaceId = nil
-        return updateRemotePanelDirectory(panelId: panelId, directory: path)
+        return updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: path)
     }
 
     @MainActor

@@ -45,6 +45,10 @@ extension TabManager: SidebarGitHosting {
         return gitProbeDirectory(for: workspace, panelId: panelId)
     }
 
+    func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool {
+        tabs.first(where: { $0.id == workspaceId })?.remoteDirectoryReportPanelIds.contains(panelId) ?? false
+    }
+
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
         guard let state = tabs.first(where: { $0.id == workspaceId })?.panelGitBranches[panelId] else {
             return nil
@@ -88,6 +92,21 @@ extension TabManager: SidebarGitHosting {
     func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
         return workspace.updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
+    }
+
+    func updateRemoteSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
+        sidebarGitMetadataService.updateRemoteSurfaceDirectory(
+            workspaceId: tabId,
+            panelId: surfaceId,
+            directory: directory,
+            displayLabel: displayLabel
+        )
+    }
+
+    @discardableResult
+    func updateRemotePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.updateRemotePanelDirectory(panelId: panelId, directory: directory, displayLabel: displayLabel)
     }
 
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool) {

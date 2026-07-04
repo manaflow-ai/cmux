@@ -238,7 +238,16 @@ extension TerminalController {
         displayLabel: String?
     ) {
         if tab.isRemoteWorkspace {
-            _ = tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
+            if let tabManager {
+                tabManager.updateRemoteSurfaceDirectory(
+                    tabId: tab.id,
+                    surfaceId: surfaceId,
+                    directory: directory,
+                    displayLabel: displayLabel
+                )
+            } else {
+                _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: directory, displayLabel: displayLabel)
+            }
         } else if let tabManager {
             tabManager.updateSurfaceDirectory(
                 tabId: tab.id,

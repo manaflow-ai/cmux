@@ -10,19 +10,65 @@ extension SidebarGitMetadataService {
     /// reported alongside the real path; it is stored by the host only when
     /// the directory write is accepted.
     public func updateSurfaceDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) {
-        guard let host, host.workspaceExists(workspaceId) else { return }
-        let previousDirectory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId)
-        let normalized = directory.normalizedGitProbeDirectory
-        guard host.updatePanelDirectory(
+        updateSurfaceDirectory(
             workspaceId: workspaceId,
             panelId: panelId,
-            directory: normalized,
-            displayLabel: displayLabel
-        ) else { return }
+            directory: directory,
+            displayLabel: displayLabel,
+            clearMetadataBeforeRefresh: false
+        ) { host, workspaceId, panelId, normalized, displayLabel in
+            host.updatePanelDirectory(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                directory: normalized,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    /// Records a trusted remote directory report and clears stale git/PR
+    /// metadata before scheduling fresh probes for the remote path.
+    public func updateRemoteSurfaceDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) {
+        updateSurfaceDirectory(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: directory,
+            displayLabel: displayLabel,
+            clearMetadataBeforeRefresh: true
+        ) { host, workspaceId, panelId, normalized, displayLabel in
+            host.updateRemotePanelDirectory(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                directory: normalized,
+                displayLabel: displayLabel
+            )
+        }
+    }
+
+    private func updateSurfaceDirectory(
+        workspaceId: UUID,
+        panelId: UUID,
+        directory: String,
+        displayLabel: String?,
+        clearMetadataBeforeRefresh: Bool,
+        recordDirectory: (any SidebarGitHosting, UUID, UUID, String, String?) -> Bool
+    ) {
+        guard let host, host.workspaceExists(workspaceId) else { return }
+        let previousDirectory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId)
+        let hadTrustedRemoteDirectory = clearMetadataBeforeRefresh &&
+            host.hasTrustedRemotePanelDirectory(workspaceId: workspaceId, panelId: panelId)
+        let normalized = directory.normalizedGitProbeDirectory
+        guard recordDirectory(host, workspaceId, panelId, normalized, displayLabel) else { return }
         let nextDirectory = normalized.nonEmptyNormalizedGitProbeDirectory
-        if previousDirectory != nextDirectory {
+        if previousDirectory != nextDirectory || (clearMetadataBeforeRefresh && !hadTrustedRemoteDirectory) {
+            let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+            if clearMetadataBeforeRefresh {
+                clearWorkspaceGitMetadata(for: probeKey)
+            }
             guard sidebarGitMetadataWatchEnabled else {
-                clearWorkspaceGitMetadata(for: WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId))
+                if !clearMetadataBeforeRefresh {
+                    clearWorkspaceGitMetadata(for: probeKey)
+                }
                 return
             }
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(

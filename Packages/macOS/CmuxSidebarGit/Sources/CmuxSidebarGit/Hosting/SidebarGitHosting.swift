@@ -39,6 +39,8 @@ public protocol SidebarGitHosting: AnyObject {
     /// chain: live cwd, requested working directory, focused workspace
     /// directory), normalized; `nil` when unknown.
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String?
+    /// Whether the panel directory currently comes from a trusted remote report.
+    func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's currently displayed git branch state, if any.
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch?
     /// Panel ids currently showing a git branch in the workspace.
@@ -63,6 +65,10 @@ public protocol SidebarGitHosting: AnyObject {
     /// human-friendly sidebar label reported alongside the real path.
     @discardableResult
     func updatePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool
+    /// Records a trusted remote panel directory; returns `false` when nothing
+    /// changed or the workspace/panel is gone.
+    @discardableResult
+    func updateRemotePanelDirectory(workspaceId: UUID, panelId: UUID, directory: String, displayLabel: String?) -> Bool
     /// Shows `branch` (with its dirty flag) on the panel.
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool)
     /// Clears the panel's branch (and any dependent badge state).

@@ -342,7 +342,11 @@ extension TerminalController {
         }
 
         if tab.isRemoteWorkspace {
-            _ = tab.updateRemotePanelDirectory(panelId: surfaceId, directory: path)
+            if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
+                tabManager.updateRemoteSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
+            } else {
+                _ = tab.updateRemotePanelDirectoryWithMetadata(panelId: surfaceId, directory: path)
+            }
         } else if let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) ?? tabManager {
             tabManager.updateSurfaceDirectory(tabId: workspaceID, surfaceId: surfaceId, directory: path)
         } else {
