@@ -20,6 +20,8 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
     public let headRefName: String?
     /// The PR's base (target) branch name, if known.
     public let baseRefName: String?
+    /// CI check rollup state for the PR head commit.
+    public let ciStatus: PullRequestCheckStatus
 
     /// Creates a probe item.
     public init(
@@ -29,7 +31,8 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
         updatedAt: String?,
         mergedAt: String? = nil,
         headRefName: String? = nil,
-        baseRefName: String? = nil
+        baseRefName: String? = nil,
+        ciStatus: PullRequestCheckStatus = .neutral
     ) {
         self.number = number
         self.state = state
@@ -38,5 +41,31 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
         self.mergedAt = mergedAt
         self.headRefName = headRefName
         self.baseRefName = baseRefName
+        self.ciStatus = ciStatus
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case number
+        case state
+        case url
+        case updatedAt
+        case mergedAt
+        case headRefName
+        case baseRefName
+        case ciStatus
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.number = try container.decode(Int.self, forKey: .number)
+        self.state = try container.decode(String.self, forKey: .state)
+        self.url = try container.decode(String.self, forKey: .url)
+        self.updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        self.mergedAt = try container.decodeIfPresent(String.self, forKey: .mergedAt)
+        self.headRefName = try container.decodeIfPresent(String.self, forKey: .headRefName)
+        self.baseRefName = try container.decodeIfPresent(String.self, forKey: .baseRefName)
+        self.ciStatus = (
+            try? container.decodeIfPresent(PullRequestCheckStatus.self, forKey: .ciStatus)
+        ) ?? .neutral
     }
 }

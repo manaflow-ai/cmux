@@ -13162,6 +13162,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let label: String
         let url: URL
         let status: SidebarPullRequestStatus
+        let ciStatus: SidebarPullRequestCIStatus
         let isStale: Bool
     }
 
@@ -13940,6 +13941,11 @@ struct TabItemView: View, Equatable {
                             )
                             Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
                             Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
+                            if pullRequest.status == .open {
+                                PullRequestCIStatusIcon(status: pullRequest.ciStatus, fontScale: fontScale)
+                                    .safeHelp(pullRequestCIStatusHelp(pullRequest.ciStatus))
+                                    .accessibilityLabel(Text(pullRequestCIStatusHelp(pullRequest.ciStatus)))
+                            }
                             Spacer(minLength: 0)
                         }
                         .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
@@ -14967,6 +14973,7 @@ struct TabItemView: View, Equatable {
                 label: pullRequest.label,
                 url: pullRequest.url,
                 status: pullRequest.status,
+                ciStatus: pullRequest.ciStatus,
                 isStale: pullRequest.isStale
             )
         }
@@ -15014,6 +15021,14 @@ struct TabItemView: View, Equatable {
         case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
         case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
         case .closed: return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
+        }
+    }
+
+    private func pullRequestCIStatusHelp(_ status: SidebarPullRequestCIStatus) -> String {
+        switch status {
+        case .neutral: return String(localized: "sidebar.ciStatus.pending", defaultValue: "CI checks pending")
+        case .success: return String(localized: "sidebar.ciStatus.success", defaultValue: "CI checks passed")
+        case .failure: return String(localized: "sidebar.ciStatus.failed", defaultValue: "CI checks failed")
         }
     }
 
@@ -15093,6 +15108,38 @@ struct TabItemView: View, Equatable {
                     .foregroundColor(color)
                     .frame(width: closedFrameSize, height: closedFrameSize)
             }
+        }
+    }
+
+    private struct PullRequestCIStatusIcon: View {
+        let status: SidebarPullRequestCIStatus
+        var fontScale: CGFloat = 1
+        private static let frameSize: CGFloat = 12
+
+        private var frameSize: CGFloat {
+            Self.frameSize * fontScale
+        }
+
+        private var symbolName: String {
+            switch status {
+            case .neutral: return "minus.circle"
+            case .success: return "checkmark.circle.fill"
+            case .failure: return "xmark.circle.fill"
+            }
+        }
+
+        private var color: Color {
+            switch status {
+            case .neutral: return .secondary.opacity(0.7)
+            case .success: return .green
+            case .failure: return .red
+            }
+        }
+
+        var body: some View {
+            CmuxSystemSymbolImage(magnified: symbolName, pointSize: 8 * fontScale, weight: .semibold)
+                .foregroundColor(color)
+                .frame(width: frameSize, height: frameSize)
         }
     }
 

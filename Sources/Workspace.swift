@@ -5046,6 +5046,7 @@ final class Workspace: Identifiable, ObservableObject {
         label: String,
         url: URL,
         status: SidebarPullRequestStatus,
+        ciStatus: SidebarPullRequestCIStatus = .neutral,
         branch: String? = nil,
         isStale: Bool = false
     ) {
@@ -5073,6 +5074,7 @@ final class Workspace: Identifiable, ObservableObject {
             label: label,
             url: url,
             status: status,
+            ciStatus: ciStatus,
             branch: resolvedBranch,
             isStale: isStale
         )

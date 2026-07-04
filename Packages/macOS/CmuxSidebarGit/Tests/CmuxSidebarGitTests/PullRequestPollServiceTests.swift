@@ -71,11 +71,18 @@ import CmuxGit
 
     /// `gh pr merge` hints flip an open badge to merged synchronously
     /// (optimistic reconcile before the verifying refresh lands).
-    @Test func mergeCommandHintReconcilesOpenBadge() async throws {
+    @Test func mergeCommandHintReconcilesOpenBadgeAndPreservesCIStatus() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
-        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 42, status: .open)
+        host.workspaces[0].state.panels[panelId]?.badge = SidebarPullRequestBadge(
+            number: 42,
+            label: "PR",
+            url: URL(string: "https://github.com/o/r/pull/42")!,
+            status: .open,
+            ciStatus: .failure,
+            branch: "feature/x"
+        )
         let service = makeService(host: host, clock: ManualGitPollClock())
 
         service.handleWorkspacePullRequestCommandHint(
@@ -86,7 +93,37 @@ import CmuxGit
         )
 
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.status == .merged)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.ciStatus == .failure)
         #expect(host.workspaces[0].state.panels[panelId]?.badge?.isStale == false)
+    }
+
+    /// An unparseable CI rollup must degrade to `.neutral` and still produce a
+    /// badge: the PR's status and URL are authoritative, so the row must not be
+    /// suppressed just because the CI glyph is unavailable.
+    @Test func resolvedBadgeDegradesUnknownCIStatusToNeutral() {
+        let resolved = WorkspacePullRequestResolvedItem(
+            number: 99,
+            urlString: "https://github.com/o/r/pull/99",
+            statusRawValue: PullRequestStatus.open.rawValue,
+            ciStatusRawValue: "totally-unknown-ci-value",
+            branch: "feature/x"
+        )
+        let badge = PullRequestPollService.resolvedPullRequestBadge(from: resolved)
+        #expect(badge?.number == 99)
+        #expect(badge?.status == .open)
+        #expect(badge?.ciStatus == .neutral)
+    }
+
+    /// A resolved item whose status or URL is unusable yields no badge.
+    @Test func resolvedBadgeIsNilWhenStatusOrURLUnusable() {
+        let resolved = WorkspacePullRequestResolvedItem(
+            number: 1,
+            urlString: "",
+            statusRawValue: "not-a-status",
+            ciStatusRawValue: PullRequestCheckStatus.success.rawValue,
+            branch: "feature/x"
+        )
+        #expect(PullRequestPollService.resolvedPullRequestBadge(from: resolved) == nil)
     }
 
     /// A hint whose target names a different PR number does not reconcile.

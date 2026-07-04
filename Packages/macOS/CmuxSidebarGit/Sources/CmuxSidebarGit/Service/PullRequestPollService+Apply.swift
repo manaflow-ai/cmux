@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxGit
+import CmuxGit
 
 // MARK: - Applying refresh results, poll-deadline math, and tracking bookkeeping.
 
@@ -89,21 +89,13 @@ extension PullRequestPollService {
             switch result.resolution {
             case .resolved(let resolvedPullRequest):
                 workspacePullRequestTransientFailureCountByKey[key] = 0
-                guard let status = PullRequestStatus(rawValue: resolvedPullRequest.statusRawValue),
-                      let url = URL(string: resolvedPullRequest.urlString) else {
+                guard let badge = Self.resolvedPullRequestBadge(from: resolvedPullRequest) else {
                     continue
                 }
                 host.updatePanelPullRequest(
                     workspaceId: result.workspaceId,
                     panelId: result.panelId,
-                    badge: SidebarPullRequestBadge(
-                        number: resolvedPullRequest.number,
-                        label: "PR",
-                        url: url,
-                        status: status,
-                        branch: resolvedPullRequest.branch,
-                        isStale: false
-                    )
+                    badge: badge
                 )
             case .notFound:
                 workspacePullRequestTransientFailureCountByKey[key] = 0
@@ -133,6 +125,7 @@ extension PullRequestPollService {
                             label: currentPullRequest.label,
                             url: currentPullRequest.url,
                             status: currentPullRequest.status,
+                            ciStatus: currentPullRequest.ciStatus,
                             branch: currentPullRequest.branch,
                             isStale: true
                         )
@@ -173,6 +166,30 @@ extension PullRequestPollService {
         }
 
         updateWorkspacePullRequestPollTimer()
+    }
+
+    /// Builds a sidebar badge from a resolved pull request. Returns `nil` when
+    /// the pull request cannot be represented.
+    static func resolvedPullRequestBadge(
+        from resolved: WorkspacePullRequestResolvedItem
+    ) -> SidebarPullRequestBadge? {
+        guard let status = PullRequestStatus(rawValue: resolved.statusRawValue),
+              let url = URL(string: resolved.urlString) else {
+            return nil
+        }
+        // CI status is best-effort: an unknown/unavailable rollup degrades to
+        // `.neutral` rather than suppressing the whole PR row (status and URL
+        // are authoritative).
+        let ciStatus = PullRequestCheckStatus(rawValue: resolved.ciStatusRawValue) ?? .neutral
+        return SidebarPullRequestBadge(
+            number: resolved.number,
+            label: "PR",
+            url: url,
+            status: status,
+            ciStatus: ciStatus,
+            branch: resolved.branch,
+            isStale: false
+        )
     }
 
     func scheduleNextWorkspacePullRequestPoll(

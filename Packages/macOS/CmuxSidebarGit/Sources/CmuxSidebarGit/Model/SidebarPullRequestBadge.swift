@@ -17,6 +17,8 @@ public struct SidebarPullRequestBadge: Equatable, Sendable {
     public let url: URL
     /// Open/merged/closed state.
     public let status: PullRequestStatus
+    /// CI check rollup state.
+    public let ciStatus: PullRequestCheckStatus
     /// The branch the badge was resolved for, when known.
     public let branch: String?
     /// Whether the badge is showing data that repeated transient refresh
@@ -29,6 +31,7 @@ public struct SidebarPullRequestBadge: Equatable, Sendable {
         label: String,
         url: URL,
         status: PullRequestStatus,
+        ciStatus: PullRequestCheckStatus = .neutral,
         branch: String? = nil,
         isStale: Bool = false
     ) {
@@ -36,6 +39,7 @@ public struct SidebarPullRequestBadge: Equatable, Sendable {
         self.label = label
         self.url = url
         self.status = status
+        self.ciStatus = ciStatus
         self.branch = branch
         self.isStale = isStale
     }

@@ -15,6 +15,7 @@ extension Workspace {
                 "label": .string(pullRequest.label),
                 "url": .string(pullRequest.url.absoluteString),
                 "status": .string(pullRequest.status.rawValue),
+                "ciStatus": .string(pullRequest.ciStatus.rawValue),
                 "stale": .bool(pullRequest.isStale),
             ]
             if let branch = pullRequest.branch { fields["branch"] = .string(branch) }
