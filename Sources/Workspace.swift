@@ -908,7 +908,6 @@ extension Workspace {
            RestorableAgentKind(rawValue: bindingKind) != restorableAgent.kind {
             return binding
         }
-        if restorableAgent.registration?.cwd == .ignore { return binding.retargetingWorkingDirectory(nil) }
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
         // and fall back to launch capture only for older snapshots.
         let snapshotRestorableWorkingDirectory =
@@ -1193,7 +1192,8 @@ extension Workspace {
                 snapshotRestorableAgent,
                 resumeBinding: resumeBinding
             )
-            let sessionReturnWorkingDirectory = restorableAgent?.registration?.cwd == .ignore
+            let resumeBindingCWDPolicy = restorableAgent?.registration?.cwd ?? resumeBinding?.registeredVaultCWDPolicy(workingDirectory: snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory)
+            let sessionReturnWorkingDirectory = resumeBindingCWDPolicy == .ignore
                 ? nil
                 : resumeBinding?.cwd ?? snapshot.terminal?.workingDirectory ?? restorableAgent?.workingDirectory ?? snapshot.directory ?? currentDirectory
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
@@ -1206,7 +1206,7 @@ extension Workspace {
                 restoredHibernation != nil ||
                 (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
                     ? nil
-                    : resumeBinding
+                    : (resumeBindingCWDPolicy == .ignore ? resumeBinding?.retargetingWorkingDirectory(nil) : resumeBinding)
             let effectiveResumeBindingForStartup = sessionRestorePolicy.approvedSurfaceResumeBinding(
                 resumeBindingForStartup,
                 autoResumeAgentSessions: shouldAutoResumeAgent,

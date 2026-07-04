@@ -123,6 +123,31 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         }
     }
 
+    @MainActor
+    @Test("binding-only cwd-ignore hook bindings do not return the shell to a saved session directory")
+    func bindingOnlyCwdIgnoreDoesNotReturnToSessionDirectory() throws {
+        try withIsolatedAutoResumeDefaults { defaults in
+            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let sessionDirectory = try makeTemporaryProjectDirectory(prefix: "cmux-issue-7031-ignore-binding-only")
+            defer { try? FileManager.default.removeItem(atPath: sessionDirectory) }
+            let registration = cwdIgnoreRegistration()
+            try writeVaultAgentConfig(registration, in: sessionDirectory)
+            let sessionId = "ignore-binding-only-issue-7031-session"
+            let restored = try restoredBindingOnlyPanel(
+                sessionDirectory: sessionDirectory,
+                sessionId: sessionId,
+                defaults: defaults,
+                bindingKind: registration.id
+            )
+
+            #expect(restored.workspace.restoredResumeSessionWorkingDirectoriesByPanelId[restored.panelId] == nil)
+            let script = try harness.resumeLauncherScript(from: restored.panel)
+            #expect(!script.contains("cd -- '\(sessionDirectory)'"))
+            #expect(script.contains("exec -l \"$_cmux_resume_shell\""))
+        }
+    }
+
     private func withIsolatedAutoResumeDefaults<T>(_ body: (UserDefaults) throws -> T) throws -> T {
         let suiteName = "cmux.AgentSessionAutoResumeReturnDirectoryTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -172,14 +197,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         defaults: UserDefaults,
         makeSurfaceResumeBindingIndex: ((UUID, UUID) -> SurfaceResumeBindingIndex?)? = nil
     ) throws -> (workspace: Workspace, panel: TerminalPanel, panelId: UUID) {
-        let registration = CmuxVaultAgentRegistration(
-            id: "acme-ignore",
-            name: "Acme Ignore",
-            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
-            sessionIdSource: .argvOption("--session"),
-            resumeCommand: "acme-agent --session {{sessionId}}",
-            cwd: .ignore
-        )
+        let registration = cwdIgnoreRegistration()
         let source = Workspace(agentSessionAutoResumeDefaults: defaults)
         let sourcePanelId = try #require(source.focusedPanelId)
         source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
@@ -210,6 +228,68 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         let restoredPanelId = try #require(restored.focusedPanelId)
         let panel = try #require(restored.terminalPanel(for: restoredPanelId))
         return (restored, panel, restoredPanelId)
+    }
+
+    @MainActor
+    private func restoredBindingOnlyPanel(
+        sessionDirectory: String,
+        sessionId: String,
+        defaults: UserDefaults,
+        bindingKind: String
+    ) throws -> (workspace: Workspace, panel: TerminalPanel, panelId: UUID) {
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let sourcePanelId = try #require(source.focusedPanelId)
+        source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Acme Ignore",
+                kind: bindingKind,
+                command: "acme-agent --session \(sessionId)",
+                cwd: nil,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restored.focusedPanelId)
+        let panel = try #require(restored.terminalPanel(for: restoredPanelId))
+        return (restored, panel, restoredPanelId)
+    }
+
+    private func cwdIgnoreRegistration() -> CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "acme-ignore",
+            name: "Acme Ignore",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .ignore
+        )
+    }
+
+    private func makeTemporaryProjectDirectory(prefix: String) throws -> String {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url.path
+    }
+
+    private func writeVaultAgentConfig(_ registration: CmuxVaultAgentRegistration, in directory: String) throws {
+        let configDirectory = URL(fileURLWithPath: directory, isDirectory: true)
+            .appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let config = CmuxConfigFile(vault: CmuxVaultConfigDefinition(agents: [registration]))
+        let data = try JSONEncoder().encode(config)
+        try data.write(to: configDirectory.appendingPathComponent("cmux.json"))
     }
 
     @MainActor
