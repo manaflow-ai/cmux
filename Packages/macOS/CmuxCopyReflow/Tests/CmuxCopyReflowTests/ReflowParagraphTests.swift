@@ -145,6 +145,14 @@ struct ReflowParagraphTests {
         )
     }
 
+    @Test func shellBackslashContinuationIsPreserved() {
+        let input =
+            "docker run --rm --name cmux-copy-reflow-container \\\n"
+            + "  --volume /tmp:/tmp \\\n"
+            + "  alpine echo ok\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func urlLedProseContinuationJoinsWithSpace() {
         let lead = "https://example.com/main branch is broken and needs fixing before the release"
         let input = "\(lead)\n  please take a look today\n"
