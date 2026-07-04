@@ -13,6 +13,10 @@ on:
       # on iOS-owned paths via should_run).
       - "Packages/**"
       - "scripts/lint-ios-package-conventions.sh"
+      - "Native/cmux-iroh/**"
+      - "Packages/Shared/CmuxIrohFFI/**"
+      - "scripts/ensure-cmux-iroh.sh"
+      - "scripts/install-rust-ci.sh"
       - "scripts/lint-namespace-types-baseline.txt"
       - ".github/workflows/test-ios.yml"
   workflow_dispatch:
@@ -68,7 +72,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|Native/cmux-iroh/|scripts/ensure-cmux-iroh\.sh$|scripts/install-rust-ci\.sh$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -163,7 +167,10 @@ jobs:
     # blocks macOS app-host XCTest does not apply here; this lane is verified
     # green on blacksmith-6vcpu-macos-26.
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 35
+    # 50 (was 35): a CmuxIrohFFI cache miss adds a ~9 min cold Rust build, and the
+    # UITest suite alone runs ~25 min. A timeout also cancels the post-job cache
+    # save, which would keep every subsequent run cold; headroom breaks that loop.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -223,6 +230,22 @@ jobs:
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
+
+      - name: Cache CmuxIrohFFI.xcframework
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux/cmux-iroh
+          key: cmux-iroh-${{ hashFiles('Native/cmux-iroh/**', 'scripts/ensure-cmux-iroh.sh') }}
+
+      - name: Provision CmuxIrohFFI
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          # The iOS app links CmuxIrohFFI.xcframework via a local-path
+          # binaryTarget in Packages/CmuxMobileTransport, so it must exist
+          # before package resolve. Built from Native/cmux-iroh.
+          ./scripts/install-rust-ci.sh
+          ./scripts/ensure-cmux-iroh.sh
 
       - name: Pick simulator
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}

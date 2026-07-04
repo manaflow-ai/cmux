@@ -1,0 +1,14 @@
+# Pinned Rust toolchain for the cmux-iroh FFI crate. rustup picks this up
+# automatically for any cargo/rustup invocation inside Native/cmux-iroh, so CI,
+# fleet builders, and local dev all compile the staticlib with the same
+# compiler. Bump deliberately (and re-run scripts/ensure-cmux-iroh.sh plus the
+# crate tests) rather than floating on stable.
+[toolchain]
+channel = "1.94.0"
+components = ["clippy", "rustfmt"]
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-sim",
+]

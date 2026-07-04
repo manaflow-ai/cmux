@@ -161,6 +161,8 @@ if [[ -z "$TAG" ]]; then
 fi
 XCODEBUILD_ARGS+=(build)
 
+"$(cd "$(dirname "$0")" && pwd)/ensure-cmux-iroh.sh"
+
 xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 

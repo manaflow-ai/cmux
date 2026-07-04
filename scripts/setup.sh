@@ -18,6 +18,8 @@ fi
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 
+"$SCRIPT_DIR/ensure-cmux-iroh.sh"
+
 "$SCRIPT_DIR/install-git-hooks.sh"
 
 echo "==> Setup complete!"

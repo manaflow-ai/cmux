@@ -3,6 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+./scripts/ensure-cmux-iroh.sh
+
 PROJECT="cmux.xcodeproj"
 SCHEME="cmux-unit"
 CONFIGURATION="${CMUX_TEST_CONFIGURATION:-Debug}"
