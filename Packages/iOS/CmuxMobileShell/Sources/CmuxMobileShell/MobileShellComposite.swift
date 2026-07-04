@@ -479,9 +479,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
             draftedOutgoingText = ""
-            // If the user was composing during a switch, hand keyboard focus to
-            // the incoming terminal's composer. A default-open but unfocused
-            // composer issues no request, so a plain switch never pops the keyboard.
+            // Hand focus to the incoming composer only when the user was already composing.
             if composerFieldIsFocused, isComposerPresented {
                 requestComposerFieldFocus()
             } else {
@@ -4106,7 +4104,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
-            // Avoid stranding selection if another create is already in flight.
             guard createTerminalTask == nil else { return }
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
             let taskID = UUID()
@@ -5848,6 +5845,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
+        let requestedMacDeviceID = workspaces.first { $0.id == rowWorkspaceID }?.macDeviceID ?? foregroundMacDeviceID
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -5862,7 +5860,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let selectedRow = explicitlySelectedWorkspace
             if let selectedRow, let createdID = response.createdTerminalID,
-               workspaceMatchesRemoteID(selectedRow, remoteID: requestedWorkspaceID, macDeviceID: foregroundMacDeviceID) {
+               selectedRow.id == rowWorkspaceID
+                   || (selectedRow.rpcWorkspaceID == requestedWorkspaceID
+                       && selectedRow.macDeviceID == requestedMacDeviceID) {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
                 createdTerminalSelectionID = createdTerminalID
                 selectedTerminalID = createdTerminalID
