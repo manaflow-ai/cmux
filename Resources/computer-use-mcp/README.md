@@ -34,8 +34,9 @@ this script). Injection is skipped when any of these hold:
 
 - `CMUX_COMPUTER_USE_MCP_DISABLED=1` (explicit kill switch),
 - `node` is not on PATH,
-- no codex binary is found (PATH or Codex.app) or `~/.codex/auth.json` is
-  missing — without the Codex machinery the tools could never work,
+- no trusted auto-attach codex binary is found (`CMUX_CU_CODEX` or Codex.app) or
+  `~/.codex/auth.json` is missing — without the Codex machinery the tools could
+  never work,
 - the invocation passes `--strict-mcp-config` (explicit MCP isolation, e.g.
   cmux's own headless summarizers).
 
@@ -83,12 +84,14 @@ on-screen window", "launch or focus <app>") before touching
 
 ## Config (env)
 
-- `CMUX_CU_CODEX` — path to the codex binary. Default: `codex` on PATH
-  (skipping cmux's own per-surface shims), then
+- `CMUX_CU_CODEX` — path to the codex binary. In the MCP server's manual mode,
+  the default is `codex` on PATH (skipping cmux's own per-surface shims), then
   `/Applications/Codex.app/Contents/Resources/codex`. When set it decides
-  alone — no fallback. The cmux-claude-wrapper resolves with the same order
-  and pins its result into the injected config as `CMUX_CU_CODEX`, so the
-  availability gate and the spawned engine always agree on one binary.
+  alone — no fallback. For automatic Claude injection, cmux-claude-wrapper only
+  probes this explicit path or Codex.app; it does not execute PATH candidates
+  during ordinary agent startup. The wrapper pins its trusted result into the
+  injected config as `CMUX_CU_CODEX`, so the availability gate and the spawned
+  engine always agree on one binary.
 - `CMUX_CU_TIMEOUT_MS` — per-command timeout (default `180000`).
 - `CMUX_CU_MAX_TREE` — max AX-tree characters returned by `computer_state`
   (default `60000`).

@@ -758,13 +758,12 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
-# Resolve the codex binary for the computer-use engine, mirroring the MCP
-# server's own order (CMUX_CU_CODEX decides alone, then PATH, then Codex.app).
-# The resolved path is pinned into the injected config as CMUX_CU_CODEX so the
-# gate and the server always agree on one binary. cmux's own per-surface
-# `codex` shim is on PATH in every cmux terminal, so a plain `command -v
-# codex` would always succeed; skip cmux shim dirs like the shims themselves
-# do when they fall back to the real binary.
+# Resolve the codex binary for automatic computer-use injection. The MCP server
+# can still resolve `codex` from PATH when configured manually, but the Claude
+# wrapper runs during ordinary agent startup and must not execute PATH-controlled
+# binaries from an untrusted workspace. Auto-attach only probes an explicit
+# CMUX_CU_CODEX path or the trusted Codex.app bundle, then pins the resolved path
+# into the injected config so the gate and the server agree on one binary.
 # A codex only counts if it actually speaks the app-server protocol the
 # computer-use engine runs on — legacy CLIs (e.g. a stray v0.2.x in
 # /usr/local/bin) reject the subcommand, and pinning one would surface 12
@@ -778,11 +777,11 @@ cmux_computer_use_codex_supports_app_server() {
     local perl_bin=/usr/bin/perl
     [[ -x "$perl_bin" ]] || perl_bin="$(command -v perl 2>/dev/null)"
     [[ -n "$perl_bin" && -x "$perl_bin" ]] || return 1
-    # Probe the candidate under a minimal allowlisted env (mirrors the MCP
-    # server's child env): keep only what codex/node/subprocess resolution
-    # needs plus benign locale/proxy/cert vars and codex-owned CODEX_*/OPENAI_*,
-    # so a shadow `codex` earlier on PATH never receives cmux socket
-    # credentials, preserved Claude/backend auth-selection vars, or NODE_OPTIONS.
+    # Probe the explicit/trusted candidate under a minimal allowlisted env
+    # (mirrors the MCP server's child env): keep only what codex/node/subprocess
+    # resolution needs plus benign locale/proxy/cert vars and codex-owned
+    # CODEX_*/OPENAI_*. Do not forward cmux socket credentials, preserved
+    # Claude/backend auth-selection vars, or NODE_OPTIONS.
     local -a env_args=()
     local key
     for key in HOME CODEX_HOME PATH TMPDIR USER LOGNAME SHELL TERM LANG LC_ALL TZ \
@@ -804,20 +803,6 @@ cmux_computer_use_resolve_codex() {
         printf '%s' "$CMUX_CU_CODEX"
         return 0
     fi
-    local dir
-    local IFS=:
-    for dir in $PATH; do
-        case "$dir" in
-            "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}"|"${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"|*/cmux-cli-shims/*|*/cmux-cli-shims)
-                continue
-                ;;
-        esac
-        if [[ -n "$dir" && -x "$dir/codex" ]] &&
-            cmux_computer_use_codex_supports_app_server "$dir/codex"; then
-            printf '%s' "$dir/codex"
-            return 0
-        fi
-    done
     if [[ -x "/Applications/Codex.app/Contents/Resources/codex" ]] &&
         cmux_computer_use_codex_supports_app_server "/Applications/Codex.app/Contents/Resources/codex"; then
         printf '%s' "/Applications/Codex.app/Contents/Resources/codex"

@@ -51,12 +51,15 @@ the app bundles the single file and attaches it to agent launches with no instal
 ## Auto-availability (phase 1 — this PR)
 
 `Resources/bin/cmux-claude-wrapper` injects `--mcp-config` (pointing at the bundled
-server) into `claude` session launches, gated only on the Codex machinery actually being
-present (codex binary + `~/.codex/auth.json`, `node` on PATH, no `--strict-mcp-config`,
-no `CMUX_COMPUTER_USE_MCP_DISABLED=1`). Codex agents already have computer use natively
-(`computer_use` is a stable, default-on codex feature), so codex launches get nothing
-injected. There is no Settings surface: like Codex Computer Use itself, it works when
-the machinery is installed and logged in, and does not exist when it is not.
+server) into `claude` session launches, gated only on trusted Codex machinery actually
+being present (`CMUX_CU_CODEX` or Codex.app + `~/.codex/auth.json`, `node` on PATH, no
+`--strict-mcp-config`, no `CMUX_COMPUTER_USE_MCP_DISABLED=1`). The wrapper does not
+probe `codex` from PATH during ordinary Claude startup, because workspace-controlled
+PATH entries must not be executed before user intent. Codex agents already have
+computer use natively (`computer_use` is a stable, default-on codex feature), so codex
+launches get nothing injected. There is no Settings surface: like Codex Computer Use
+itself, it works when trusted machinery is installed and logged in, and does not exist
+when it is not.
 
 ## Status
 

@@ -12,7 +12,6 @@ import shutil
 import socket
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 
@@ -875,15 +874,16 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 # The wrapper attaches the bundled computer-use MCP server via --mcp-config only
 # when the full Codex machinery is present. These fixtures build that machinery
 # hermetically inside the sandbox: the server script next to the wrapper (repo
-# layout), a fake `codex` on PATH, and CODEX_HOME with an auth.json — so the
-# tests do not depend on the runner's real codex install or ~/.codex. (Existing
-# tests never inject because the sandboxed wrapper has no sibling server script.)
+# layout), an explicit CMUX_CU_CODEX override, and CODEX_HOME with an auth.json
+# — so the tests do not depend on the runner's real codex install or ~/.codex.
+# (Existing tests never inject because the sandboxed wrapper has no sibling
+# server script.)
 
 
 def computer_use_sandbox(
     *,
     script: bool = True,
-    codex_on_path: bool = True,
+    codex_on_path: bool = False,
     codex_auth: bool = True,
     codex_in_shim_dir_only: bool = False,
     disabled: bool = False,
@@ -984,7 +984,7 @@ def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(fail
     code, real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(),
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>"),
     )
     expect(code == 0, f"computer use inject: wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1009,8 +1009,8 @@ def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(fail
         # end up spawning a different one.
         pinned = server.get("env", {}).get("CMUX_CU_CODEX", "")
         expect(
-            pinned.endswith("/codex-bin/codex"),
-            f"computer use inject: expected the resolved sandbox codex pinned via env, got {config}",
+            pinned.endswith("/codex-override/codex"),
+            f"computer use inject: expected the explicit sandbox codex pinned via env, got {config}",
             failures,
         )
     inject_index = injected_mcp_config_index(real_argv)
@@ -1128,29 +1128,25 @@ def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
     )
 
 
-def test_computer_use_mcp_skips_codex_without_app_server(failures: list[str]) -> None:
-    # A legacy codex earlier on PATH that rejects `app-server` must be skipped
-    # in favor of the working one later on PATH, and the WORKING binary must
-    # be the one pinned into the injected config.
+def test_computer_use_mcp_does_not_auto_probe_path_codex(failures: list[str]) -> None:
+    # PATH entries are workspace-controlled during ordinary Claude launches, so
+    # auto-attach must not execute `codex` from PATH. Only an explicit
+    # CMUX_CU_CODEX or the trusted Codex.app bundle may satisfy the gate. This is
+    # only meaningful on machines without Codex.app, where the bundle would
+    # legitimately satisfy availability.
+    if Path("/Applications/Codex.app/Contents/Resources/codex").exists():
+        return
     code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
-        setup_sandbox=computer_use_sandbox(legacy_codex_first=True),
+        setup_sandbox=computer_use_sandbox(codex_on_path=True),
     )
-    expect(code == 0, f"computer use legacy-skip: wrapper exited {code}: {stderr}", failures)
-    config = extract_injected_mcp_config(real_argv)
+    expect(code == 0, f"computer use path probe: wrapper exited {code}: {stderr}", failures)
     expect(
-        config is not None,
-        f"computer use legacy-skip: expected injection via the working codex, got {real_argv}",
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use path probe: expected no injection from PATH codex, got {real_argv}",
         failures,
     )
-    if config is not None:
-        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
-        expect(
-            pinned.endswith("/codex-bin/codex"),
-            f"computer use legacy-skip: expected the app-server-capable codex pinned, got {config}",
-            failures,
-        )
 
     # An explicit override that rejects `app-server` decides alone: no
     # injection, no fallback.
@@ -1165,32 +1161,6 @@ def test_computer_use_mcp_skips_codex_without_app_server(failures: list[str]) ->
         f"computer use legacy override: expected no injection, got {real_argv}",
         failures,
     )
-
-    # A hanging probe must be killed by the 5s alarm and never block the
-    # launch; the working codex later on PATH still wins.
-    start = time.monotonic()
-    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["hello"],
-        setup_sandbox=computer_use_sandbox(hanging_codex_first=True),
-    )
-    elapsed = time.monotonic() - start
-    expect(code == 0, f"computer use hanging probe: wrapper exited {code}: {stderr}", failures)
-    expect(
-        elapsed < 30,
-        f"computer use hanging probe: launch blocked for {elapsed:.1f}s",
-        failures,
-    )
-    config = extract_injected_mcp_config(real_argv)
-    pinned = ""
-    if config is not None:
-        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
-    expect(
-        pinned.endswith("/codex-bin/codex"),
-        f"computer use hanging probe: expected the working codex pinned, got {real_argv}",
-        failures,
-    )
-
 
 def test_computer_use_mcp_ignores_cmux_codex_shims(failures: list[str]) -> None:
     # A per-surface cmux shim dir always carries a `codex` entry inside cmux
@@ -2219,7 +2189,7 @@ def main() -> int:
     test_computer_use_mcp_skipped_when_disabled(failures)
     test_computer_use_mcp_skipped_when_server_script_missing(failures)
     test_computer_use_mcp_honors_codex_override(failures)
-    test_computer_use_mcp_skips_codex_without_app_server(failures)
+    test_computer_use_mcp_does_not_auto_probe_path_codex(failures)
     test_computer_use_mcp_ignores_cmux_codex_shims(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
