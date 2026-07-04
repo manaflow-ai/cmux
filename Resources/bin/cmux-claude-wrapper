@@ -773,6 +773,19 @@ cmux_computer_use_world_writable_dir() {
     (( (other & 2) != 0 ))
 }
 
+cmux_computer_use_workspace_root() {
+    local dir="$1"
+    while [[ -n "$dir" && "$dir" != "/" ]]; do
+        if [[ -e "$dir/.git" ]]; then
+            printf '%s' "$dir"
+            return 0
+        fi
+        dir="${dir%/*}"
+        [[ -n "$dir" ]] || dir="/"
+    done
+    return 1
+}
+
 cmux_computer_use_resolve_node() {
     local node_bin
     node_bin="$(command -v node 2>/dev/null)" || return 1
@@ -808,6 +821,15 @@ cmux_computer_use_resolve_node() {
                 return 1
                 ;;
         esac
+        local workspace_real
+        workspace_real="$(cmux_computer_use_workspace_root "$cwd_real" || true)"
+        if [[ -n "$workspace_real" ]]; then
+            case "$node_real" in
+                "$workspace_real"|"$workspace_real"/*)
+                    return 1
+                    ;;
+            esac
+        fi
     fi
     cmux_computer_use_world_writable_dir "$node_dir_real" && return 1
     printf '%s' "$node_real"

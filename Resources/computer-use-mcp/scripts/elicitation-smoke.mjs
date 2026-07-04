@@ -183,6 +183,48 @@ if (!staleClick.isError || !staleClick.text.includes("run computer_state first")
   process.exit(1);
 }
 
+const [flakyState, failedRefresh, staleAfterFailedRefresh] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_state", args: { app: "FlakyStateApp" } },
+    { tool: "computer_state", args: { app: "FlakyStateApp" } },
+    { tool: "computer_click", args: { app: "FlakyStateApp", element: 0 } },
+  ],
+});
+console.log(
+  `failed state refresh revokes snapshot -> state=${flakyState.isError} refresh=${failedRefresh.isError} click=${staleAfterFailedRefresh.isError}`
+);
+if (
+  flakyState.isError ||
+  !failedRefresh.isError ||
+  !staleAfterFailedRefresh.isError ||
+  !staleAfterFailedRefresh.text.includes("run computer_state first")
+) {
+  console.error("FAIL: failed computer_state refresh should revoke old element indices");
+  process.exit(1);
+}
+
+const [screenshotState, failedScreenshot, staleAfterFailedScreenshot] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_state", args: { app: "FlakyScreenshotApp" } },
+    { tool: "computer_screenshot", args: { app: "FlakyScreenshotApp" } },
+    { tool: "computer_click", args: { app: "FlakyScreenshotApp", element: 0 } },
+  ],
+});
+console.log(
+  `failed screenshot refresh revokes snapshot -> state=${screenshotState.isError} screenshot=${failedScreenshot.isError} click=${staleAfterFailedScreenshot.isError}`
+);
+if (
+  screenshotState.isError ||
+  !failedScreenshot.isError ||
+  !staleAfterFailedScreenshot.isError ||
+  !staleAfterFailedScreenshot.text.includes("run computer_state first")
+) {
+  console.error("FAIL: failed computer_screenshot refresh should revoke old element indices");
+  process.exit(1);
+}
+
 const [scrollState, scrollResult, actionState, actionResult] = await runCalls({
   withElicitation: false,
   calls: [

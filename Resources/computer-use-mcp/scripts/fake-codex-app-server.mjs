@@ -18,6 +18,7 @@ if (process.argv.includes("--help")) {
 
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let pendingToolCallId = null;
+const stateCallsByApp = new Map();
 
 const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -72,6 +73,19 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const params = toolCallParams(message);
     if (!params) return;
     if (params.tool === "get_app_state") {
+      const app = params.arguments?.app;
+      const calls = (stateCallsByApp.get(app) ?? 0) + 1;
+      stateCallsByApp.set(app, calls);
+      if ((app === "FlakyStateApp" || app === "FlakyScreenshotApp") && calls >= 2) {
+        send({
+          id: message.id,
+          result: {
+            content: [{ type: "text", text: "state refresh failed" }],
+            isError: true,
+          },
+        });
+        return;
+      }
       send({
         id: message.id,
         result: {

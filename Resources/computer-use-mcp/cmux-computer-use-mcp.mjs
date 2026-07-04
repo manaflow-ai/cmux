@@ -519,9 +519,10 @@ function passthrough(result, fallback) {
 // Perception result -> MCP content: AX tree as text + screenshot as image, so
 // a vision agent sees exactly what Codex Computer Use sees.
 async function perceive(app) {
-  const result = await callReadOnlyTool("get_app_state", { app });
-  if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
   const s = await session();
+  if (s.alive) s.snapshotApps.delete(app);
+  const result = await callEngineReadOnly(s, "get_app_state", { app });
+  if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
   if (s.alive) {
     s.boundApps.add(app);
     // The agent receives this element-index table, so element actions may
@@ -736,9 +737,10 @@ const TOOLS = [
     },
     run: async ({ app, display }) => {
       if (!app) return desktopScreenshot(display);
-      const result = await callReadOnlyTool("get_app_state", { app });
-      if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
       const s = await session();
+      if (s.alive) s.snapshotApps.delete(app);
+      const result = await callEngineReadOnly(s, "get_app_state", { app });
+      if (result?.isError) return { content: result.content ?? [text("(error)")], isError: true };
       // Screenshot-only capture: the agent sees the image but NOT the element
       // table this get_app_state just rebuilt, so bind the app and REVOKE any
       // earlier element-index authorization — the agent's indices refer to a

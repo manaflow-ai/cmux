@@ -198,11 +198,12 @@ exit 0
             env["NODE_OPTIONS"] = node_options
         if setup_sandbox is not None:
             setup_sandbox(tmp, env)
+        run_cwd = Path(env.pop("FAKE_WRAPPER_CWD", str(tmp)))
 
         try:
             proc = subprocess.run(
                 [str(wrapper), *argv],
-                cwd=tmp,
+                cwd=run_cwd,
                 env=env,
                 capture_output=True,
                 text=True,
@@ -898,6 +899,7 @@ def computer_use_sandbox(
     legacy_codex_first: bool = False,
     hanging_codex_first: bool = False,
     workspace_node_first: bool = False,
+    workspace_node_outside_pwd: bool = False,
     path_helper_trap: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
@@ -968,6 +970,27 @@ fi
 exit 88
 """,
             )
+            env["PATH"] = f"{node_dir}:{env['PATH']}"
+        if workspace_node_outside_pwd:
+            workspace = tmp / "workspace"
+            node_dir = workspace / "bin"
+            cwd = workspace / "subdir"
+            node_dir.mkdir(parents=True, exist_ok=True)
+            cwd.mkdir(parents=True, exist_ok=True)
+            (workspace / ".git").mkdir(parents=True, exist_ok=True)
+            node_real = shutil.which("node")
+            if node_real:
+                env["FAKE_TRUSTED_NODE"] = node_real
+            make_executable(
+                node_dir / "node",
+                """#!/usr/bin/env bash
+if [[ "${1:-}" == "${FAKE_REAL_NODE_SCRIPT:-}" && -n "${FAKE_TRUSTED_NODE:-}" ]]; then
+  exec "$FAKE_TRUSTED_NODE" "$@"
+fi
+exit 88
+""",
+            )
+            env["FAKE_WRAPPER_CWD"] = str(cwd)
             env["PATH"] = f"{node_dir}:{env['PATH']}"
         if path_helper_trap:
             helper_dir = tmp / "path-helper-trap"
@@ -1116,6 +1139,23 @@ def test_computer_use_mcp_skips_workspace_node(failures: list[str]) -> None:
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use workspace-node: expected no injection with workspace-local node first on PATH, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_mcp_skips_workspace_root_node(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(
+            codex_override="<sandbox-codex>",
+            workspace_node_outside_pwd=True,
+        ),
+    )
+    expect(code == 0, f"computer use workspace-root node: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use workspace-root node: expected no injection with workspace node outside PWD, got {real_argv}",
         failures,
     )
 
@@ -2296,6 +2336,7 @@ def main() -> int:
     test_computer_use_probe_uses_absolute_system_helpers(failures)
     test_computer_use_mcp_skipped_without_codex_auth(failures)
     test_computer_use_mcp_skips_workspace_node(failures)
+    test_computer_use_mcp_skips_workspace_root_node(failures)
     test_computer_use_mcp_skipped_for_strict_mcp_config(failures)
     test_computer_use_mcp_skipped_when_disabled(failures)
     test_computer_use_mcp_skipped_when_server_script_missing(failures)
