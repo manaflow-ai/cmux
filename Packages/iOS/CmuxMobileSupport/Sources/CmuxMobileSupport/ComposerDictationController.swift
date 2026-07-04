@@ -34,9 +34,11 @@ public final class ComposerDictationController {
     /// enabled/listening presentation.
     public private(set) var state: ComposerDictationState = .idle
 
-    /// The recognizer for the user's locale. `nil` when the locale is
-    /// unsupported, which is surfaced as ``ComposerDictationState/unavailable``.
-    private let recognizer: SFSpeechRecognizer?
+    /// Factory consulted for every dictation start. The app composition root
+    /// swaps this to Parakeet when the user selected it and its model is installed.
+    public static var backendFactory: @MainActor () -> any ComposerDictationRecognitionBackend = {
+        AppleComposerDictationRecognitionBackend()
+    }
 
     /// Pure merger that combines the captured base text with speech partials.
     private let textMerger: ComposerDictationTextMerger
@@ -47,11 +49,8 @@ public final class ComposerDictationController {
     /// and freeze the mic button animation (issue #6284).
     private let audioEngine = ComposerDictationAudioEngine()
 
-    /// The in-flight recognition request, fed audio buffers from the engine tap.
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-
-    /// The in-flight recognition task. Cancelled and cleared on every teardown.
-    private var task: SFSpeechRecognitionTask?
+    /// The in-flight recognition backend, fed audio buffers from the engine tap.
+    private var backend: (any ComposerDictationRecognitionBackend)?
 
     /// The composer text captured when dictation started, used as the merge base
     /// so partials append rather than overwrite.
@@ -85,9 +84,8 @@ public final class ComposerDictationController {
     /// Creates a dictation controller for the current speech-recognition locale.
     public init(textMerger: ComposerDictationTextMerger = ComposerDictationTextMerger()) {
         self.textMerger = textMerger
-        self.recognizer = SFSpeechRecognizer()
         // A nil recognizer (unsupported locale) is terminal: the mic is disabled.
-        if recognizer == nil {
+        if !Self.backendFactory().isSupported {
             state = .unavailable
         }
     }
@@ -148,10 +146,12 @@ public final class ComposerDictationController {
     /// allows a start (idle and available).
     func start(existingText: String, onText: @escaping (String) -> Void) {
         guard state.canStart else { return }
-        guard recognizer != nil else {
+        let backend = Self.backendFactory()
+        guard backend.isSupported else {
             state = .unavailable
             return
         }
+        self.backend = backend
         baseText = existingText
         self.onText = onText
 
@@ -165,7 +165,7 @@ public final class ComposerDictationController {
         // the status synchronously never invokes that completion, so a repeat tap
         // (Lawrence's repro) cannot hit the crashing callback. Only a genuinely
         // undetermined permission falls through to the async request below.
-        switch Self.resolvedAuthorization() {
+        switch backend.resolvedAuthorization() {
         case .granted:
             state = .requestingPermission
             beginRecognition()
@@ -185,7 +185,7 @@ public final class ComposerDictationController {
         // `@Sendable` completion. Hop to the main actor ONCE, here, via
         // `Task { @MainActor in }` (an async enqueue, not a synchronous executor
         // assertion) before touching any actor-isolated state.
-        requestAuthorization { [weak self] granted in
+        backend.requestAuthorization { [weak self] granted in
             Task { @MainActor in
                 guard let self else { return }
                 // A second tap may have cancelled (or otherwise moved on) while
@@ -231,8 +231,8 @@ public final class ComposerDictationController {
         // Flush buffered audio so a late FINAL result can include the tail, then
         // stop capturing OFF the main actor: `engine.stop()` + `setActive(false)`
         // block ~100-300ms and froze the button animation when run inline (issue
-        // #6284). The task and `onText` stay alive for the final result.
-        request?.endAudio()
+        // #6284). The backend and `onText` stay alive for the final result.
+        backend?.endAudio()
         audioEngine.stop()
         // Watchdog: if no final result (or error) lands, force cleanup so the
         // controller returns to idle instead of hanging in `.stopping`.
@@ -259,98 +259,19 @@ public final class ComposerDictationController {
         }
     }
 
-    // MARK: - Authorization
-
-    /// Whether both authorizations are already resolved, and if so the verdict.
-    /// `undetermined` means at least one permission has never been requested, so a
-    /// first-time async prompt is still required.
-    private enum AuthResolution { case granted, denied, undetermined }
-
-    /// Read the CURRENT speech + microphone authorization synchronously, without
-    /// invoking any async request completion. `nonisolated` and side-effect-free:
-    /// these status getters are plain synchronous reads, so they are safe to call
-    /// from the main actor and never touch the crashing TCC callback path.
-    private nonisolated static func resolvedAuthorization() -> AuthResolution {
-        let speech = SFSpeechRecognizer.authorizationStatus()
-        let micGranted: Bool
-        let micDetermined: Bool
-        if #available(iOS 17.0, *) {
-            switch AVAudioApplication.shared.recordPermission {
-            case .granted: micGranted = true; micDetermined = true
-            case .denied: micGranted = false; micDetermined = true
-            case .undetermined: micGranted = false; micDetermined = false
-            @unknown default: micGranted = false; micDetermined = false
-            }
-        } else {
-            switch AVAudioSession.sharedInstance().recordPermission {
-            case .granted: micGranted = true; micDetermined = true
-            case .denied: micGranted = false; micDetermined = true
-            case .undetermined: micGranted = false; micDetermined = false
-            @unknown default: micGranted = false; micDetermined = false
-            }
-        }
-        guard speech != .notDetermined, micDetermined else { return .undetermined }
-        return (speech == .authorized && micGranted) ? .granted : .denied
-    }
-
-    /// Resolve speech-recognition then microphone authorization and report whether
-    /// BOTH were granted.
-    ///
-    /// `nonisolated` with a `@Sendable` completion ON PURPOSE: `SFSpeechRecognizer`
-    /// / `AVFoundation` invoke their completion handlers on their own (non-main)
-    /// queues. If those closures were main-actor-isolated (the default for a
-    /// closure written inside this `@MainActor` type), Swift 6 on iOS 26 asserts
-    /// executor isolation when the system calls them off-main and traps
-    /// (`EXC_BREAKPOINT` in `swift_task_isCurrentExecutor` ->
-    /// `dispatch_assert_queue_fail`), which is the mic-tap crash. Keeping the
-    /// whole authorization chain nonisolated means no `@MainActor` closure is ever
-    /// invoked off-main; the caller hops to the main actor once.
-    private nonisolated func requestAuthorization(_ completion: @escaping @Sendable (Bool) -> Void) {
-        SFSpeechRecognizer.requestAuthorization { speechStatus in
-            guard speechStatus == .authorized else {
-                completion(false)
-                return
-            }
-            Self.requestMicrophonePermission(completion)
-        }
-    }
-
-    /// Request microphone permission, bridging the iOS 17+ API to its pre-17
-    /// fallback. `nonisolated` + `@Sendable` for the same off-main-isolation
-    /// reason as ``requestAuthorization(_:)``; reports on the system's queue.
-    private nonisolated static func requestMicrophonePermission(_ completion: @escaping @Sendable (Bool) -> Void) {
-        if #available(iOS 17.0, *) {
-            AVAudioApplication.requestRecordPermission { granted in
-                completion(granted)
-            }
-        } else {
-            AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                completion(granted)
-            }
-        }
-    }
-
     // MARK: - Recognition
 
     /// Begin dictation by handing the audio session + engine activation to the
-    /// off-main ``ComposerDictationAudioEngine``, then create the recognition task
-    /// when it reports ready — the blocking `setActive`/`engine.start` run on the
-    /// owner's serial queue, NOT here, so the mic button never hitches (issue
-    /// #6284). The state stays `.requestingPermission` until ``handleEngineReady``.
+    /// off-main ``ComposerDictationAudioEngine``, then starts the recognition
+    /// backend when it reports ready. The blocking `setActive`/`engine.start` run
+    /// on the owner's serial queue, NOT here, so the mic button never hitches
+    /// (issue #6284). The state stays `.requestingPermission` until
+    /// ``handleEngineReady``.
     private func beginRecognition() {
-        guard let recognizer, recognizer.isAvailable else {
+        guard let backend, backend.isAvailable else {
             failStart()
             return
         }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        // Prefer on-device recognition for privacy and offline use; fall back to
-        // server recognition only when the device cannot recognize locally.
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
-        self.request = request
 
         // Stamp this start attempt: the off-main activation calls back ~100-300ms
         // later, by when a second tap, send, or navigation may have superseded it.
@@ -358,11 +279,10 @@ public final class ComposerDictationController {
         startToken &+= 1
         let token = startToken
 
-        // Hand the blocking audio-hardware work to the owner's serial queue; the
-        // state stays `.requestingPermission` until it reports ready, then
-        // `handleEngineReady` creates the recognition task on the main actor (so
-        // the non-Sendable request/recognizer never leave it).
-        audioEngine.start(tapBlock: makeTapBlock(request: request)) { [weak self] started in
+        // Hand the blocking audio-hardware work to the owner's serial queue.
+        // The backend constructs the tap while still on the main actor; the
+        // returned closure is sendable and safe for the audio render thread.
+        audioEngine.start(tapBlock: backend.makeTapBlock()) { [weak self] started in
             // Hop to the main actor before touching actor-isolated state.
             Task { @MainActor in self?.handleEngineReady(started, token: token) }
         }
@@ -372,78 +292,46 @@ public final class ComposerDictationController {
     /// the result when a newer start / cancel / teardown superseded this attempt
     /// (that path already enqueued the engine teardown, serialized before any later
     /// start, so a second stop here could instead tear down that later start);
-    /// otherwise creates the recognition task and moves to `.listening` (or
+    /// otherwise starts the recognition backend and moves to `.listening` (or
     /// `.unavailable` if the engine failed to start).
     private func handleEngineReady(_ started: Bool, token: Int) {
         guard state.startDisposition(
             callbackToken: token, currentToken: startToken
         ) == .apply else { return }
-        guard started, let recognizer, let request else {
+        guard started, let backend else {
             failStart()
             return
         }
-        task = recognizer.recognitionTask(with: request, resultHandler: makeRecognitionResultHandler())
+        backend.start { [weak self] update in
+            self?.handleRecognitionUpdate(update)
+        }
         state = .listening
     }
 
-    /// Build the audio-tap block handed to the off-main ``audioEngine`` owner.
-    /// `@Sendable` + `nonisolated` so it crosses into the owner's queue and runs
-    /// off-main (a main-actor closure would trap in `swift_task_isCurrentExecutor`
-    /// on the realtime render thread). The request is captured `nonisolated(unsafe)`
-    /// (justified inline) because it is not `Sendable`. `nonisolated` (uses no `self`).
-    private nonisolated func makeTapBlock(
-        request: SFSpeechAudioBufferRecognitionRequest
-    ) -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
-        // `nonisolated(unsafe)`-safe: `append(_:)` is thread-safe, weak, never outlives the request.
-        nonisolated(unsafe) weak let weakRequest: SFSpeechAudioBufferRecognitionRequest? = request
-        return { buffer, _ in
-            weakRequest?.append(buffer)
+    private func handleRecognitionUpdate(_ update: ComposerDictationRecognitionUpdate) {
+        switch update {
+        case .transcript(let transcript, let isFinal):
+            // Only apply a NON-EMPTY transcript. On stop, a backend can deliver
+            // a final result with an empty transcript; merging that
+            // (`merged(base, "")` -> `base`) would wipe the words the partials
+            // already committed. The latest non-empty partial is already in the
+            // field, so an empty final/partial must be ignored, not applied.
+            if !transcript.isEmpty {
+                onText?(textMerger.merged(base: baseText, transcript: transcript))
+            }
+            if isFinal {
+                settleRecognitionStream()
+            }
+        case .finished, .failed:
+            settleRecognitionStream()
         }
     }
 
-    /// Build the recognition result handler. `nonisolated` so the returned closure
-    /// is NOT main-actor-isolated: `SFSpeechRecognitionTask` delivers results on an
-    /// arbitrary queue. The closure extracts only `Sendable` value snapshots and
-    /// hops to the main actor via `Task { @MainActor in }` before touching any
-    /// actor-isolated state; `self` is weak so the task does not retain the
-    /// controller.
-    private nonisolated func makeRecognitionResultHandler()
-        -> @Sendable (SFSpeechRecognitionResult?, Error?) -> Void {
-        // `@Sendable` so the closure is its own isolation region (not main-actor):
-        // Speech invokes it off-main, where a main-actor closure traps. It captures
-        // only `[weak self]` (a Sendable, main-actor class) and reads Sendable
-        // snapshots from the non-Sendable result/error PARAMETERS, then hops to the
-        // main actor. This mirrors the authorization completion pattern above.
-        return { [weak self] result, error in
-            let transcript = result?.bestTranscription.formattedString
-            let isFinal = result?.isFinal ?? false
-            let failed = error != nil
-            Task { @MainActor in
-                guard let self else { return }
-                // Only apply a NON-EMPTY transcript. On stop, the recognizer can
-                // deliver a final result with an empty transcript; merging that
-                // (`merged(base, "")` -> `base`) would wipe the words the partials
-                // already committed. The latest non-empty partial is already in the
-                // field, so an empty final/partial must be ignored, not applied.
-                if let transcript, !transcript.isEmpty {
-                    self.onText?(self.textMerger.merged(
-                        base: self.baseText,
-                        transcript: transcript
-                    ))
-                }
-                // A final result or an error (end-of-stream, recognition failure)
-                // settles the session so the mic does not stay hot. If a graceful
-                // stop is already in flight (`.stopping`), this is the awaited
-                // final result: apply it (done above) and finish cleanup. While
-                // still listening, the stream ended on its own; cancel to idle.
-                if isFinal || failed {
-                    if self.state == .stopping {
-                        self.finishGraceful()
-                    } else {
-                        self.cancel()
-                    }
-                }
-            }
+    private func settleRecognitionStream() {
+        if state == .stopping {
+            finishGraceful()
+        } else if state == .listening {
+            cancel()
         }
     }
 
@@ -455,8 +343,8 @@ public final class ComposerDictationController {
         state = .unavailable
     }
 
-    /// Finish a graceful stop after the recognition task delivered its final
-    /// result (or the watchdog fired): drop the task/request and callback, and
+    /// Finish a graceful stop after the recognition backend delivered its final
+    /// result (or the watchdog fired): drop the backend and callback, and
     /// return to idle. The engine and session are already stopped by `stop()`.
     /// A no-op once the controller has left `.stopping` (final result and
     /// watchdog can race; whichever lands first wins, the other is ignored).
@@ -464,17 +352,16 @@ public final class ComposerDictationController {
         guard state == .stopping else { return }
         finalizeTimeout?.cancel()
         finalizeTimeout = nil
-        // The task already finalized; cancelling a finished task is a no-op, and
-        // it guarantees no late callback survives if the watchdog won the race.
-        task?.cancel()
-        task = nil
-        request = nil
+        // The backend already finalized; cancelling a finished backend is a no-op,
+        // and guarantees no late callback survives if the watchdog won the race.
+        backend?.cancel()
+        backend = nil
         onText = nil
         baseText = ""
         state = .idle
     }
 
-    /// Cancel the recognition task, end and drop the request, stop the engine and
+    /// Cancel the recognition backend, stop the engine and
     /// deactivate the session (off-main, via ``audioEngine``), and clear the
     /// callback. Safe to call repeatedly; every reference is nil-checked.
     private func teardown() {
@@ -485,10 +372,8 @@ public final class ComposerDictationController {
         // serialized after that start's activation and before any later start, so
         // the engine is reliably torn down and never double-started.
         startToken &+= 1
-        task?.cancel()
-        task = nil
-        request?.endAudio()
-        request = nil
+        backend?.cancel()
+        backend = nil
         // Off the main actor; a no-op if nothing was activated (so a send/blur/
         // cancel with no dictation in flight never pokes the audio system).
         audioEngine.stop()

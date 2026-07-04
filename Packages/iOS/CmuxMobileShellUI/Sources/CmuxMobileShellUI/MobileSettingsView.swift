@@ -2,34 +2,23 @@
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileSupport
-import CmuxMobileWorkspace
 import SwiftUI
 
-/// The mobile app's settings page. Surfaces the signed-in account (so the user
-/// can confirm which cmux account this device uses — the account must match the
-/// Mac it pairs with), plus terminal shortcuts, agent notifications, and the
-/// paired Mac. Presented as a sheet from the workspace list.
+/// The mobile app's settings page. Surfaces account, team, connection, and
+/// grouped settings pages from a compact root list.
 struct MobileSettingsView: View {
     @Environment(AuthCoordinator.self) private var authManager
-    @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
     let connectedHostName: String
     let rescanQR: (() -> Void)?
     let signOut: (() -> Void)?
     /// The shell store, used to drive the multi-Mac switcher. `nil` in previews,
-    /// where the "Switch Mac" entry is hidden.
+    /// where the "Switch Computer" and Voice Mode entries are hidden.
     var store: CMUXMobileShellStore?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var showingShortcuts = false
-    /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
-    /// update after the async enable/disable. The coordinator exposes
-    /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
-    /// directly in `body` would not re-render when it flips.
-    @State private var notificationsEnabled = false
     @State private var showingHostPicker = false
-    @State private var showingOnboarding = false
-    @State private var showingSetupHelp = false
+    @State private var showingVoiceMode = false
     #if DEBUG
     @State private var showingChatDemo = false
     @State private var showingTerminalDemo = false
@@ -39,134 +28,10 @@ struct MobileSettingsView: View {
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
             Form {
-                Section {
-                    LabeledContent {
-                        Text(accountEmail)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    } label: {
-                        Label(accountDisplayName, systemImage: "person.crop.circle")
-                    }
-                    .accessibilityIdentifier("MobileSettingsAccountRow")
-
-                    if let signOut {
-                        Button(role: .destructive) {
-                            signOut()
-                            dismiss()
-                        } label: {
-                            Label(
-                                L10n.string("mobile.signOut", defaultValue: "Sign Out"),
-                                systemImage: "rectangle.portrait.and.arrow.right"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsSignOut")
-                    }
-                } header: {
-                    Text(L10n.string("mobile.settings.account", defaultValue: "Account"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.settings.accountFooter",
-                        defaultValue: "This device must be signed in to the same cmux account as the computer you pair with."
-                    ))
-                }
-
-                // Stack team switcher. Only shown when the user belongs to more than
-                // one team. Rendered as an INLINE picker — each team is a row with a
-                // checkmark on the current one — so every team is visible at a glance
-                // and one tap switches (clearer than a menu/navigation push for a
-                // small set). Selecting a team writes `selectedTeamID`, which the root
-                // view observes to re-scope the team-bound surfaces (paired Macs,
-                // presence, backup) to that team without dropping the live terminal.
-                if authManager.availableTeams.count > 1 {
-                    Section {
-                        Picker(selection: teamSelection) {
-                            ForEach(authManager.availableTeams) { team in
-                                Text(team.displayName).tag(team.id as String?)
-                            }
-                        } label: {
-                            EmptyView()
-                        }
-                        .pickerStyle(.inline)
-                        .accessibilityIdentifier("MobileSettingsTeamPicker")
-                    } header: {
-                        Label(
-                            L10n.string("mobile.settings.team", defaultValue: "Team"),
-                            systemImage: "person.2"
-                        )
-                    } footer: {
-                        Text(L10n.string(
-                            "mobile.settings.teamFooter",
-                            defaultValue: "Switches which Stack team's computers and devices this app shows."
-                        ))
-                    }
-                }
-
-                // Hidden entirely when there is nothing to show (no connected
-                // Mac, no store to switch with, no rescan), so the no-devices
-                // screen's reuse of this sheet does not render an empty header.
-                if hasConnectionSection {
-                    Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                        if !connectedHostName.isEmpty {
-                            LabeledContent(
-                                L10n.string("mobile.settings.mac", defaultValue: "Computer"),
-                                value: connectedHostName
-                            )
-                        }
-                        if store != nil {
-                            Button {
-                                showingHostPicker = true
-                            } label: {
-                                Label(
-                                    L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"),
-                                    systemImage: "macbook.and.iphone"
-                                )
-                            }
-                            .accessibilityIdentifier("MobileSettingsSwitchMac")
-                        }
-                        if let rescanQR {
-                            Button {
-                                rescanQR()
-                                dismiss()
-                            } label: {
-                                Label(
-                                    L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
-                                    systemImage: "qrcode.viewfinder"
-                                )
-                            }
-                            .accessibilityIdentifier("MobileSettingsRescanQR")
-                        }
-                    }
-                    Button {
-                        showingSetupHelp = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set Up Computer"),
-                            systemImage: "macbook.and.iphone"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsSetUpYourMac")
-                    Button {
-                        showingOnboarding = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.howPairingWorks", defaultValue: "How Pairing Works"),
-                            systemImage: "questionmark.circle"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsHowPairingWorks")
-                }
-
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
-                    Button {
-                        showingShortcuts = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
-                            systemImage: "keyboard"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
-                }
+                accountSection
+                teamSection
+                connectionSection
+                settingsPagesSection
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
@@ -179,6 +44,7 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsAgentChatDemo")
+
                     Button {
                         showingTerminalDemo = true
                     } label: {
@@ -218,60 +84,31 @@ struct MobileSettingsView: View {
                     )
                 }
                 #endif
-
-                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
-                    Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
-                        Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsWrapTitles")
-
-                    Picker(selection: $displaySettings.workspacePreviewLineCount) {
-                        Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
-                            .tag(1)
-                        Text(L10n.string("mobile.settings.previewLines.two", defaultValue: "2 Lines"))
-                            .tag(2)
-                    } label: {
-                        Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsPreviewLines")
-                }
-
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
-                    Button {
-                        Task {
-                            if notificationsEnabled {
-                                await pushCoordinator.disable()
-                                notificationsEnabled = false
-                            } else {
-                                notificationsEnabled = await pushCoordinator.enable()
-                            }
-                        }
-                    } label: {
-                        Label(
-                            notificationsEnabled
-                                ? L10n.string("mobile.notifications.disable", defaultValue: "Turn Off Agent Notifications")
-                                : L10n.string("mobile.notifications.enable", defaultValue: "Notify Me About Agents"),
-                            systemImage: notificationsEnabled ? "bell.slash" : "bell"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsNotifications")
-                }
-
-                Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
-                    LabeledContent {
-                        Text(AppVersionInfo.current().displayString)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.version", defaultValue: "Version"),
-                            systemImage: "info.circle"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsVersionRow")
+            }
+            .navigationDestination(for: MobileSettingsRoute.self) { route in
+                switch route {
+                case .terminal:
+                    MobileTerminalSettingsPage()
+                case .browser:
+                    MobileBrowserSettingsPage()
+                case .voice:
+                    MobileVoiceSettingsPage(
+                        canOpenVoiceMode: store?.supportsVoiceMode == true && !connectedHostName.isEmpty,
+                        openVoiceMode: { showingVoiceMode = true }
+                    )
+                case .notifications:
+                    MobileNotificationsSettingsPage()
+                case .about:
+                    MobileAboutSettingsPage()
+                case .privacy:
+                    MobilePrivacySettingsPage()
+                case .troubleshooting:
+                    MobileTroubleshootingSettingsPage(
+                        rescanQR: rescanQR,
+                        dismissSettings: { dismiss() }
+                    )
                 }
             }
-            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -281,9 +118,6 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsDone")
                 }
-            }
-            .sheet(isPresented: $showingShortcuts) {
-                TerminalShortcutsSettingsView()
             }
             #if DEBUG
             .fullScreenCover(isPresented: $showingChatDemo) {
@@ -298,33 +132,173 @@ struct MobileSettingsView: View {
                     MobileHostPickerView(store: store)
                 }
             }
-            .sheet(isPresented: $showingOnboarding) {
-                // Re-entry from Settings: walk the explainer again. `onComplete`
-                // only dismisses; it never touches the persisted seen flag. No
-                // current blocker is highlighted, since reaching Settings means the
-                // user got past every setup gate.
-                OnboardingFlowView(
-                    onComplete: { showingOnboarding = false },
-                    setupHelpHighlight: setupHelpHighlight
-                )
-            }
-            .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings is reached only from
-                // the connected workspace list, so there is no current blocker to
-                // mark "You are here".
-                SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
+            .fullScreenCover(isPresented: $showingVoiceMode) {
+                if let store {
+                    VoiceModeView(store: store, connectedHostName: connectedHostName)
+                }
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
     }
 
-    /// Which setup gate to mark as the user's current blocker. Settings is reached
-    /// only from the connected workspace list, so the user has cleared every gate
-    /// and there is no "You are here" step; the help is a plain reference. `nil`
-    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
-    private var setupHelpHighlight: MobileSetupGuidanceState? {
-        nil
+    @ViewBuilder
+    private var accountSection: some View {
+        Section {
+            LabeledContent {
+                Text(accountEmail)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            } label: {
+                Label(accountDisplayName, systemImage: "person.crop.circle")
+            }
+            .accessibilityIdentifier("MobileSettingsAccountRow")
+
+            if let signOut {
+                Button(role: .destructive) {
+                    signOut()
+                    dismiss()
+                } label: {
+                    Label(
+                        L10n.string("mobile.signOut", defaultValue: "Sign Out"),
+                        systemImage: "rectangle.portrait.and.arrow.right"
+                    )
+                }
+                .accessibilityIdentifier("MobileSettingsSignOut")
+            }
+        } header: {
+            Text(L10n.string("mobile.settings.account", defaultValue: "Account"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.settings.accountFooter",
+                defaultValue: "This device must be signed in to the same cmux account as the computer you pair with."
+            ))
+        }
+    }
+
+    @ViewBuilder
+    private var teamSection: some View {
+        if authManager.availableTeams.count > 1 {
+            Section {
+                Picker(selection: teamSelection) {
+                    ForEach(authManager.availableTeams) { team in
+                        Text(team.displayName).tag(team.id as String?)
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.inline)
+                .accessibilityIdentifier("MobileSettingsTeamPicker")
+            } header: {
+                Label(
+                    L10n.string("mobile.settings.team", defaultValue: "Team"),
+                    systemImage: "person.2"
+                )
+            } footer: {
+                Text(L10n.string(
+                    "mobile.settings.teamFooter",
+                    defaultValue: "Switches which Stack team's computers and devices this app shows."
+                ))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var connectionSection: some View {
+        if hasConnectionSection {
+            Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
+                if !connectedHostName.isEmpty {
+                    LabeledContent(
+                        L10n.string("mobile.settings.mac", defaultValue: "Computer"),
+                        value: connectedHostName
+                    )
+                    .accessibilityIdentifier("MobileSettingsComputerRow")
+                }
+
+                if store != nil {
+                    Button {
+                        showingHostPicker = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.switchMac", defaultValue: "Switch Computer"),
+                            systemImage: "macbook.and.iphone"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsSwitchMac")
+                }
+
+                if let rescanQR {
+                    Button {
+                        rescanQR()
+                        dismiss()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.workspaces.rescan", defaultValue: "Rescan QR"),
+                            systemImage: "qrcode.viewfinder"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsRescanQR")
+                }
+            }
+        }
+    }
+
+    private var settingsPagesSection: some View {
+        Section {
+            settingsPageLink(
+                .terminal,
+                title: L10n.string("mobile.settings.terminal", defaultValue: "Terminal"),
+                systemImage: "terminal",
+                identifier: "MobileSettingsTerminalRow"
+            )
+            settingsPageLink(
+                .browser,
+                title: L10n.string("mobile.settings.browser", defaultValue: "Browser"),
+                systemImage: "globe",
+                identifier: "MobileSettingsBrowserRow"
+            )
+            settingsPageLink(
+                .voice,
+                title: L10n.string("mobile.settings.voice", defaultValue: "Voice"),
+                systemImage: "mic",
+                identifier: "MobileSettingsVoiceRow"
+            )
+            settingsPageLink(
+                .notifications,
+                title: L10n.string("mobile.settings.notifications", defaultValue: "Notifications"),
+                systemImage: "bell",
+                identifier: "MobileSettingsNotificationsRow"
+            )
+            settingsPageLink(
+                .about,
+                title: L10n.string("mobile.settings.about", defaultValue: "About"),
+                systemImage: "info.circle",
+                identifier: "MobileSettingsAboutRow"
+            )
+            settingsPageLink(
+                .privacy,
+                title: L10n.string("mobile.settings.privacy", defaultValue: "Privacy"),
+                systemImage: "hand.raised",
+                identifier: "MobileSettingsPrivacyRow"
+            )
+            settingsPageLink(
+                .troubleshooting,
+                title: L10n.string("mobile.settings.troubleshooting", defaultValue: "Troubleshooting"),
+                systemImage: "wrench.and.screwdriver",
+                identifier: "MobileSettingsTroubleshootingRow"
+            )
+        }
+    }
+
+    private func settingsPageLink(
+        _ route: MobileSettingsRoute,
+        title: String,
+        systemImage: String,
+        identifier: String
+    ) -> some View {
+        NavigationLink(value: route) {
+            Label(title, systemImage: systemImage)
+        }
+        .accessibilityIdentifier(identifier)
     }
 
     /// Whether the Connection section has any rows to show. When this sheet is
@@ -334,10 +308,10 @@ struct MobileSettingsView: View {
         !connectedHostName.isEmpty || store != nil || rescanQR != nil
     }
 
-    /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
+    /// Drives the team Picker. Reads the effective current team (`resolvedTeamID`,
     /// which falls back to the first team when nothing is explicitly selected) so
     /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    /// to `selectedTeamID`.
     private var teamSelection: Binding<String?> {
         Binding(
             get: { authManager.resolvedTeamID },
@@ -388,6 +362,15 @@ struct MobileSettingsView: View {
         )
     }
     #endif
+}
 
+private enum MobileSettingsRoute: Hashable {
+    case terminal
+    case browser
+    case voice
+    case notifications
+    case about
+    case privacy
+    case troubleshooting
 }
 #endif

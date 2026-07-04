@@ -1,8 +1,10 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
+import CmuxMobileBrowser
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxVoice
 import Foundation
 import SwiftUI
 import cmuxFeature
@@ -25,6 +27,9 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
+    let browserSettings: MobileBrowserSettings
+    let voiceSettings: VoiceSettingsStore
+    let parakeetModelStore: ParakeetModelStore
     /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
     /// Built with `forceSeen` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
@@ -61,6 +66,13 @@ final class AppCompositionRoot {
             analytics: analytics.emitter
         )
         self.displaySettings = MobileDisplaySettings()
+        self.browserSettings = MobileBrowserSettings()
+        self.voiceSettings = VoiceSettingsStore()
+        self.parakeetModelStore = ParakeetModelStore()
+        Self.configureComposerDictationBackend(
+            voiceSettings: voiceSettings,
+            parakeetModelStore: parakeetModelStore
+        )
         // Skip the one-time onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
         // active: those launches expect to land on sign-in / add-device / a live
@@ -77,6 +89,22 @@ final class AppCompositionRoot {
         #if DEBUG
         self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
         #endif
+    }
+
+    private static func configureComposerDictationBackend(
+        voiceSettings: VoiceSettingsStore,
+        parakeetModelStore: ParakeetModelStore
+    ) {
+        ComposerDictationController.backendFactory = {
+            switch voiceSettings.effectiveEngine(modelInstalled: parakeetModelStore.isInstalled) {
+            case .apple:
+                return AppleComposerDictationRecognitionBackend()
+            case .parakeetV3:
+                return ParakeetComposerDictationRecognitionBackend(
+                    modelDirectory: parakeetModelStore.modelDirectory
+                )
+            }
+        }
     }
 
     /// The most recent scene phase, so a `.active` transition is classified as a

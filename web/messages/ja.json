@@ -71,7 +71,8 @@
     "language": "言語",
     "assets": "アセット",
     "openSource": "オープンソース",
-    "guides": "ガイド"
+    "guides": "ガイド",
+    "support": "サポート"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -2346,5 +2347,19 @@
       "faqQ4": "Cursor CLI と一緒に使う cmux は無料ですか？",
       "faqA4": "はい。cmux は macOS 向けの無料のオープンソースです。"
     }
+  },
+  "support": {
+    "metaTitle": "サポート — cmux",
+    "metaDescription": "cmuxのヘルプ、問題報告、ドキュメントへのリンクです。",
+    "title": "サポート",
+    "intro": "cmuxについてサポートが必要な場合は、メール、GitHub Issues、またはドキュメントをご利用ください。",
+    "emailHeading": "メールサポート",
+    "emailPrefix": "アカウント、請求、非公開のサポートに関する質問は、こちらにメールしてください:",
+    "issuesHeading": "バグを報告",
+    "issuesPrefix": "再現可能なバグや機能リクエストは、こちらでIssueを作成または確認してください:",
+    "issuesLink": "GitHub Issues",
+    "docsHeading": "ドキュメントを読む",
+    "docsPrefix": "セットアップ、設定、機能ガイドは、こちらで確認できます:",
+    "docsLink": "cmuxドキュメント"
   }
 }

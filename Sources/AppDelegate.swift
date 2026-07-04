@@ -794,6 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+    private var mobileFocusObservers: [ObjectIdentifier: MobileFocusObserver] = [:]
     private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
@@ -4608,13 +4609,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if mobileWorkspaceListObservers[id] == nil {
             mobileWorkspaceListObservers[id] = MobileWorkspaceListObserver(tabManager: tabManager, notificationStore: notificationStore)
         }
+        if mobileFocusObservers[id] == nil {
+            mobileFocusObservers[id] = MobileFocusObserver(tabManager: tabManager)
+        }
     }
 
     private func removeMobileWorkspaceListObserverIfUnused(for tabManager: TabManager) {
         guard !mainWindowContexts.values.contains(where: { $0.tabManager === tabManager }) else {
             return
         }
-        mobileWorkspaceListObservers.removeValue(forKey: ObjectIdentifier(tabManager))
+        let id = ObjectIdentifier(tabManager)
+        mobileWorkspaceListObservers.removeValue(forKey: id)
+        mobileFocusObservers.removeValue(forKey: id)
     }
 
     /// Register a terminal window with the AppDelegate so menu commands and socket control

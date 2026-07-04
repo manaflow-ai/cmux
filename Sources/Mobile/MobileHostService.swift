@@ -1400,6 +1400,8 @@ final class MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
+        case "mobile.focus.get", "mobile.voice.input":
+            return scopedTicketError
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return nil
         case "mobile.host.status":

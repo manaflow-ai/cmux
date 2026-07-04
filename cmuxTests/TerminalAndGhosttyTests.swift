@@ -1375,6 +1375,91 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(error.code, "surface_unavailable")
     }
 
+    func testMobileVoiceInputQueuesFocusedTerminalText() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+        let before = panel.surface.debugPendingSocketInputForTesting()
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "voice-input",
+                method: "mobile.voice.input",
+                params: [
+                    "text": "echo voice",
+                    "submit": true,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any] else {
+            XCTFail("Expected focused mobile voice input to succeed")
+            return
+        }
+        XCTAssertEqual(payload["workspace_id"] as? String, workspace.id.uuidString)
+        XCTAssertEqual(payload["surface_id"] as? String, panel.id.uuidString)
+        XCTAssertEqual(payload["queued"] as? Bool, true)
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, before.items)
+        XCTAssertGreaterThan(pending.inputTextItems, before.inputTextItems)
+        XCTAssertGreaterThan(pending.bytes, before.bytes)
+    }
+
+    func testMobileVoiceInputRejectsNonTerminalFocus() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let previousBrowserDisabled = UserDefaults.standard.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(false)
+        defer {
+            if let previousBrowserDisabled {
+                UserDefaults.standard.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browser = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: true,
+                creationPolicy: .restoration
+            )
+        )
+        XCTAssertEqual(workspace.focusedPanelId, browser.id)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "voice-input-browser",
+                method: "mobile.voice.input",
+                params: ["text": "hello"],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected browser-focused mobile voice input to fail")
+            return
+        }
+        XCTAssertEqual(error.code, "no_focused_terminal")
+    }
+
     func testMobileHostNetworkStatusDoesNotExposePrivateMetadata() async throws {
         let response = await TerminalController.shared.mobileHostHandleRPC(
             MobileHostRPCRequest(

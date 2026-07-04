@@ -77,6 +77,9 @@
       <FileRef
          location = "group:CmuxMobileWorkspace">
       </FileRef>
+      <FileRef
+         location = "group:CmuxVoice">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/macOS"

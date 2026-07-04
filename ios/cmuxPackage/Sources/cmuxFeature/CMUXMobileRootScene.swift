@@ -2,10 +2,12 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
+import CmuxMobileBrowser
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxVoice
 @_exported import CmuxMobileShellUI
 import CmuxMobileTransport
 import Foundation
@@ -37,6 +39,9 @@ public struct CMUXMobileRootScene: View {
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
+    private let browserSettings: MobileBrowserSettings
+    private let voiceSettings: VoiceSettingsStore
+    private let parakeetModelStore: ParakeetModelStore
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -73,6 +78,9 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - browserSettings: The app-root browser settings.
+    ///   - voiceSettings: The app-root voice settings.
+    ///   - parakeetModelStore: The app-root Parakeet model store.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -86,6 +94,9 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        browserSettings: MobileBrowserSettings,
+        voiceSettings: VoiceSettingsStore,
+        parakeetModelStore: ParakeetModelStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
@@ -96,6 +107,9 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.browserSettings = browserSettings
+        self.voiceSettings = voiceSettings
+        self.parakeetModelStore = parakeetModelStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
@@ -234,6 +248,9 @@ public struct CMUXMobileRootScene: View {
             #if os(iOS)
             .environment(pushCoordinator)
             .environment(displaySettings)
+            .environment(browserSettings)
+            .environment(voiceSettings)
+            .environment(parakeetModelStore)
             #endif
     }
 

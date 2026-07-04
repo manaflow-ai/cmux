@@ -85,6 +85,7 @@ struct WorkspaceListView: View {
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false
+    @State private var showingVoiceMode = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
     @State var filter: MobileWorkspaceListFilter = .all
@@ -315,6 +316,11 @@ struct WorkspaceListView: View {
                 )
             }
         }
+        .fullScreenCover(isPresented: $showingVoiceMode) {
+            if let store {
+                VoiceModeView(store: store, connectedHostName: host)
+            }
+        }
         #endif
     }
 
@@ -456,6 +462,20 @@ struct WorkspaceListView: View {
         }
         .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+    }
+
+    var voiceModeButton: some View {
+        Button {
+            showingVoiceMode = true
+        } label: {
+            Image(systemName: "mic")
+        }
+        .accessibilityLabel(L10n.string("mobile.voiceMode.title", defaultValue: "Voice Mode"))
+        .accessibilityIdentifier("MobileWorkspaceVoiceModeButton")
+    }
+
+    var showsVoiceModeButton: Bool {
+        store?.supportsVoiceMode == true
     }
     #endif
 

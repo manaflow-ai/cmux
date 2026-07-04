@@ -649,11 +649,16 @@ class TerminalController {
 
     /// Update which window's TabManager receives socket commands.
     /// This is used when the user switches between multiple terminal windows.
+    static let activeTabManagerDidChangeNotification = Notification.Name("cmux.activeTabManagerDidChange")
+
     func setActiveTabManager(_ tabManager: TabManager?) {
+        let previous = self.tabManager
         if let tabManager {
             AppDelegate.shared?.ensureMobileWorkspaceListObserver(for: tabManager)
         }
         self.tabManager = tabManager
+        guard previous !== tabManager else { return }
+        NotificationCenter.default.post(name: Self.activeTabManagerDidChangeNotification, object: tabManager)
     }
 
     func activeTabManagerForCallerNotification() -> TabManager? { tabManager }
@@ -13192,6 +13197,10 @@ class TerminalController {
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
+        case "mobile.focus.get":
+            result = v2MobileFocusGet(params: request.params)
+        case "mobile.voice.input":
+            result = v2MobileVoiceInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
             result = v2MobileTerminalPaste(params: request.params)
         case "mobile.terminal.paste_image", "terminal.paste_image":
