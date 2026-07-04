@@ -237,6 +237,11 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            // Per-workspace avatar override for the phone's Workspaces list (a
+            // bundled agent-logo id "logo:<id>", an SF Symbol name, or an emoji).
+            // null when unset; the phone then falls back to the machine icon.
+            // Additive: older iOS clients ignore the unknown key.
+            "avatar": v2OrNull(mobileNonEmpty(workspace.avatar)),
             "terminals": terminals
         ]
     }

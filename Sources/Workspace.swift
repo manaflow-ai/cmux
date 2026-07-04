@@ -123,6 +123,7 @@ extension Workspace {
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
             customColor: customColor,
+            avatar: avatar,
             isPinned: isPinned,
             groupId: groupId,
             isManuallyUnread: isWorkspaceManuallyUnread,
@@ -213,6 +214,7 @@ extension Workspace {
         setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
+        setAvatar(snapshot.avatar)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
 
@@ -2258,6 +2260,13 @@ final class Workspace: Identifiable, ObservableObject {
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// Per-workspace avatar override shown on the mobile Workspaces list. An
+    /// opaque string: a bundled agent-logo id encoded as `"logo:<id>"` (see
+    /// `WorkspaceAvatarCatalog`), an SF Symbol name, or an emoji. `nil` = no
+    /// override (mobile falls back to the owning Mac's icon, then a default
+    /// symbol). Synced to iOS via `mobileWorkspacePayload` and persisted in the
+    /// session snapshot. Not rendered in the macOS sidebar today.
+    @Published var avatar: String?
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -4513,6 +4522,16 @@ final class Workspace: Identifiable, ObservableObject {
             customColor = WorkspaceTabColorSettings.normalizedHex(hex)
         } else {
             customColor = nil
+        }
+    }
+
+    /// Set (or clear with `nil`) the per-workspace avatar override. Empty strings
+    /// are normalized to `nil` so clearing never persists a blank value.
+    func setAvatar(_ value: String?) {
+        if let value, !value.isEmpty {
+            avatar = value
+        } else {
+            avatar = nil
         }
     }
 

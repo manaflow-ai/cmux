@@ -1830,6 +1830,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
     var customColor: String?
+    /// Per-workspace avatar override for the mobile Workspaces list (a bundled
+    /// logo id `"logo:<id>"`, an SF Symbol name, or an emoji). Optional with a
+    /// `nil` default so manifests written before this field decode cleanly.
+    var avatar: String? = nil
     var isPinned: Bool
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
