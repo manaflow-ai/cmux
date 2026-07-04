@@ -3858,7 +3858,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let remapped = previousSelection.flatMap { previous in
                 derived.first {
                     $0.rpcWorkspaceID == previous.rpcWorkspaceID
-                        && $0.macDeviceID == previous.macDeviceID
+                        && ($0.macDeviceID == previous.macDeviceID
+                            || (previous.macDeviceID == nil && $0.macDeviceID == foregroundMacDeviceID))
                 }
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
@@ -4038,8 +4039,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 copy.macDeviceID = macDeviceID
                 return copy
             }
-            // Don't clobber a (somehow) pre-existing real-id entry; merge by keeping
-            // the live foreground rows.
+            // If a real-id entry somehow exists, keep the live foreground rows.
             updatedStates[macDeviceID] = state
             workspacesByMac = updatedStates
         }

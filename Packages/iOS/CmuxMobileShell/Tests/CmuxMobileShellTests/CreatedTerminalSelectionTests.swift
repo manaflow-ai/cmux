@@ -173,6 +173,7 @@ import Testing
         let foregroundKey = MobileShellComposite.foregroundAnonymousKey
         let macID = "mac-main"
         let otherMacID = "mac-other"
+        let firstWorkspaceID = MobileWorkspacePreview.ID(rawValue: "first-workspace")
         let remoteWorkspaceID = MobileWorkspacePreview.ID(rawValue: "shared-workspace")
         let fallback = MobileTerminalPreview.ID(rawValue: "terminal-build")
 
@@ -180,6 +181,13 @@ import Testing
             foregroundKey: MacWorkspaceState(
                 macDeviceID: foregroundKey,
                 workspaces: [
+                    MobileWorkspacePreview(
+                        id: firstWorkspaceID,
+                        name: "First",
+                        terminals: [
+                            MobileTerminalPreview(id: "terminal-first", name: "First", isReady: true),
+                        ]
+                    ),
                     MobileWorkspacePreview(
                         id: remoteWorkspaceID,
                         name: "Main",
@@ -201,6 +209,13 @@ import Testing
             foregroundKey: MacWorkspaceState(
                 macDeviceID: foregroundKey,
                 workspaces: [
+                    MobileWorkspacePreview(
+                        id: firstWorkspaceID,
+                        name: "First",
+                        terminals: [
+                            MobileTerminalPreview(id: "terminal-first", name: "First", isReady: true),
+                        ]
+                    ),
                     MobileWorkspacePreview(
                         id: remoteWorkspaceID,
                         name: "Main",
