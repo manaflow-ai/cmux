@@ -1890,7 +1890,7 @@ nonisolated struct SurfaceResumeBindingIndex: Sendable {
 }
 
 struct ProcessDetectedResumeIndexes: Sendable {
-    let restorableAgentIndex: RestorableAgentSessionIndex
+    let restorableAgentIndex: RestorableAgentSnapshotIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
 
     static func load(
@@ -1915,19 +1915,18 @@ struct ProcessDetectedResumeIndexes: Sendable {
             processSnapshot: processSnapshot,
             capturedAt: capturedAt
         )
-        let restorableAgentIndex = RestorableAgentSessionIndex.load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots
-        )
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
             processSnapshot: processSnapshot,
             capturedAt: capturedAt
         )
         return ProcessDetectedResumeIndexes(
-            restorableAgentIndex: restorableAgentIndex,
+            restorableAgentIndex: RestorableAgentSnapshotIndex.freshlyLoaded(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                registry: registry,
+                detectedSnapshots: detectedSnapshots
+            ),
             surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
         )
     }

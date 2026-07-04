@@ -145,7 +145,7 @@ struct AgentSessionAutoResumeSwiftTests {
             let sessionId = "codex-live-idle-autoresume-session"
             let cwd = "/tmp/cmux-live-idle-repo"
             let livePID = 58_020
-            let index = try makeLiveCodexRestorableAgentIndex(
+            let indexes = try makeLiveCodexRestorableAgentIndexes(
                 workspaceId: source.id,
                 panelId: sourcePanelId,
                 sessionId: sessionId,
@@ -167,23 +167,22 @@ struct AgentSessionAutoResumeSwiftTests {
 
             source.updatePanelShellActivityState(panelId: sourcePanelId, state: .promptIdle)
 
-            // Stale-liveness guard: close/undo-history paths pass the default
-            // (restorableAgentLivenessIsFresh == false), so a prompt-idle agent must NOT
-            // be persisted as running off a possibly-stale cached PID set — otherwise
-            // undo could resurrect an agent the user already exited.
+            // Stale-liveness guard: close/undo-history paths use a stale snapshot-index,
+            // so a prompt-idle agent must NOT be persisted as running off a
+            // possibly-stale cached PID set; otherwise undo could resurrect an agent the
+            // user already exited.
             let staleSnapshot = source.sessionSnapshot(
                 includeScrollback: false,
-                restorableAgentIndex: index,
+                restorableAgentIndex: indexes.stale,
                 surfaceResumeBindingIndex: bindingIndex
             )
             #expect(staleSnapshot.panels.first?.terminal?.wasAgentRunning != true)
 
-            // Quit/save path loads liveness freshly, so the live idle agent IS persisted
-            // as running and auto-resumes on restore.
+            // Quit/save path uses a freshly loaded snapshot-index, so the live idle
+            // agent IS persisted as running and auto-resumes on restore.
             let snapshot = source.sessionSnapshot(
                 includeScrollback: false,
-                restorableAgentIndex: index,
-                restorableAgentLivenessIsFresh: true,
+                restorableAgentIndex: indexes.fresh,
                 surfaceResumeBindingIndex: bindingIndex
             )
             let terminalSnapshot = try #require(snapshot.panels.first?.terminal)
@@ -1425,13 +1424,13 @@ struct AgentSessionAutoResumeSwiftTests {
         try data.write(to: stateDir.appendingPathComponent("claude-hook-sessions.json"))
     }
 
-    private func makeLiveCodexRestorableAgentIndex(
+    private func makeLiveCodexRestorableAgentIndexes(
         workspaceId: UUID,
         panelId: UUID,
         sessionId: String,
         cwd: String,
         pid: Int
-    ) throws -> RestorableAgentSessionIndex {
+    ) throws -> (stale: RestorableAgentSnapshotIndex, fresh: RestorableAgentSnapshotIndex) {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-live-codex-index-\(UUID().uuidString)", isDirectory: true)
         // Isolate from an ambient CMUX_AGENT_HOOK_STATE_DIR: both hookStoreFileURL(...) and
@@ -1475,23 +1474,36 @@ struct AgentSessionAutoResumeSwiftTests {
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: storeURL, options: .atomic)
 
-        return RestorableAgentSessionIndex.load(
+        let registry = CmuxVaultAgentRegistry(registrations: [])
+        let processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = { requestedPID in
+            requestedPID == pid
+                ? CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/codex"],
+                    environment: [
+                        "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                        "CMUX_SURFACE_ID": panelId.uuidString,
+                        "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.codex.rawValue,
+                    ]
+                )
+                : nil
+        }
+        let staleIndex = RestorableAgentSessionIndex.load(
             homeDirectory: home.path,
             fileManager: .default,
-            registry: CmuxVaultAgentRegistry(registrations: []),
+            registry: registry,
             detectedSnapshots: [:],
-            processArgumentsProvider: { requestedPID in
-                requestedPID == pid
-                    ? CmuxTopProcessArguments(
-                        arguments: ["/usr/local/bin/codex"],
-                        environment: [
-                            "CMUX_WORKSPACE_ID": workspaceId.uuidString,
-                            "CMUX_SURFACE_ID": panelId.uuidString,
-                            "CMUX_AGENT_LAUNCH_KIND": RestorableAgentKind.codex.rawValue,
-                        ]
-                    )
-                    : nil
-            }
+            processArgumentsProvider: processArgumentsProvider
+        )
+        let freshIndex = RestorableAgentSnapshotIndex.freshlyLoaded(
+            homeDirectory: home.path,
+            fileManager: .default,
+            registry: registry,
+            detectedSnapshots: [:],
+            processArgumentsProvider: processArgumentsProvider
+        )
+        return (
+            stale: RestorableAgentSnapshotIndex(stale: staleIndex),
+            fresh: freshIndex
         )
     }
 

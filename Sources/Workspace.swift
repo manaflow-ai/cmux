@@ -51,8 +51,7 @@ private struct SessionPaneRestoreEntry {
 extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        restorableAgentLivenessIsFresh: Bool = false,
+        restorableAgentIndex: RestorableAgentSnapshotIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
@@ -72,21 +71,10 @@ extension Workspace {
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
-                let indexedRestorableAgent = restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
                 return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: indexedRestorableAgent,
-                    // Only trust the index's live-PID set when the caller loaded it
-                    // freshly (the quit/save path runs sysctl per session at save time).
-                    // Close/undo-history callers pass the stale-tolerant
-                    // SharedLiveAgentIndex cache, whose documented contract is
-                    // session-identity-only; trusting its live-PID set there could
-                    // resurrect an agent the user just exited, within the cache's
-                    // refresh window. Default-false keeps every non-fresh path safe.
-                    restorableAgentHasLiveProcess: restorableAgentLivenessIsFresh
-                        ? (restorableAgentIndex?.hasLiveProcess(workspaceId: id, panelId: panelId) ?? false)
-                        : false,
+                    restorableAgentIndex: restorableAgentIndex,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -370,11 +358,15 @@ extension Workspace {
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
-        restorableAgent: SessionRestorableAgentSnapshot?,
-        restorableAgentHasLiveProcess: Bool = false,
+        restorableAgentIndex: RestorableAgentSnapshotIndex,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
+        let restorableAgent = restorableAgentIndex.snapshot(workspaceId: id, panelId: panelId)
+        let restorableAgentHasTrustedLiveProcess = restorableAgentIndex.hasTrustedLiveProcess(
+            workspaceId: id,
+            panelId: panelId
+        )
 
         let compatibleIndexedRestorableAgent = restorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
@@ -480,7 +472,7 @@ extension Workspace {
                 guard effectiveRestorableAgent != nil else { return nil }
                 // A live idle agent reports an idle shell prompt; trust the hook
                 // index's scoped live-process evidence before the prompt state.
-                if restorableAgentHasLiveProcess {
+                if restorableAgentHasTrustedLiveProcess {
                     return true
                 }
                 switch panelShellActivityStates[panelId] {
@@ -707,18 +699,14 @@ extension Workspace {
         // is acceptable here because restore prefers the always-fresh in-memory
         // resumeBinding and only consults this agent snapshot when no binding exists, so
         // cmux-launched agents reopen correctly regardless of cache freshness.
-        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-            ?? RestorableAgentSessionIndex.load()
-        let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
+        let agentIndex = RestorableAgentSnapshotIndex(stale:
+            SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? RestorableAgentSessionIndex.load()
+        )
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            restorableAgent: restorableAgent,
-            // `agentIndex` above is the stale-tolerant SharedLiveAgentIndex cache, whose
-            // contract is session-identity-only. Its live-PID set is not authoritative
-            // here, so do not let it override an observed prompt-idle state (which would
-            // resurrect an exited agent on close/undo within the cache refresh window).
-            restorableAgentHasLiveProcess: false,
+            restorableAgentIndex: agentIndex,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
