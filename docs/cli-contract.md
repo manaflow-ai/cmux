@@ -507,6 +507,9 @@ the expected text without connecting to a cmux socket.
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
 - `cmux ssh --help` -> `--forward-agent`
+- `cmux ssh list --help` -> `Usage: cmux ssh list`
+- `cmux ssh list --help` -> `LocalForward`
+- `cmux ssh --name list --help` -> `Usage: cmux ssh <destination>`
 - `cmux ssh-session-list --help` -> `Usage: cmux ssh-session-list`
 - `cmux ssh-session-attach --help` -> `Usage: cmux ssh-session-attach --session-id <id>`
 - `cmux ssh-session-cleanup --help` -> `Usage: cmux ssh-session-cleanup`

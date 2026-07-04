@@ -3177,6 +3177,14 @@ struct CMUXCLI {
         let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
         if command != "__tmux-compat",
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
+            // `cmux ssh list --help` documents the local listing subcommand,
+            // not the connect-to-host `ssh` topic.
+            if command == "ssh", sshCommandIsListing(commandArgs) {
+                print("cmux ssh list")
+                print("")
+                print(Self.sshListUsage)
+                return
+            }
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
@@ -3229,6 +3237,13 @@ struct CMUXCLI {
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
             )
+            return
+        }
+
+        // `ssh list` only reads the local ssh_config; it must work with no cmux
+        // running, so handle it before socket resolution.
+        if command == "ssh", sshCommandIsListing(commandArgs) {
+            try runSSHListCommand(commandArgs: commandArgs, jsonOutput: jsonOutput)
             return
         }
 
