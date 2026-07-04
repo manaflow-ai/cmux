@@ -46,7 +46,12 @@ final class GmailOAuthCoordinator {
         let state = Self.randomURLSafeString(length: 32)
         let challenge = GmailOAuthCredential.codeChallenge(for: verifier)
 
-        let listener = try NWListener(using: .tcp, on: .any)
+        // Loopback interface only (RFC 8252 section 7.3): binding to all
+        // interfaces would let LAN peers probe the port and abort the flow
+        // with a bad-state request while sign-in is pending.
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
+        let listener = try NWListener(using: parameters)
         self.listener = listener
         let code = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, any Error>) in
             var finished = false
@@ -56,6 +61,12 @@ final class GmailOAuthCoordinator {
                     finished = true
                     continuation.resume(with: result)
                 }
+            }
+            // Abandoned consent (browser tab closed, user walks away) must not
+            // leak the listener and the awaiting task until app exit.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(Self.signInTimeout * 1_000_000_000))
+                finish(.failure(OAuthError.cancelled))
             }
             listener.newConnectionHandler = { [weak self] connection in
                 Task { @MainActor in self?.activeConnections.append(connection) }
@@ -125,6 +136,10 @@ final class GmailOAuthCoordinator {
         )
         return String(data: try credential.encoded(), encoding: .utf8) ?? ""
     }
+
+    /// Upper bound for the whole consent round trip before the flow is
+    /// abandoned and the loopback listener torn down.
+    private static let signInTimeout: TimeInterval = 300
 
     private var pendingRedirectURI: String?
 
