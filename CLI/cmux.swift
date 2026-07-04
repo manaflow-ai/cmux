@@ -19390,6 +19390,8 @@ struct CMUXCLI {
 
     private static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
+    private static let codexTeamsMaxPendingThreadSubscriptionRetryRounds = 3
+    private static let codexTeamsMaxExhaustedThreadSubscriptionRetryIds = 500
     private static let codexTeamsMaxCachedApprovalItems = 500
     static let codexTeamsApprovalMethods: Set<String> = [
         "item/commandExecution/requestApproval",
@@ -19556,7 +19558,15 @@ struct CMUXCLI {
                 if CodexTeamsAppServerConnection.message(message, hasId: requestId) {
                     if let error = message["error"] as? [String: Any] {
                         let message = (error["message"] as? String) ?? "Codex app-server request failed"
-                        throw CLIError(message: message)
+                        let code: Int?
+                        if let intCode = error["code"] as? Int {
+                            code = intCode
+                        } else if let numberCode = error["code"] as? NSNumber {
+                            code = numberCode.intValue
+                        } else {
+                            code = nil
+                        }
+                        throw CodexTeamsAppServerRequestError(code: code, message: message)
                     }
                     if let result = message["result"] as? [String: Any] {
                         return result
@@ -19577,7 +19587,7 @@ struct CMUXCLI {
             if let timeout,
                semaphore.wait(timeout: .now() + timeout) == .timedOut {
                 task.cancel(with: .goingAway, reason: nil)
-                throw CLIError(message: "Timed out waiting for Codex app-server response")
+                throw CodexTeamsAppServerReceiveTimeoutError()
             }
             if timeout == nil {
                 semaphore.wait()
@@ -19677,13 +19687,21 @@ struct CMUXCLI {
         private var readinessProbeThreadIds = Set<String>()
         private var attachableThreadIds = Set<String>()
         private let readinessLock = NSLock()
+        // Synchronous websocket callbacks need immediate short critical sections without actor hops.
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
+        private var subscribingThreadIds = Set<String>()
         private var subscribedThreadIds = Set<String>()
+        private var pendingThreadSubscriptionRetryBudget = CodexTeamsThreadSubscriptionRetryBudget(
+            maxPendingRounds: CMUXCLI.codexTeamsMaxPendingThreadSubscriptionRetryRounds,
+            retryInterval: CMUXCLI.codexTeamsReconcileInterval,
+            maxExhaustedThreadIds: CMUXCLI.codexTeamsMaxExhaustedThreadSubscriptionRetryIds
+        )
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
         private var suppressedApprovalOrder: [String] = []
+        private let threadSubscriptionRetry = CodexTeamsThreadSubscriptionRetry(retryLimit: 3)
 
         init(
             appServerURL: String,
@@ -19718,7 +19736,8 @@ struct CMUXCLI {
                     try connection.initialize(
                         clientName: CMUXCLI.codexTeamsWatcherClientName,
                         version: CMUXCLI.codexTeamsClientVersion,
-                        optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods
+                        optOutNotificationMethods: CMUXCLI.codexTeamsWatcherResumeOptOutNotificationMethods,
+                        responseTimeout: 10
                     )
                     resetConnectionSubscriptions()
                     try backfillLoadedThreads(connection: connection)
@@ -19740,21 +19759,49 @@ struct CMUXCLI {
                         connection: connection,
                         allowThreadSubscribe: false
                     )
-                }
+                },
+                responseTimeout: 10
             )
-            let threadIds = loaded["data"] as? [String] ?? []
+            var threadIds = loaded["data"] as? [String] ?? []
+            for pendingThreadId in pendingThreadSubscriptionRetryIdSnapshot()
+                where !threadIds.contains(pendingThreadId) {
+                threadIds.append(pendingThreadId)
+            }
+            let pendingRetryThreadIds = Set(pendingThreadSubscriptionRetryIdSnapshot())
             for threadId in threadIds {
+                if pendingRetryThreadIds.contains(threadId) {
+                    beginPendingThreadSubscriptionRetry(threadId)
+                }
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
+                    clearPendingThreadSubscriptionRetry(threadId)
                 } catch {
-                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    if isTransientThreadResumeError(error) {
+                        if markPendingThreadSubscriptionRetry(threadId) {
+                            cliWriteStderr("cmux codex-teams watcher will retry thread \(threadId): rollout not ready\n")
+                        } else {
+                            cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): rollout not ready after retries\n")
+                        }
+                    } else {
+                        clearPendingThreadSubscriptionRetry(threadId)
+                        cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    }
                 }
             }
         }
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
             while true {
-                let message = try connection.receiveObject()
+                let retryTimeout = pendingThreadSubscriptionRetryTimeout()
+                if let retryTimeout, retryTimeout <= 0 {
+                    throw CLIError(message: "Codex Teams rollout retry pending; reconnecting")
+                }
+                let message: [String: Any]
+                do {
+                    message = try connection.receiveObject(timeout: retryTimeout)
+                } catch let error where retryTimeout != nil && error is CodexTeamsAppServerReceiveTimeoutError {
+                    throw CLIError(message: "Codex Teams rollout retry pending; reconnecting")
+                }
                 try handleAppServerMessage(message, connection: connection)
             }
         }
@@ -19778,11 +19825,21 @@ struct CMUXCLI {
                 return
             }
             try observeThreadSafely(thread)
-            if allowThreadSubscribe {
+            if allowThreadSubscribe && !isDeferredThreadSubscriptionRetry(thread.id) {
                 do {
                     try subscribeToThreadIfNeeded(thread.id, connection: connection)
+                    clearPendingThreadSubscriptionRetry(thread.id)
                 } catch {
-                    cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
+                    if isTransientThreadResumeError(error) {
+                        if markPendingThreadSubscriptionRetry(thread.id) {
+                            cliWriteStderr("cmux codex-teams watcher will retry thread \(thread.id): rollout not ready\n")
+                        } else {
+                            cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): rollout not ready after retries\n")
+                        }
+                    } else {
+                        clearPendingThreadSubscriptionRetry(thread.id)
+                        cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
+                    }
                 }
             }
         }
@@ -19791,42 +19848,115 @@ struct CMUXCLI {
             _ threadId: String,
             connection: CodexTeamsAppServerConnection
         ) throws {
-            stateLock.lock()
-            let inserted = subscribedThreadIds.insert(threadId).inserted
-            stateLock.unlock()
-            guard inserted else { return }
-
-            do {
-                let response = try connection.request(
-                    method: "thread/resume",
-                    params: [
-                        "threadId": threadId,
-                        "excludeTurns": true
-                    ],
-                    notificationHandler: { [weak self] message in
-                        try self?.handleAppServerMessage(
-                            message,
-                            connection: connection,
-                            allowThreadSubscribe: false
-                        )
+            try threadSubscriptionRetry.subscribeIfNeeded(
+                threadId: threadId,
+                claim: { [self] candidateThreadId in
+                    claimThreadSubscription(candidateThreadId)
+                },
+                finish: { [self] candidateThreadId, succeeded in
+                    finishThreadSubscription(candidateThreadId, succeeded: succeeded)
+                },
+                isTransientError: { [self] error in
+                    isTransientThreadResumeError(error)
+                },
+                resume: {
+                    try connection.request(
+                        method: "thread/resume",
+                        params: [
+                            "threadId": threadId,
+                            "excludeTurns": true
+                        ],
+                        notificationHandler: { [weak self] message in
+                            try self?.handleAppServerMessage(
+                                message,
+                                connection: connection,
+                                allowThreadSubscribe: false
+                            )
+                        },
+                        responseTimeout: 10
+                    )
+                },
+                observe: { [self] response in
+                    if let threadObject = response["thread"] as? [String: Any],
+                       let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
+                        try observeThreadSafely(thread)
                     }
-                )
-                if let threadObject = response["thread"] as? [String: Any],
-                   let thread = CMUXCLI.codexTeamsThread(from: threadObject) {
-                    try observeThreadSafely(thread)
                 }
-            } catch {
-                stateLock.lock()
-                subscribedThreadIds.remove(threadId)
-                stateLock.unlock()
-                throw error
-            }
+            )
         }
 
         private func resetConnectionSubscriptions() {
             stateLock.lock()
+            subscribingThreadIds.removeAll(keepingCapacity: true)
             subscribedThreadIds.removeAll(keepingCapacity: true)
+            pendingThreadSubscriptionRetryBudget.resetDeadline()
             stateLock.unlock()
+        }
+
+        private func claimThreadSubscription(_ threadId: String) -> Bool {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            guard !subscribedThreadIds.contains(threadId),
+                  !subscribingThreadIds.contains(threadId) else {
+                return false
+            }
+            subscribingThreadIds.insert(threadId)
+            return true
+        }
+
+        private func finishThreadSubscription(_ threadId: String, succeeded: Bool) {
+            stateLock.lock()
+            subscribingThreadIds.remove(threadId)
+            if succeeded {
+                subscribedThreadIds.insert(threadId)
+            }
+            stateLock.unlock()
+        }
+
+        private func markPendingThreadSubscriptionRetry(_ threadId: String) -> Bool {
+            stateLock.lock()
+            let shouldRetry = pendingThreadSubscriptionRetryBudget.markPending(threadId)
+            stateLock.unlock()
+            return shouldRetry
+        }
+
+        private func beginPendingThreadSubscriptionRetry(_ threadId: String) {
+            stateLock.lock()
+            pendingThreadSubscriptionRetryBudget.beginRetry(threadId)
+            stateLock.unlock()
+        }
+
+        private func clearPendingThreadSubscriptionRetry(_ threadId: String) {
+            stateLock.lock()
+            pendingThreadSubscriptionRetryBudget.clear(threadId)
+            stateLock.unlock()
+        }
+
+        private func isDeferredThreadSubscriptionRetry(_ threadId: String) -> Bool {
+            stateLock.lock()
+            let isDeferred = pendingThreadSubscriptionRetryBudget.isDeferred(threadId)
+            stateLock.unlock()
+            return isDeferred
+        }
+
+        private func pendingThreadSubscriptionRetryIdSnapshot() -> [String] {
+            stateLock.lock()
+            let threadIds = pendingThreadSubscriptionRetryBudget.pendingThreadIdSnapshot()
+            stateLock.unlock()
+            return threadIds
+        }
+
+        private func pendingThreadSubscriptionRetryTimeout() -> TimeInterval? {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return pendingThreadSubscriptionRetryBudget.pendingRetryTimeout()
+        }
+
+        private func isTransientThreadResumeError(_ error: Error) -> Bool {
+            if let appServerError = error as? CodexTeamsAppServerRequestError {
+                return appServerError.isMissingRollout
+            }
+            return false
         }
 
         private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {
@@ -19919,7 +20049,7 @@ struct CMUXCLI {
                 cliWriteStderr("cmux codex-teams watcher cannot map Feed decision for \(suppressionKey); leaving it to native Codex\n")
                 return true
             }
-            try connection.respond(requestId: requestId, result: result)
+            try connection.respond(requestId: requestId, result: result, timeout: 10)
             return true
         }
 
