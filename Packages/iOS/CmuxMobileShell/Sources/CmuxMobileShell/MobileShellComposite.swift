@@ -3858,7 +3858,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let remapped = previousSelection.flatMap { previous in
                 derived.first {
                     $0.rpcWorkspaceID == previous.rpcWorkspaceID
-                        && CreatedTerminalSelection.macDeviceID($0.macDeviceID, matchesPrevious: previous.macDeviceID, foreground: foregroundMacDeviceID)
+                        && MacDeviceID($0.macDeviceID).matchesPrevious(previous.macDeviceID, foreground: foregroundMacDeviceID)
                 }
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
@@ -5839,8 +5839,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
         let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
         let requestedWorkspaceID = requestedRow?.rpcWorkspaceID ?? rowWorkspaceID
-        let requestedMacDeviceID = CreatedTerminalSelection.normalizedMacDeviceID(requestedRow?.macDeviceID)
-        let requestedNilOwnerForegroundMacDeviceID = requestedMacDeviceID == nil ? CreatedTerminalSelection.normalizedMacDeviceID(foregroundMacDeviceID) : nil
+        let requestedMacDeviceID = MacDeviceID(requestedRow?.macDeviceID)
+        let requestedNilOwnerForegroundMacDeviceID = requestedMacDeviceID.rawValue == nil ? foregroundMacDeviceID : nil
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -5858,11 +5858,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                selectedRow.id == rowWorkspaceID
                    || (requestedRow != nil
                        && selectedRow.rpcWorkspaceID == requestedWorkspaceID
-                       && CreatedTerminalSelection.macDeviceID(selectedRow.macDeviceID, matches: requestedMacDeviceID))
-                   || (requestedRow != nil && requestedMacDeviceID == nil
+                       && MacDeviceID(selectedRow.macDeviceID) == requestedMacDeviceID)
+                   || (requestedRow != nil && requestedMacDeviceID.rawValue == nil
                        && selectedRow.rpcWorkspaceID == requestedWorkspaceID
-                       && CreatedTerminalSelection.macDeviceID(
-                           selectedRow.macDeviceID, matches: requestedNilOwnerForegroundMacDeviceID ?? foregroundMacDeviceID)) {
+                       && MacDeviceID(selectedRow.macDeviceID) == MacDeviceID(requestedNilOwnerForegroundMacDeviceID ?? foregroundMacDeviceID)) {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
                 createdTerminalSelection = CreatedTerminalSelection(workspace: selectedRow, terminalID: createdTerminalID)
                 selectedTerminalID = createdTerminalID
