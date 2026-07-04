@@ -10,7 +10,7 @@
 12296	Sources/GhosttyTerminalView.swift
 11669	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
-8032	Sources/Panels/BrowserPanelView.swift
+8031	Sources/Panels/BrowserPanelView.swift
 8016	CLI/cmux_open.swift
 7743	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7405	cmuxTests/WorkspaceUnitTests.swift
@@ -112,12 +112,12 @@
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
 864	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
+862	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
 845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 841	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalOutputDeliveryQueueTests.swift
 834	Sources/MainWindowFocusController.swift
-832	cmuxUITests/BrowserOmnibarSuggestionsUITests.swift
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 822	Sources/WorkspaceContentView.swift
