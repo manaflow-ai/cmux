@@ -64,8 +64,12 @@ extension TerminalController: ControlSidebarContext {
 
     func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String, panelID: UUID?) {
         controlSidebarSchedulePanelScopedMutation(target: target, panelID: panelID) { _, tab in
+            if let panelID,
+               tab.hasAgentRuntime(forStatusKey: key, ownedByDifferentPanelThan: panelID) {
+                return
+            }
             _ = tab.statusEntries.removeValue(forKey: key)
-            tab.clearAgentPID(key: key)
+            tab.clearAgentPID(key: key, panelId: panelID)
         }
     }
 
