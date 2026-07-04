@@ -4,32 +4,59 @@ import Foundation
 import UIKit
 
 public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
+    /// Arm the Ctrl modifier for the next key.
     case control
+    /// Arm the Option/Alt modifier for the next key.
     case alternate
+    /// Arm the Command modifier for the next key.
     case command
+    /// Arm the Shift modifier for the next key.
     case shift
+    /// Decrease the terminal font size.
     case zoomOut
+    /// Increase the terminal font size.
     case zoomIn
+    /// Send ESC (0x1B).
     case escape
+    /// Send Tab (0x09).
     case tab
+    /// Send the Up-arrow escape sequence.
     case upArrow
+    /// Send the Down-arrow escape sequence.
     case downArrow
+    /// Send the Left-arrow escape sequence.
     case leftArrow
+    /// Send the Right-arrow escape sequence.
     case rightArrow
+    /// Type the `claude` launcher shortcut text.
     case claude
+    /// Type the `codex` launcher shortcut text.
     case codex
+    /// Type `~`.
     case tilde
+    /// Type `|`.
     case pipe
+    /// Type `$`.
     case dollar
+    /// Type `/`.
     case slash
+    /// Type `@`.
     case atSign
+    /// Send Ctrl-C (ETX, interrupt).
     case ctrlC
+    /// Send Ctrl-D (EOT, end of input).
     case ctrlD
+    /// Send Ctrl-Z (SUB, suspend).
     case ctrlZ
+    /// Send Ctrl-L (clear screen).
     case ctrlL
+    /// Send the Home escape sequence.
     case home
+    /// Send the End escape sequence.
     case end
+    /// Send the Page Up escape sequence.
     case pageUp
+    /// Send the Page Down escape sequence.
     case pageDown
     /// Paste the system clipboard into the terminal: an image is forwarded to
     /// the Mac as `terminal.paste_image`, plain text rides the normal input
@@ -206,6 +233,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 
+    /// The fixed byte sequence this action feeds into the terminal input
+    /// path, or nil for actions with no direct output (modifiers, zoom,
+    /// paste, composer).
     public var output: Data? {
         switch self {
         case .control, .alternate, .command, .shift, .zoomOut, .zoomIn, .paste, .composer:
