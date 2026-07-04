@@ -5587,7 +5587,7 @@ extension TabManager {
             hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)
-                hasher.combine(workspace.remoteDirectoryReportPanelIds.contains(panelId))
+                hasher.combine(workspace.remoteDirectoryReportPanelIds.contains(panelId)); hasher.combine(workspace.remoteDirectoryTrustRequiredPanelIds.contains(panelId))
                 hasher.combine(workspace.manualUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadPanelIds.contains(panelId))
                 hasher.combine(workspace.restoredUnreadIndicatorContributesToWorkspace(panelId: panelId))
