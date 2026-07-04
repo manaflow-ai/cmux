@@ -22,7 +22,7 @@ use crossterm::terminal::{
 use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
 use mux_core::{
-    layout_workspace, split_sides, MuxEvent, PaneId, Rect, SplitDir, SurfaceId, WorkspaceId,
+    layout_screen, split_sides, MuxEvent, PaneId, Rect, SplitDir, SurfaceId, WorkspaceId,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
@@ -41,13 +41,19 @@ pub enum AppEvent {
 /// menu where one exists (workspace rows, panes).
 #[derive(Debug, Clone, Copy)]
 pub enum Hit {
-    /// Sidebar or status-bar workspace entry.
+    /// Sidebar workspace entry.
     Workspace {
         index: usize,
         id: WorkspaceId,
     },
     NewWorkspace,
-    /// Tab-bar or status-bar tab entry.
+    /// Status-bar screen entry.
+    ScreenEntry {
+        index: usize,
+        id: mux_core::ScreenId,
+    },
+    NewScreen,
+    /// Pane tab-bar entry.
     Tab {
         pane: PaneId,
         index: usize,
@@ -78,6 +84,8 @@ pub struct PaneArea {
 pub enum MenuAction {
     RenameWorkspace(WorkspaceId),
     CloseWorkspace(WorkspaceId),
+    RenameScreen(mux_core::ScreenId),
+    CloseScreen(mux_core::ScreenId),
     RenamePane(PaneId),
     NewTab(PaneId),
     SplitRight(PaneId),
@@ -90,6 +98,8 @@ impl MenuAction {
         match self {
             MenuAction::RenameWorkspace(_) => "Rename workspace",
             MenuAction::CloseWorkspace(_) => "Close workspace",
+            MenuAction::RenameScreen(_) => "Rename screen",
+            MenuAction::CloseScreen(_) => "Close screen",
             MenuAction::RenamePane(_) => "Rename pane",
             MenuAction::NewTab(_) => "New tab",
             MenuAction::SplitRight(_) => "Split right",
@@ -99,7 +109,9 @@ impl MenuAction {
     }
 }
 
-/// Right-click context menu overlay.
+/// Right-click context menu overlay. The rect includes a one-cell padding
+/// border around the item rows; `item_at` maps a screen cell back to the
+/// row inside the padding.
 pub struct ContextMenu {
     pub items: Vec<MenuAction>,
     pub selected: usize,
@@ -109,10 +121,27 @@ pub struct ContextMenu {
 }
 
 impl ContextMenu {
+    /// Horizontal/vertical padding between the menu border and its items.
+    pub const PAD: u16 = 1;
+
     fn at(x: u16, y: u16, items: Vec<MenuAction>) -> Self {
-        let width = items.iter().map(|i| i.label().len()).max().unwrap_or(0) as u16 + 2;
-        let height = items.len() as u16;
+        let label_w = items.iter().map(|i| i.label().len()).max().unwrap_or(0) as u16;
+        // One space of inner padding either side of the label, plus the
+        // one-cell padding border.
+        let width = label_w + 2 + Self::PAD * 2;
+        let height = items.len() as u16 + Self::PAD * 2;
         ContextMenu { items, selected: 0, rect: Rect { x, y, width, height } }
+    }
+
+    /// The item row at a screen cell, if it is on one (not the padding).
+    pub fn item_at(&self, x: u16, y: u16) -> Option<usize> {
+        if !self.rect.contains(x, y) {
+            return None;
+        }
+        let row = y.checked_sub(self.rect.y + Self::PAD)?;
+        let inside_x = x >= self.rect.x + Self::PAD
+            && x < (self.rect.x + self.rect.width).saturating_sub(Self::PAD);
+        (inside_x && (row as usize) < self.items.len()).then_some(row as usize)
     }
 }
 
@@ -120,6 +149,7 @@ impl ContextMenu {
 #[derive(Debug, Clone, Copy)]
 pub enum PromptTarget {
     Workspace(WorkspaceId),
+    Screen(mux_core::ScreenId),
     Pane(PaneId),
 }
 
@@ -372,15 +402,15 @@ impl App {
         self.tree = self.session.tree();
         let layout = self
             .tree
-            .active_workspace()
-            .map(|ws| layout_workspace(&ws.layout, area))
+            .active_screen()
+            .map(|screen| layout_screen(&screen.layout, area))
             .unwrap_or_default();
         self.separators = layout.separators;
 
         self.pane_areas.clear();
-        let Some(ws) = self.tree.active_workspace() else { return };
+        let Some(screen) = self.tree.active_screen() else { return };
         for (pane_id, rect) in layout.panes {
-            let Some(pane) = ws.pane(pane_id) else { continue };
+            let Some(pane) = screen.pane(pane_id) else { continue };
             let Some(surface_id) = pane.active_surface() else { continue };
             // Panes with several tabs get a one-row tab bar above the
             // terminal content.
@@ -403,9 +433,12 @@ impl App {
                 continue;
             }
             // Size every tab in the pane, so switching tabs doesn't
-            // trigger a resize flash.
+            // trigger a resize flash. Passing the size means remote
+            // mirrors attach at final geometry (replay is taken after the
+            // server-side resize, so no post-attach reflow artifacts).
+            let size = Some((content.width, content.height));
             for tab in &pane.tabs {
-                if let Some(surface) = self.session.surface(tab.surface) {
+                if let Some(surface) = self.session.surface_sized(tab.surface, size) {
                     surface.resize(content.width, content.height);
                 }
             }
@@ -439,7 +472,7 @@ impl App {
     }
 
     fn active_pane(&self) -> Option<PaneId> {
-        self.tree.active_workspace().map(|ws| ws.active_pane)
+        self.tree.active_screen().map(|screen| screen.active_pane)
     }
 
     fn active_surface(&self) -> Option<SurfaceId> {
@@ -469,6 +502,10 @@ impl App {
 
     fn new_workspace(&mut self) -> anyhow::Result<()> {
         self.session.new_workspace(Self::size_of_rect(self.content_area))
+    }
+
+    fn new_screen(&mut self) -> anyhow::Result<()> {
+        self.session.new_screen(Self::size_of_rect(self.content_area))
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
@@ -509,7 +546,8 @@ impl App {
                             self.session.rename_workspace(id, prompt.buffer);
                         }
                     }
-                    // An empty pane name clears it (back to the tab title).
+                    // Empty screen/pane names clear back to the default.
+                    PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
                     PromptTarget::Pane(id) => self.session.rename_pane(id, prompt.buffer),
                 }
             }
@@ -614,6 +652,14 @@ impl App {
                 self.new_workspace()?;
                 Ok(true)
             }
+            (KeyCode::Tab, _) => {
+                self.session.select_screen(None, Some(1));
+                Ok(true)
+            }
+            (KeyCode::Char('S'), _) => {
+                self.new_screen()?;
+                Ok(true)
+            }
             (KeyCode::Char('d'), _) => {
                 // Local sessions end with the TUI; remote sessions keep
                 // running server-side (detach).
@@ -681,6 +727,22 @@ impl App {
                 });
             }
             MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
+            MenuAction::RenameScreen(id) => {
+                let buffer = self
+                    .tree
+                    .workspaces
+                    .iter()
+                    .flat_map(|ws| ws.screens.iter())
+                    .find(|s| s.id == id)
+                    .and_then(|s| s.name.clone())
+                    .unwrap_or_default();
+                self.prompt = Some(Prompt {
+                    label: "Rename screen",
+                    buffer,
+                    target: PromptTarget::Screen(id),
+                });
+            }
+            MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::RenamePane(id) => self.open_rename_pane_prompt(Some(id)),
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
@@ -763,6 +825,7 @@ impl App {
                 self.open_context_menu(mouse.column, mouse.row);
                 Ok(true)
             }
+            MouseEventKind::Moved => self.handle_hover(mouse.column, mouse.row),
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let down = matches!(mouse.kind, MouseEventKind::ScrollDown);
                 self.handle_scroll(mouse.column, mouse.row, down)
@@ -771,15 +834,28 @@ impl App {
         }
     }
 
+    /// Mouse-move over an open menu highlights the hovered item.
+    fn handle_hover(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        let Some(menu) = self.menu.as_mut() else { return Ok(false) };
+        let Some(item) = menu.item_at(x, y) else { return Ok(false) };
+        if item != menu.selected {
+            menu.selected = item;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     fn handle_left_down(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
         self.selection = None;
         self.drag = None;
 
-        // An open menu captures the click: activate or dismiss.
+        // An open menu captures the click: activate or dismiss. Clicks on
+        // the padding border dismiss without activating.
         if let Some(menu) = self.menu.take() {
-            if menu.rect.contains(x, y) {
-                let action = menu.items[(y - menu.rect.y) as usize];
-                self.activate_menu(action)?;
+            if let Some(item) = menu.item_at(x, y) {
+                self.activate_menu(menu.items[item])?;
+            } else if menu.rect.contains(x, y) {
+                self.menu = Some(menu); // padding click: keep it open
             }
             return Ok(true);
         }
@@ -790,6 +866,10 @@ impl App {
                     self.session.select_workspace(Some(index), None);
                 }
                 Hit::NewWorkspace => self.new_workspace()?,
+                Hit::ScreenEntry { index, .. } => {
+                    self.session.select_screen(Some(index), None);
+                }
+                Hit::NewScreen => self.new_screen()?,
                 Hit::Tab { pane, index } => {
                     self.session.focus_pane(pane);
                     self.session.select_tab(Some(pane), Some(index), None);
@@ -895,13 +975,24 @@ impl App {
 
     fn open_context_menu(&mut self, x: u16, y: u16) {
         self.menu = None;
-        if let Some(Hit::Workspace { id, .. }) = self.hit_at(x, y) {
-            self.menu = Some(ContextMenu::at(
-                x,
-                y,
-                vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
-            ));
-            return;
+        match self.hit_at(x, y) {
+            Some(Hit::Workspace { id, .. }) => {
+                self.menu = Some(ContextMenu::at(
+                    x,
+                    y,
+                    vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
+                ));
+                return;
+            }
+            Some(Hit::ScreenEntry { id, .. }) => {
+                self.menu = Some(ContextMenu::at(
+                    x,
+                    y,
+                    vec![MenuAction::RenameScreen(id), MenuAction::CloseScreen(id)],
+                ));
+                return;
+            }
+            _ => {}
         }
         if let Some(area) = self.pane_area_at(x, y) {
             self.menu = Some(ContextMenu::at(

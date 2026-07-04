@@ -17,6 +17,12 @@ def rpc(cmd):
     s.close()
     return json.loads(buf)
 
+def tree():
+    return rpc({"id": 999, "cmd": "list-workspaces"})["data"]["workspaces"]
+
+def active_screen(ws):
+    return next(s for s in ws["screens"] if s["active"])
+
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
@@ -47,15 +53,16 @@ drain(1.0)
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident
-assert ident["data"]["protocol"] == 3, ident
+assert ident["data"]["protocol"] == 4, ident
 print("identify ok:", ident["data"])
 
-ws = rpc({"id": 2, "cmd": "list-workspaces"})
-panes = ws["data"]["workspaces"][0]["panes"]
-assert len(panes) == 1, ws
+ws0 = tree()[0]
+screen0 = active_screen(ws0)
+panes = screen0["panes"]
+assert len(panes) == 1, ws0
 pane_id = panes[0]["id"]
 surface_id = panes[0]["tabs"][0]["surface"]
-print("initial tree ok, pane", pane_id, "surface", surface_id)
+print("initial tree ok, screen", screen0["id"], "pane", pane_id, "surface", surface_id)
 
 # Spawn-at-size: the first surface was created at its final render size
 # (window 100x30, sidebar 22, status bar 1 -> 78x29), not 80x24 then
@@ -93,52 +100,70 @@ print("drag-select -> OSC52 clipboard copy ok")
 # Prefix + c: new tab in the active pane (two tabs, one pane).
 os.write(fd, b"\x02c")
 drain(1.0)
-ws = rpc({"id": 4, "cmd": "list-workspaces"})
-panes = ws["data"]["workspaces"][0]["panes"]
-assert len(panes) == 1, ws
-assert len(panes[0]["tabs"]) == 2, ws
-assert panes[0]["active_tab"] == 1, ws
+screen0 = active_screen(tree()[0])
+panes = screen0["panes"]
+assert len(panes) == 1, screen0
+assert len(panes[0]["tabs"]) == 2, screen0
+assert panes[0]["active_tab"] == 1, screen0
 print("prefix-c new tab in pane ok")
-
-# The status line lists both tabs of the active pane ("1:... 2:...*").
-drain(0.5)
-text = output.decode("utf-8", "replace")
-assert "2:" in text, text[-500:]
-print("tab bar + status tabs rendered ok")
 
 # Prefix + %: split right (two panes).
 os.write(fd, b"\x02%")
 drain(1.0)
-ws = rpc({"id": 5, "cmd": "list-workspaces"})
-panes = ws["data"]["workspaces"][0]["panes"]
-assert len(panes) == 2, ws
+screen0 = active_screen(tree()[0])
+panes = screen0["panes"]
+assert len(panes) == 2, screen0
 print("prefix-%% split ok")
 
 # Split via socket while TUI is attached.
 new = rpc({"id": 6, "cmd": "split", "pane": panes[0]["id"], "dir": "down"})
 assert new["ok"], new
 drain(0.5)
-ws = rpc({"id": 7, "cmd": "list-workspaces"})
-assert len(ws["data"]["workspaces"][0]["panes"]) == 3, ws
+screen0 = active_screen(tree()[0])
+assert len(screen0["panes"]) == 3, screen0
 print("socket-driven split visible ok")
+
+# Prefix + S: new screen in the workspace; it becomes active with 1 pane.
+os.write(fd, b"\x02S")
+drain(1.0)
+ws0 = tree()[0]
+assert len(ws0["screens"]) == 2, ws0
+assert ws0["screens"][1]["active"], ws0
+assert len(ws0["screens"][1]["panes"]) == 1, ws0
+print("prefix-S new screen ok")
+
+# The status bar shows both screens; click screen 1's entry to switch
+# back. Status bar row is the last row (30). The bar starts after the
+# sidebar (col 23 SGR) with " screens " (9 cols), so entry 1 starts at
+# col 32.
+os.write(fd, b"\x1b[<0;33;30M\x1b[<0;33;30m")
+drain(1.0)
+ws0 = tree()[0]
+assert ws0["screens"][0]["active"], ws0
+print("status-bar screen click switches ok")
+
+# Rename the active screen over the socket; the status bar redraws with it.
+screen_id = ws0["screens"][0]["id"]
+assert rpc({"id": 7, "cmd": "rename-screen", "screen": screen_id, "name": "smoke-scr"})["ok"]
+drain(1.0)
+text = output.decode("utf-8", "replace")
+assert "smoke-scr" in text, text[-500:]
+print("rename screen visible in status bar ok")
 
 # Rename the pane and workspace over the socket; the TUI must redraw with
 # the new names.
-target_pane = ws["data"]["workspaces"][0]["panes"][0]["id"]
-ws_id = ws["data"]["workspaces"][0]["id"]
+ws0 = tree()[0]
+target_pane = active_screen(ws0)["panes"][0]["id"]
+ws_id = ws0["id"]
 assert rpc({"id": 8, "cmd": "rename-pane", "pane": target_pane, "name": "smoke-pane"})["ok"]
 assert rpc({"id": 9, "cmd": "rename-workspace", "workspace": ws_id, "name": "smoke-ws"})["ok"]
 drain(1.0)
-ws = rpc({"id": 10, "cmd": "list-workspaces"})
-assert ws["data"]["workspaces"][0]["name"] == "smoke-ws", ws
-assert ws["data"]["workspaces"][0]["panes"][0]["name"] == "smoke-pane", ws
+ws0 = tree()[0]
+assert ws0["name"] == "smoke-ws", ws0
+assert active_screen(ws0)["panes"][0]["name"] == "smoke-pane", ws0
 text = output.decode("utf-8", "replace")
 assert "smoke-ws" in text, text[-500:]
 print("rename pane/workspace ok")
-
-# TUI drew something plausible: status bar contains the session label.
-assert SESSION.split("-")[0] in text, text[-300:]
-print("TUI rendered status bar ok")
 
 # Sidebar rendered: header + new-workspace row are sidebar-only strings.
 assert "workspaces" in text, text[-500:]
@@ -148,37 +173,38 @@ print("sidebar rendered ok")
 # Prefix-W: create a second workspace; it becomes active.
 os.write(fd, b"\x02W")
 drain(1.0)
-ws = rpc({"id": 11, "cmd": "list-workspaces"})
-workspaces = ws["data"]["workspaces"]
-assert len(workspaces) == 2, ws
-assert workspaces[1]["active"], ws
+workspaces = tree()
+assert len(workspaces) == 2, workspaces
+assert workspaces[1]["active"], workspaces
 print("prefix-W new workspace ok")
 
-# Click the first workspace's sidebar entry. Layout: row 0 header, rows
-# 1-2 workspace 1, row 3 blank, rows 4-5 workspace 2. Click row 1 (SGR
-# is 1-based: row 2).
-os.write(fd, b"\x1b[<0;2;2M\x1b[<0;2;2m")
+# Click the first workspace's sidebar entry. Layout: row 0 header, row 1
+# blank, rows 2-3 workspace 1, row 4 blank, rows 5-6 workspace 2. Click
+# row 2 (SGR is 1-based: row 3).
+os.write(fd, b"\x1b[<0;2;3M\x1b[<0;2;3m")
 drain(1.0)
-ws = rpc({"id": 12, "cmd": "list-workspaces"})
-assert ws["data"]["workspaces"][0]["active"], ws
+assert tree()[0]["active"], tree()
 print("sidebar click switches workspace ok")
 
 # Right-click inside the right-hand pane (col 81, row 6 SGR; clear of the
-# sidebar and separators), then click the first menu item (Rename pane):
-# the status line shows the prompt. Type a name and press Enter; the pane
-# rename lands. The menu opens at the click cell, so its first row is the
-# same cell.
+# sidebar and separators): a menu with a one-cell padding border opens at
+# the click cell, so the first item row is click+1 in both axes. Click
+# "Rename pane", type a name, press Enter; the pane rename lands.
 os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename pane" in text, text[-800:]
-os.write(fd, b"\x1b[<0;81;6M\x1b[<0;81;6m")
+os.write(fd, b"\x1b[<0;82;7M\x1b[<0;82;7m")
 drain(0.8)
 os.write(fd, b"clicked-name\r")
 drain(1.0)
-ws = rpc({"id": 13, "cmd": "list-workspaces"})
-names = [p.get("name") for w in ws["data"]["workspaces"] for p in w["panes"]]
-assert "clicked-name" in names, ws
+names = [
+    p.get("name")
+    for w in tree()
+    for s in w["screens"]
+    for p in s["panes"]
+]
+assert "clicked-name" in names, names
 print("right-click menu -> rename prompt ok")
 
 # Prefix + d: quit.

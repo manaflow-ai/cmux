@@ -1,9 +1,10 @@
-//! Left sidebar: a "workspaces" header, then two lines per workspace
-//! (name, then the active pane's title) with a blank line between
-//! workspaces, and a new-workspace row at the end. Uses the terminal's
-//! default background so it blends with pane content; only the active
-//! workspace rows get a highlight. Rebuilds the click hit map as it
-//! draws.
+//! Left sidebar: a "workspaces" header (with a blank line under it),
+//! then two lines per workspace (name, then the active pane's title)
+//! with a blank line between workspaces, and a new-workspace row at the
+//! end. Uses the terminal's default background so it blends with pane
+//! content; only the active workspace rows get a highlight. Owns its
+//! full column including the status-bar row (the status bar starts
+//! after the sidebar). Rebuilds the click hit map as it draws.
 
 use mux_core::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -15,7 +16,7 @@ use crate::app::{App, Hit};
 pub fn draw(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let width = app.sidebar_width;
-    let height = area.height.saturating_sub(1); // status bar
+    let height = area.height;
     if width < 3 || height == 0 {
         return;
     }
@@ -42,12 +43,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     };
     let row_rect = |y: u16| Rect { x: 0, y, width: width.saturating_sub(1), height: 1 };
 
-    set_line(buf, 0, " workspaces", dim.add_modifier(Modifier::BOLD));
+    set_line(buf, 0, " workspaces", dim);
 
-    // Header, then per workspace: two reserved lines (name + active pane
-    // title), then one blank separator line.
+    // Header, a blank line, then per workspace: two reserved lines (name
+    // + active pane title) and one blank separator line.
     let mut hits = Vec::new();
-    let mut y: u16 = 1;
+    let mut y: u16 = 2;
     for (i, ws) in app.tree.workspaces.iter().enumerate() {
         if y + 1 >= height {
             break;
@@ -65,11 +66,12 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         set_line(buf, y, &format!("{marker}{}", truncate(&ws.name, content_w - 1)), style);
         hits.push((row_rect(y), Hit::Workspace { index: i, id: ws.id }));
 
-        let pane = ws.pane(ws.active_pane);
+        let screen = ws.active_screen_ref();
+        let pane = screen.and_then(|s| s.pane(s.active_pane));
         let title = pane.map(|p| p.display_name()).unwrap_or("shell");
-        let tab_count = pane.map(|p| p.tabs.len()).unwrap_or(1);
-        let subtitle = if tab_count > 1 {
-            format!("  {} ({tab_count} tabs)", truncate(title, content_w.saturating_sub(10)))
+        let screen_count = ws.screens.len();
+        let subtitle = if screen_count > 1 {
+            format!("  {} ({screen_count} screens)", truncate(title, content_w.saturating_sub(13)))
         } else {
             format!("  {}", truncate(title, content_w.saturating_sub(3)))
         };

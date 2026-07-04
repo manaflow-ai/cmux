@@ -194,17 +194,31 @@ impl RemoteSession {
         let _ = self.request(json!({"cmd": "send", "surface": surface, "bytes": encoded}));
     }
 
-    /// Mirror for a surface, attaching on first use.
-    pub fn ensure_surface(self: &Arc<Self>, id: SurfaceId) -> Option<Arc<RemoteSurface>> {
+    /// Mirror for a surface, attaching on first use. `size` is the cell
+    /// size the frontend will render at: the server surface is resized
+    /// BEFORE the replay is taken, so the shell's resize redraw happens
+    /// once server-side and the replay arrives at final geometry (no
+    /// mirror reflow, no repeated prompt repaint).
+    pub fn ensure_surface(
+        self: &Arc<Self>,
+        id: SurfaceId,
+        size: Option<(u16, u16)>,
+    ) -> Option<Arc<RemoteSurface>> {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Some(surface.clone());
         }
-        let term = Terminal::new(80, 24, 10_000, Callbacks::default()).ok()?;
+        let (cols, rows) = size.unwrap_or((80, 24));
+        if size.is_some() {
+            let _ = self.request(
+                json!({"cmd": "resize-surface", "surface": id, "cols": cols, "rows": rows}),
+            );
+        }
+        let term = Terminal::new(cols, rows, 10_000, Callbacks::default()).ok()?;
         let surface = Arc::new(RemoteSurface {
             id,
             term: Mutex::new(term),
             dirty: AtomicBool::new(false),
-            size: Mutex::new((80, 24)),
+            size: Mutex::new((cols, rows)),
         });
         self.surfaces.lock().unwrap().insert(id, surface.clone());
         // The vt-state event that follows fills the mirror.

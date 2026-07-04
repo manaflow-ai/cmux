@@ -15,7 +15,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use ghostty_vt::{RenderState, Terminal};
-use mux_core::{Mux, MuxEvent, PaneId, SplitDir, Surface, SurfaceId, WorkspaceId};
+use mux_core::{Mux, MuxEvent, PaneId, ScreenId, SplitDir, Surface, SurfaceId, WorkspaceId};
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
@@ -74,10 +74,17 @@ impl Session {
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<SurfaceHandle> {
+        self.surface_sized(id, None)
+    }
+
+    /// Like [`Session::surface`], but passes the render size for remote
+    /// mirrors created on first use (the server surface is resized before
+    /// the attach replay, so the replay arrives at final geometry).
+    pub fn surface_sized(&self, id: SurfaceId, size: Option<(u16, u16)>) -> Option<SurfaceHandle> {
         match self {
             Session::Local(mux) => mux.surface(id).map(SurfaceHandle::Local),
             Session::Remote(remote) => remote
-                .ensure_surface(id)
+                .ensure_surface(id, size)
                 .map(|surface| SurfaceHandle::Remote(surface, remote.clone())),
         }
     }
@@ -96,6 +103,49 @@ impl Session {
             Session::Local(mux) => mux.new_workspace(None, size).map(|_| ()),
             Session::Remote(remote) => {
                 remote.request(with_size(json!({"cmd": "new-workspace"}), size)).map(|_| ())
+            }
+        }
+    }
+
+    /// New screen in the active workspace.
+    pub fn new_screen(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
+        match self {
+            Session::Local(mux) => mux.new_screen(None, size).map(|_| ()),
+            Session::Remote(remote) => {
+                remote.request(with_size(json!({"cmd": "new-screen"}), size)).map(|_| ())
+            }
+        }
+    }
+
+    pub fn close_screen(&self, screen: ScreenId) {
+        match self {
+            Session::Local(mux) => {
+                mux.close_screen(screen);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.request(json!({"cmd": "close-screen", "screen": screen}));
+            }
+        }
+    }
+
+    pub fn rename_screen(&self, screen: ScreenId, name: String) {
+        match self {
+            Session::Local(mux) => {
+                mux.rename_screen(screen, name);
+            }
+            Session::Remote(remote) => {
+                let _ =
+                    remote.request(json!({"cmd": "rename-screen", "screen": screen, "name": name}));
+            }
+        }
+    }
+
+    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
+        match self {
+            Session::Local(mux) => mux.select_screen(index, delta),
+            Session::Remote(remote) => {
+                let _ =
+                    remote.request(json!({"cmd": "select-screen", "index": index, "delta": delta}));
             }
         }
     }

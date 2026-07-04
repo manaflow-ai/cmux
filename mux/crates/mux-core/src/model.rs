@@ -1,12 +1,13 @@
-//! The session tree: workspaces own a binary split tree of panes; each
-//! pane holds an ordered list of tabs (surfaces).
+//! The session tree: workspaces own screens; each screen is a binary
+//! split tree of panes; each pane holds an ordered list of tabs
+//! (surfaces).
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::{PaneId, SplitDir, Surface, SurfaceId, WorkspaceId};
+use crate::{PaneId, ScreenId, SplitDir, Surface, SurfaceId, WorkspaceId};
 
-/// Binary split tree over panes for one workspace.
+/// Binary split tree over panes for one screen.
 #[derive(Debug, Clone)]
 pub enum Node {
     Leaf(PaneId),
@@ -86,12 +87,29 @@ impl Pane {
     }
 }
 
+/// One split-tree of panes. A workspace can hold many screens; exactly
+/// one is visible at a time (the status bar switches between them).
+#[derive(Debug)]
+pub struct Screen {
+    pub id: ScreenId,
+    /// User-assigned name; display falls back to the screen's number.
+    pub name: Option<String>,
+    pub root: Node,
+    pub active_pane: PaneId,
+}
+
 #[derive(Debug)]
 pub struct Workspace {
     pub id: WorkspaceId,
     pub name: String,
-    pub root: Node,
-    pub active_pane: PaneId,
+    pub screens: Vec<Screen>,
+    pub active_screen: usize,
+}
+
+impl Workspace {
+    pub fn active_screen_ref(&self) -> Option<&Screen> {
+        self.screens.get(self.active_screen)
+    }
 }
 
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
@@ -104,9 +122,11 @@ pub struct State {
 }
 
 impl State {
-    /// The workspace containing a pane.
-    pub fn workspace_of(&self, pane: PaneId) -> Option<usize> {
-        self.workspaces.iter().position(|ws| ws.root.contains(pane))
+    /// Workspace and screen indices of the screen containing a pane.
+    pub fn screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
+        self.workspaces.iter().enumerate().find_map(|(wi, ws)| {
+            ws.screens.iter().position(|screen| screen.root.contains(pane)).map(|si| (wi, si))
+        })
     }
 
     /// The pane a surface currently lives in.
@@ -115,6 +135,9 @@ impl State {
     }
 
     pub fn active_pane(&self) -> Option<PaneId> {
-        self.workspaces.get(self.active_workspace).map(|ws| ws.active_pane)
+        self.workspaces
+            .get(self.active_workspace)?
+            .active_screen_ref()
+            .map(|screen| screen.active_pane)
     }
 }

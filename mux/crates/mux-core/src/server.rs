@@ -29,10 +29,10 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::model::State;
-use crate::{Mux, MuxEvent, Node, PaneId, SplitDir, SurfaceId, WorkspaceId};
+use crate::model::{Screen, State};
+use crate::{Mux, MuxEvent, Node, PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Default socket path for a session: `$TMPDIR/cmux-mux-<uid>/<session>.sock`.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -89,6 +89,15 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
+    /// New screen in a workspace (default: the active one).
+    NewScreen {
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
     Split {
         pane: PaneId,
         /// "right" or "down"
@@ -106,12 +115,20 @@ enum Command {
     ClosePane {
         pane: PaneId,
     },
+    CloseScreen {
+        screen: ScreenId,
+    },
     CloseWorkspace {
         workspace: WorkspaceId,
     },
     RenamePane {
         pane: PaneId,
         /// Empty clears the name (falls back to the tab title).
+        name: String,
+    },
+    RenameScreen {
+        screen: ScreenId,
+        /// Empty clears the name (falls back to the screen number).
         name: String,
     },
     RenameWorkspace {
@@ -130,6 +147,13 @@ enum Command {
     SelectTab {
         #[serde(default)]
         pane: Option<PaneId>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        delta: Option<isize>,
+    },
+    /// Select a screen within the active workspace.
+    SelectScreen {
         #[serde(default)]
         index: Option<usize>,
         #[serde(default)]
@@ -278,18 +302,29 @@ fn pane_json(state: &State, id: PaneId) -> Value {
     })
 }
 
+fn screen_json(state: &State, screen: &Screen, active: bool) -> Value {
+    let mut pane_ids = Vec::new();
+    screen.root.pane_ids(&mut pane_ids);
+    json!({
+        "id": screen.id,
+        "name": screen.name,
+        "active": active,
+        "active_pane": screen.active_pane,
+        "layout": node_json(&screen.root),
+        "panes": pane_ids.iter().map(|id| pane_json(state, *id)).collect::<Vec<_>>(),
+    })
+}
+
 fn workspaces_json(state: &State) -> Value {
     json!({
         "workspaces": state.workspaces.iter().enumerate().map(|(i, ws)| {
-            let mut pane_ids = Vec::new();
-            ws.root.pane_ids(&mut pane_ids);
             json!({
                 "id": ws.id,
                 "name": ws.name,
                 "active": i == state.active_workspace,
-                "active_pane": ws.active_pane,
-                "layout": node_json(&ws.root),
-                "panes": pane_ids.iter().map(|id| pane_json(state, *id)).collect::<Vec<_>>(),
+                "screens": ws.screens.iter().enumerate().map(|(s, screen)| {
+                    screen_json(state, screen, s == ws.active_screen)
+                }).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
     })
@@ -343,6 +378,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             let surface = mux.new_workspace(name, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
         }
+        Command::NewScreen { workspace, cols, rows } => {
+            let surface = mux.new_screen(workspace, cols.zip(rows))?;
+            Ok(json!({ "surface": surface.id }))
+        }
         Command::Split { pane, dir, cols, rows } => {
             let dir = match dir.as_str() {
                 "right" => SplitDir::Right,
@@ -364,6 +403,12 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             mux.close_pane(pane);
             Ok(json!({}))
         }
+        Command::CloseScreen { screen } => {
+            if !mux.close_screen(screen) {
+                anyhow::bail!("unknown screen {screen}");
+            }
+            Ok(json!({}))
+        }
         Command::CloseWorkspace { workspace } => {
             if !mux.close_workspace(workspace) {
                 anyhow::bail!("unknown workspace {workspace}");
@@ -373,6 +418,12 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
                 anyhow::bail!("unknown pane {pane}");
+            }
+            Ok(json!({}))
+        }
+        Command::RenameScreen { screen, name } => {
+            if !mux.rename_screen(screen, name) {
+                anyhow::bail!("unknown screen {screen}");
             }
             Ok(json!({}))
         }
@@ -395,6 +446,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::SelectTab { pane, index, delta } => {
             mux.select_tab(pane, index, delta);
+            Ok(json!({}))
+        }
+        Command::SelectScreen { index, delta } => {
+            mux.select_screen(index, delta);
             Ok(json!({}))
         }
         Command::SelectWorkspace { index, delta } => {

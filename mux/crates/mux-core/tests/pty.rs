@@ -104,11 +104,14 @@ fn control_socket_round_trip() {
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true);
-    assert_eq!(v["data"]["workspaces"][0]["panes"][0]["tabs"][0]["surface"], surface.id);
+    let screen = &v["data"]["workspaces"][0]["screens"][0];
+    assert_eq!(screen["panes"][0]["tabs"][0]["surface"], surface.id);
+    assert_eq!(screen["active"], true);
 
-    // Rename the workspace and its pane over the socket.
+    // Rename the workspace, its screen, and its pane over the socket.
     let ws_id = v["data"]["workspaces"][0]["id"].as_u64().unwrap();
-    let pane_id = v["data"]["workspaces"][0]["panes"][0]["id"].as_u64().unwrap();
+    let screen_id = screen["id"].as_u64().unwrap();
+    let pane_id = screen["panes"][0]["id"].as_u64().unwrap();
     for (id, cmd) in [
         (
             3,
@@ -117,6 +120,12 @@ fn control_socket_round_trip() {
             ),
         ),
         (4, format!(r#"{{"id":4,"cmd":"rename-pane","pane":{pane_id},"name":"renamed-pane"}}"#)),
+        (
+            5,
+            format!(
+                r#"{{"id":5,"cmd":"rename-screen","screen":{screen_id},"name":"renamed-screen"}}"#
+            ),
+        ),
     ] {
         line.clear();
         writeln!(writer, "{cmd}").unwrap();
@@ -125,31 +134,44 @@ fn control_socket_round_trip() {
         assert_eq!(v["ok"], true, "request {id} failed: {line}");
     }
     line.clear();
-    writeln!(writer, r#"{{"id":5,"cmd":"list-workspaces"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":6,"cmd":"list-workspaces"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["data"]["workspaces"][0]["name"], "renamed-ws");
-    assert_eq!(v["data"]["workspaces"][0]["panes"][0]["name"], "renamed-pane");
+    let screen = &v["data"]["workspaces"][0]["screens"][0];
+    assert_eq!(screen["name"], "renamed-screen");
+    assert_eq!(screen["panes"][0]["name"], "renamed-pane");
 
     // New tab in the pane: two tabs, second active.
     line.clear();
-    writeln!(writer, r#"{{"id":6,"cmd":"new-tab","pane":{pane_id}}}"#).unwrap();
+    writeln!(writer, r#"{{"id":7,"cmd":"new-tab","pane":{pane_id}}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-tab failed: {line}");
+
+    // New screen in the workspace: two screens, second active.
     line.clear();
-    writeln!(writer, r#"{{"id":7,"cmd":"list-workspaces"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":8,"cmd":"new-screen"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    let pane = &v["data"]["workspaces"][0]["panes"][0];
+    assert_eq!(v["ok"], true, "new-screen failed: {line}");
+
+    line.clear();
+    writeln!(writer, r#"{{"id":9,"cmd":"list-workspaces"}}"#).unwrap();
+    reader.read_line(&mut line).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    let ws = &v["data"]["workspaces"][0];
+    let pane = &ws["screens"][0]["panes"][0];
     assert_eq!(pane["tabs"].as_array().unwrap().len(), 2);
     assert_eq!(pane["active_tab"], 1);
+    assert_eq!(ws["screens"].as_array().unwrap().len(), 2);
+    assert_eq!(ws["screens"][1]["active"], true);
 
     // Wait for the marker to hit the screen, then read it over the socket.
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         line.clear();
-        writeln!(writer, r#"{{"id":8,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
+        writeln!(writer, r#"{{"id":10,"cmd":"read-screen","surface":{}}}"#, surface.id).unwrap();
         reader.read_line(&mut line).unwrap();
         let v: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(v["ok"], true, "read-screen failed: {line}");

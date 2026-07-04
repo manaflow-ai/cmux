@@ -35,14 +35,16 @@ KEYS (prefix: Ctrl-b)
   c  new tab in pane   n/p  next/prev tab      1-9  select tab
   %  split right       \"  split down          x    close tab
   ,  rename pane       $    rename workspace
+  Tab  next screen     S    new screen
   h/j/k/l or arrows    move focus              d    quit (attach: detach)
   w  next workspace    W    new workspace       s    toggle sidebar
   Ctrl-b  send a literal Ctrl-b
 
 MOUSE
   Right-click a pane for rename/new tab/split/close; right-click a
-  sidebar workspace for rename/close. Click tab-bar entries to switch
-  tabs, and the trailing + for a new tab.
+  sidebar workspace or a status-bar screen for rename/close. Click
+  tab-bar entries to switch tabs (+ for a new tab), and status-bar
+  screen entries to switch screens (+ for a new screen).
 ";
 
 struct Args {

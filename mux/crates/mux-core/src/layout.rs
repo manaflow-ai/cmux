@@ -1,4 +1,4 @@
-//! Pure layout math shared by frontends: a workspace's split tree plus a
+//! Pure layout math shared by frontends: a screen's split tree plus a
 //! rectangle produce pane rects and separator segments.
 
 use crate::{Node, PaneId, SplitDir};
@@ -73,8 +73,8 @@ impl LayoutResult {
     }
 }
 
-/// Compute pane rects for a workspace, reserving one cell per divider.
-pub fn layout_workspace(root: &Node, area: Rect) -> LayoutResult {
+/// Compute pane rects for a screen, reserving one cell per divider.
+pub fn layout_screen(root: &Node, area: Rect) -> LayoutResult {
     let mut result = LayoutResult::default();
     walk(root, area, &mut result);
     result
@@ -148,7 +148,7 @@ mod tests {
             a: Box::new(Node::Leaf(1)),
             b: Box::new(Node::Leaf(2)),
         };
-        let layout = layout_workspace(&root, Rect { x: 0, y: 0, width: 81, height: 24 });
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 81, height: 24 });
         let r1 = layout.rect_of(1).unwrap();
         let r2 = layout.rect_of(2).unwrap();
         assert_eq!(r1.width, 40);
@@ -176,7 +176,7 @@ mod tests {
         };
         for w in 0..5u16 {
             for h in 0..5u16 {
-                let layout = layout_workspace(&root, Rect { x: 0, y: 0, width: w, height: h });
+                let layout = layout_screen(&root, Rect { x: 0, y: 0, width: w, height: h });
                 assert_eq!(layout.panes.len(), 3, "{w}x{h}");
             }
         }
@@ -195,7 +195,7 @@ mod tests {
                 b: Box::new(Node::Leaf(3)),
             }),
         };
-        let layout = layout_workspace(&root, Rect { x: 0, y: 0, width: 80, height: 24 });
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 80, height: 24 });
         assert_eq!(layout.neighbor(1, 1, 0), Some(2));
         assert_eq!(layout.neighbor(2, 0, 1), Some(3));
         assert_eq!(layout.neighbor(3, 0, -1), Some(2));

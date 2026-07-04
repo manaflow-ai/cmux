@@ -55,27 +55,38 @@ fn draw_separators(app: &App, frame: &mut Frame) {
     }
 }
 
-/// Status bar: session label, then one clickable segment per workspace,
-/// and the active pane's tabs (also clickable).
+/// Status bar: the active workspace's screens, one clickable segment per
+/// screen plus a trailing `+` for a new one. It spans only the pane
+/// region (it does not extend under the sidebar).
 fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let status_y = area.height - 1;
+    let bar_x = app.sidebar_width.min(area.width);
     let base = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(250));
-    for x in 0..area.width {
+    for x in bar_x..area.width {
         frame.buffer_mut()[(x, status_y)].set_symbol(" ").set_style(base);
     }
 
     if let Some(prompt) = &app.prompt {
         let text = format!(" {}: {}", prompt.label, prompt.buffer);
         let prompt_style = Style::default().bg(Color::Indexed(236)).fg(Color::Indexed(255));
-        frame.buffer_mut().set_stringn(0, status_y, &text, area.width as usize, prompt_style);
-        let cursor_x = (text.chars().count() as u16).min(area.width.saturating_sub(1));
+        frame.buffer_mut().set_stringn(
+            bar_x,
+            status_y,
+            &text,
+            area.width.saturating_sub(bar_x) as usize,
+            prompt_style,
+        );
+        let cursor_x = (bar_x + text.chars().count() as u16).min(area.width.saturating_sub(1));
         frame.set_cursor_position(Position::new(cursor_x, status_y));
         return;
     }
 
-    let active_style = base.fg(Color::Indexed(255)).add_modifier(Modifier::BOLD);
-    let mut x: u16 = 0;
+    let active_style = Style::default()
+        .bg(Color::Indexed(240))
+        .fg(Color::Indexed(255))
+        .add_modifier(Modifier::BOLD);
+    let mut x: u16 = bar_x;
     let mut hits = Vec::new();
     let put = |frame: &mut Frame, x: &mut u16, text: &str, style: Style| -> (u16, u16) {
         let start = *x;
@@ -87,39 +98,37 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
         (start, width)
     };
 
-    put(frame, &mut x, &format!("[{}]", app.session_label), base);
-    let workspaces = app.tree.workspaces.clone();
-    let active_ws = app.tree.active_workspace;
-    for (i, ws) in workspaces.iter().enumerate() {
-        let active = i == active_ws;
-        let label = if active { format!(" {}*", ws.name) } else { format!(" {}", ws.name) };
+    let Some(ws) = app.tree.active_workspace().cloned() else { return };
+    put(frame, &mut x, " screens ", base.fg(Color::Indexed(244)));
+    for (i, screen) in ws.screens.iter().enumerate() {
+        let active = i == ws.active_screen;
+        let label = format!(" {} ", truncate(&screen.display_name(i), 20));
         let (start, width) = put(frame, &mut x, &label, if active { active_style } else { base });
         if width > 0 {
             hits.push((
                 Rect { x: start, y: status_y, width, height: 1 },
-                Hit::Workspace { index: i, id: ws.id },
+                Hit::ScreenEntry { index: i, id: screen.id },
             ));
         }
-        if !active {
-            continue;
-        }
-        // The active workspace also lists its active pane's tabs.
-        let Some(pane) = ws.pane(ws.active_pane) else { continue };
-        put(frame, &mut x, " ", base);
-        for (t, tab) in pane.tabs.iter().enumerate() {
-            let marker = if t == pane.active_tab { "*" } else { "" };
-            let label = format!(" {}:{}{}", t + 1, truncate(tab.display_title(), 18), marker);
-            let style = if t == pane.active_tab { active_style } else { base };
-            let (start, width) = put(frame, &mut x, &label, style);
-            if width > 0 {
-                hits.push((
-                    Rect { x: start, y: status_y, width, height: 1 },
-                    Hit::Tab { pane: pane.id, index: t },
-                ));
-            }
-        }
+    }
+    let (start, width) = put(frame, &mut x, " + ", base.fg(Color::Indexed(244)));
+    if width > 0 {
+        hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
     }
     app.hits.extend(hits);
+
+    // Session label, right-aligned (the prefix indicator replaces it).
+    let label = format!("[{}] ", app.session_label);
+    let label_w = label.chars().count() as u16;
+    if !app.prefix_armed && x + label_w < area.width {
+        frame.buffer_mut().set_stringn(
+            area.width - label_w,
+            status_y,
+            &label,
+            label_w as usize,
+            base.fg(Color::Indexed(244)),
+        );
+    }
 
     if app.prefix_armed {
         let indicator = " C-b ";

@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use crate::model::{Node, Pane, State, Workspace};
+use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{Surface, SurfaceOptions};
-use crate::{PaneId, SplitDir, SurfaceId, WorkspaceId};
+use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
@@ -20,8 +20,8 @@ pub enum MuxEvent {
     SurfaceExited(SurfaceId),
     TitleChanged(SurfaceId),
     Bell(SurfaceId),
-    /// The workspace/pane/tab tree changed (from any frontend or the
-    /// control socket).
+    /// The workspace/screen/pane/tab tree changed (from any frontend or
+    /// the control socket).
     TreeChanged,
     /// Every workspace is gone.
     Empty,
@@ -89,6 +89,12 @@ impl Mux {
         Ok(surface)
     }
 
+    /// A fresh single-tab pane wrapping `surface`.
+    fn make_pane(&self, surface: SurfaceId) -> (PaneId, Pane) {
+        let id = self.next_id();
+        (id, Pane { id, name: None, tabs: vec![surface], active_tab: 0 })
+    }
+
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.get(&id).cloned()
     }
@@ -105,30 +111,33 @@ impl Mux {
         self.state.lock().unwrap().surfaces.len()
     }
 
-    /// Create a workspace with one pane holding one tab. Returns the tab's
-    /// surface. `size` is the expected content size in cells, when the
-    /// caller knows it (spawning at the final size avoids shell redraw
-    /// artifacts).
+    /// Create a workspace with one screen holding one pane with one tab.
+    /// Returns the tab's surface. `size` is the expected content size in
+    /// cells, when the caller knows it (spawning at the final size avoids
+    /// shell redraw artifacts).
     pub fn new_workspace(
         self: &Arc<Self>,
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let surface = self.spawn_surface(None, size)?;
-        let pane_id = self.next_id();
+        let (pane_id, pane) = self.make_pane(surface.id);
+        let screen_id = self.next_id();
         let ws_id = self.next_id();
         {
             let mut state = self.state.lock().unwrap();
             let name = name.unwrap_or_else(|| format!("{}", state.workspaces.len() + 1));
-            state.panes.insert(
-                pane_id,
-                Pane { id: pane_id, name: None, tabs: vec![surface.id], active_tab: 0 },
-            );
+            state.panes.insert(pane_id, pane);
             state.workspaces.push(Workspace {
                 id: ws_id,
                 name,
-                root: Node::Leaf(pane_id),
-                active_pane: pane_id,
+                screens: vec![Screen {
+                    id: screen_id,
+                    name: None,
+                    root: Node::Leaf(pane_id),
+                    active_pane: pane_id,
+                }],
+                active_screen: 0,
             });
             state.active_workspace = state.workspaces.len() - 1;
         }
@@ -136,8 +145,65 @@ impl Mux {
         Ok(surface)
     }
 
+    /// Create a screen in a workspace (default: the active one) with one
+    /// pane/tab, and make it active. Returns the tab's surface.
+    pub fn new_screen(
+        self: &Arc<Self>,
+        workspace: Option<WorkspaceId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        // Validate the target before spawning a child.
+        {
+            let state = self.state.lock().unwrap();
+            match workspace {
+                Some(id) if !state.workspaces.iter().any(|w| w.id == id) => {
+                    anyhow::bail!("unknown workspace {id}")
+                }
+                None if state.workspaces.is_empty() => {
+                    drop(state);
+                    return self.new_workspace(None, size);
+                }
+                _ => {}
+            }
+        }
+        let surface = self.spawn_surface(None, size)?;
+        let (pane_id, pane) = self.make_pane(surface.id);
+        let screen_id = self.next_id();
+        let attached = {
+            let mut state = self.state.lock().unwrap();
+            let active = state.active_workspace;
+            let ws = match workspace {
+                Some(id) => state.workspaces.iter_mut().find(|w| w.id == id),
+                None => state.workspaces.get_mut(active),
+            };
+            match ws {
+                Some(ws) => {
+                    ws.screens.push(Screen {
+                        id: screen_id,
+                        name: None,
+                        root: Node::Leaf(pane_id),
+                        active_pane: pane_id,
+                    });
+                    ws.active_screen = ws.screens.len() - 1;
+                    state.panes.insert(pane_id, pane);
+                    true
+                }
+                None => {
+                    state.surfaces.remove(&surface.id);
+                    false
+                }
+            }
+        };
+        if !attached {
+            surface.kill();
+            anyhow::bail!("workspace disappeared while creating screen");
+        }
+        self.emit(MuxEvent::TreeChanged);
+        Ok(surface)
+    }
+
     /// Create a tab in a pane (default: the active pane of the active
-    /// workspace). When the session has no workspaces yet (headless before
+    /// screen). When the session has no workspaces yet (headless before
     /// any command), a workspace is created around the new tab.
     pub fn new_tab(
         self: &Arc<Self>,
@@ -206,7 +272,7 @@ impl Mux {
         state.surfaces.get(&active).map(|s| s.size())
     }
 
-    /// Split the workspace containing `target`, putting a new single-tab
+    /// Split the screen containing `target`, putting a new single-tab
     /// pane after it. Returns the new pane's surface. `size` is the
     /// expected content size of the new pane, when the caller knows it.
     pub fn split(
@@ -229,11 +295,13 @@ impl Mux {
         let mut done = false;
         {
             let mut state = self.state.lock().unwrap();
-            for ws in state.workspaces.iter_mut() {
-                if ws.root.split_leaf(target, dir, pane_id) {
-                    ws.active_pane = pane_id;
-                    done = true;
-                    break;
+            'outer: for ws in state.workspaces.iter_mut() {
+                for screen in ws.screens.iter_mut() {
+                    if screen.root.split_leaf(target, dir, pane_id) {
+                        screen.active_pane = pane_id;
+                        done = true;
+                        break 'outer;
+                    }
                 }
             }
             if done {
@@ -254,7 +322,7 @@ impl Mux {
     }
 
     /// Close one tab. When it was the pane's last tab, the pane collapses
-    /// out of its split tree (and an emptied workspace is removed).
+    /// out of its split tree (and emptied screens/workspaces are removed).
     pub fn close_surface(&self, target: SurfaceId) {
         let (removed, empty) = {
             let mut state = self.state.lock().unwrap();
@@ -268,14 +336,11 @@ impl Mux {
         }
     }
 
-    /// Close a pane and every tab in it.
-    pub fn close_pane(&self, target: PaneId) {
+    /// Close every surface in `tabs` (helper for pane/screen/workspace
+    /// close). Emits events outside the lock.
+    fn close_surfaces(&self, tabs: Vec<SurfaceId>) {
         let (removed, empty) = {
             let mut state = self.state.lock().unwrap();
-            let tabs = match state.panes.get(&target) {
-                Some(pane) => pane.tabs.clone(),
-                None => return,
-            };
             let mut removed = false;
             for surface in tabs {
                 removed |= remove_surface(&mut state, surface);
@@ -290,33 +355,44 @@ impl Mux {
         }
     }
 
-    /// Close a workspace and every pane/tab in it.
+    /// Close a pane and every tab in it.
+    pub fn close_pane(&self, target: PaneId) {
+        let tabs = {
+            let state = self.state.lock().unwrap();
+            match state.panes.get(&target) {
+                Some(pane) => pane.tabs.clone(),
+                None => return,
+            }
+        };
+        self.close_surfaces(tabs);
+    }
+
+    /// Close a screen and every pane/tab in it.
+    pub fn close_screen(&self, target: ScreenId) -> bool {
+        let tabs = {
+            let state = self.state.lock().unwrap();
+            let Some(screen) =
+                state.workspaces.iter().flat_map(|ws| ws.screens.iter()).find(|s| s.id == target)
+            else {
+                return false;
+            };
+            screen_tabs(&state, screen)
+        };
+        self.close_surfaces(tabs);
+        true
+    }
+
+    /// Close a workspace and every screen/pane/tab in it.
     pub fn close_workspace(&self, target: WorkspaceId) -> bool {
-        let (removed, empty) = {
-            let mut state = self.state.lock().unwrap();
+        let tabs = {
+            let state = self.state.lock().unwrap();
             let Some(ws) = state.workspaces.iter().find(|ws| ws.id == target) else {
                 return false;
             };
-            let mut pane_ids = Vec::new();
-            ws.root.pane_ids(&mut pane_ids);
-            let tabs: Vec<SurfaceId> = pane_ids
-                .iter()
-                .filter_map(|id| state.panes.get(id))
-                .flat_map(|pane| pane.tabs.iter().copied())
-                .collect();
-            let mut removed = false;
-            for surface in tabs {
-                removed |= remove_surface(&mut state, surface);
-            }
-            (removed, state.workspaces.is_empty())
+            ws.screens.iter().flat_map(|screen| screen_tabs(&state, screen)).collect::<Vec<_>>()
         };
-        if removed {
-            self.emit(MuxEvent::TreeChanged);
-        }
-        if empty {
-            self.emit(MuxEvent::Empty);
-        }
-        removed
+        self.close_surfaces(tabs);
+        true
     }
 
     pub fn rename_workspace(&self, target: WorkspaceId, name: String) -> bool {
@@ -355,6 +431,30 @@ impl Mux {
         renamed
     }
 
+    /// Set a screen's user-visible name. An empty name clears it (the
+    /// screen falls back to its number).
+    pub fn rename_screen(&self, target: ScreenId, name: String) -> bool {
+        let renamed = {
+            let mut state = self.state.lock().unwrap();
+            match state
+                .workspaces
+                .iter_mut()
+                .flat_map(|ws| ws.screens.iter_mut())
+                .find(|s| s.id == target)
+            {
+                Some(screen) => {
+                    screen.name = (!name.is_empty()).then_some(name);
+                    true
+                }
+                None => false,
+            }
+        };
+        if renamed {
+            self.emit(MuxEvent::TreeChanged);
+        }
+        renamed
+    }
+
     /// Called by a surface's reader thread when its child exits. The mux
     /// reaps the surface out of the tree itself, so frontends only need to
     /// drop their render state.
@@ -363,15 +463,17 @@ impl Mux {
         self.emit(MuxEvent::SurfaceExited(id));
     }
 
-    /// Make `pane` the active pane of its workspace (and that workspace
-    /// active).
+    /// Make `pane` the active pane of its screen (and that screen and
+    /// workspace active).
     pub fn focus_pane(&self, pane: PaneId) -> bool {
         let found = {
             let mut state = self.state.lock().unwrap();
-            match state.workspace_of(pane) {
-                Some(ws_idx) => {
-                    state.active_workspace = ws_idx;
-                    state.workspaces[ws_idx].active_pane = pane;
+            match state.screen_of(pane) {
+                Some((wi, si)) => {
+                    state.active_workspace = wi;
+                    let ws = &mut state.workspaces[wi];
+                    ws.active_screen = si;
+                    ws.screens[si].active_pane = pane;
                     true
                 }
                 None => false,
@@ -406,6 +508,28 @@ impl Mux {
         self.emit(MuxEvent::TreeChanged);
     }
 
+    /// Select a screen in the active workspace by index or relative delta.
+    pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
+        {
+            let mut state = self.state.lock().unwrap();
+            let active = state.active_workspace;
+            let Some(ws) = state.workspaces.get_mut(active) else { return };
+            let len = ws.screens.len();
+            if len == 0 {
+                return;
+            }
+            if let Some(index) = index {
+                if index < len {
+                    ws.active_screen = index;
+                }
+            } else if let Some(delta) = delta {
+                ws.active_screen =
+                    ((ws.active_screen as isize + delta).rem_euclid(len as isize)) as usize;
+            }
+        }
+        self.emit(MuxEvent::TreeChanged);
+    }
+
     /// Select a workspace by index or relative delta.
     pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
         {
@@ -427,9 +551,20 @@ impl Mux {
     }
 }
 
+/// Every surface in a screen (all panes, all tabs).
+fn screen_tabs(state: &State, screen: &Screen) -> Vec<SurfaceId> {
+    let mut pane_ids = Vec::new();
+    screen.root.pane_ids(&mut pane_ids);
+    pane_ids
+        .iter()
+        .filter_map(|id| state.panes.get(id))
+        .flat_map(|pane| pane.tabs.iter().copied())
+        .collect()
+}
+
 /// Remove one surface from the state: kill its child, detach it from its
-/// pane, and collapse emptied panes/workspaces. Returns whether anything
-/// was removed. Runs under the state lock.
+/// pane, and collapse emptied panes/screens/workspaces. Returns whether
+/// anything was removed. Runs under the state lock.
 fn remove_surface(state: &mut State, target: SurfaceId) -> bool {
     let removed = state.surfaces.remove(&target);
     if let Some(surface) = &removed {
@@ -448,28 +583,37 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> bool {
         return true;
     }
 
-    // Last tab gone: the pane collapses out of its workspace.
+    // Last tab gone: the pane collapses out of its screen.
     state.panes.remove(&pane_id);
-    let Some(ws_idx) = state.workspace_of(pane_id) else { return true };
-    let ws = &mut state.workspaces[ws_idx];
-    match std::mem::replace(&mut ws.root, Node::Leaf(0)).remove_leaf(pane_id) {
+    let Some((wi, si)) = state.screen_of(pane_id) else { return true };
+    let screen = &mut state.workspaces[wi].screens[si];
+    match std::mem::replace(&mut screen.root, Node::Leaf(0)).remove_leaf(pane_id) {
         Some(root) => {
-            ws.root = root;
-            if ws.active_pane == pane_id {
+            screen.root = root;
+            if screen.active_pane == pane_id {
                 let mut ids = Vec::new();
-                ws.root.pane_ids(&mut ids);
-                ws.active_pane = ids[0];
+                screen.root.pane_ids(&mut ids);
+                screen.active_pane = ids[0];
             }
+            return true;
         }
         None => {
-            // Whole workspace emptied.
-            let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
-            state.workspaces.remove(ws_idx);
-            state.active_workspace = active_id
-                .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
-                .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
+            // Screen emptied: drop it from the workspace.
+            let ws = &mut state.workspaces[wi];
+            ws.screens.remove(si);
+            ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
+            if !ws.screens.is_empty() {
+                return true;
+            }
         }
     }
+
+    // Workspace emptied too: drop it, keeping the active selection stable.
+    let active_id = state.workspaces.get(state.active_workspace).map(|w| w.id);
+    state.workspaces.remove(wi);
+    state.active_workspace = active_id
+        .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
+        .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
     true
 }
 
@@ -496,14 +640,14 @@ mod tests {
 
         mux.with_state(|s| {
             let mut ids = Vec::new();
-            s.workspaces[0].root.pane_ids(&mut ids);
+            s.workspaces[0].screens[0].root.pane_ids(&mut ids);
             assert_eq!(ids, vec![p1, p2, p3]);
         });
 
         mux.close_pane(p2);
         mux.with_state(|s| {
             let mut ids = Vec::new();
-            s.workspaces[0].root.pane_ids(&mut ids);
+            s.workspaces[0].screens[0].root.pane_ids(&mut ids);
             assert_eq!(ids, vec![p1, p3]);
         });
 
@@ -535,9 +679,47 @@ mod tests {
             assert_eq!(s.workspaces.len(), 1);
         });
 
-        // Closing the last tab collapses the pane and the workspace.
+        // Closing the last tab collapses the pane, screen, and workspace.
         mux.close_surface(s1.id);
         mux.with_state(|s| assert!(s.workspaces.is_empty()));
+    }
+
+    #[test]
+    fn screens_within_workspace() {
+        let mux = test_mux();
+        mux.new_workspace(None, None).unwrap();
+        let s2 = mux.new_screen(None, None).unwrap();
+
+        let (screen1, screen2) = mux.with_state(|s| {
+            let ws = &s.workspaces[0];
+            assert_eq!(ws.screens.len(), 2);
+            assert_eq!(ws.active_screen, 1);
+            (ws.screens[0].id, ws.screens[1].id)
+        });
+
+        // Select back to screen 1; screen 2 keeps running.
+        mux.select_screen(Some(0), None);
+        mux.with_state(|s| assert_eq!(s.workspaces[0].active_screen, 0));
+
+        // Renaming a screen sticks; clearing falls back.
+        assert!(mux.rename_screen(screen2, "logs".into()));
+        mux.with_state(|s| {
+            assert_eq!(s.workspaces[0].screens[1].name.as_deref(), Some("logs"));
+        });
+
+        // Focusing a pane in screen 2 activates that screen.
+        let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+        assert!(mux.focus_pane(p2));
+        mux.with_state(|s| assert_eq!(s.workspaces[0].active_screen, 1));
+
+        // Closing screen 2 keeps the workspace with screen 1.
+        assert!(mux.close_screen(screen2));
+        mux.with_state(|s| {
+            let ws = &s.workspaces[0];
+            assert_eq!(ws.screens.len(), 1);
+            assert_eq!(ws.screens[0].id, screen1);
+            assert_eq!(ws.active_screen, 0);
+        });
     }
 
     #[test]
@@ -551,7 +733,7 @@ mod tests {
             assert_eq!(s.workspaces.len(), 2);
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
-            (s.workspaces[0].id, s.workspaces[1].id, s.workspaces[1].active_pane)
+            (s.workspaces[0].id, s.workspaces[1].id, s.workspaces[1].screens[0].active_pane)
         });
 
         assert!(mux.rename_workspace(ws0, "ops".into()));

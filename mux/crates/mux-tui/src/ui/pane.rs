@@ -13,7 +13,7 @@ use crate::app::{App, Hit, PaneArea, Selection};
 /// Draw every pane of the current frame. Returns the terminal cursor
 /// position for the focused pane, if visible.
 pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
-    let active_pane = app.tree.active_workspace().map(|ws| ws.active_pane);
+    let active_pane = app.tree.active_screen().map(|screen| screen.active_pane);
     let areas = app.pane_areas.clone();
     let mut cursor = None;
     for area in &areas {
@@ -30,8 +30,8 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
 }
 
 fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, bar: Rect, focused: bool) {
-    let Some(ws) = app.tree.active_workspace() else { return };
-    let Some(pane) = ws.pane(area.pane) else { return };
+    let Some(screen) = app.tree.active_screen() else { return };
+    let Some(pane) = screen.pane(area.pane) else { return };
     let screen = frame.area();
     let buf = frame.buffer_mut();
     let base = bar_base_style();
