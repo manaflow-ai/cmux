@@ -1122,9 +1122,7 @@
 		A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0DE70530000000000000001 /* submit-cmux-profile */; };
-		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		A50016AA /* SurfaceResumeApprovalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016AB /* SurfaceResumeApprovalStore.swift */; };
-		F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000D /* SystemCommandRunner.swift */; };
 		BF175DB391C50FA2DD216865 /* SystemWideHotkeyController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E622F38A32C27960E93E6C /* SystemWideHotkeyController.swift */; };
@@ -1525,7 +1523,6 @@
 		C7A532000000000000000001 /* AgentChatObservationInFlight.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationInFlight.swift"; sourceTree = "<group>"; };
 		C7A530000000000000000001 /* AgentChatObservationScope.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationScope.swift"; sourceTree = "<group>"; };
 		CDFE000000000000000000A2 /* AgentChatProseStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Mobile/AgentChat/AgentChatProseStreamer.swift"; sourceTree = "<group>"; };
-		CDFE000000000000000000A2 /* AgentChatProseStreamer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatProseStreamer.swift"; sourceTree = "<group>"; };
 		CDFE000000000000000000C2 /* AgentChatProseStreamerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatProseStreamerTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
 		C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+Lifecycle.swift"; sourceTree = "<group>"; };
@@ -2564,9 +2561,7 @@
 		A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupAppearanceDebugReloader.swift; sourceTree = "<group>"; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		C0DE70530000000000000001 /* submit-cmux-profile */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/submit-cmux-profile"; sourceTree = SOURCE_ROOT; };
-		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		A50016AB /* SurfaceResumeApprovalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalStore.swift; sourceTree = "<group>"; };
-		F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift"; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000D /* SystemCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommandRunner.swift; sourceTree = "<group>"; };
 		36E622F38A32C27960E93E6C /* SystemWideHotkeyController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemWideHotkeyController.swift; sourceTree = "<group>"; };
@@ -3238,7 +3233,6 @@
 				D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */,
 					5732B0025732B0025732B002 /* MinimalModeSidebarTitlebarControlsOverlay.swift */,
 					5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */,
-				CDFE000000000000000000A2 /* AgentChatProseStreamer.swift */,
 				ODBG00010000000000000002 /* OpenDiffViewerAgentBaselineLookup.swift */,
 				ODBG00020000000000000002 /* OpenDiffViewerAgentContextRequest.swift */,
 				C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */,
@@ -3384,19 +3378,9 @@
 				A5009D12 /* SidebarDragStateRegistryEnvironment.swift */,
 				C3A1B702 /* SidebarTabReorderHost.swift */,
 				C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */,
-					5732B0015732B0015732B001 /* MinimalModeInvalidationProbe.swift */,
-					5732B0085732B0085732B008 /* MinimalModeInvalidationProbeKey.swift */,
-					5732B0095732B0095732B009 /* EnvironmentValues+MinimalModeInvalidationProbe.swift */,
 					5732B0115732B0115732B011 /* SidebarLazyContractProbe.swift */,
 					5732B0125732B0125732B012 /* SidebarLazyContractProbeKey.swift */,
 					5732B0135732B0135732B013 /* EnvironmentValues+SidebarLazyContractProbe.swift */,
-					5732B0025732B0025732B002 /* MinimalModeSidebarTitlebarControlsOverlay.swift */,
-					5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */,
-					5732B0045732B0045732B004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift */,
-					5732B0055732B0055732B005 /* WorkspacePresentationModeChangeObserver.swift */,
-					5732B0065732B0065732B006 /* WorkspacePresentationModeContentTopPaddingModifier.swift */,
-					5732B0105732B0105732B010 /* WorkspacePresentationModeRuntimeCache.swift */,
-					5732B0075732B0075732B007 /* WorkspaceTitlebarModeLayer.swift */,
 				C0DE46030000000000000002 /* CMUXSidebarExtensionBrowserPanel.swift */,
 				E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
@@ -3921,7 +3905,6 @@
 				A5001219 /* WindowToolbarController.swift */,
 				A5001241 /* WindowDecorationsController.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
-				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				A5001611 /* SessionPersistence.swift */,
 				4CD0C8784628E8438058C1C1 /* Workspace+TerminalInputSelection.swift */,
 				D7F42D21104E0E25CA24F370 /* Workspace+TerminalAgentContext.swift */,
@@ -4325,7 +4308,6 @@
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				D6212D0C00000000000000DA /* AppDelegateMainWindowTestingSupport.swift */,
 				BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */,
-				F6572003A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift */,
 				65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */,
 				F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */,
 				55810A000000000000000002 /* SSHPTYAttachReconnectInputFilterTests.swift */,
@@ -4342,7 +4324,6 @@
 				B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */,
 				A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */,
 				C0DE6495000000000000000C /* CMUXCLISessionsListTranscriptPidTests.swift */,
-				CDFE000000000000000000C2 /* AgentChatProseStreamerTests.swift */,
 				C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */,
 				A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */,
 				C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */,
@@ -4444,11 +4425,7 @@
 				A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */,
 				A5A5A506A1B2C3D4E5F60718 /* TerminalNotificationDirectInteractionTests.swift */,
 				A5C41104A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift */,
-				A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */,
 				C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */,
-				A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */,
-				A5D41231A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift */,
-				A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */,
 				A5D41204A1B2C3D4E5F60718 /* CLINotifyProcessIntegrationRegressionTests.swift */,
 				C0F16B000000000000000002 /* CLIRemoteShellStartupPerformanceTests.swift */,
 				A5D41206A1B2C3D4E5F60718 /* CLINotifyProcessTestSupport.swift */,
@@ -4590,13 +4567,6 @@
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
-				A5001251 /* Sentry */,
-				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
-				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
-				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
-				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
-				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
-				CF00F00000000000000000A2 /* CmuxFoundation */,
 			);
 			productName = cmux;
 			productReference = B9000004A1B2C3D4E5F60719 /* cmux */;
@@ -4652,17 +4622,12 @@
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
-				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
-				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
-				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
 				5E27010400000000000000A3 /* CmuxSettings */,
 				5E27010400000000000000A4 /* CmuxWorkspaces */,
 				C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */,
-				5E55500000000000000000E2 /* CmuxCommandPalette */,
 				C0DE4A000000000000000004 /* CmuxSidebarProviderKit */,
-				CC0DE00000000000000000A2 /* CmuxCore */,
 				5E55200000000000000000B4 /* CmuxWindowing */,
 				A5001262 /* Bonsplit */,
 			);
@@ -5595,9 +5560,7 @@
 				E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
-				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				A50016AA /* SurfaceResumeApprovalStore.swift in Sources */,
-				F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
 				BF175DB391C50FA2DD216865 /* SystemWideHotkeyController.swift in Sources */,
