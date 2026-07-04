@@ -148,6 +148,36 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         }
     }
 
+    @MainActor
+    @Test("binding-only cwd-ignore lookup uses the binding cwd before stale terminal cwd")
+    func bindingOnlyCwdIgnoreUsesBindingCwdForRegistryLookup() throws {
+        try withIsolatedAutoResumeDefaults { defaults in
+            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let projectDirectory = try makeTemporaryProjectDirectory(prefix: "cmux-issue-7031-ignore-binding-cwd")
+            let staleDirectory = try makeTemporaryProjectDirectory(prefix: "cmux-issue-7031-stale-binding-cwd")
+            defer {
+                try? FileManager.default.removeItem(atPath: projectDirectory)
+                try? FileManager.default.removeItem(atPath: staleDirectory)
+            }
+            let registration = cwdIgnoreRegistration()
+            try writeVaultAgentConfig(registration, in: projectDirectory)
+            let restored = try restoredBindingOnlyPanel(
+                sessionDirectory: staleDirectory,
+                sessionId: "ignore-binding-cwd-issue-7031-session",
+                defaults: defaults,
+                bindingKind: registration.id,
+                bindingCwd: projectDirectory
+            )
+
+            #expect(restored.workspace.restoredResumeSessionWorkingDirectoriesByPanelId[restored.panelId] == nil)
+            let script = try harness.resumeLauncherScript(from: restored.panel)
+            #expect(!script.contains("cd -- '\(projectDirectory)'"))
+            #expect(!script.contains("cd -- '\(staleDirectory)'"))
+            #expect(script.contains("exec -l \"$_cmux_resume_shell\""))
+        }
+    }
+
     private func withIsolatedAutoResumeDefaults<T>(_ body: (UserDefaults) throws -> T) throws -> T {
         let suiteName = "cmux.AgentSessionAutoResumeReturnDirectoryTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -235,7 +265,8 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         sessionDirectory: String,
         sessionId: String,
         defaults: UserDefaults,
-        bindingKind: String
+        bindingKind: String,
+        bindingCwd: String? = nil
     ) throws -> (workspace: Workspace, panel: TerminalPanel, panelId: UUID) {
         let source = Workspace(agentSessionAutoResumeDefaults: defaults)
         let sourcePanelId = try #require(source.focusedPanelId)
@@ -246,7 +277,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
                 name: "Acme Ignore",
                 kind: bindingKind,
                 command: "acme-agent --session \(sessionId)",
-                cwd: nil,
+                cwd: bindingCwd,
                 checkpointId: sessionId,
                 source: "agent-hook",
                 autoResume: true,
