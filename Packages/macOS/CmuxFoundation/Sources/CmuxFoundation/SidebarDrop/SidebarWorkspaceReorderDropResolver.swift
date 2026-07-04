@@ -190,7 +190,9 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                     guard !target.isGroupHeader else { return nil }
                     return (groupId, false)
                 case .bottom:
-                    let nextIsSameGroup = context.nextTarget?.groupId == groupId
+                    let nextIsSameGroup = context.nextTarget?.groupId.map { nextGroupId in
+                        nextGroupId == groupId || groupIsInSubtree(nextGroupId, rootGroupId: groupId, groupsById: groupsById)
+                    } ?? false
                     if nextIsSameGroup { return (groupId, false) }
                     if let parentGroupId = groupsById[groupId]?.parentGroupId,
                        groupsById[parentGroupId] != nil {

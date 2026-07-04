@@ -71,6 +71,81 @@ import Testing
         #expect(explicitGroupId == childGroupId)
     }
 
+    @Test func parentRowBottomEdgeBeforeChildHeaderStaysInParentFolder() throws {
+        let parentGroupId = UUID()
+        let childGroupId = UUID()
+        let parentAnchor = UUID()
+        let parentMember = UUID()
+        let childAnchor = UUID()
+        let childMember = UUID()
+        let dragged = UUID()
+
+        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: SidebarWorkspaceReorderDropRequest(
+                point: CGPoint(x: 0, y: 68),
+                draggedWorkspaceId: dragged,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: parentAnchor, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: parentMember, isPinned: false, groupId: parentGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childAnchor, isPinned: false, groupId: childGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childMember, isPinned: false, groupId: childGroupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil),
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: parentGroupId, anchorWorkspaceId: parentAnchor, isPinned: false),
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: childGroupId,
+                        anchorWorkspaceId: childAnchor,
+                        isPinned: false,
+                        parentGroupId: parentGroupId
+                    ),
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: parentAnchor,
+                        groupId: parentGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: parentMember,
+                        groupId: parentGroupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 12, y: 40, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: childAnchor,
+                        groupId: childGroupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 12, y: 80, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: childMember,
+                        groupId: childGroupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 24, y: 120, width: 156, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: dragged,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 160, width: 180, height: 32)
+                    ),
+                ]
+            )
+        ))
+
+        #expect(plan.indicator == SidebarDropIndicator(tabId: parentMember, edge: .bottom))
+        #expect(plan.indicatorScope == .group(parentGroupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected parent-group reorder plan")
+            return
+        }
+        #expect(targetIndex == 2)
+        #expect(!usesTopLevelRows)
+        #expect(explicitGroupId == parentGroupId)
+    }
+
     private func childFolderBoundaryRequest(
         point: CGPoint,
         parentGroupId: UUID,
