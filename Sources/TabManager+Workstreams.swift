@@ -47,6 +47,17 @@ extension TabManager {
         }
     }
 
+    func fallbackSelectedWorkspaceIdAfterClosingWorkspace(at removedIndex: Int) -> UUID {
+        if drilledInWorkstreamId != nil {
+            let scopedIndices = tabs.indices.filter { tabs[$0].workstreamId == drilledInWorkstreamId }
+            if let scopedIndex = scopedIndices.first(where: { $0 >= removedIndex }) ?? scopedIndices.last {
+                return tabs[scopedIndex].id
+            }
+            exitWorkstreamDrillIn()
+        }
+        return tabs[min(removedIndex, max(0, tabs.count - 1))].id
+    }
+
     @discardableResult
     func deleteWorkspaceGroupMembers(groupId: UUID, visibleInWorkstreamId workstreamId: UUID?, recordHistory: Bool = true) -> Int {
         guard workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }

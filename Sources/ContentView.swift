@@ -10353,11 +10353,7 @@ struct VerticalTabsSidebar: View {
 
     struct WorkspaceListRenderContext {
         let tabs: [Workspace]
-        /// Stored snapshot of `tabs.map(\.id)` so per-row predicates that need
-        /// it (e.g. `SidebarTabDropIndicatorPredicate.topVisible`) don't pay
-        /// O(n) per row.
         let tabIds: [UUID]
-        /// Drag-scope row ids shared by every visible row for this render pass.
         let sidebarReorderIds: [UUID]
         let workspaceCount: Int
         let canCloseWorkspace: Bool
@@ -10376,6 +10372,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        let visibleWorkspaceRowIndexById: [UUID: Int]
         // Workstreams (top-level drill-in). When `drilledInWorkstreamId` is nil
         // and `workstreamRowSnapshots` is empty, every workstream field is
         // inert and the sidebar renders exactly as it did before workstreams.
@@ -10427,6 +10424,7 @@ struct VerticalTabsSidebar: View {
         )
         let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.workspaceGroupIdsByWorkspaceId(workspaceRenderItems)
         let visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
+        let visibleWorkspaceRowIndexById = Dictionary(uniqueKeysWithValues: visibleWorkspaceRowIds.enumerated().map { ($0.element, $0.offset) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) && visibleTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
@@ -10482,6 +10480,7 @@ struct VerticalTabsSidebar: View {
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            visibleWorkspaceRowIndexById: visibleWorkspaceRowIndexById,
             drilledInWorkstreamId: drilledInWorkstreamId,
             drilledInWorkstreamName: drilledInWorkstreamName,
             drilledInWorkstreamWorkspaceCount: drilledInWorkstreamWorkspaceCount,
@@ -12429,7 +12428,7 @@ struct VerticalTabsSidebar: View {
             syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
             onDragStart: onDragStart,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-            visibleWorkspaceRowIndex: renderContext.visibleWorkspaceRowIds.firstIndex(of: tab.id),
+            visibleWorkspaceRowIndex: renderContext.visibleWorkspaceRowIndexById[tab.id],
             visibleWorkspaceRowCount: renderContext.visibleWorkspaceRowIds.count,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
             allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,

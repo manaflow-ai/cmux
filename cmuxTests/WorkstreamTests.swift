@@ -236,6 +236,37 @@ struct WorkstreamTests {
         #expect(!manager.workspaceGroups.contains { $0.id == groupId })
     }
 
+    @Test func closingSelectedWorkspaceWhileDrilledInSelectsScopedNeighbor() throws {
+        let manager = makeTabManager(workspaceCount: 4)
+        let closing = manager.tabs[1]
+        let scopedNeighbor = manager.tabs[3]
+        let workstreamId = manager.createWorkstream(
+            name: "WS",
+            memberWorkspaceIds: [closing.id, scopedNeighbor.id]
+        )
+        manager.enterWorkstream(id: workstreamId)
+        manager.selectWorkspace(closing)
+
+        manager.closeWorkspace(closing)
+
+        #expect(manager.drilledInWorkstreamId == workstreamId)
+        #expect(manager.selectedTabId == scopedNeighbor.id)
+    }
+
+    @Test func closingLastSelectedWorkspaceInDrillInExitsToTopLevel() throws {
+        let manager = makeTabManager()
+        let closing = manager.tabs[1]
+        let workstreamId = manager.createWorkstream(name: "WS", memberWorkspaceIds: [closing.id])
+        manager.enterWorkstream(id: workstreamId)
+        manager.selectWorkspace(closing)
+
+        manager.closeWorkspace(closing)
+
+        #expect(manager.drilledInWorkstreamId == nil)
+        let selected = try #require(manager.selectedWorkspace)
+        #expect(selected.workstreamId == nil)
+    }
+
     @Test func restoringClosedWorkspaceReconcilesDrillInToRestoredWorkstream() throws {
         let manager = makeTabManager()
         let restoredWorkstream = manager.createWorkstream(name: "Restored")
