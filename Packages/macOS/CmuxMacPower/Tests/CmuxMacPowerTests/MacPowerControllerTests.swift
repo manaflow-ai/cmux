@@ -2,45 +2,6 @@ import Testing
 
 @testable import CmuxMacPower
 
-/// Records every command the controller runs and returns canned results, so the
-/// controller's behavior can be exercised without touching the real machine. An
-/// actor so it is `Sendable` and async-safe under Swift 6 strict concurrency.
-private actor FakeRunner: MacPowerCommandRunning {
-    struct Call: Equatable {
-        let tool: String
-        let arguments: [String]
-    }
-
-    private(set) var calls: [Call] = []
-    /// stdout returned by `capture`, keyed by tool path.
-    private var captures: [String: [String]]
-    /// exit-success returned by `run`, keyed by tool path (default true).
-    private let runResults: [String: Bool]
-
-    init(captures: [String: String] = [:], runResults: [String: Bool] = [:]) {
-        self.captures = captures.mapValues { [$0] }
-        self.runResults = runResults
-    }
-
-    init(captureSequences: [String: [String]], runResults: [String: Bool] = [:]) {
-        self.captures = captureSequences
-        self.runResults = runResults
-    }
-
-    func run(_ tool: String, _ arguments: [String]) async -> Bool {
-        calls.append(Call(tool: tool, arguments: arguments))
-        return runResults[tool] ?? true
-    }
-
-    func capture(_ tool: String, _ arguments: [String]) async -> String? {
-        calls.append(Call(tool: tool, arguments: arguments))
-        guard var values = captures[tool], !values.isEmpty else { return nil }
-        let value = values.removeFirst()
-        captures[tool] = values
-        return value
-    }
-}
-
 private let caffeinateAssertions = """
 Listed by owning process:
    pid 42(caffeinate): [0x000a] PreventUserIdleSystemSleep named: "caffeinate command-line tool"
@@ -63,7 +24,7 @@ Listed by owning process:
 @Suite("MacPowerController")
 struct MacPowerControllerTests {
     @Test func keepAwakeStatusParsesPmsetCapture() async {
-        let runner = FakeRunner(captures: ["/usr/bin/pmset": caffeinateAssertions])
+        let runner = FakeMacPowerCommandRunner(captures: ["/usr/bin/pmset": caffeinateAssertions])
         let status = await MacPowerController(runner: runner).keepAwakeStatus()
         #expect(status?.caffeinateRunning == true)
         #expect(status?.keptAwake == true)
@@ -72,13 +33,13 @@ struct MacPowerControllerTests {
 
     @Test func keepAwakeStatusIsUnknownWhenPmsetUnavailable() async {
         // No capture registered => capture returns nil, not a fake all-clear.
-        let runner = FakeRunner()
+        let runner = FakeMacPowerCommandRunner()
         let status = await MacPowerController(runner: runner).keepAwakeStatus()
         #expect(status == nil)
     }
 
     @Test func sleepSystemRunsSystemEventsAppleScript() async {
-        let runner = FakeRunner()
+        let runner = FakeMacPowerCommandRunner()
         let ok = await MacPowerController(runner: runner).sleepSystem()
         #expect(ok)
         let call = await runner.calls.first
@@ -88,7 +49,7 @@ struct MacPowerControllerTests {
 
     @Test func sleepSystemReportsFailureWhenCommandFails() async {
         // Simulates automation not yet granted: osascript exits non-zero.
-        let runner = FakeRunner(runResults: ["/usr/bin/osascript": false])
+        let runner = FakeMacPowerCommandRunner(runResults: ["/usr/bin/osascript": false])
         let ok = await MacPowerController(runner: runner).sleepSystem()
         #expect(ok == false)
     }
@@ -100,7 +61,7 @@ struct MacPowerControllerTests {
     }
 
     @Test func disableKeepAwakeKillsCaffeinateThenRereadsStatus() async throws {
-        let runner = FakeRunner(captureSequences: [
+        let runner = FakeMacPowerCommandRunner(captureSequences: [
             "/usr/bin/pmset": [caffeinateAssertions, idleAssertions],
             "/bin/ps": [caffeinateCommandPath],
         ], runResults: ["/bin/kill": true])
@@ -118,7 +79,7 @@ struct MacPowerControllerTests {
     }
 
     @Test func disableKeepAwakeSkipsKillWhenPidNoLongerBelongsToCaffeinate() async throws {
-        let runner = FakeRunner(captureSequences: [
+        let runner = FakeMacPowerCommandRunner(captureSequences: [
             "/usr/bin/pmset": [caffeinateAssertions, idleAssertions],
             "/bin/ps": ["/bin/zsh\n"],
         ], runResults: ["/bin/kill": true])
@@ -134,7 +95,7 @@ struct MacPowerControllerTests {
     }
 
     @Test func disableKeepAwakeReportsNothingTerminatedWhenNoCaffeinate() async throws {
-        let runner = FakeRunner(captures: ["/usr/bin/pmset": amphetamineAssertions])
+        let runner = FakeMacPowerCommandRunner(captures: ["/usr/bin/pmset": amphetamineAssertions])
         let maybeOutcome = await MacPowerController(runner: runner).disableKeepAwake()
         let outcome = try #require(maybeOutcome)
         #expect(outcome.terminatedCaffeinate == false)

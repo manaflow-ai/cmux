@@ -1,92 +1,89 @@
 internal import Foundation
 
-extension MacKeepAwakeStatus {
-    /// Parse `pmset -g assertions` output into a keep-awake status.
-    ///
-    /// `pmset -g assertions` prints a system-wide summary, then a "Listed by
-    /// owning process" section with one line per (process, assertion type):
-    ///
-    /// ```
-    /// Assertion status system-wide:
-    ///    PreventUserIdleSystemSleep     1
-    ///    ...
-    /// Listed by owning process:
-    ///    pid 42(caffeinate): [0x000…04a0] 00:13:25 PreventUserIdleSystemSleep named: "caffeinate command-line tool"
-    ///    pid 88(cmux): [0x000…04a8] PreventUserIdleSystemSleep named: "cmux keep awake"
-    /// Kernel Assertions: 0x4=USB
-    ///    id=500 level=255 0x4=USB …
-    /// ```
-    ///
-    /// Only the owning-process section is read — the precise, attributable
-    /// truth — merging multiple lines for the same pid, and deriving the
-    /// booleans from the set of assertion types seen. The system-wide aggregate
-    /// counts are intentionally ignored because they cannot attribute "who" is
-    /// keeping the Mac awake.
-    public static func parse(pmsetAssertions output: String) -> MacKeepAwakeStatus {
-        // Preserve first-seen order of pids while merging their assertion types.
-        var typesByPID: [Int: [String]] = [:]
-        var nameByPID: [Int: String] = [:]
-        var detailByPID: [Int: String] = [:]
-        var pidOrder: [Int] = []
-        var inOwningSection = false
+/// Parse `pmset -g assertions` output into a keep-awake status.
+///
+/// `pmset -g assertions` prints a system-wide summary, then a "Listed by
+/// owning process" section with one line per process/assertion type:
+///
+/// ```
+/// Assertion status system-wide:
+///    PreventUserIdleSystemSleep     1
+///    ...
+/// Listed by owning process:
+///    pid 42(caffeinate): [0x000…04a0] 00:13:25 PreventUserIdleSystemSleep named: "caffeinate command-line tool"
+///    pid 88(cmux): [0x000…04a8] PreventUserIdleSystemSleep named: "cmux keep awake"
+/// Kernel Assertions: 0x4=USB
+///    id=500 level=255 0x4=USB …
+/// ```
+///
+/// Only the owning-process section is read: the precise, attributable truth.
+/// Multiple lines for the same pid are merged, and the booleans are derived
+/// from the assertion types seen. The system-wide aggregate counts are ignored
+/// because they cannot attribute who is keeping the Mac awake.
+func macParseKeepAwakeStatus(pmsetAssertions output: String) -> MacKeepAwakeStatus {
+    // Preserve first-seen order of pids while merging their assertion types.
+    var typesByPID: [Int: [String]] = [:]
+    var nameByPID: [Int: String] = [:]
+    var detailByPID: [Int: String] = [:]
+    var pidOrder: [Int] = []
+    var inOwningSection = false
 
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(rawLine)
-            let isIndented = line.hasPrefix(" ") || line.hasPrefix("\t")
-            // Any non-indented line starts a new top-level section. We are inside
-            // the owning-process list only while the most recent header was the
-            // "Listed by owning process:" one; "Kernel Assertions:" and the
-            // leading timestamp both reset the flag.
-            if !isIndented {
-                let header = line.trimmingCharacters(in: .whitespaces).lowercased()
-                inOwningSection = header.hasPrefix("listed by owning process")
-                continue
-            }
-            guard inOwningSection else { continue }
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("pid "), let parsed = macParsePmsetProcessLine(trimmed) else { continue }
-            if typesByPID[parsed.pid] == nil {
-                typesByPID[parsed.pid] = []
-                nameByPID[parsed.pid] = parsed.name
-                pidOrder.append(parsed.pid)
-            }
-            for type in parsed.types where !(typesByPID[parsed.pid]?.contains(type) ?? false) {
-                typesByPID[parsed.pid]?.append(type)
-            }
-            if detailByPID[parsed.pid] == nil, let detail = parsed.detail {
-                detailByPID[parsed.pid] = detail
-            }
+    for rawLine in output.split(separator: "\n", omittingEmptySubsequences: false) {
+        let line = String(rawLine)
+        let isIndented = line.hasPrefix(" ") || line.hasPrefix("\t")
+        // Any non-indented line starts a new top-level section. We are inside
+        // the owning-process list only while the most recent header was the
+        // "Listed by owning process:" one; "Kernel Assertions:" and the
+        // leading timestamp both reset the flag.
+        if !isIndented {
+            let header = line.trimmingCharacters(in: .whitespaces).lowercased()
+            inOwningSection = header.hasPrefix("listed by owning process")
+            continue
         }
-
-        let holders: [MacPowerAssertionHolder] = pidOrder.compactMap { pid in
-            guard let types = typesByPID[pid], !types.isEmpty else { return nil }
-            return MacPowerAssertionHolder(
-                pid: pid,
-                processName: nameByPID[pid] ?? "",
-                assertionTypes: types,
-                detail: detailByPID[pid]
-            )
+        guard inOwningSection else { continue }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("pid "), let parsed = macParsePmsetProcessLine(trimmed) else { continue }
+        if typesByPID[parsed.pid] == nil {
+            typesByPID[parsed.pid] = []
+            nameByPID[parsed.pid] = parsed.name
+            pidOrder.append(parsed.pid)
         }
+        for type in parsed.types where !(typesByPID[parsed.pid]?.contains(type) ?? false) {
+            typesByPID[parsed.pid]?.append(type)
+        }
+        if detailByPID[parsed.pid] == nil, let detail = parsed.detail {
+            detailByPID[parsed.pid] = detail
+        }
+    }
 
-        let preventsSystem = holders.contains { !macSystemSleepAssertionTypes.isDisjoint(with: Set($0.assertionTypes)) }
-        let preventsDisplay = holders.contains { $0.assertionTypes.contains(macDisplaySleepAssertionType) }
-        let cmux = holders.contains { macIsCmuxProcess($0.processName) }
-        let caffeinate = holders.contains { macIsCaffeinateProcess($0.processName) }
-
-        return MacKeepAwakeStatus(
-            keptAwake: preventsSystem || preventsDisplay,
-            preventsSystemSleep: preventsSystem,
-            preventsDisplaySleep: preventsDisplay,
-            cmuxKeepingAwake: cmux,
-            caffeinateRunning: caffeinate,
-            holders: holders
+    let holders: [MacPowerAssertionHolder] = pidOrder.compactMap { pid in
+        guard let types = typesByPID[pid], !types.isEmpty else { return nil }
+        return MacPowerAssertionHolder(
+            pid: pid,
+            processName: nameByPID[pid] ?? "",
+            assertionTypes: types,
+            detail: detailByPID[pid]
         )
     }
+
+    let preventsSystem = holders.contains { !macSystemSleepAssertionTypes.isDisjoint(with: Set($0.assertionTypes)) }
+    let preventsDisplay = holders.contains { $0.assertionTypes.contains(macDisplaySleepAssertionType) }
+    let cmux = holders.contains { macIsCmuxProcess($0.processName) }
+    let caffeinate = holders.contains { macIsCaffeinateProcess($0.processName) }
+
+    return MacKeepAwakeStatus(
+        keptAwake: preventsSystem || preventsDisplay,
+        preventsSystemSleep: preventsSystem,
+        preventsDisplaySleep: preventsDisplay,
+        cmuxKeepingAwake: cmux,
+        caffeinateRunning: caffeinate,
+        holders: holders
+    )
 }
 
 // MARK: - pmset assertion parsing helpers
 //
-// File-scoped helpers (not a namespace type) for ``MacKeepAwakeStatus/parse(pmsetAssertions:)``.
+// File-scoped helpers for ``macParseKeepAwakeStatus(pmsetAssertions:)``.
 
 /// Assertion types that keep the whole system from sleeping.
 private let macSystemSleepAssertionTypes: Set<String> = [

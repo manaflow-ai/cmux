@@ -10,6 +10,7 @@ import Foundation
 public struct MacPowerController: Sendable {
     private let runner: any MacPowerCommandRunning
 
+    /// Creates a power controller with an injectable command runner.
     public init(runner: any MacPowerCommandRunning = SystemMacPowerCommandRunner()) {
         self.runner = runner
     }
@@ -22,7 +23,7 @@ public struct MacPowerController: Sendable {
         guard let output = await runner.capture("/usr/bin/pmset", ["-g", "assertions"]) else {
             return nil
         }
-        return MacKeepAwakeStatus.parse(pmsetAssertions: output)
+        return macParseKeepAwakeStatus(pmsetAssertions: output)
     }
 
     /// Put the whole Mac to sleep now.

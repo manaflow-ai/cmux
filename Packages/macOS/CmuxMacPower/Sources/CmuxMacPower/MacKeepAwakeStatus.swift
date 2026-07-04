@@ -1,23 +1,3 @@
-/// One process currently holding a power assertion that keeps the Mac (or its
-/// display) awake, as reported by `pmset -g assertions`.
-public struct MacPowerAssertionHolder: Sendable, Equatable, Codable {
-    /// The owning process id.
-    public let pid: Int
-    /// The owning process name (e.g. `caffeinate`, `cmux`, `Google Chrome`).
-    public let processName: String
-    /// The assertion types this process holds, e.g. `PreventUserIdleSystemSleep`.
-    public let assertionTypes: [String]
-    /// The human-readable assertion reason (pmset's `named:` field), if present.
-    public let detail: String?
-
-    public init(pid: Int, processName: String, assertionTypes: [String], detail: String?) {
-        self.pid = pid
-        self.processName = processName
-        self.assertionTypes = assertionTypes
-        self.detail = detail
-    }
-}
-
 /// A structured snapshot of whether the Mac is being kept awake, and by whom.
 ///
 /// The booleans are derived from the per-process assertion holders so the phone
@@ -38,6 +18,7 @@ public struct MacKeepAwakeStatus: Sendable, Equatable, Codable {
     /// Every process currently holding a keep-awake assertion.
     public let holders: [MacPowerAssertionHolder]
 
+    /// Creates a structured keep-awake snapshot from parsed assertion holders.
     public init(
         keptAwake: Bool,
         preventsSystemSleep: Bool,
@@ -85,18 +66,5 @@ public struct MacKeepAwakeStatus: Sendable, Equatable, Codable {
                 return object
             },
         ]
-    }
-}
-
-/// The result of ``MacPowerController/disableKeepAwake()``.
-public struct MacKeepAwakeDisableOutcome: Sendable, Equatable {
-    /// True if at least one `caffeinate` process was signaled (pkill exit 0).
-    public let terminatedCaffeinate: Bool
-    /// The keep-awake status re-read after the disable ran.
-    public let status: MacKeepAwakeStatus
-
-    public init(terminatedCaffeinate: Bool, status: MacKeepAwakeStatus) {
-        self.terminatedCaffeinate = terminatedCaffeinate
-        self.status = status
     }
 }
