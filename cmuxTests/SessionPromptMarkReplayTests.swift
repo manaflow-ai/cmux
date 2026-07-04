@@ -48,12 +48,13 @@ struct SessionPromptMarkReplayTests {
         )
     }
 
-    @Test func noOpsOnAmbiguousBlockquoteEcho() {
+    @Test func marksStyledPromptWithPlainBlockquoteEcho() {
         let esc = "\u{001B}"
         let reset = "\(esc)[0m"
         let message = "fix the flaky test"
+        let promptRow = "\(esc)[2m> \(reset)\(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test"
         let lines = [
-            "\(esc)[2m> \(reset)\(esc)[1mfix\(reset) the \(esc)[4mflaky\(reset) test",
+            promptRow,
             "\(esc)[33m⏺\(reset) Here's the plan:",
             "> fix the flaky test",
             "\(esc)[32m● done\(reset)",
@@ -65,8 +66,8 @@ struct SessionPromptMarkReplayTests {
             lastUserMessage: message
         )
 
-        #expect(!marked.contains("\(esc)]133;A"))
-        #expect(marked == scrollback)
+        #expect(marked.contains("\(SessionScrollbackReplayStore.semanticPromptStartMark)\(promptRow)"))
+        #expect(marked != scrollback)
     }
 
     @Test func doesNotMarkSinglePlainBlockquoteWithoutPromptRow() {
