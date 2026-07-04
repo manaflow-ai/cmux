@@ -37,7 +37,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
 
     /// Build the ordered list items from a workspace list and its groups.
     ///
-    /// Mirrors `SidebarWorkspaceRenderItem.renderItems` on the Mac:
+    /// Mirrors the Mac sidebar list snapshot:
     /// - Items follow `workspaces` order. A group header is emitted at the first
     ///   member's position.
     /// - The anchor workspace is never a separate row (the header represents it).

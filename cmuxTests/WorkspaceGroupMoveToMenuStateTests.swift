@@ -18,7 +18,7 @@ struct WorkspaceGroupMoveToMenuStateTests {
     }
 
     @Test func usesSubmenuWhenGroupsExist() {
-        let group = WorkspaceGroupMenuSnapshot.Item(
+        let group = WorkspaceGroupMenuSnapshotItem(
             id: UUID(),
             name: "Group"
         )

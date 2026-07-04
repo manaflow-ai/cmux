@@ -55,12 +55,45 @@ public final class SidebarWorkspaceListSnapshot<Tab: WorkspaceTabRepresenting> {
         workspaceGroupByAnchorId = groupsByAnchorId
         workspaceGroupAnchorIds = Set(workspaceGroups.map(\.anchorWorkspaceId))
         workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
-            items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
+            items: workspaceGroups.map { WorkspaceGroupMenuSnapshotItem(id: $0.id, name: $0.name) }
         )
-        workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
-            tabs: tabs,
-            groupsById: groupsById
-        )
+        var memberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
+        for tab in tabs {
+            if let gid = tab.groupId {
+                memberWorkspaceIdsByGroupId[gid, default: []].append(tab.id)
+            }
+        }
+        var renderItems: [SidebarWorkspaceRenderItem<Tab>] = []
+        renderItems.reserveCapacity(tabs.count + groupsById.count)
+        var lastEmittedGroupId: UUID? = nil
+        var emittedHeaders: Set<UUID> = []
+        var collapsedByGroupId: [UUID: Bool] = [:]
+        var skipChildrenUntilNextGroup = false
+        for tab in tabs {
+            let groupId = tab.groupId
+            if groupId != lastEmittedGroupId {
+                lastEmittedGroupId = groupId
+                skipChildrenUntilNextGroup = false
+                if let groupId, let group = groupsById[groupId] {
+                    if !emittedHeaders.contains(groupId) {
+                        let memberWorkspaceIds = memberWorkspaceIdsByGroupId[groupId] ?? []
+                        renderItems.append(.groupHeader(group, memberWorkspaceIds: memberWorkspaceIds))
+                        emittedHeaders.insert(groupId)
+                        collapsedByGroupId[groupId] = group.isCollapsed
+                    }
+                    // If legacy reorder paths ever leave a group's members in
+                    // two runs, keep honoring the same collapse decision.
+                    skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
+                }
+            }
+            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
+                continue
+            }
+            if groupId == nil || !skipChildrenUntilNextGroup {
+                renderItems.append(.workspace(tab))
+            }
+        }
+        workspaceRenderItems = renderItems
         visibleWorkspaceRowIds = workspaceRenderItems.map(\.rowWorkspaceId)
         visibleWorkspaceRowIdSet = Set(visibleWorkspaceRowIds)
         var emittedGroupIds = Set<UUID>()

@@ -10,17 +10,17 @@ public struct SidebarWorkspaceRenderItemID: Hashable, Sendable {
     private let uuid: UUID
 
     /// Creates an identifier for a rendered workspace group header.
-    /// - Parameter uuid: The workspace group's stable identifier.
-    /// - Returns: A row identifier in the group-header namespace.
-    public static func group(_ uuid: UUID) -> Self {
-        Self(kind: 1, uuid: uuid)
+    /// - Parameter groupId: The workspace group's stable identifier.
+    public init(groupId: UUID) {
+        kind = 1
+        uuid = groupId
     }
 
     /// Creates an identifier for a rendered workspace row.
-    /// - Parameter uuid: The workspace's stable identifier.
-    /// - Returns: A row identifier in the workspace-row namespace.
-    public static func workspace(_ uuid: UUID) -> Self {
-        Self(kind: 2, uuid: uuid)
+    /// - Parameter workspaceId: The workspace's stable identifier.
+    public init(workspaceId: UUID) {
+        kind = 2
+        uuid = workspaceId
     }
 
     /// Compares two row identifiers by namespace and UUID.
