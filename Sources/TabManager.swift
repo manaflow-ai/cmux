@@ -5629,6 +5629,13 @@ extension TabManager {
                 }
             }
 
+            // The persisted snapshot records the full split layout, but the
+            // panel loop above hashes ids in UUID-sorted order and is blind to
+            // pane/surface order, splits, and divider positions. Fold the live
+            // layout in so a pure reorder/resplit bumps the fingerprint and the
+            // autosave re-persists it (#6184).
+            workspace.combineSessionLayoutAutosaveFingerprint(into: &hasher)
+
             if let progress = workspace.progress {
                 hasher.combine(Int((progress.value * 1000).rounded()))
                 hasher.combine(progress.label)
