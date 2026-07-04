@@ -188,6 +188,7 @@ Set these Vercel environment variables per production/staging environment:
   keeping list, attach, and delete available.
 - `CMUX_VM_E2B_ENABLED`, per-provider E2B create kill switch.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY`, Ed25519 private key used to mint short-lived WebSocket attach tokens.
 - `CMUX_VM_ALLOWED_ORIGINS`, optional comma-separated extra origins allowed for cookie mutations.
 - `E2B_API_KEY`, E2B provider key.
 - `FREESTYLE_API_KEY`, Freestyle provider key.
@@ -205,6 +206,10 @@ Set these Vercel environment variables per production/staging environment:
 - `CMUX_VM_PAID_MAX_ACTIVE_VMS`, default `10`.
 - Stack Auth environment variables.
 - Axiom/OpenTelemetry exporter variables.
+
+Image build env:
+
+- `CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY`, build-time Ed25519 public key baked into new Cloud VM images so cmuxd can verify signed attach tokens.
 
 Local development keeps using Docker Postgres through `DATABASE_URL`, derived from `CMUX_PORT`.
 
@@ -310,7 +315,7 @@ as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH
 
 E2B interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client.
 
-Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, and `FREESTYLE_SANDBOX_SNAPSHOT` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, reusable daemon RPC lease, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
+Operational note: Freestyle is the intended default when `CMUX_VM_DEFAULT_PROVIDER=freestyle`. Before rollout or rollback, verify the deployed `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_SANDBOX_SNAPSHOT`, and `CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY` env values with `bun run cloud-vm:env:audit -- <target> --strict`, then confirm WebSocket PTY, daemon RPC, and browser proxy health with `bun run cloud-vm:stress -- <target> --provider default`. Keep E2B enabled as the rollback provider.
 
 ## Usage, limits, and pricing
 

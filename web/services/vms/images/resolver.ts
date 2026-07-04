@@ -9,6 +9,10 @@ export type VmImageManifestEntry = {
   readonly imageId: string;
   readonly envVar: string;
   readonly defaultForLocalDev?: boolean;
+  readonly features?: {
+    readonly signedWebSocketAuth?: boolean;
+    readonly signedAuthPublicKeySha256?: string;
+  };
   readonly cmuxdRemoteCommit: string;
   readonly builtAt: string;
   readonly builderScriptVersion: string;
@@ -42,6 +46,19 @@ export function providerImageEnvKey(provider: ProviderId): string {
 
 export function listVmImageManifestEntries(): readonly VmImageManifestEntry[] {
   return typedManifest.images;
+}
+
+export function imageSupportsSignedWebSocketAuth(provider: ProviderId, imageId: string): boolean {
+  return imageSignedAuthPublicKeySha256(provider, imageId) !== null;
+}
+
+export function imageSignedAuthPublicKeySha256(provider: ProviderId, imageId: string): string | null {
+  const entry = typedManifest.images.find((candidate) =>
+    candidate.provider === provider && candidate.imageId === imageId
+  );
+  const fingerprint = entry?.features?.signedAuthPublicKeySha256?.trim();
+  if (entry?.features?.signedWebSocketAuth !== true || !fingerprint) return null;
+  return fingerprint;
 }
 
 export function resolveVmImage(

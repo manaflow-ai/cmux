@@ -11,7 +11,7 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let items = try await VMClient.shared.list()
                 return [
-                    "vms": items.map { ["id": $0.id, "provider": $0.provider, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
+                    "vms": items.map { $0.socketPayload },
                 ]
             }
         case "vm.create":
@@ -27,7 +27,7 @@ extension TerminalController {
             }
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
-                return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
+                return vm.socketPayload
             }
         case "vm.destroy":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -204,4 +204,29 @@ extension TerminalController {
         if let string = raw as? String { return Int(string) }
         return nil
     }
+}
+
+private extension VMSummary {
+    var socketPayload: [String: Any] {
+        var payload: [String: Any] = [
+            "id": id,
+            "provider": provider,
+            "image": image,
+            "createdAt": createdAt,
+        ]
+        for (key, value) in metadata {
+            payload[key] = value
+        }
+        return payload
+    }
+}
+
+func vmSummaryMetadata(_ dict: [String: Any]) -> [String: String] {
+    var metadata = ["status": (dict["status"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "running"]
+    for key in ["failureCode", "failureMessage"] {
+        if let value = (dict[key] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
+            metadata[key] = value
+        }
+    }
+    return metadata
 }

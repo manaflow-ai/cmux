@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { resolveVmImage } from "../services/vms/images/resolver";
+import {
+  imageSignedAuthPublicKeySha256,
+  imageSupportsSignedWebSocketAuth,
+  resolveVmImage,
+} from "../services/vms/images/resolver";
 import { VmImageConfigError } from "../services/vms/errors";
 
 describe("VM image resolver", () => {
@@ -11,9 +15,19 @@ describe("VM image resolver", () => {
     });
     expect(resolveVmImage("freestyle", undefined, {})).toMatchObject({
       provider: "freestyle",
-      image: "sh-17agfasevrc18c8f15nn",
-      imageVersion: "freestyle-tooling-20260509d",
+      image: "sh-6a3egjzxg8nfo52t21vs",
+      imageVersion: "freestyle-signedauth-20260614d",
+      manifestEntry: {
+        features: {
+          signedWebSocketAuth: true,
+          signedAuthPublicKeySha256: "3e979ee9c381b40c49a868d511edb5002631355138ac1e29841f066b8aab09a5",
+        },
+      },
     });
+    expect(imageSupportsSignedWebSocketAuth("freestyle", "sh-6a3egjzxg8nfo52t21vs")).toBe(true);
+    expect(imageSignedAuthPublicKeySha256("freestyle", "sh-6a3egjzxg8nfo52t21vs")).toBe(
+      "3e979ee9c381b40c49a868d511edb5002631355138ac1e29841f066b8aab09a5",
+    );
   });
 
   test("requires deployed env selectors", () => {

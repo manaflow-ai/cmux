@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"net"
@@ -39,6 +41,35 @@ func TestWebSocketRPCRejectsMissingAndWrongLease(t *testing.T) {
 	_, _, err = conn.Read(ctx)
 	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
 		t.Fatalf("wrong token should close with policy violation, got err=%v status=%v", err, websocket.CloseStatus(err))
+	}
+}
+
+func TestWebSocketRPCAcceptsSignedToken(t *testing.T) {
+	useTempSignedLeaseUsedDir(t)
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	audienceFile := writeSignedAudienceFile(t, "vm-test")
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:       t.TempDir() + "/pty-lease.json",
+		RPCAuthLeaseFile:       t.TempDir() + "/rpc-lease.json",
+		SignedAuthPublicKey:    base64.StdEncoding.EncodeToString(publicKey),
+		SignedAuthAudienceFile: audienceFile,
+		Shell:                  "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	token := signedTestToken(t, privateKey, "rpc", "vm-test", "sess-rpc-signed", false, time.Now().Add(time.Minute), "jti-rpc-signed")
+	conn := dialRPC(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendRPCAuth(t, ctx, conn, token, "sess-rpc-signed")
+	ready := readWSRPCFrame(t, ctx, conn)
+	if ready["type"] != "ready" {
+		t.Fatalf("expected ready frame, got %v", ready)
 	}
 }
 

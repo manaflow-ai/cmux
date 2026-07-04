@@ -211,13 +211,13 @@ private func limitedSingleLine(_ value: String, maxCharacters: Int = 1200) -> St
     return String(singleLine[..<index]) + "..."
 }
 
-struct VMSummary {
+struct VMSummary: Sendable {
     let id: String
     let provider: String
     let image: String
+    let metadata: [String: String]
     let createdAt: Int64
 }
-
 struct VMExecResult {
     let exitCode: Int
     let stdout: String
@@ -310,7 +310,7 @@ actor VMClient {
             }
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            return VMSummary(id: id, provider: provider, image: image, createdAt: createdAt)
+            return VMSummary(id: id, provider: provider, image: image, metadata: vmSummaryMetadata(dict), createdAt: createdAt)
         }
     }
 
@@ -344,7 +344,7 @@ actor VMClient {
         let serverCreatedAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-        return VMSummary(id: id, provider: providerValue, image: imageValue, createdAt: createdAt)
+        return VMSummary(id: id, provider: providerValue, image: imageValue, metadata: vmSummaryMetadata(obj), createdAt: createdAt)
     }
 
     func destroy(id: String) async throws {

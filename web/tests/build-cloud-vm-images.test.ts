@@ -3,6 +3,7 @@ import { Freestyle } from "freestyle";
 import {
   cloudAgentToolPackageSpecs,
   cloudImageSmokeTestCommands,
+  cloudVmAttachSignedAuthManifestFields,
   cloudToolInstallCommands,
   findFreestyleSnapshotByName,
   freestyleRecoveryWindowStart,
@@ -93,6 +94,25 @@ describe("Cloud VM image build helpers", () => {
         delete process.env[key];
       } else {
         process.env[key] = previous;
+      }
+    }
+  });
+
+  test("signed auth manifests include the baked public key fingerprint", () => {
+    const previous = process.env.CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY;
+    process.env.CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY = "cblTdF4Tq4wUZ7oU6UGcavGT7t35RfSMnu9JcnrA8lk=";
+    try {
+      expect(cloudVmAttachSignedAuthManifestFields()).toEqual({
+        features: {
+          signedWebSocketAuth: true,
+          signedAuthPublicKeySha256: "3e979ee9c381b40c49a868d511edb5002631355138ac1e29841f066b8aab09a5",
+        },
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY;
+      } else {
+        process.env.CMUX_VM_ATTACH_VERIFY_PUBLIC_KEY = previous;
       }
     }
   });

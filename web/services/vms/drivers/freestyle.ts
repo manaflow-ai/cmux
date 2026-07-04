@@ -17,13 +17,18 @@ import {
   setSpanAttributes,
   withVmSpan,
 } from "../telemetry";
+import { imageSupportsSignedWebSocketAuth } from "../images/resolver";
 import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
   leaseClientMetadata,
+  makeSignedWebSocketAuthToken,
+  makeReusableSignedWebSocketAuthToken,
   makeWebSocketLease,
+  parentDirectory,
   shellArgValue,
   shellQuote,
+  signedAttachPublicKeySha256,
   type ReusableRpcLease,
 } from "./wsLease";
 
@@ -36,10 +41,12 @@ const CMUX_LINUX_USER = "cmux"; // must match Resources/install.sh in scratch/vm
 const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
 const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
 const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
+const CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH = "/etc/cmux/attach-audience";
 const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const FREESTYLE_WS_PORTS = [{ port: 443, targetPort: 7777 }];
+const SIGNING_PRIVATE_KEY_ENV = "CMUX_VM_ATTACH_SIGNING_PRIVATE_KEY";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -101,6 +108,7 @@ export class FreestyleProvider implements VMProvider {
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
           });
+          await setupFreestyleSignedAttachIfNeeded(fs, image, created.vmId);
           setSpanAttributes(span, { "cmux.vm.id": created.vmId });
           return {
             provider: "freestyle",
@@ -110,7 +118,12 @@ export class FreestyleProvider implements VMProvider {
             createdAt: Date.now(),
           };
         } catch (err) {
-          throw new ProviderError("freestyle", `create(${image})`, err);
+          throw new ProviderError(
+            "freestyle",
+            `create(${image})`,
+            err,
+            allocatedProviderVmIdFromError(err),
+          );
         }
       },
     );
@@ -292,6 +305,7 @@ export class FreestyleProvider implements VMProvider {
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
           });
+          await setupFreestyleSignedAttachIfNeeded(fs, snapshotId, created.vmId);
           setSpanAttributes(span, { "cmux.vm.id": created.vmId });
           return {
             provider: "freestyle",
@@ -313,7 +327,7 @@ export class FreestyleProvider implements VMProvider {
    */
   async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
     try {
-      const endpoint = await this.openWebSocketPty(vmId);
+      const endpoint = await this.openWebSocketPty(vmId, options);
       if (options?.requireDaemon && !endpoint.daemon) {
         throw new ProviderError(
           "freestyle",
@@ -342,7 +356,7 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
-  async openWebSocketPty(vmId: string): Promise<WebSocketPtyEndpoint> {
+  async openWebSocketPty(vmId: string, options?: AttachOptions): Promise<WebSocketPtyEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_websocket_pty",
       {
@@ -352,11 +366,48 @@ export class FreestyleProvider implements VMProvider {
       },
       async (span) => {
         try {
+          const domain = `${vmId}.vm.freestyle.sh`;
+          const signingPrivateKey = signedAttachPrivateKey();
+          const signedAuthKeyMatchesImage =
+            options?.signedWebSocketAuthPublicKeySha256
+              ? signedAttachKeyMatchesImage(signingPrivateKey, options.signedWebSocketAuthPublicKeySha256)
+              : false;
+          if (options?.signedWebSocketAuth === true && signingPrivateKey && signedAuthKeyMatchesImage) {
+            if (options.webSocketReadinessVerified !== true) {
+              await ensureFreestyleWebSocketHealthy(domain);
+            }
+            const pty = makeSignedWebSocketAuthToken("pty", vmId, true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, signingPrivateKey);
+            const daemon = makeReusableSignedWebSocketAuthToken("rpc", vmId, CMUXD_WS_RPC_LEASE_TTL_SECONDS, signingPrivateKey);
+            span.setAttribute("cmux.vm.attach.transport", "websocket");
+            span.setAttribute("cmux.vm.attach.signed_auth", true);
+            span.setAttribute("cmux.vm.attach.signed_auth_key_match", true);
+            span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
+            span.setAttribute("cmux.vm.attach.daemon_available", true);
+            span.setAttribute("cmux.vm.attach.daemon_expires_at_unix", daemon.expiresAtUnix);
+            span.setAttribute("cmux.vm.attach.daemon_reused", false);
+            return {
+              transport: "websocket",
+              url: `wss://${domain}/terminal`,
+              headers: {},
+              token: pty.token,
+              sessionId: pty.sessionId,
+              expiresAtUnix: pty.expiresAtUnix,
+              daemon: {
+                url: `wss://${domain}/rpc`,
+                headers: {},
+                token: daemon.token,
+                sessionId: daemon.sessionId,
+                expiresAtUnix: daemon.expiresAtUnix,
+              },
+            };
+          }
+          if (options?.signedWebSocketAuth === true) {
+            span.setAttribute("cmux.vm.attach.signed_auth_key_match", false);
+          }
+          await ensureFreestyleWebSocketHealthy(domain);
           const fs = client();
           const vm = fs.vms.ref({ vmId });
-          const domain = `${vmId}.vm.freestyle.sh`;
           const service = await readFreestyleWebSocketService(vm);
-          await ensureFreestyleWebSocketHealthy(domain);
 
           const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS);
           const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
@@ -511,6 +562,20 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+function signedAttachPrivateKey(): string | null {
+  const value = process.env[SIGNING_PRIVATE_KEY_ENV]?.trim();
+  return value ? value : null;
+}
+
+function signedAttachKeyMatchesImage(privateKeyPem: string | null, expectedPublicKeySha256: string): boolean {
+  if (!privateKeyPem) return false;
+  try {
+    return signedAttachPublicKeySha256(privateKeyPem) === expectedPublicKeySha256.trim();
+  } catch {
+    return false;
+  }
+}
+
 async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {
   const response = await fetch(`https://${domain}/healthz`, {
     signal: AbortSignal.timeout(10_000),
@@ -578,4 +643,50 @@ async function execFreestyleOrThrow(vm: FreestyleVmRef, command: string) {
     throw new Error(`Freestyle exec failed with status ${exitCode}: ${(result.stderr ?? "").trim()}`);
   }
   return result;
+}
+
+async function setupFreestyleSignedAttachIfNeeded(
+  fs: Freestyle,
+  image: string,
+  vmId: string,
+): Promise<void> {
+  if (!imageSupportsSignedWebSocketAuth("freestyle", image)) return;
+  const vm = fs.vms.ref({ vmId });
+  try {
+    await writeFreestyleSignedAttachAudience(vm, vmId);
+    await ensureFreestyleWebSocketHealthy(`${vmId}.vm.freestyle.sh`);
+  } catch (err) {
+    try {
+      await vm.delete();
+    } catch (deleteErr) {
+      throw new ProviderError(
+        "freestyle",
+        `create(${image}) post-create setup failed and cleanup failed`,
+        new AggregateError([err, deleteErr], "Freestyle post-create setup and cleanup failed"),
+        vmId,
+      );
+    }
+    throw err;
+  }
+}
+
+function allocatedProviderVmIdFromError(err: unknown): string | undefined {
+  if (err instanceof ProviderError && err.allocatedProviderVmId) {
+    return err.allocatedProviderVmId;
+  }
+  if (!err || typeof err !== "object") return undefined;
+  const cause = (err as { cause?: unknown }).cause;
+  if (!cause || cause === err) return undefined;
+  return allocatedProviderVmIdFromError(cause);
+}
+
+async function writeFreestyleSignedAttachAudience(vm: FreestyleVmRef, vmId: string): Promise<void> {
+  await execFreestyleOrThrow(
+    vm,
+    [
+      `install -d -m 700 ${shellQuote(parentDirectory(CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH))}`,
+      `printf '%s\\n' ${shellQuote(vmId)} > ${shellQuote(CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH)}`,
+      `chmod 600 ${shellQuote(CMUXD_WS_SIGNED_AUTH_AUDIENCE_PATH)}`,
+    ].join(" && "),
+  );
 }
