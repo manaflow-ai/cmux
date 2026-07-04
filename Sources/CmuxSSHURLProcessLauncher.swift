@@ -70,6 +70,7 @@ final class CmuxSSHURLProcessLauncher {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
         environment.removeValue(forKey: "CMUX_SOCKET")
+        environment.removeValue(forKey: "CMUX_SOCKET_PASSWORD")
         process.environment = environment
 
         let outputPipe = Pipe()
