@@ -53,6 +53,9 @@ actor RoutingHostRouter {
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
     static let terminalB = "term-route-b"
+    static let createdTerminal = "term-route-created"
+    private var createdTerminalExists = false
+    private var terminalCreateWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Reject every terminal.paste_image with an error frame, modeling a host
     /// that cannot accept the image (the composer must keep the attachment).
@@ -91,6 +94,11 @@ actor RoutingHostRouter {
     func recordedPastes() -> [PasteRecord] { pastes }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
+    func awaitTerminalCreateRequested() async {
+        if createdTerminalExists { return }
+        await withCheckedContinuation { terminalCreateWaiters.append($0) }
+    }
+
     /// Sendable extract of the request fields the router needs, pulled off the
     /// non-Sendable params dictionary before crossing the Task boundary.
     struct RequestInfo: Sendable {
@@ -108,32 +116,13 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": Self.workspaceID,
-                        "title": "Routing Workspace",
-                        "current_directory": "/tmp/route",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": Self.terminalA,
-                                "title": "A",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                            [
-                                "id": Self.terminalB,
-                                "title": "B",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": false,
-                            ],
-                        ],
-                    ],
-                ],
-            ])
+            return try? workspaceListFrame(id: id)
+        case "terminal.create":
+            createdTerminalExists = true
+            let waiters = terminalCreateWaiters
+            terminalCreateWaiters = []
+            for waiter in waiters { waiter.resume() }
+            return try? workspaceListFrame(id: id, createdTerminalID: Self.createdTerminal)
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
@@ -177,6 +166,49 @@ actor RoutingHostRouter {
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
+    }
+
+    private func workspaceListFrame(id: String?, createdTerminalID: String? = nil) throws -> Data {
+        var terminals: [[String: Any]] = [
+            [
+                "id": Self.terminalA,
+                "title": "A",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": true,
+            ],
+            [
+                "id": Self.terminalB,
+                "title": "B",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": false,
+            ],
+        ]
+        if createdTerminalExists {
+            terminals.append([
+                "id": Self.createdTerminal,
+                "title": "Created",
+                "current_directory": "/tmp/route",
+                "is_ready": false,
+                "is_focused": false,
+            ])
+        }
+        var result: [String: Any] = [
+            "workspaces": [
+                [
+                    "id": Self.workspaceID,
+                    "title": "Routing Workspace",
+                    "current_directory": "/tmp/route",
+                    "is_selected": true,
+                    "terminals": terminals,
+                ],
+            ],
+        ]
+        if let createdTerminalID {
+            result["created_terminal_id"] = createdTerminalID
+        }
+        return try Self.resultFrame(id: id, result: result)
     }
 
     private static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
@@ -302,6 +334,8 @@ func makeRoutingConnectedStore(
     let store = MobileShellComposite(
         runtime: runtime,
         isSignedIn: true,
+        connectionState: .connected,
+        connectedHostName: "Test Mac",
         workspaces: [
             MobileWorkspacePreview(
                 id: .init(rawValue: RoutingHostRouter.workspaceID),
