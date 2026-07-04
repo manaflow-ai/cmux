@@ -8,29 +8,37 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
     private static let initialWorkspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-main")
     private static let initialTerminalID = MobileTerminalPreview.ID(rawValue: "terminal-build")
 
-    @State private var store = MobileShellComposite(
-        isSignedIn: true,
-        connectionState: .connected,
-        connectedHostName: "UI Test Mac",
-        workspaces: [
-            MobileWorkspacePreview(
-                id: initialWorkspaceID,
-                name: "cmux",
-                terminals: [
-                    MobileTerminalPreview(id: initialTerminalID, name: "Build"),
-                ]
-            ),
-            MobileWorkspacePreview(
-                id: "workspace-docs",
-                name: "Docs",
-                terminals: [
-                    MobileTerminalPreview(id: "terminal-notes", name: "Notes"),
-                ]
-            ),
-        ]
-    )
+    private let previewWorkspaceBuilder: WorkspaceDetailPreviewWorkspaceBuilder
+
+    @State private var store: MobileShellComposite
     @State private var browserStore = BrowserSurfaceStore()
     @State private var delayedTerminalTask: Task<Void, Never>?
+
+    init() {
+        let previewWorkspaceBuilder = WorkspaceDetailPreviewWorkspaceBuilder()
+        self.previewWorkspaceBuilder = previewWorkspaceBuilder
+        _store = State(initialValue: MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            connectedHostName: "UI Test Mac",
+            workspaces: [
+                previewWorkspaceBuilder.make(
+                    id: Self.initialWorkspaceID,
+                    name: "cmux",
+                    terminals: [
+                        MobileTerminalPreview(id: Self.initialTerminalID, name: "Build"),
+                    ]
+                ),
+                previewWorkspaceBuilder.make(
+                    id: "workspace-docs",
+                    name: "Docs",
+                    terminals: [
+                        MobileTerminalPreview(id: "terminal-notes", name: "Notes"),
+                    ]
+                ),
+            ]
+        ))
+    }
 
     var body: some View {
         WorkspaceShellView(
@@ -63,7 +71,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
             try? await ContinuousClock().sleep(for: .milliseconds(1_500))
             guard !Task.isCancelled else { return }
             let terminalID = MobileTerminalPreview.ID(rawValue: "\(workspaceID.rawValue)-terminal-1")
-            let updatedWorkspace = MobileWorkspacePreview(
+            let updatedWorkspace = previewWorkspaceBuilder.make(
                 id: workspace.id,
                 macDeviceID: workspace.macDeviceID,
                 macDisplayName: workspace.macDisplayName,

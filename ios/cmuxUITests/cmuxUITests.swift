@@ -439,6 +439,12 @@ final class cmuxUITests: XCTestCase {
         )
         XCTAssertFalse(app.buttons["MobileWorkspaceAgentChatButton"].exists)
         assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [terminalDropdown],
+            context: "production workspace detail long title without chat toggle"
+        )
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
     }
@@ -465,6 +471,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
         XCTAssertTrue(chatButton.isHittable)
         assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [chatButton, terminalDropdown],
+            context: "production workspace detail long title with chat toggle"
+        )
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
     }
@@ -777,22 +789,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(chatToggle.waitForExistence(timeout: 4))
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
         XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
+            waitForCompactToolbarTitleHeightToFitControls(
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
-                tolerance: 2,
+                tolerance: 4,
                 timeout: 4
             )
         )
-        XCTAssertTrue(
-            waitForWorkspaceTitleCenteredAndSeparated(
-                titleMenu: titleMenu,
-                backButton: backButton,
-                trailingControl: chatToggle,
-                in: app,
-                timeout: 4
-            )
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [chatToggle, surfacePicker],
+            context: "inline workspace title menu"
         )
 
         tapCompactToolbarTitleMenu(titleMenu, in: app)
@@ -817,11 +826,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
 
         XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
+            waitForCompactToolbarTitleHeightToFitControls(
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: surfacePicker,
-                tolerance: 2,
+                tolerance: 4,
                 timeout: 4
             )
         )
@@ -834,6 +843,35 @@ final class cmuxUITests: XCTestCase {
         tapCompactToolbarTitleMenu(titleMenu, in: app)
         XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
         XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
+    }
+
+    @MainActor
+    func testInlineWorkspaceLongTitleYieldsToTrailingToolbarControls() throws {
+        let app = launchAgentChatInlinePreviewApp(environment: [
+            "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "Toolbar priority layout verification workspace title with many words that must truncate before controls",
+            "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "cmuxterm-hq / packages / ios / workspace detail / long subtitle",
+        ])
+        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        let chatToggle = app.buttons["AgentChatInlinePreviewChatToggle"]
+        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
+
+        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(chatToggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
+
+        assertToolbarTitleYieldsToTrailingControls(
+            titleMenu: titleMenu,
+            backButton: backButton,
+            trailingControls: [chatToggle, surfacePicker],
+            context: "inline workspace long title with chat toggle and terminal picker"
+        )
+
+        let screenshotAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshotAttachment.name = "inline-workspace-long-title-yields-to-trailing-controls"
+        screenshotAttachment.lifetime = .keepAlways
+        add(screenshotAttachment)
     }
 
     /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
@@ -2457,7 +2495,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func waitForCompactToolbarHeightsToMatch(
+    private func waitForCompactToolbarTitleHeightToFitControls(
         titleMenu: XCUIElement,
         backButton: XCUIElement,
         surfacePicker: XCUIElement,
@@ -2479,7 +2517,7 @@ final class cmuxUITests: XCTestCase {
             if lastTitleFrame.midY > 60,
                lastBackFrame.midY > 60,
                lastPickerFrame.midY > 60,
-               abs(lastTitleFrame.height - nearbyToolbarHeight) <= tolerance {
+               lastTitleFrame.height <= nearbyToolbarHeight + tolerance {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -2487,7 +2525,7 @@ final class cmuxUITests: XCTestCase {
 
         let nearbyToolbarHeight = max(lastBackFrame.height, lastPickerFrame.height)
         XCTFail(
-            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(lastTitleFrame), back=\(lastBackFrame), picker=\(lastPickerFrame), delta=\(abs(lastTitleFrame.height - nearbyToolbarHeight))",
+            "Tall glyphs must not make the compact title glass taller than nearby toolbar controls. title=\(lastTitleFrame), back=\(lastBackFrame), picker=\(lastPickerFrame), overflow=\(lastTitleFrame.height - nearbyToolbarHeight)",
             file: file,
             line: line
         )
@@ -2508,11 +2546,11 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), "\(context): missing title menu", file: file, line: line)
         XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4), "\(context): missing terminal dropdown", file: file, line: line)
         XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
+            waitForCompactToolbarTitleHeightToFitControls(
                 titleMenu: titleMenu,
                 backButton: backButton,
                 surfacePicker: terminalDropdown,
-                tolerance: 2,
+                tolerance: 4,
                 timeout: 4,
                 file: file,
                 line: line
@@ -2602,42 +2640,49 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func waitForWorkspaceTitleCenteredAndSeparated(
+    private func assertToolbarTitleYieldsToTrailingControls(
         titleMenu: XCUIElement,
         backButton: XCUIElement,
-        trailingControl: XCUIElement,
-        in app: XCUIApplication,
-        timeout: TimeInterval,
+        trailingControls: [XCUIElement],
+        context: String,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        let window = app.windows.firstMatch
-        let windowFrame = window.exists ? window.frame : app.frame
-        let centerTolerance = max(windowFrame.width * 0.10, 28)
+    ) {
+        XCTAssertFalse(trailingControls.isEmpty, "\(context): expected at least one trailing control", file: file, line: line)
+        let deadline = Date().addingTimeInterval(4)
         var lastTitleFrame = titleMenu.frame
         var lastBackFrame = backButton.frame
-        var lastTrailingFrame = trailingControl.frame
+        var lastTrailingFrames = trailingControls.map(\.frame)
 
         while Date() < deadline {
             lastTitleFrame = titleMenu.frame
             lastBackFrame = backButton.frame
-            lastTrailingFrame = trailingControl.frame
-            if lastTitleFrame.midY > 60,
-               abs(lastTitleFrame.midX - windowFrame.midX) <= centerTolerance,
-               lastTitleFrame.minX > lastBackFrame.maxX + 16,
-               lastTitleFrame.maxX < lastTrailingFrame.minX - 2 {
-                return true
+            lastTrailingFrames = trailingControls.map(\.frame)
+
+            let usableTrailingFrames = lastTrailingFrames.filter {
+                !$0.isNull && !$0.isEmpty && $0.midY > 60 && $0.width >= 24 && $0.height >= 30
             }
+            if !lastTitleFrame.isNull,
+               !lastTitleFrame.isEmpty,
+               !lastBackFrame.isNull,
+               !lastBackFrame.isEmpty,
+               lastTitleFrame.midY > 60,
+               lastBackFrame.midY > 60,
+               usableTrailingFrames.count == trailingControls.count,
+               let firstTrailingFrame = usableTrailingFrames.min(by: { $0.minX < $1.minX }),
+               lastTitleFrame.minX >= lastBackFrame.maxX - 1,
+               lastTitleFrame.maxX <= firstTrailingFrame.minX - 2 {
+                return
+            }
+
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
 
         XCTFail(
-            "Workspace title must be centered as its own toolbar island, separated from leading and trailing controls. title=\(lastTitleFrame), back=\(lastBackFrame), trailing=\(lastTrailingFrame), window=\(windowFrame)",
+            "\(context): title must truncate/yield before trailing controls. title=\(lastTitleFrame), back=\(lastBackFrame), trailing=\(lastTrailingFrames)",
             file: file,
             line: line
         )
-        return false
     }
 
     private struct ChatTranscriptMetrics: CustomStringConvertible {

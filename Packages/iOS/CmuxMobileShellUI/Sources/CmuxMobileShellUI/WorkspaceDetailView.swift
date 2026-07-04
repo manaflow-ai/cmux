@@ -46,8 +46,6 @@ struct WorkspaceDetailView: View {
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
-    /// Live pane width for capping the leading glass title pill.
-    @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
@@ -83,7 +81,6 @@ struct WorkspaceDetailView: View {
 
         #if os(iOS)
         content
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
@@ -123,28 +120,21 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     @ToolbarContentBuilder
     private var workspaceDetailToolbar: some ToolbarContent {
-        if backButtonConfiguration != nil {
-            ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
-                workspaceBackToolbarButton
+        ToolbarItem(id: "workspace-priority-toolbar", placement: .principal) {
+            MobileWorkspacePriorityToolbar {
+                if backButtonConfiguration != nil {
+                    workspaceBackToolbarButton
+                }
+            } title: {
+                workspaceTitleToolbarMenu
+            } trailing: {
+                toolbarTrailingCluster
             }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarLeading)
-            }
-        }
-        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
-            workspaceTitleToolbarMenu
-        }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
         }
     }
 
     private var workspaceTitleToolbarMenu: some View {
         WorkspaceTitleMenu(
-            contentWidth: contentWidth,
-            hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
             isEnabled: hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {
