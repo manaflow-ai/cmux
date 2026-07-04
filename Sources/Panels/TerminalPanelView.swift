@@ -43,9 +43,11 @@ struct TerminalPanelView: View {
 
     @ViewBuilder
     private var hibernatedActivePaneBoundaryOverlay: some View {
-        if panel.agentHibernationState != nil && isSplit && isFocused && isVisibleInUI {
+        if panel.agentHibernationState != nil,
+           let activePaneBoundaryColor = appearance.activePaneBoundaryColor,
+           isSplit && isFocused && isVisibleInUI {
             Rectangle()
-                .strokeBorder(appearance.activePaneBoundaryColor, lineWidth: activeBoundaryLineWidth)
+                .strokeBorder(activePaneBoundaryColor, lineWidth: activeBoundaryLineWidth)
                 .allowsHitTesting(false)
         }
     }
@@ -87,8 +89,8 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
-                showsActivePaneBoundary: isSplit && isFocused && isVisibleInUI,
-                activePaneBoundaryColor: appearance.activePaneBoundaryNSColor,
+                showsActivePaneBoundary: isSplit && isFocused && isVisibleInUI && appearance.activePaneBoundaryNSColor != nil,
+                activePaneBoundaryColor: appearance.activePaneBoundaryNSColor ?? .clear,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
@@ -208,16 +210,18 @@ struct TerminalPanelView: View {
 
     @ViewBuilder
     private var terminalTextBoxActivePaneBoundaryOverlay: some View {
-        if panel.isTextBoxActive && isSplit && isFocused && isVisibleInUI {
+        if panel.isTextBoxActive,
+           let activePaneBoundaryColor = appearance.activePaneBoundaryColor,
+           isSplit && isFocused && isVisibleInUI {
             ZStack {
                 HStack(spacing: 0) {
-                    appearance.activePaneBoundaryColor.frame(width: activeBoundaryLineWidth)
+                    activePaneBoundaryColor.frame(width: activeBoundaryLineWidth)
                     Spacer(minLength: 0)
-                    appearance.activePaneBoundaryColor.frame(width: activeBoundaryLineWidth)
+                    activePaneBoundaryColor.frame(width: activeBoundaryLineWidth)
                 }
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    appearance.activePaneBoundaryColor.frame(height: activeBoundaryLineWidth)
+                    activePaneBoundaryColor.frame(height: activeBoundaryLineWidth)
                 }
             }
             .allowsHitTesting(false)
@@ -349,8 +353,8 @@ struct PanelAppearance {
     let foregroundColor: NSColor
     let dividerNSColor: NSColor
     let dividerColor: Color
-    let activePaneBoundaryNSColor: NSColor
-    let activePaneBoundaryColor: Color
+    let activePaneBoundaryNSColor: NSColor?
+    let activePaneBoundaryColor: Color?
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
     let usesClearContentBackground: Bool
@@ -379,9 +383,6 @@ struct PanelAppearance {
         let dividerColor = config.resolvedSplitDividerColor
         let activeBoundaryColor = PaneChromeSettings.activePaneBorderColorHex()
             .flatMap { NSColor(hex: $0) }
-            ?? PaneChromeSettings.paneBorderColorHex()
-                .flatMap { NSColor(hex: $0) }
-            ?? dividerColor
         return PanelAppearance(
             backgroundColor: backgroundColor,
             foregroundColor: cmuxReadableForegroundNSColor(
@@ -391,7 +392,7 @@ struct PanelAppearance {
             dividerNSColor: dividerColor,
             dividerColor: Color(nsColor: dividerColor),
             activePaneBoundaryNSColor: activeBoundaryColor,
-            activePaneBoundaryColor: Color(nsColor: activeBoundaryColor),
+            activePaneBoundaryColor: activeBoundaryColor.map { Color(nsColor: $0) },
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,
             usesClearContentBackground: shouldUseClearContentBackground(

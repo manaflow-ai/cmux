@@ -154,15 +154,16 @@ struct PanelContentView: View {
 
     @ViewBuilder
     private var activePaneBoundaryOverlay: some View {
-        if shouldShowSwiftUIActivePaneBoundary {
+        if shouldShowSwiftUIActivePaneBoundary,
+           let activePaneBoundaryColor = appearance.activePaneBoundaryColor {
             Rectangle()
-                .strokeBorder(appearance.activePaneBoundaryColor, lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth))
+                .strokeBorder(activePaneBoundaryColor, lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth))
                 .allowsHitTesting(false)
         }
     }
 
     private var shouldShowSwiftUIActivePaneBoundary: Bool {
-        guard isSplit && isFocused && isVisibleInUI else { return false }
+        guard isSplit && isFocused && isVisibleInUI && appearance.activePaneBoundaryColor != nil else { return false }
         switch panel.panelType {
         case .terminal, .browser:
             return false

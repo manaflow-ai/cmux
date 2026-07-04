@@ -379,7 +379,7 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let isSplit: Bool
     let portalPriority: Int
-    let activePaneBoundaryColor: NSColor
+    let activePaneBoundaryColor: NSColor?
     let onRequestPanelFocus: () -> Void
     /// Overrides workspace pane ownership for hosts outside the main `Workspace` tree.
     let paneOwnershipOverride: Bool?
@@ -477,7 +477,7 @@ struct BrowserPanelView: View {
         isVisibleInUI: Bool,
         isSplit: Bool,
         portalPriority: Int,
-        activePaneBoundaryColor: NSColor,
+        activePaneBoundaryColor: NSColor?,
         paneOwnershipOverride: Bool? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
@@ -1155,7 +1155,7 @@ struct BrowserPanelView: View {
 
     @ViewBuilder
     private var browserSwiftUIActivePaneBoundaryOverlay: some View {
-        if isSplit && isFocused && isVisibleInUI && !panel.shouldRenderWebView {
+        if let activePaneBoundaryColor, isSplit && isFocused && isVisibleInUI && !panel.shouldRenderWebView {
             Rectangle()
                 .strokeBorder(
                     Color(nsColor: activePaneBoundaryColor),
@@ -1167,7 +1167,8 @@ struct BrowserPanelView: View {
 
     @ViewBuilder
     private var browserChromeActivePaneBoundaryOverlay: some View {
-        if shouldShowBrowserChromeActivePaneBoundary {
+        if shouldShowBrowserChromeActivePaneBoundary,
+           let activePaneBoundaryColor {
             ActivePaneChromeBoundaryOverlay(
                 color: Color(nsColor: activePaneBoundaryColor),
                 height: addressBarHeight
@@ -1178,6 +1179,7 @@ struct BrowserPanelView: View {
     private var shouldShowBrowserChromeActivePaneBoundary: Bool {
         isSplit && isFocused &&
             isVisibleInUI &&
+            activePaneBoundaryColor != nil &&
             panel.shouldRenderWebView &&
             panel.isOmnibarVisible &&
             addressBarHeight > 0
@@ -1853,8 +1855,8 @@ struct BrowserPanelView: View {
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
                     portalZPriority: portalPriority,
-                    showsActivePaneBoundary: isSplit && isFocused && isVisibleInUI,
-                    activePaneBoundaryColor: activePaneBoundaryColor,
+                    showsActivePaneBoundary: isSplit && isFocused && isVisibleInUI && activePaneBoundaryColor != nil,
+                    activePaneBoundaryColor: activePaneBoundaryColor ?? .clear,
                     paneDropZone: paneDropZone,
                     paneOwnershipOverride: paneOwnershipOverride,
                     searchOverlay: panel.searchState.map { searchState in
