@@ -27,7 +27,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     func printableKeyDownReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
-        guard terminal.surface.hasLiveSurface else { return }
+        let hasLiveSurface = terminal.surface.hasLiveSurface
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
@@ -61,7 +61,9 @@ struct GhosttyPhysicalInputFocusReassertionTests {
         )
         terminal.surfaceView.keyDown(with: event)
 
-        #expect(forwardedText == "a", "Regression setup should exercise the printable Ghostty key path")
+        if hasLiveSurface {
+            #expect(forwardedText == "a", "Regression setup should exercise the printable Ghostty key path")
+        }
         #expect(
             terminal.surface.debugDesiredFocusState(),
             "Physical printable input should restore Ghostty focus before sending the key"
@@ -72,7 +74,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     func directCommittedTextReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
-        guard terminal.surface.hasLiveSurface else { return }
+        let hasLiveSurface = terminal.surface.hasLiveSurface
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
@@ -100,7 +102,9 @@ struct GhosttyPhysicalInputFocusReassertionTests {
             replacementRange: NSRange(location: NSNotFound, length: 0)
         )
 
-        #expect(forwardedText == "committed", "Regression setup should exercise direct NSTextInputClient commit")
+        if hasLiveSurface {
+            #expect(forwardedText == "committed", "Regression setup should exercise direct NSTextInputClient commit")
+        }
         #expect(
             terminal.surface.debugDesiredFocusState(),
             "Direct committed text should restore Ghostty focus before sending text"
@@ -111,7 +115,6 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     func directCommittedTextDoesNotReassertGhosttyFocusWhenDescendantOverlayOwnsFirstResponder() throws {
         let terminal = try makeHostedTerminal()
         defer { terminal.window.orderOut(nil) }
-        guard terminal.surface.hasLiveSurface else { return }
 
         try focusTerminal(terminal)
         terminal.surface.recordExternalFocusState(false)
