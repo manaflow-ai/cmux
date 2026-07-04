@@ -14,7 +14,17 @@ struct MovedPanelSidebarStatusRoutingTests {
     @Test func panelScopedMutationsRouteMovedSurfaceToCurrentWorkspace() throws {
         try withMovedPanelTestContext { moved in
             let staleTab = moved.source.id.uuidString
+            let currentTab = moved.destination.id.uuidString
             let panel = moved.panelID.uuidString
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "set_status current_owner Ready --tab=\(currentTab) --panel=\(panel)"
+                ) == "OK"
+            )
+            TerminalMutationBus.shared.drainForTesting()
+            #expect(moved.source.statusEntries["current_owner"] == nil)
+            #expect(moved.destination.statusEntries["current_owner"]?.value == "Ready")
 
             #expect(
                 TerminalController.shared.handleSocketLine(
