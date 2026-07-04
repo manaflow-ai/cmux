@@ -66,9 +66,18 @@ struct TerminalWindowPortalTransientRecoveryTests {
         #expect(!hosted.isHidden)
         #expect(hosted.frame.height > 100)
 
+        let visibleFrameBeforeTransient = hosted.frame
         anchor.frame = NSRect(x: stableFrame.minX, y: stableFrame.minY, width: stableFrame.width, height: 0)
         contentView.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        #expect(
+            !hosted.isHidden,
+            "A queued transient recovery should not hide an already-visible terminal before the retry runs"
+        )
+        #expect(hosted.frame.width == visibleFrameBeforeTransient.width)
+        #expect(hosted.frame.height == visibleFrameBeforeTransient.height)
 
         var didRestoreAnchor = false
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
