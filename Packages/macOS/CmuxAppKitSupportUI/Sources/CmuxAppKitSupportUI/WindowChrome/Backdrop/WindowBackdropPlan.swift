@@ -55,7 +55,7 @@ public struct WindowBackdropPlan {
             windowBackgroundColor.hexString(includeAlpha: true),
             String(windowIsOpaque),
             rootPolicy.identityComponent,
-            glass?.tintColor.hexString(includeAlpha: true) ?? "nil",
+            glass?.tintColor?.hexString(includeAlpha: true) ?? "nil",
             glass.map { String(describing: $0.style) } ?? "nil",
             String(shouldApplyGhosttyCompositorBlur),
         ].joined(separator: "|")
