@@ -147,11 +147,9 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let restoredIds = restored.restoreSessionSnapshot(snapshot)
         let restoredRemotePanelId = try #require(restoredIds[remotePanelId])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredRemotePanelId))
-
         #expect(restored.currentDirectory == workspaceDirectory)
         #expect(restoredPanel.requestedWorkingDirectory == nil)
     }
-
     @MainActor
     @Test("legacy remote restore keeps persisted cwd untrusted until remote report")
     func legacyRemoteRestoreKeepsPersistedDirectoryUntrustedUntilRemoteReport() throws {
@@ -166,6 +164,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "remote-main", isDirty: false)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        _ = try #require(workspace.newTerminalSurface(inPane: paneId, focus: true, suppressWorkspaceRemoteStartupCommand: true))
         var snapshot = workspace.sessionSnapshot(includeScrollback: false)
         snapshot.panels[0].directory = remoteDirectory
         snapshot.panels[0].directoryIsTrustedRemoteReport = nil
@@ -180,9 +180,9 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
         restored.updateRemotePanelDirectory(panelId: restoredPanelId, directory: remoteDirectory)
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == remoteDirectory)
+        #expect(restored.reportedPanelGitBranch(panelId: restoredPanelId) == nil)
         #expect(restored.presentedCurrentDirectory == remoteDirectory)
     }
-
     @MainActor
     @Test("remote ssh workspace ignores inherited local cwd until remote pwd report")
     func remoteSSHWorkspaceIgnoresInheritedLocalDirectoryUntilRemotePWDReport() throws {

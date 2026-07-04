@@ -1648,8 +1648,10 @@ extension Workspace {
             clearRestoredUnreadIndicator(panelId: panelId)
         }
 
-        let restoredDirectoryRequiresRemoteTrust = snapshot.directoryRequiresRemoteTrust == true &&
-            snapshot.directoryIsTrustedRemoteReport != true
+        let restoredDirectoryRequiresRemoteTrust = (
+            snapshot.directoryRequiresRemoteTrust == true ||
+                remoteDirectoryTrustRequiredPanelIds.contains(panelId)
+        ) && snapshot.directoryIsTrustedRemoteReport != true
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
             let source: PanelDirectoryUpdateSource = snapshot.directoryIsTrustedRemoteReport == true
                 ? .trustedRestoredRemoteSnapshotMetadata
