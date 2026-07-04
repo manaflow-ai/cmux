@@ -4046,13 +4046,12 @@ class TerminalController {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
 
             @MainActor
-            func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
+            func closeWorkspaces(_ workspaceIds: [UUID]) -> Int {
                 var closed = 0
-                for candidate in workspaces where candidate.id != workspace.id {
-                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
-                    guard existedBefore else { continue }
+                for candidateId in workspaceIds where candidateId != workspace.id {
+                    guard let candidate = tabManager.tabs.first(where: { $0.id == candidateId && !$0.isPinned }) else { continue }
                     tabManager.closeWorkspace(candidate)
-                    if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
+                    if !tabManager.tabs.contains(where: { $0.id == candidateId }) {
                         closed += 1
                     }
                 }
@@ -4111,19 +4110,11 @@ class TerminalController {
                 finish(["description": NSNull()])
 
             case "move_up":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: max(currentIndex - 1, 0))
+                _ = tabManager.moveWorkspaceInSidebarScope(tabId: workspace.id, by: -1)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "move_down":
-                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: min(currentIndex + 1, tabManager.tabs.count - 1))
+                _ = tabManager.moveWorkspaceInSidebarScope(tabId: workspace.id, by: 1)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "move_top":
@@ -4131,31 +4122,15 @@ class TerminalController {
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "close_others":
-                let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                let closed = closeWorkspaces(tabManager.workspaceIdsForClosingOtherSidebarRows(keeping: [workspace.id]))
                 finish(["closed": closed])
 
             case "close_above":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
-                let closed = closeWorkspaces(candidates)
+                let closed = closeWorkspaces(tabManager.workspaceIdsForClosingSidebarRowsAbove(tabId: workspace.id))
                 finish(["closed": closed])
 
             case "close_below":
-                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                    return
-                }
-                let candidates: [Workspace]
-                if index + 1 < tabManager.tabs.count {
-                    candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
-                } else {
-                    candidates = []
-                }
-                let closed = closeWorkspaces(candidates)
+                let closed = closeWorkspaces(tabManager.workspaceIdsForClosingSidebarRowsBelow(tabId: workspace.id))
                 finish(["closed": closed])
 
             case "mark_read":
