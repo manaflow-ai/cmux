@@ -4589,6 +4589,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Directory Updates
 
+    private func notifyPresentedCurrentDirectoryChanged(from previousDirectory: String?, force: Bool = false) {
+        guard force || previousDirectory != presentedCurrentDirectory else { return }
+        scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+        NotificationCenter.default.post(
+            name: .workspaceCurrentDirectoryDidChange,
+            object: self,
+            userInfo: ["workspaceId": id]
+        )
+    }
+
     private enum PanelDirectoryUpdateSource {
         case liveReport
         case remoteReport
@@ -4700,15 +4710,7 @@ final class Workspace: Identifiable, ObservableObject {
             if currentDirectory != trimmed { currentDirectory = trimmed }
         }
         if isRemoteWorkspace {
-            let presentedDirectoryChanged = previousPresentedDirectory != presentedCurrentDirectory
-            if presentedDirectoryChanged || provenanceChanged {
-                scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
-                NotificationCenter.default.post(
-                    name: .workspaceCurrentDirectoryDidChange,
-                    object: self,
-                    userInfo: ["workspaceId": id]
-                )
-            }
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: provenanceChanged)
         }
         return true
     }
