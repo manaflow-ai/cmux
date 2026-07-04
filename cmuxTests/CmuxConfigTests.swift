@@ -1,4 +1,3 @@
-import Combine
 import CmuxSettings
 import Foundation
 import Testing
@@ -108,6 +107,23 @@ private func XCTFail(
     sourceLocation: SourceLocation = #_sourceLocation
 ) {
     Issue.record(testComment(message()) ?? Comment(rawValue: "Failure recorded"), sourceLocation: sourceLocation)
+}
+
+@MainActor
+private func waitUntil(
+    timeout: TimeInterval,
+    pollInterval: TimeInterval = 0.05,
+    _ condition: () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() {
+            return true
+        }
+        let remaining = max(0, min(pollInterval, deadline.timeIntervalSinceNow))
+        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+    }
+    return condition()
 }
 
 // MARK: - JSON Decoding
@@ -997,15 +1013,6 @@ final class CmuxConfigDecodingTests {
         XCTAssertNotNil(store.resolvedAction(id: "first"))
         XCTAssertNil(store.resolvedAction(id: "second"))
 
-        let didAutoReload = expectation(description: "cmux.json should not hot reload")
-        didAutoReload.isInverted = true
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "second" }) {
-                didAutoReload.fulfill()
-            }
-        }
-
         try """
         {
           "actions": {
@@ -1014,14 +1021,16 @@ final class CmuxConfigDecodingTests {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        await fulfillment(of: [didAutoReload], timeout: 0.25)
+        let didAutoReload = await waitUntil(timeout: 0.25) {
+            store.resolvedAction(id: "second") != nil
+        }
+        XCTAssertFalse(didAutoReload)
         XCTAssertNotNil(store.resolvedAction(id: "first"))
         XCTAssertNil(store.resolvedAction(id: "second"))
 
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "first"))
         XCTAssertNotNil(store.resolvedAction(id: "second"))
-        cancellable?.cancel()
     }
 
     @MainActor
@@ -1107,15 +1116,6 @@ final class CmuxConfigDecodingTests {
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "created"))
 
-        let loaded = expectation(description: "created local cmux config is loaded")
-        loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "created" }) {
-                loaded.fulfill()
-            }
-        }
-
         try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
         try """
         {
@@ -1129,9 +1129,11 @@ final class CmuxConfigDecodingTests {
         // watcher) to observe the .cmux directory creation, re-arm onto the new
         // cmux.json, reload, and republish loadedActions. vnode notification +
         // re-arm + reload latency is nondeterministic under CI I/O load, so use a
-        // generous deadline; the sink still fulfills as soon as the watcher fires.
-        await fulfillment(of: [loaded], timeout: 15)
-        cancellable?.cancel()
+        // generous deadline.
+        let loaded = await waitUntil(timeout: 15) {
+            store.resolvedAction(id: "created") != nil
+        }
+        XCTAssertTrue(loaded)
     }
 
     @MainActor
@@ -1157,15 +1159,6 @@ final class CmuxConfigDecodingTests {
         store.loadAll()
         XCTAssertNil(store.resolvedAction(id: "legacy-created"))
 
-        let loaded = expectation(description: "created legacy cmux config is loaded")
-        loaded.assertForOverFulfill = false
-        var cancellable: AnyCancellable?
-        cancellable = store.$loadedActions.dropFirst().sink { actions in
-            if actions.contains(where: { $0.id == "legacy-created" }) {
-                loaded.fulfill()
-            }
-        }
-
         try """
         {
           "actions": {
@@ -1177,9 +1170,11 @@ final class CmuxConfigDecodingTests {
         // The store observes the legacy cmux.json write via a DispatchSource vnode
         // watcher, then reloads and republishes loadedActions. Filesystem
         // notification + reload latency is nondeterministic under CI I/O load, so
-        // use a generous deadline; the sink still fulfills the moment the watcher fires.
-        await fulfillment(of: [loaded], timeout: 15)
-        cancellable?.cancel()
+        // use a generous deadline.
+        let loaded = await waitUntil(timeout: 15) {
+            store.resolvedAction(id: "legacy-created") != nil
+        }
+        XCTAssertTrue(loaded)
     }
 
     @MainActor
