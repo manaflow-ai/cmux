@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
+const originalSkipEnvValidation = process.env.SKIP_ENV_VALIDATION;
+const originalPostHogProjectKey = process.env.POSTHOG_PROJECT_KEY;
+const originalClientConfigRateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID;
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.POSTHOG_PROJECT_KEY = "test-project-key";
 process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
@@ -32,6 +35,12 @@ afterEach(() => {
   } else {
     process.env.VERCEL = originalVercel;
   }
+});
+
+afterAll(() => {
+  restoreEnv("SKIP_ENV_VALIDATION", originalSkipEnvValidation);
+  restoreEnv("POSTHOG_PROJECT_KEY", originalPostHogProjectKey);
+  restoreEnv("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID", originalClientConfigRateLimitId);
 });
 
 describe("client config", () => {
@@ -107,6 +116,50 @@ describe("client config", () => {
       featureFlagPayloads: {
         "pricing-page-copy": { cta: "Start" },
         "pricing-page-payload-only": "{\"plan\":\"team\"}",
+      },
+    });
+  });
+
+  test("lets detailed disabled and failed flags suppress legacy payloads", () => {
+    const config = normalizePostHogFlagsResponse({
+      errorsWhileComputingFlags: false,
+      featureFlags: {
+        "pricing-page-disabled": "checkout-a",
+        "pricing-page-failed": true,
+        "pricing-page-legacy-disabled": false,
+      },
+      featureFlagPayloads: {
+        "pricing-page-disabled": { cta: "Disabled" },
+        "pricing-page-failed": { cta: "Failed" },
+        "pricing-page-payload-only": "{\"plan\":\"team\"}",
+        "pricing-page-legacy-disabled": { cta: "Legacy disabled" },
+        "pricing-page-legacy-payload-only": { cta: "Legacy payload" },
+      },
+      flags: {
+        "pricing-page-disabled": {
+          enabled: false,
+          variant: "checkout-b",
+          metadata: { payload: { cta: "Should not leak" } },
+        },
+        "pricing-page-failed": {
+          enabled: true,
+          failed: true,
+          metadata: { payload: { cta: "Should not leak" } },
+        },
+      },
+    });
+
+    expect(config).toEqual({
+      errorsWhileComputingFlags: false,
+      featureFlags: {
+        "pricing-page-disabled": false,
+        "pricing-page-legacy-disabled": false,
+        "pricing-page-payload-only": true,
+        "pricing-page-legacy-payload-only": true,
+      },
+      featureFlagPayloads: {
+        "pricing-page-payload-only": "{\"plan\":\"team\"}",
+        "pricing-page-legacy-payload-only": { cta: "Legacy payload" },
       },
     });
   });
@@ -269,4 +322,38 @@ describe("client config", () => {
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  test("fails closed on Vercel when the client-config limiter returns an error", async () => {
+    process.env.VERCEL = "1";
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: "firewall-unavailable" });
+    const consoleError = mock(() => {});
+    console.error = consoleError as unknown as typeof console.error;
+    const fetchMock = mock(async () => {
+      throw new Error("PostHog flags should not be reached after a limiter error");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const response = await POST(new Request("https://cmux.test/api/client-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ distinctId: "browser-id" }),
+    }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "client_config_unavailable" });
+    expect(consoleError).toHaveBeenCalledWith(
+      "client-config.route.rate_limit_error",
+      "firewall-unavailable",
+    );
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (typeof value === "undefined") {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}

@@ -33,6 +33,7 @@ export async function POST(request: Request): Promise<Response> {
       return json({ error: "client_config_unavailable" }, 503);
     } else if (error) {
       console.error("client-config.route.rate_limit_error", error);
+      return json({ error: "client_config_unavailable" }, 503);
     }
   }
 
