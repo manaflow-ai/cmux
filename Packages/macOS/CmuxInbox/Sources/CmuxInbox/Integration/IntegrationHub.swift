@@ -52,16 +52,35 @@ public actor IntegrationHub {
         }
     }
 
-    /// Returns connector and persisted account status.
+    /// Returns connector and persisted account status, merged by
+    /// (source, account id). A live connector status only reflects credential
+    /// presence, so a persisted failure state from the last sync overrides a
+    /// credential-healthy "connected" until a successful sync clears it.
     public func status(source: InboxSource? = nil) async -> [InboxConnectorStatus] {
         var statuses: [InboxConnectorStatus] = []
-        for connector in connectors.values where source == nil || connector.source == source {
-            statuses.append(await connector.status())
-        }
         let knownAccounts = (try? await store.accounts()) ?? []
-        let connectorSources = Set(statuses.map(\.source))
+        let accountsByID = Dictionary(uniqueKeysWithValues: knownAccounts.map { ($0.id, $0) })
+        for connector in connectors.values where source == nil || connector.source == source {
+            var live = await connector.status()
+            if live.status == .connected,
+               let accountID = live.accountID,
+               let stored = accountsByID["\(connector.source.rawValue):\(accountID)"],
+               Self.persistedFailureStates.contains(stored.status) {
+                live = InboxConnectorStatus(
+                    source: live.source,
+                    accountID: accountID,
+                    displayName: live.displayName,
+                    status: stored.status,
+                    message: stored.statusMessage,
+                    credentialState: live.credentialState,
+                    capabilities: live.capabilities,
+                    lastSyncAt: stored.lastSyncAt ?? live.lastSyncAt
+                )
+            }
+            statuses.append(live)
+        }
         for account in knownAccounts where source == nil || account.source == source {
-            guard !connectorSources.contains(account.source) else { continue }
+            guard !statuses.contains(where: { $0.source == account.source && $0.accountID == account.accountID }) else { continue }
             statuses.append(InboxConnectorStatus(
                 source: account.source,
                 accountID: account.accountID,
@@ -75,6 +94,13 @@ public actor IntegrationHub {
         }
         return statuses.sorted { $0.id < $1.id }
     }
+
+    /// Persisted account states that must stay visible over a merely
+    /// credential-healthy live connector status. `missingCredentials` is
+    /// excluded on purpose: a present credential supersedes it.
+    private static let persistedFailureStates: Set<InboxAccountStatus> = [
+        .error, .degraded, .rateLimited, .tokenExpired, .permissionDenied, .missingHelper,
+    ]
 
     /// Syncs one source or all sources. Failures are persisted to the account
     /// row so a transient error stays visible after this call returns.
