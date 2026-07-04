@@ -30963,6 +30963,11 @@ export default CMUXSessionRestore;
 
         if let rawContext = rawObject?["context"] as? [String: Any] {
             mergeFeedContext(&context, feedContext(from: rawContext))
+            if source == "codex",
+               let mode = context["permissionMode"] as? String,
+               mode.trimmingCharacters(in: .whitespacesAndNewlines) == "codex app-server" {
+                context.removeValue(forKey: "permissionMode")
+            }
         }
 
         if hookEventName == "UserPromptSubmit" {
@@ -30975,10 +30980,13 @@ export default CMUXSessionRestore;
         }
 
         if let rawObject {
+            let permissionMode = firstString(in: rawObject, keys: ["permissionMode", "permission_mode"])
+            let isReservedCodexAppServerMode = source == "codex"
+                && permissionMode?.trimmingCharacters(in: .whitespacesAndNewlines) == "codex app-server"
             setFeedContext(
                 &context,
                 key: "permissionMode",
-                value: firstString(in: rawObject, keys: ["permissionMode", "permission_mode"]),
+                value: isReservedCodexAppServerMode ? nil : permissionMode,
                 maxLength: 80
             )
             setFeedContext(

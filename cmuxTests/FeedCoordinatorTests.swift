@@ -625,7 +625,8 @@ struct FeedCoordinatorTests {
             source: "codex",
             cwd: "/tmp",
             toolName: "Bash",
-            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","command":"true"}"#,
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","request_id":"41","command":"true"}"#,
+            context: WorkstreamContext(permissionMode: "codex app-server"),
             requestId: requestId
         )
 

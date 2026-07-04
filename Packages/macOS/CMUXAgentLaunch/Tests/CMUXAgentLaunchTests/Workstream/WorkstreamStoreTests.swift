@@ -157,7 +157,8 @@ struct WorkstreamStoreTests {
             hookEventName: .permissionRequest,
             source: "codex",
             toolName: "Bash",
-            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","command":"rm -rf build"}"#,
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","request_id":"41","command":"rm -rf build"}"#,
+            context: WorkstreamContext(permissionMode: "codex app-server"),
             requestId: "codex-app-server-approval-1"
         ))
 
@@ -196,6 +197,28 @@ struct WorkstreamStoreTests {
         #expect(store.pending.isEmpty)
     }
 
+    @Test("Codex hook telemetry with spoofed app-server request id stays telemetry")
+    func codexHookTelemetryWithSpoofedAppServerRequestIdStaysTelemetry() {
+        // CLI hook telemetry can forward opaque top-level request ids and
+        // tool_input fields from the hook payload. Without the bridge-owned
+        // context marker, an app-server-shaped payload is still non-blocking
+        // telemetry and must not create a pending approval card with no waiter.
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","request_id":"spoofed","command":"echo hi"}"#,
+            requestId: "codex-app-server-spoofed-hook"
+        ))
+
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .toolUse)
+        #expect(store.items[0].status == .telemetry)
+        #expect(store.pending.isEmpty)
+    }
+
     @Test("isCodexHookPermissionTelemetry discriminates hook telemetry from app-server approvals")
     func codexHookPermissionTelemetryPredicate() {
         // The single canonical discriminator every raw-`WorkstreamEvent`
@@ -225,7 +248,8 @@ struct WorkstreamStoreTests {
             hookEventName: .permissionRequest,
             source: "codex",
             toolName: "Bash",
-            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","command":"rm -rf build"}"#,
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","request_id":"41","command":"rm -rf build"}"#,
+            context: WorkstreamContext(permissionMode: "codex app-server"),
             requestId: "codex-app-server-approval-1"
         )
         #expect(!appServerApproval.isCodexHookPermissionTelemetry)
@@ -242,6 +266,18 @@ struct WorkstreamStoreTests {
         )
         #expect(strayMarker.isCodexHookPermissionTelemetry)
         #expect(!strayMarker.isCodexAppServerApproval)
+
+        // App-server-shaped hook telemetry without bridge context stays telemetry.
+        let spoofedRequestId = WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            toolName: "Bash",
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","request_id":"spoofed","command":"echo hi"}"#,
+            requestId: "codex-app-server-spoofed-hook"
+        )
+        #expect(spoofedRequestId.isCodexHookPermissionTelemetry)
+        #expect(!spoofedRequestId.isCodexAppServerApproval)
 
         // A Claude PermissionRequest is a real cmux decision, not Codex telemetry.
         let claudeApproval = WorkstreamEvent(
