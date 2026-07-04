@@ -31,9 +31,7 @@ struct WorkspaceDetailView: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (() -> Void)?
-    /// Phone-local browser surfaces, injected from the app root.
     @Environment(BrowserSurfaceStore.self) private var browserStore
-    /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
@@ -48,7 +46,6 @@ struct WorkspaceDetailView: View {
     @State var renameText = ""
     /// Live pane width for capping the leading glass title pill.
     @State private var contentWidth: CGFloat = 0
-    /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     @State private var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
