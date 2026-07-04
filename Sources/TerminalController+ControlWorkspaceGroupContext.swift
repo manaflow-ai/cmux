@@ -42,6 +42,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
             name: group.name,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
+            parentGroupID: group.parentGroupId,
             anchorWorkspaceID: group.anchorWorkspaceId,
             customColor: group.customColor,
             iconSymbol: group.iconSymbol,
@@ -127,6 +128,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         let createdGroupId = tabManager.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childIds,
+            parentGroupId: tabManager.commonWorkspaceGroupId(for: childIds),
             anchorWorkingDirectory: cwd,
             selectAnchor: false,
             collapseSidebarSelection: false
@@ -325,6 +327,18 @@ extension TerminalController: ControlWorkspaceGroupContext {
         guard let current = tabManager.workspaceGroups.firstIndex(where: { $0.id == groupID }) else {
             return false
         }
+        let source = tabManager.workspaceGroups[current]
+        func peerIndex(groupId: UUID) -> Int? {
+            guard let index = tabManager.workspaceGroups.firstIndex(where: { $0.id == groupId }) else {
+                return nil
+            }
+            let peer = tabManager.workspaceGroups[index]
+            guard peer.parentGroupId == source.parentGroupId,
+                  peer.isPinned == source.isPinned else {
+                return nil
+            }
+            return index
+        }
         // moveWorkspaceGroup interprets toIndex as the FINAL position the group
         // should occupy. before/after refer to a peer's CURRENT index, so when
         // the source comes before the peer in the original order, removing the
@@ -334,12 +348,12 @@ extension TerminalController: ControlWorkspaceGroupContext {
             if let toIndex {
                 return toIndex
             }
-            if let beforeId = beforeGroupID,
-               let beforeIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == beforeId }) {
+            if let beforeId = beforeGroupID {
+                guard let beforeIndex = peerIndex(groupId: beforeId) else { return nil }
                 return current < beforeIndex ? beforeIndex - 1 : beforeIndex
             }
-            if let afterId = afterGroupID,
-               let afterIndex = tabManager.workspaceGroups.firstIndex(where: { $0.id == afterId }) {
+            if let afterId = afterGroupID {
+                guard let afterIndex = peerIndex(groupId: afterId) else { return nil }
                 return current < afterIndex ? afterIndex : afterIndex + 1
             }
             return nil

@@ -174,7 +174,7 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.map(\.id) == orderBefore)
     }
 
-    @Test func collapsedGroupRenderItemCarriesMembersWithoutRenderingChildren() throws {
+    @Test func collapsedGroupRenderItemCarriesMemberCountWithoutRenderingChildren() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -191,26 +191,22 @@ struct WorkspaceGroupTests {
             groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
         )
 
-        var groupMemberIds: [UUID] = []
+        var groupMemberCount = 0
         var visibleWorkspaceIds: [UUID] = []
         var visibleRowIds: [UUID] = []
         for item in items {
             visibleRowIds.append(item.rowWorkspaceId)
             switch item {
-            case .groupHeader(let renderedGroup, let memberWorkspaceIds) where renderedGroup.id == groupId:
-                groupMemberIds = memberWorkspaceIds
+            case .groupHeader(let renderedGroup, let memberCount, _) where renderedGroup.id == groupId:
+                groupMemberCount = memberCount
             case .groupHeader:
                 break
-            case .workspace(let workspace):
+            case .workspace(let workspace, _):
                 visibleWorkspaceIds.append(workspace.id)
             }
         }
 
-        #expect(groupMemberIds == [
-            group.anchorWorkspaceId,
-            originalIds[1],
-            originalIds[2],
-        ])
+        #expect(groupMemberCount == 3)
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
         #expect(visibleRowIds == [
@@ -218,6 +214,165 @@ struct WorkspaceGroupTests {
             group.anchorWorkspaceId,
             originalIds[3],
         ])
+    }
+
+    @Test func renderItemsShowWorkspaceWithStaleGroupIdAsRootRow() {
+        let manager = makeTabManager()
+        let staleGroupId = UUID()
+        let staleWorkspaceId = manager.tabs[0].id
+        manager.tabs[0].groupId = staleGroupId
+
+        let items = SidebarWorkspaceRenderItem.renderItems(tabs: manager.tabs, groupsById: [:])
+        let visibleWorkspaceRows = items.compactMap { item -> (UUID, Int)? in
+            guard case .workspace(let workspace, let depth) = item else { return nil }
+            return (workspace.id, depth)
+        }
+
+        #expect(visibleWorkspaceRows.contains { id, depth in id == staleWorkspaceId && depth == 0 })
+        #expect(items.first?.rowWorkspaceId == staleWorkspaceId)
+    }
+
+    @Test func nestedGroupRenderItemsRecurseWithDepthAndMixedLooseWorkspaces() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let hotelsId = try #require(manager.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [
+            originalIds[1],
+        ]))
+        let marriottId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [
+                originalIds[2],
+            ],
+            parentGroupId: hotelsId
+        ))
+        let hotels = try #require(manager.workspaceGroups.first { $0.id == hotelsId })
+        let marriott = try #require(manager.workspaceGroups.first { $0.id == marriottId })
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+
+        let projected = items.map { item -> (SidebarWorkspaceRenderItemID, UUID, Int) in
+            (item.id, item.rowWorkspaceId, item.depth)
+        }
+
+        #expect(projected.contains(where: { $0 == (.group(hotelsId), hotels.anchorWorkspaceId, 0) }))
+        #expect(projected.contains(where: { $0 == (.workspace(originalIds[1]), originalIds[1], 1) }))
+        #expect(projected.contains(where: { $0 == (.group(marriottId), marriott.anchorWorkspaceId, 1) }))
+        #expect(projected.contains(where: { $0 == (.workspace(originalIds[2]), originalIds[2], 2) }))
+    }
+
+    @Test func collapsedParentGroupRenderItemHidesDescendantFolderRows() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let hotelsId = try #require(manager.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [
+            originalIds[1],
+        ]))
+        let marriottId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [
+                originalIds[2],
+            ],
+            parentGroupId: hotelsId
+        ))
+        manager.toggleWorkspaceGroupCollapsed(groupId: hotelsId)
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        )
+        let groupIds = items.compactMap { item -> UUID? in
+            guard case .groupHeader(let group, _, _) = item else { return nil }
+            return group.id
+        }
+        let visibleWorkspaceIds = items.compactMap { item -> UUID? in
+            guard case .workspace(let workspace, _) = item else { return nil }
+            return workspace.id
+        }
+
+        #expect(groupIds.contains(hotelsId))
+        #expect(!groupIds.contains(marriottId))
+        #expect(!visibleWorkspaceIds.contains(originalIds[1]))
+        #expect(!visibleWorkspaceIds.contains(originalIds[2]))
+    }
+
+    @Test func nestedGroupHeaderUsesRootTopLevelReorderSpace() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+
+        let parentId = try #require(manager.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [originalIds[0]]))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [originalIds[1]],
+            parentGroupId: parentId
+        ))
+        let parentAnchorId = try #require(manager.workspaceGroups.first { $0.id == parentId }?.anchorWorkspaceId)
+        let childAnchorId = try #require(manager.workspaceGroups.first { $0.id == childId }?.anchorWorkspaceId)
+
+        #expect(manager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: parentAnchorId,
+            targetWorkspaceId: nil
+        ))
+        #expect(manager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil
+        ))
+    }
+
+    @Test func droppingNestedGroupToRootEndPromotesWhenPlannedIndexIsUnchanged() throws {
+        let manager = makeTabManager()
+        let originalIds = manager.tabs.map(\.id)
+
+        let parentId = try #require(manager.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [originalIds[0]]))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [originalIds[1]],
+            parentGroupId: parentId
+        ))
+        let childAnchorId = try #require(manager.workspaceGroups.first { $0.id == childId }?.anchorWorkspaceId)
+        let usesTopLevelRows = manager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil
+        )
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let legalInsertionRange = manager.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let fromIndex = try #require(reorderIds.firstIndex(of: childAnchorId))
+        let targetIndex = try #require(SidebarDropPlanner().targetIndex(
+            draggedTabId: childAnchorId,
+            targetTabId: nil,
+            indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+            tabIds: reorderIds,
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange
+        ))
+
+        #expect(usesTopLevelRows)
+        #expect(targetIndex == fromIndex)
+        #expect(manager.reorderSidebarWorkspace(
+            tabId: childAnchorId,
+            toIndex: targetIndex,
+            isDragOperation: true,
+            usesTopLevelRows: usesTopLevelRows
+        ))
+        #expect(manager.workspaceGroups.first { $0.id == childId }?.parentGroupId == nil)
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
@@ -971,6 +1126,110 @@ struct WorkspaceGroupTests {
         #expect(restoredGroup.isPinned == true)
         #expect(restoredGroup.customColor == "#123456")
         #expect(restoredGroup.iconSymbol == "leaf.fill")
+    }
+
+    @Test func sessionSnapshotRoundtripPreservesNestedGroupParent() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let parentId = try #require(manager.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [originalIds[0]]))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [originalIds[1]],
+            parentGroupId: parentId
+        ))
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let groups = try #require(snapshot.workspaceGroups)
+        let childSnapshot = try #require(groups.first { $0.id == childId })
+        #expect(childSnapshot.parentGroupId == parentId)
+        #expect(childSnapshot.parentGroupIndex == groups.firstIndex { $0.id == parentId })
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        #expect(restored.workspaceGroups.first { $0.id == childId }?.parentGroupId == parentId)
+    }
+
+    @Test func sessionSnapshotRestoreUsesParentGroupIndexFallback() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let parentId = try #require(manager.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [originalIds[0]]))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [originalIds[1]],
+            parentGroupId: parentId
+        ))
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        var groups = try #require(snapshot.workspaceGroups)
+        let parentIndex = try #require(groups.firstIndex { $0.id == parentId })
+        let childIndex = try #require(groups.firstIndex { $0.id == childId })
+        groups[childIndex].parentGroupId = nil
+        groups[childIndex].parentGroupIndex = parentIndex
+        snapshot.workspaceGroups = groups
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        #expect(restored.workspaceGroups.first { $0.id == childId }?.parentGroupId == parentId)
+    }
+
+    @Test func sessionSnapshotRestoreRelinksGrandchildToNearestSurvivingAncestor() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let grandparentId = try #require(manager.createWorkspaceGroup(
+            name: "Hotels",
+            childWorkspaceIds: [originalIds[0]]
+        ))
+        let parentId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [originalIds[1]],
+            parentGroupId: grandparentId
+        ))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Downtown",
+            childWorkspaceIds: [originalIds[2]],
+            parentGroupId: parentId
+        ))
+
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        // Drop the intermediate folder by removing its only member workspace, so
+        // it has nothing to restore. The surviving grandchild must re-attach to
+        // the nearest surviving ancestor (the grandparent) rather than flatten to
+        // the root.
+        snapshot.workspaces.removeAll { $0.groupId == parentId }
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        #expect(restored.workspaceGroups.contains { $0.id == grandparentId })
+        #expect(!restored.workspaceGroups.contains { $0.id == parentId })
+        #expect(restored.workspaceGroups.first { $0.id == childId }?.parentGroupId == grandparentId)
+    }
+
+    @Test func legacyWorkspaceGroupSnapshotDecodesAsTopLevelFolder() throws {
+        let groupId = UUID()
+        let anchorId = UUID()
+        let json = """
+        {
+          "id": "\(groupId.uuidString)",
+          "name": "Legacy",
+          "isCollapsed": false,
+          "anchorWorkspaceId": "\(anchorId.uuidString)",
+          "anchorMemberIndex": 0,
+          "isPinned": false,
+          "customColor": null,
+          "iconSymbol": null
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(SessionWorkspaceGroupSnapshot.self, from: Data(json.utf8))
+
+        #expect(decoded.id == groupId)
+        #expect(decoded.parentGroupId == nil)
+        #expect(decoded.parentGroupIndex == nil)
     }
 
     @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {

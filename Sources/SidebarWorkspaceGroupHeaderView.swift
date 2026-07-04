@@ -74,6 +74,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
+    let onNewSubfolder: () -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
     let onMarkRead: () -> Void
@@ -327,6 +328,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             .onDisappear {
                 rowInteractionState.contextMenuDidDisappear()
             }
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.newSubfolder",
+                    defaultValue: "New Folder"
+                ),
+                action: onNewSubfolder
+            )
             Divider()
             Button(
                 String(

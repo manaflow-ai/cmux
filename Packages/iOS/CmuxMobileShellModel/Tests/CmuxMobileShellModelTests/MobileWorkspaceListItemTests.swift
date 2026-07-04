@@ -22,6 +22,7 @@ import Testing
         anchor: String,
         collapsed: Bool = false,
         pinned: Bool = false,
+        parent: String? = nil,
         name: String? = nil
     ) -> MobileWorkspaceGroupPreview {
         MobileWorkspaceGroupPreview(
@@ -29,6 +30,7 @@ import Testing
             name: name ?? id,
             isCollapsed: collapsed,
             isPinned: pinned,
+            parentGroupID: parent.map { .init(rawValue: $0) },
             anchorWorkspaceID: .init(rawValue: anchor)
         )
     }
@@ -93,6 +95,14 @@ import Testing
             groups: []
         )
         #expect(items == [.workspace(workspace("a", group: "missing"), indented: false)])
+    }
+
+    @Test func missingAnchorGroupDegradesMembersToUngroupedRows() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [workspace("member", group: "g")],
+            groups: [group("g", anchor: "missing-anchor", collapsed: true)]
+        )
+        #expect(items == [.workspace(workspace("member", group: "g"), indented: false)])
     }
 
     @Test func anchorOnlyGroupRendersHeaderWithNoMembers() {
@@ -175,6 +185,110 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a", collapsed: true), hasUnread: true),
             .workspace(workspace("mid"), indented: false),
+        ])
+    }
+
+    @Test func expandedGroupKeepsNonContiguousMemberAtSpatialPosition() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("a", group: "g"),
+                workspace("mid"),
+                workspace("b", group: "g"),
+            ],
+            groups: [group("g", anchor: "a")]
+        )
+
+        #expect(items == [
+            .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .workspace(workspace("mid"), indented: false),
+            .workspace(workspace("b", group: "g"), indented: true),
+        ])
+    }
+
+    @Test func nestedGroupsRenderUnderExpandedParent() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("hotels-anchor", group: "hotels"),
+                workspace("hotels-loose", group: "hotels"),
+                workspace("marriott-anchor", group: "marriott"),
+                workspace("terminal", group: "marriott"),
+                workspace("outside"),
+            ],
+            groups: [
+                group("hotels", anchor: "hotels-anchor"),
+                group("marriott", anchor: "marriott-anchor", parent: "hotels"),
+            ]
+        )
+
+        #expect(items == [
+            .groupHeader(group("hotels", anchor: "hotels-anchor"), hasUnread: false),
+            .workspace(workspace("hotels-loose", group: "hotels"), indented: true),
+            .groupHeader(group("marriott", anchor: "marriott-anchor", parent: "hotels"), hasUnread: false, depth: 1),
+            .workspace(workspace("terminal", group: "marriott"), indented: true, depth: 1),
+            .workspace(workspace("outside"), indented: false),
+        ])
+    }
+
+    @Test func collapsedParentGroupHidesDescendantGroupsAndRows() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("hotels-anchor", group: "hotels"),
+                workspace("marriott-anchor", group: "marriott"),
+                workspace("terminal", group: "marriott", unread: true),
+                workspace("outside"),
+            ],
+            groups: [
+                group("hotels", anchor: "hotels-anchor", collapsed: true),
+                group("marriott", anchor: "marriott-anchor", parent: "hotels"),
+            ]
+        )
+
+        #expect(items == [
+            .groupHeader(group("hotels", anchor: "hotels-anchor", collapsed: true), hasUnread: true),
+            .workspace(workspace("outside"), indented: false),
+        ])
+    }
+
+    @Test func childGroupWithMissingParentAnchorPromotesToTopLevel() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("parent-member", group: "parent"),
+                workspace("child-anchor", group: "child"),
+                workspace("child-member", group: "child"),
+            ],
+            groups: [
+                group("parent", anchor: "missing-parent-anchor", collapsed: true),
+                group("child", anchor: "child-anchor", parent: "parent"),
+            ]
+        )
+
+        #expect(items == [
+            .workspace(workspace("parent-member", group: "parent"), indented: false),
+            .groupHeader(group("child", anchor: "child-anchor", parent: "parent"), hasUnread: false),
+            .workspace(workspace("child-member", group: "child"), indented: true),
+        ])
+    }
+
+    @Test func collapsedChildGroupRemainsVisibleUnderExpandedParent() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("hotels-anchor", group: "hotels"),
+                workspace("marriott-anchor", group: "marriott"),
+                workspace("terminal", group: "marriott", unread: true),
+            ],
+            groups: [
+                group("hotels", anchor: "hotels-anchor"),
+                group("marriott", anchor: "marriott-anchor", collapsed: true, parent: "hotels"),
+            ]
+        )
+
+        #expect(items == [
+            .groupHeader(group("hotels", anchor: "hotels-anchor"), hasUnread: false),
+            .groupHeader(
+                group("marriott", anchor: "marriott-anchor", collapsed: true, parent: "hotels"),
+                hasUnread: true,
+                depth: 1
+            ),
         ])
     }
 }

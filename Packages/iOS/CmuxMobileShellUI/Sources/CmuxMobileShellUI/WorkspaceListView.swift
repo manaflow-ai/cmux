@@ -474,7 +474,7 @@ struct WorkspaceListView: View {
     private var groupedRows: some View {
         ForEach(groupedListItems) { item in
             switch item {
-            case .groupHeader(let group, let hasUnread):
+            case .groupHeader(let group, let hasUnread, let depth):
                 WorkspaceGroupHeaderRow(
                     group: group,
                     hasUnread: hasUnread,
@@ -485,16 +485,16 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
-                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowInsets(EdgeInsets(top: 6, leading: 12 + CGFloat(max(depth, 0)) * 20, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
-            case .workspace(let workspace, let indented):
-                workspaceRow(workspace, indented: indented)
+            case .workspace(let workspace, let indented, let depth):
+                workspaceRow(workspace, indented: indented, depth: depth)
             }
         }
     }
 
     @ViewBuilder
-    private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
+    private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool, depth: Int = 0) -> some View {
         let capabilities = workspace.actionCapabilities
         WorkspaceNavigationRow(
             workspace: workspace,
@@ -516,7 +516,7 @@ struct WorkspaceListView: View {
                 confirmCloseWorkspace()
             } : nil
         )
-        .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
+        .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 + CGFloat(max(depth, 0)) * 20 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
     }
 

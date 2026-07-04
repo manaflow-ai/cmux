@@ -407,6 +407,7 @@ extension TerminalController {
                 "name": group.name,
                 "is_collapsed": group.isCollapsed,
                 "is_pinned": group.isPinned,
+                "parent_group_id": v2OrNull(group.parentGroupId?.uuidString),
                 "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
                 "member_workspace_ids": memberIDsByGroup[group.id] ?? []
             ]

@@ -11,15 +11,20 @@ public struct SidebarWorkspaceReorderGroupSnapshot: Equatable, Sendable {
     /// Whether the group belongs to the leading pinned tier.
     public let isPinned: Bool
 
+    /// Parent group containing this group, or `nil` for a root-level group.
+    public let parentGroupId: UUID?
+
     /// Creates a workspace group snapshot for sidebar reorder planning.
     ///
     /// - Parameters:
     ///   - id: The group identifier.
     ///   - anchorWorkspaceId: The workspace id rendered as the group's header row.
     ///   - isPinned: Whether the group belongs to the leading pinned tier.
-    public init(id: UUID, anchorWorkspaceId: UUID, isPinned: Bool) {
+    ///   - parentGroupId: Parent group containing this group, or `nil` for a root-level group.
+    public init(id: UUID, anchorWorkspaceId: UUID, isPinned: Bool, parentGroupId: UUID? = nil) {
         self.id = id
         self.anchorWorkspaceId = anchorWorkspaceId
         self.isPinned = isPinned
+        self.parentGroupId = parentGroupId
     }
 }

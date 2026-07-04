@@ -10211,21 +10211,17 @@ struct VerticalTabsSidebar: View {
         scope: SidebarWorkspaceReorderDropIndicatorScope,
         tabs: [Workspace],
         workspaceGroups: [WorkspaceGroup],
-        visibleWorkspaceRowIds: [UUID]
+        workspaceRenderItems: [SidebarWorkspaceRenderItem]
     ) -> [UUID] {
-        switch scope {
-        case .raw:
-            return tabs.map(\.id)
-        case .topLevel:
-            return tabManager.sidebarReorderWorkspaceIds(
+        SidebarDropIndicatorRowScopeResolver(
+            tabs: tabs,
+            workspaceGroups: workspaceGroups,
+            workspaceRenderItems: workspaceRenderItems,
+            topLevelWorkspaceRowIds: tabManager.sidebarReorderWorkspaceIds(
                 forDraggedWorkspaceId: draggedWorkspaceId,
                 usesTopLevelRows: true
             )
-        case .group(let groupId):
-            guard workspaceGroups.contains(where: { $0.id == groupId }) else { return [] }
-            let visibleIds = Set(visibleWorkspaceRowIds)
-            return tabs.filter { $0.groupId == groupId && visibleIds.contains($0.id) }.map(\.id)
-        }
+        ).rowIds(for: scope)
     }
 
     private var sidebarTopScrimHeight: CGFloat {
@@ -10325,7 +10321,8 @@ struct VerticalTabsSidebar: View {
             .flatMap { renderContext.workspaceGroupById[$0] }
         proxy.scrollTo(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
             selectedWorkspaceId: selectedWorkspaceId,
-            group: group
+            group: group,
+            groupsById: renderContext.workspaceGroupById
         ))
         pendingSelectedWorkspaceScrollId = nil
     }
@@ -10374,10 +10371,91 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+        let workspaceGroupCollapsedUnreadCountById: [UUID: Int]
+        let workspaceGroupCanMarkAllReadById: [UUID: Bool]
+        let workspaceGroupCanMarkAllUnreadById: [UUID: Bool]
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
 
         var workspaceIds: [UUID] { tabIds }
+    }
+
+    private func workspaceGroupNotificationSummaries(
+        tabs: [Workspace],
+        workspaceGroups: [WorkspaceGroup]
+    ) -> (
+        collapsedUnreadCountByGroupId: [UUID: Int],
+        canMarkAllReadByGroupId: [UUID: Bool],
+        canMarkAllUnreadByGroupId: [UUID: Bool]
+    ) {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let knownGroupIds = Set(groupsById.keys)
+        var childGroupIdsByParentId: [UUID: [UUID]] = [:]
+        for group in workspaceGroups {
+            guard let parentGroupId = group.parentGroupId,
+                  parentGroupId != group.id,
+                  knownGroupIds.contains(parentGroupId) else {
+                continue
+            }
+            childGroupIdsByParentId[parentGroupId, default: []].append(group.id)
+        }
+
+        var directAggregateByGroupId: [UUID: WorkspaceGroupNotificationAggregate] = [:]
+        for workspace in tabs {
+            guard let groupId = workspace.groupId,
+                  groupsById[groupId] != nil else { continue }
+            let unreadCount = sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+            directAggregateByGroupId[groupId, default: WorkspaceGroupNotificationAggregate()].memberCount += 1
+            directAggregateByGroupId[groupId, default: WorkspaceGroupNotificationAggregate()].unreadNotificationCount += unreadCount
+            if unreadCount > 0 {
+                directAggregateByGroupId[groupId, default: WorkspaceGroupNotificationAggregate()].unreadWorkspaceCount += 1
+            }
+        }
+
+        var subtreeAggregateByGroupId: [UUID: WorkspaceGroupNotificationAggregate] = [:]
+        func subtreeAggregate(for groupId: UUID, visiting: inout Set<UUID>) -> WorkspaceGroupNotificationAggregate {
+            if let cached = subtreeAggregateByGroupId[groupId] {
+                return cached
+            }
+            guard visiting.insert(groupId).inserted else {
+                return directAggregateByGroupId[groupId] ?? WorkspaceGroupNotificationAggregate()
+            }
+            var aggregate = directAggregateByGroupId[groupId] ?? WorkspaceGroupNotificationAggregate()
+            for childGroupId in childGroupIdsByParentId[groupId] ?? [] {
+                aggregate.add(subtreeAggregate(for: childGroupId, visiting: &visiting))
+            }
+            visiting.remove(groupId)
+            subtreeAggregateByGroupId[groupId] = aggregate
+            return aggregate
+        }
+
+        let workspaceIds = Set(tabs.map(\.id))
+        var collapsedUnreadCountByGroupId: [UUID: Int] = [:]
+        var canMarkAllReadByGroupId: [UUID: Bool] = [:]
+        var canMarkAllUnreadByGroupId: [UUID: Bool] = [:]
+        for group in workspaceGroups {
+            var visiting: Set<UUID> = []
+            let aggregate = subtreeAggregate(for: group.id, visiting: &visiting)
+            let anchorExists = workspaceIds.contains(group.anchorWorkspaceId)
+            let anchorIsUnread = sidebarUnread.unreadCount(forWorkspaceId: group.anchorWorkspaceId) > 0
+            let excludedUnreadWorkspaceCount = anchorExists && anchorIsUnread ? 1 : 0
+            let excludedReadWorkspaceCount = anchorExists && !anchorIsUnread ? 1 : 0
+            let unreadWorkspaceCount = max(0, aggregate.unreadWorkspaceCount - excludedUnreadWorkspaceCount)
+            let readWorkspaceCount = max(
+                0,
+                aggregate.memberCount - aggregate.unreadWorkspaceCount - excludedReadWorkspaceCount
+            )
+
+            collapsedUnreadCountByGroupId[group.id] = aggregate.unreadNotificationCount
+            canMarkAllReadByGroupId[group.id] = unreadWorkspaceCount > 0
+            canMarkAllUnreadByGroupId[group.id] = readWorkspaceCount > 0
+        }
+
+        return (
+            collapsedUnreadCountByGroupId,
+            canMarkAllReadByGroupId,
+            canMarkAllUnreadByGroupId
+        )
     }
 
     var body: some View {
@@ -10414,6 +10492,10 @@ struct VerticalTabsSidebar: View {
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        let workspaceGroupSummaryMaps = workspaceGroupNotificationSummaries(
+            tabs: tabs,
+            workspaceGroups: workspaceGroups
+        )
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
             groupsById: workspaceGroupById
@@ -10427,7 +10509,7 @@ struct VerticalTabsSidebar: View {
                 scope: dropIndicatorScope,
                 tabs: tabs,
                 workspaceGroups: workspaceGroups,
-                visibleWorkspaceRowIds: visibleWorkspaceRowIds
+                workspaceRenderItems: workspaceRenderItems
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(
@@ -10449,6 +10531,9 @@ struct VerticalTabsSidebar: View {
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            workspaceGroupCollapsedUnreadCountById: workspaceGroupSummaryMaps.collapsedUnreadCountByGroupId,
+            workspaceGroupCanMarkAllReadById: workspaceGroupSummaryMaps.canMarkAllReadByGroupId,
+            workspaceGroupCanMarkAllUnreadById: workspaceGroupSummaryMaps.canMarkAllUnreadByGroupId,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
@@ -11873,16 +11958,18 @@ struct VerticalTabsSidebar: View {
         LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
-                case .groupHeader(let group, let memberWorkspaceIds):
+                case .groupHeader(let group, let memberCount, let depth):
                     sidebarWorkspaceGroupHeader(
                         group: group,
-                        memberWorkspaceIds: memberWorkspaceIds,
+                        memberCount: memberCount,
+                        depth: depth,
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets, showModifierHoldHints: showModifierHoldHints
                     )
-                case .workspace(let tab):
+                case .workspace(let tab, let depth):
                     workspaceRow(
                         tab,
+                        depth: depth,
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
@@ -12098,7 +12185,8 @@ struct VerticalTabsSidebar: View {
                     SidebarWorkspaceReorderGroupSnapshot(
                         id: $0.id,
                         anchorWorkspaceId: $0.anchorWorkspaceId,
-                        isPinned: $0.isPinned
+                        isPinned: $0.isPinned,
+                        parentGroupId: $0.parentGroupId
                     )
                 },
                 targets: targets.map {
@@ -12114,13 +12202,14 @@ struct VerticalTabsSidebar: View {
     }
 
     private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+        let selectionBeforeReorder = selectedTabIds
+        let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+            existingAnchorIndex: lastSidebarSelectionIndex,
+            liveWorkspaceIds: tabManager.tabs.map(\.id)
+        )
+        func syncSelectionAfterWorkspaceTreeMutation() { syncSidebarSelectionAfterWorkspaceReorder(preserving: selectionBeforeReorder, preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder) }
         switch plan.action {
         case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
-            let selectionBeforeReorder = selectedTabIds
-            let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
-                existingAnchorIndex: lastSidebarSelectionIndex,
-                liveWorkspaceIds: tabManager.tabs.map(\.id)
-            )
             let didReorder = tabManager.reorderSidebarWorkspace(
                 tabId: plan.draggedWorkspaceId,
                 toIndex: targetIndex,
@@ -12128,13 +12217,14 @@ struct VerticalTabsSidebar: View {
                 usesTopLevelRows: usesTopLevelRows,
                 explicitGroupId: explicitGroupId
             )
-            syncSidebarSelectionAfterWorkspaceReorder(
-                preserving: selectionBeforeReorder,
-                preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
-            )
+            syncSelectionAfterWorkspaceTreeMutation()
             return didReorder
         case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
             return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
+        case .reparentGroup(let groupId, let parentGroupId):
+            let didReparent = tabManager.setWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId)
+            if didReparent { syncSelectionAfterWorkspaceTreeMutation() }
+            return didReparent
         }
     }
 
@@ -12260,6 +12350,7 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func workspaceRow(
         _ tab: Workspace,
+        depth: Int,
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
@@ -12349,6 +12440,8 @@ struct VerticalTabsSidebar: View {
                 focusWindow: true
             )
         }
+
+        let leadingIndent = CGFloat(max(depth, 0)) * SidebarWorkspaceGroupingMetrics.memberIndent
         let syncSidebarSelectionAfterBonsplitDrop: @MainActor () -> Void = {
             if let selectedId = tabManager.selectedTabId {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -12400,7 +12493,7 @@ struct VerticalTabsSidebar: View {
 
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            .padding(.leading, leadingIndent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
     }
@@ -15955,13 +16048,6 @@ struct SidebarTabDropDelegate: DropDelegate {
             return false
         }
 
-        guard fromIndex != targetIndex || explicitGroupId != nil else {
-#if DEBUG
-            cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
-#endif
-            return true
-        }
-
 #if DEBUG
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
@@ -15981,7 +16067,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             preserving: selectionBeforeReorder,
             preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
         )
-        return didReorder
+        return didReorder || fromIndex == targetIndex
     }
 
     private func usesTopLevelRowsForDrop(

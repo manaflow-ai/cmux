@@ -1005,12 +1005,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
         renderGridLivenessProbeTask?.cancel()
-        terminalSubscriptionRefreshTask?.cancel()
-        createWorkspaceTask?.cancel()
-        createTerminalTask?.cancel()
-        workspaceListRefreshTask?.cancel()
-        pullToRefreshTask?.cancel()
-        cancelAllTerminalReplayTasks()
+        cancelRemoteOperationTasks()
         teardownSecondaryMacSubscriptions()
         if let remoteClient {
             Task { await remoteClient.disconnect() }

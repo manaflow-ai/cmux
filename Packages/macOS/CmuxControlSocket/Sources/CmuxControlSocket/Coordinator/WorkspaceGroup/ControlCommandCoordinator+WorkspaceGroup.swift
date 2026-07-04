@@ -66,6 +66,8 @@ extension ControlCommandCoordinator {
             "name": .string(group.name),
             "is_collapsed": .bool(group.isCollapsed),
             "is_pinned": .bool(group.isPinned),
+            "parent_group_id": orNull(group.parentGroupID?.uuidString),
+            "parent_group_ref": ref(.workspaceGroup, group.parentGroupID),
             "anchor_workspace_id": .string(group.anchorWorkspaceID.uuidString),
             "anchor_workspace_ref": ref(.workspace, group.anchorWorkspaceID),
             "custom_color": orNull(group.customColor),

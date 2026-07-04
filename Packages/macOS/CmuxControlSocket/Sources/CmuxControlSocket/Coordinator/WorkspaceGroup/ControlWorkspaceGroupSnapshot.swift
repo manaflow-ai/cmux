@@ -17,6 +17,8 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     public let isCollapsed: Bool
     /// Whether the group is pinned.
     public let isPinned: Bool
+    /// Parent workspace group identifier when this group is nested.
+    public let parentGroupID: UUID?
     /// The anchor workspace's identifier.
     public let anchorWorkspaceID: UUID
     /// The group's custom color override, if any.
@@ -33,6 +35,7 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
     ///   - name: The group's display name.
     ///   - isCollapsed: Whether the group is collapsed.
     ///   - isPinned: Whether the group is pinned.
+    ///   - parentGroupID: The parent workspace group identifier, if nested.
     ///   - anchorWorkspaceID: The anchor workspace's identifier.
     ///   - customColor: The custom color override, if any.
     ///   - iconSymbol: The custom icon symbol, if any.
@@ -42,6 +45,7 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
         name: String,
         isCollapsed: Bool,
         isPinned: Bool,
+        parentGroupID: UUID? = nil,
         anchorWorkspaceID: UUID,
         customColor: String?,
         iconSymbol: String?,
@@ -51,6 +55,7 @@ public struct ControlWorkspaceGroupSnapshot: Sendable, Equatable {
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
+        self.parentGroupID = parentGroupID
         self.anchorWorkspaceID = anchorWorkspaceID
         self.customColor = customColor
         self.iconSymbol = iconSymbol

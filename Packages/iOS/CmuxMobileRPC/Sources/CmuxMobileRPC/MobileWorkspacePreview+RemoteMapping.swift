@@ -31,6 +31,7 @@ extension MobileWorkspaceGroupPreview {
             name: remote.name,
             isCollapsed: remote.isCollapsed,
             isPinned: remote.isPinned,
+            parentGroupID: remote.parentGroupID.map { MobileWorkspaceGroupPreview.ID(rawValue: $0) },
             anchorWorkspaceID: MobileWorkspacePreview.ID(rawValue: remote.anchorWorkspaceID)
         )
     }

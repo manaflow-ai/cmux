@@ -89,7 +89,7 @@ public final class SidebarDragState {
         scope: SidebarWorkspaceReorderDropIndicatorScope
     ) {
         dropIndicator = indicator
-        dropIndicatorScope = indicator == nil ? .raw : scope
+        dropIndicatorScope = scope
         dropIndicatorUsesTopLevelRows = indicator != nil && scope == .topLevel
     }
 

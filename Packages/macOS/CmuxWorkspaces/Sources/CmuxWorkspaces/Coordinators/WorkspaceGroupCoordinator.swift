@@ -35,15 +35,28 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// workspace). Its cwd defaults to `anchorWorkingDirectory`, or the first
     /// eligible child's cwd, or whatever the host's workspace creation
     /// resolves on its own.
+    ///
+    /// - Parameter parentGroupId: Existing folder to contain the new group, or
+    ///   nil to create it at the sidebar root.
     @discardableResult
     public func createWorkspaceGroup(
         name: String,
         childWorkspaceIds: [UUID] = [],
+        parentGroupId: UUID? = nil,
         anchorWorkingDirectory: String? = nil,
         selectAnchor: Bool = true,
         collapseSidebarSelection: Bool = true
     ) -> UUID? {
         guard let host else { return nil }
+        let resolvedParentGroupId: UUID?
+        if let parentGroupId {
+            guard model.workspaceGroups.contains(where: { $0.id == parentGroupId }) else {
+                return nil
+            }
+            resolvedParentGroupId = parentGroupId
+        } else {
+            resolvedParentGroupId = nil
+        }
         // Eligible children: not currently an anchor of a different group.
         // Pulling an anchor into a new group would orphan the
         // source group (its anchorWorkspaceId would no longer match), so we
@@ -78,6 +91,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             name: resolvedName,
             isCollapsed: false,
             isPinned: false,
+            parentGroupId: resolvedParentGroupId,
             anchorWorkspaceId: anchor.id,
             customColor: nil,
             iconSymbol: nil
@@ -110,6 +124,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
                 hiddenWorkspaceIds: hiddenIds,
                 anchorId: anchor.id
             )
+        }
+        if selectAnchor,
+           let parentGroupId = resolvedParentGroupId,
+           let parentIndex = model.workspaceGroups.firstIndex(where: { $0.id == parentGroupId }),
+           model.workspaceGroups[parentIndex].isCollapsed {
+            model.workspaceGroups[parentIndex].isCollapsed = false
         }
         host.workspaceOrderDidChange(movedWorkspaceIds: [anchor.id] + eligibleChildren)
         return group.id
@@ -268,23 +288,25 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     /// Dissolve a group while preserving every member workspace (including its
-    /// anchor) as a regular ungrouped workspace. Nothing is closed. The
-    /// former members KEEP their `tabs[]` positions so the anchor — which
-    /// was previously rendered exclusively as the group header — appears as
-    /// a workspace row at the same vertical spot the header occupied, with
-    /// the rest of the members staying right below it in their existing
-    /// relative order. We deliberately do not re-normalize here: that would
-    /// push the now-ungrouped members down into the "ungrouped tier at the
-    /// bottom" slot, which makes Ungroup feel like a destructive move
-    /// instead of a flatten-in-place.
+    /// anchor). If the group has a parent folder, direct members and child folders
+    /// are promoted into that parent; otherwise they become top-level rows.
     public func ungroupWorkspaceGroup(groupId: UUID) {
+        let parentGroupId = model.workspaceGroups.first(where: { $0.id == groupId })?.parentGroupId
+        let movedIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
         guard !memberIds.isEmpty || model.workspaceGroups.contains(where: { $0.id == groupId }) else { return }
         for id in memberIds {
-            model.assignGroup(workspaceId: id, groupId: nil)
+            model.assignGroup(workspaceId: id, groupId: parentGroupId)
+        }
+        let childGroupIndices = model.workspaceGroups.indices.filter { model.workspaceGroups[$0].parentGroupId == groupId }
+        for index in childGroupIndices {
+            model.workspaceGroups[index].parentGroupId = parentGroupId
         }
         model.workspaceGroups.removeAll { $0.id == groupId }
-        host?.workspaceOrderDidChange(movedWorkspaceIds: memberIds)
+        if parentGroupId != nil || !childGroupIndices.isEmpty {
+            model.normalizeWorkspaceGroupContiguity()
+        }
+        host?.workspaceOrderDidChange(movedWorkspaceIds: movedIds)
     }
 
     /// Delete a group and close every workspace inside it (anchor + all
@@ -297,9 +319,15 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     public func deleteWorkspaceGroup(groupId: UUID, recordHistory: Bool = true) -> Int {
         guard let host else { return 0 }
         guard model.workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
-        let members = model.tabs.filter { $0.groupId == groupId }
+        let deletedGroupIds = model.workspaceGroupSubtreeGroupIds(groupId: groupId)
+        let members = model.tabs.filter { tab in
+            guard let tabGroupId = tab.groupId else { return false }
+            return deletedGroupIds.contains(tabGroupId)
+        }
         var closed = 0
+        var liveTabIds = Set(model.tabs.map(\.id))
         for tab in members {
+            guard liveTabIds.contains(tab.id) else { continue }
             // closeWorkspace short-circuits when tabs.count <= 1, so the last
             // remaining workspace would be left alive with a stale groupId.
             // Convert the holdout into a regular workspace (clear groupId)
@@ -312,13 +340,19 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             }
             let countBefore = model.tabs.count
             host.closeWorkspaceForGroupDeletion(tab, recordHistory: recordHistory)
-            if model.tabs.count < countBefore { closed += 1 }
+            if model.tabs.count < countBefore {
+                closed += 1
+                liveTabIds.remove(tab.id)
+            }
         }
         // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
         // when the anchor is among the closed members, but if every member
         // was non-anchor (callers can construct that shape via socket
         // workspace.group.set_anchor races) the group survives — clean up.
-        model.workspaceGroups.removeAll { $0.id == groupId }
+        for tab in model.tabs where tab.groupId.map({ deletedGroupIds.contains($0) }) ?? false {
+            tab.groupId = nil
+        }
+        model.workspaceGroups.removeAll { deletedGroupIds.contains($0.id) }
         return closed
     }
 
@@ -354,7 +388,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             if let selectedTabId = model.selectedTabId,
                selectedTabId != anchorId,
                let selectedTab = model.tabs.first(where: { $0.id == selectedTabId }),
-               selectedTab.groupId == groupId,
+               selectedTab.groupId.map({ model.workspaceGroupSubtreeGroupIds(groupId: groupId).contains($0) }) == true,
                let anchor = model.tabs.first(where: { $0.id == anchorId }) {
                 host.selectWorkspace(anchor)
             }
@@ -363,9 +397,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             // close/group shortcut fired after the collapse would still act
             // on workspaces the user can no longer see.
             let hiddenMemberIds: Set<UUID> = Set(
-                model.tabs
-                    .filter { $0.groupId == groupId && $0.id != anchorId }
-                    .map(\.id)
+                model.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
+                    .filter { $0 != anchorId }
             )
             if !hiddenMemberIds.isEmpty,
                !host.sidebarSelectedWorkspaceIds.isDisjoint(with: hiddenMemberIds) {
@@ -404,7 +437,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         guard model.workspaceGroups[index].isPinned != isPinned else { return }
         model.workspaceGroups[index].isPinned = isPinned
         model.normalizeWorkspaceGroupContiguity()
-        let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
+        let memberIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
         host?.workspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
@@ -443,31 +476,58 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // Publish the order change so CmuxEventBus subscribers and any
         // notification observers see the new anchor position immediately
         // (other group-mutation paths post; this one was a hole).
-        let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
+        let memberIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
         host?.workspaceOrderDidChange(movedWorkspaceIds: memberIds.isEmpty ? [workspaceId] : memberIds)
         _ = tab
+    }
+
+    /// Reparents one group under another group, or moves it back to the top
+    /// level when `parentGroupId` is nil. Invalid parents and cycles are ignored.
+    @discardableResult
+    public func setWorkspaceGroupParent(groupId: UUID, parentGroupId: UUID?) -> Bool {
+        guard let index = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return false }
+        guard model.canSetWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId) else { return false }
+        guard model.workspaceGroups[index].parentGroupId != parentGroupId else { return true }
+        model.workspaceGroups[index].parentGroupId = parentGroupId
+        if let parentGroupId,
+           let parentIndex = model.workspaceGroups.firstIndex(where: { $0.id == parentGroupId }),
+           model.workspaceGroups[parentIndex].isCollapsed {
+            model.workspaceGroups[parentIndex].isCollapsed = false
+        }
+        model.normalizeWorkspaceGroupContiguity()
+        let movedIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
+        host?.workspaceOrderDidChange(movedWorkspaceIds: movedIds)
+        return true
+    }
+
+    /// Returns whether a group can be reparented without creating a cycle.
+    public func canSetWorkspaceGroupParent(groupId: UUID, parentGroupId: UUID?) -> Bool {
+        model.canSetWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId)
     }
 
     // MARK: - Group slots
 
     /// Move a group to a new group-slot position. `targetIndex` is interpreted
     /// as the FINAL position the group should end up at in `workspaceGroups`
-    /// (post-move). It is clamped to the range occupied by groups in the same
-    /// pin tier as the source. Ungrouped top-level workspace rows keep their
-    /// slots; the reordered group anchors are projected back into the existing
-    /// group slots.
+    /// (post-move). It is clamped to the range occupied by groups with the same
+    /// parent and pin tier as the source. Ungrouped top-level workspace rows keep
+    /// their slots; the reordered group anchors are projected back into the
+    /// existing group slots.
     public func moveWorkspaceGroup(groupId: UUID, toIndex targetIndex: Int) {
         guard moveWorkspaceGroupSlot(groupId: groupId, toIndex: targetIndex) else { return }
         applyWorkspaceGroupSlotOrderToTabs()
-        let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
+        let memberIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
         host?.workspaceOrderDidChange(movedWorkspaceIds: memberIds)
     }
 
     @discardableResult
     private func moveWorkspaceGroupSlot(groupId: UUID, toIndex targetIndex: Int) -> Bool {
         guard let currentIndex = model.workspaceGroups.firstIndex(where: { $0.id == groupId }) else { return false }
-        let isPinned = model.workspaceGroups[currentIndex].isPinned
-        let sameTierIndices = model.workspaceGroups.indices.filter { model.workspaceGroups[$0].isPinned == isPinned }
+        let source = model.workspaceGroups[currentIndex]
+        let sameTierIndices = model.workspaceGroups.indices.filter {
+            model.workspaceGroups[$0].parentGroupId == source.parentGroupId &&
+                model.workspaceGroups[$0].isPinned == source.isPinned
+        }
         guard let firstSameTier = sameTierIndices.first,
               let lastSameTier = sameTierIndices.last else { return false }
         let clampedTarget = max(firstSameTier, min(targetIndex, lastSameTier))
@@ -485,49 +545,43 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     private func applyWorkspaceGroupSlotOrderToTabs() {
-        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: model.workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
-        let topLevelIds = model.sidebarTopLevelWorkspaceIds()
-        let tabsById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
-
-        var pinnedTopLevelIds: [UUID] = []
-        var unpinnedTopLevelIds: [UUID] = []
-        pinnedTopLevelIds.reserveCapacity(topLevelIds.count)
-        unpinnedTopLevelIds.reserveCapacity(topLevelIds.count)
-        for id in topLevelIds {
-            let isPinned = groupsByAnchorId[id]?.isPinned ?? (tabsById[id]?.isPinned == true)
-            if isPinned {
-                pinnedTopLevelIds.append(id)
-            } else {
-                unpinnedTopLevelIds.append(id)
-            }
-        }
-        let tieredTopLevelIds = pinnedTopLevelIds + unpinnedTopLevelIds
-
-        var pinnedAnchors: [UUID] = []
-        var unpinnedAnchors: [UUID] = []
-        pinnedAnchors.reserveCapacity(model.workspaceGroups.count)
-        unpinnedAnchors.reserveCapacity(model.workspaceGroups.count)
+        var groupsByAnchorId: [UUID: WorkspaceGroup] = [:]
+        var pinnedAnchorsByParentId: [UUID?: [UUID]] = [:]
+        var unpinnedAnchorsByParentId: [UUID?: [UUID]] = [:]
         for group in model.workspaceGroups {
+            if groupsByAnchorId[group.anchorWorkspaceId] == nil {
+                groupsByAnchorId[group.anchorWorkspaceId] = group
+            }
             if group.isPinned {
-                pinnedAnchors.append(group.anchorWorkspaceId)
+                pinnedAnchorsByParentId[group.parentGroupId, default: []].append(group.anchorWorkspaceId)
             } else {
-                unpinnedAnchors.append(group.anchorWorkspaceId)
+                unpinnedAnchorsByParentId[group.parentGroupId, default: []].append(group.anchorWorkspaceId)
             }
         }
-        var pinnedAnchorIndex = 0
-        var unpinnedAnchorIndex = 0
-        let desiredIds = tieredTopLevelIds.map { id -> UUID in
-            guard let group = groupsByAnchorId[id] else { return id }
-            if group.isPinned, pinnedAnchorIndex < pinnedAnchors.count {
-                defer { pinnedAnchorIndex += 1 }
-                return pinnedAnchors[pinnedAnchorIndex]
+
+        var nextPinnedIndexByParentId: [UUID?: Int] = [:]
+        var nextUnpinnedIndexByParentId: [UUID?: Int] = [:]
+        var desiredIds: [UUID] = []
+        desiredIds.reserveCapacity(model.tabs.count)
+        for tab in model.tabs {
+            guard let group = groupsByAnchorId[tab.id] else {
+                desiredIds.append(tab.id)
+                continue
             }
-            if !group.isPinned, unpinnedAnchorIndex < unpinnedAnchors.count {
-                defer { unpinnedAnchorIndex += 1 }
-                return unpinnedAnchors[unpinnedAnchorIndex]
+            let parentGroupId = group.parentGroupId
+            if group.isPinned {
+                let index = nextPinnedIndexByParentId[parentGroupId, default: 0]
+                let anchors = pinnedAnchorsByParentId[parentGroupId] ?? []
+                desiredIds.append(index < anchors.count ? anchors[index] : tab.id)
+                nextPinnedIndexByParentId[parentGroupId] = index + 1
+            } else {
+                let index = nextUnpinnedIndexByParentId[parentGroupId, default: 0]
+                let anchors = unpinnedAnchorsByParentId[parentGroupId] ?? []
+                desiredIds.append(index < anchors.count ? anchors[index] : tab.id)
+                nextUnpinnedIndexByParentId[parentGroupId] = index + 1
             }
-            return id
         }
+
         model.normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
         model.syncWorkspaceGroupsOrderToAnchorOrder()
     }
@@ -551,9 +605,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
 
     /// Place a freshly-created group where its first child already was.
     /// This keeps "New Group from Selection" visually stable while still
-    /// making every affected group contiguous and anchor-first. It
-    /// intentionally preserves top-level order because changing that outer
-    /// position is the jump this creation path is avoiding.
+    /// making every affected group contiguous and anchor-first.
+    /// Preserves top-level order to avoid outer sidebar jumps.
     private func placeNewWorkspaceGroupAtCreationPosition(
         groupId: UUID,
         anchorId: UUID,
@@ -564,7 +617,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         let orderedChildIds = originalTabOrder.filter { childIdSet.contains($0) }
         guard let insertionIndex = originalTabOrder.firstIndex(where: { childIdSet.contains($0) }),
               !orderedChildIds.isEmpty else {
-            model.normalizeWorkspaceGroupContiguity()
+            let originalTopLevelIds = model.topLevelWorkspaceIdsPreservingOrder(originalTabOrder)
+            model.normalizeWorkspaceGroupContiguity(preservingTopLevelIds: originalTopLevelIds)
             return
         }
 
@@ -579,8 +633,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
                 desiredIds.append(id)
             }
         }
-        model.normalizeWorkspaceGroupContiguity(
-            preservingTopLevelIds: model.topLevelWorkspaceIdsPreservingOrder(desiredIds)
+        let preferredTopLevelIds = model.topLevelWorkspaceIdsPreservingOrder(desiredIds)
+        let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIds()
+        model.normalizeWorkspaceGroupRunsPreservingOrder(
+            desiredIds,
+            preferredTopLevelIds: preferredTopLevelIds.filter { pinnedTopLevelIds.contains($0) }
+                + preferredTopLevelIds.filter { !pinnedTopLevelIds.contains($0) }
         )
         if model.workspaceGroups.contains(where: { $0.id == groupId }) {
             model.syncWorkspaceGroupsOrderToAnchorOrder()
