@@ -190,6 +190,20 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func longDoubleDashOptionHelpRowsAreNotJoined() {
+        let input =
+            "  --project <path> Select the project root used for command execution and file discovery\n"
+            + "  --profile <name> Select the browser profile used for preview authentication and storage\n"
+        #expect(reflow(input) == input)
+    }
+
+    @Test func longMixedOptionHelpRowsAreNotJoined() {
+        let input =
+            "  -p, --project <path> Select the project root used for command execution and file discovery\n"
+            + "  --profile <name> Select the browser profile used for preview authentication and storage\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func blankLinesPreservedAsParagraphBoundaries() {
         let input = "first paragraph stands on its own here\n\nsecond paragraph also alone\n"
         #expect(reflow(input) == input)

@@ -28,6 +28,21 @@ extension ReflowOptions {
         return currentFirst == firstWord(in: previous)
     }
 
+    /// Option/help rows are line-oriented records even when they are long and
+    /// start with command-looking tokens.
+    func startsOptionLikeRow(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        if trimmed.hasPrefix("--") {
+            let rest = trimmed.dropFirst(2)
+            return rest.first?.isLetter == true
+        }
+        if trimmed.hasPrefix("-") {
+            let rest = trimmed.dropFirst()
+            return rest.first?.isLetter == true
+        }
+        return false
+    }
+
     static let continuationTailWords: Set<String> = [
         "a", "an", "and", "are", "as", "at", "be", "because", "been", "being",
         "but", "by", "can", "could", "did", "do", "does", "for", "from", "had",

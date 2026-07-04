@@ -192,10 +192,13 @@ private extension ReflowOptions {
                             alreadyJoined: p.hasJoined
                         )
                         && !startsIndependentRecord(content, after: p.prevContent)
+                    let commandContinuation = startsCommandContinuationToken(content)
+                        && !startsCommandContinuationToken(p.prevContent)
+                        && !startsOptionLikeRow(p.prevContent)
                     let s4 = p.prevHasSpace
                         && p.allowsWidthJoin
                         && previousLineWasFull
-                        && (lowercaseContinuation || startsCommandContinuationToken(content))
+                        && (lowercaseContinuation || commandContinuation)
                     let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
 
                     if canJoin {
