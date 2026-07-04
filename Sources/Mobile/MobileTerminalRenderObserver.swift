@@ -18,11 +18,13 @@ final class MobileTerminalRenderObserver {
     private var renderGridStatesBySurfaceID: [UUID: MobileTerminalRenderGridEmissionState] = [:]
     private var pendingByteEventsBySurfaceID: [UUID: PendingTerminalBytes] = [:]
     private let pendingBytesBudgetPerSurface = 256 * 1024
+    private let maxDeferredHybridByteFlushRetries = 2
 
     private struct PendingTerminalBytes {
         var seq: UInt64
         var data: Data
         var overflowed = false
+        var renderGridMissCount = 0
 
         init(seq: UInt64, data: Data, budget: Int) {
             self.seq = seq
@@ -31,12 +33,13 @@ final class MobileTerminalRenderObserver {
         }
 
         mutating func append(seq nextSeq: UInt64, data nextData: Data, budget: Int) {
-            guard !overflowed else { return }
+            renderGridMissCount = 0
             let currentEnd = seq &+ UInt64(data.count)
             if currentEnd == nextSeq {
                 data.append(nextData)
             } else if nextSeq > currentEnd {
-                data.removeAll(keepingCapacity: false)
+                seq = nextSeq
+                data = nextData
                 overflowed = true
             } else {
                 let overlap = currentEnd - nextSeq
@@ -48,9 +51,24 @@ final class MobileTerminalRenderObserver {
             enforceBudget(budget)
         }
 
+        mutating func recordRenderGridMiss(maxRetries: Int) -> Bool {
+            renderGridMissCount += 1
+            return renderGridMissCount <= maxRetries
+        }
+
         private mutating func enforceBudget(_ budget: Int) {
-            guard budget > 0, data.count > budget else { return }
-            data.removeAll(keepingCapacity: false)
+            guard budget > 0 else {
+                seq &+= UInt64(data.count)
+                data.removeAll(keepingCapacity: false)
+                overflowed = true
+                return
+            }
+            let excess = data.count - budget
+            guard excess > 0 else { return }
+            // Keep a bounded tail so legacy hybrid clients still receive a
+            // sequenced byte event and can detect the missing prefix.
+            data.removeFirst(excess)
+            seq &+= UInt64(excess)
             overflowed = true
         }
     }
@@ -251,7 +269,16 @@ final class MobileTerminalRenderObserver {
                 guard let renderPayload = renderGridPayload(surfaceID: surfaceID) else {
                     if pendingByteEventsBySurfaceID[surfaceID] != nil,
                        hasTerminalSurface(surfaceID: surfaceID) {
-                        deferredHybridByteSurfaceIDs.insert(surfaceID)
+                        if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
+                            deferredHybridByteSurfaceIDs.insert(surfaceID)
+                        } else if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
+                            orderedEvents.append((
+                                topic: "terminal.bytes",
+                                payload: payload,
+                                requiredTopics: ["terminal.render_grid"],
+                                excludedTopics: []
+                            ))
+                        }
                     } else {
                         pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
                     }
@@ -274,7 +301,16 @@ final class MobileTerminalRenderObserver {
             }
             for surfaceID in surfaceIDs.union(pendingByteSurfaceIDs).subtracting(renderSurfaceIDs) {
                 if hasTerminalSurface(surfaceID: surfaceID) {
-                    deferredHybridByteSurfaceIDs.insert(surfaceID)
+                    if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
+                        deferredHybridByteSurfaceIDs.insert(surfaceID)
+                    } else if let payload = pendingTerminalBytesPayload(surfaceID: surfaceID) {
+                        orderedEvents.append((
+                            topic: "terminal.bytes",
+                            payload: payload,
+                            requiredTopics: ["terminal.render_grid"],
+                            excludedTopics: []
+                        ))
+                    }
                 } else {
                     pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
                 }
@@ -311,11 +347,18 @@ final class MobileTerminalRenderObserver {
         }
     }
 
+    private func shouldDeferHybridByteFlush(surfaceID: UUID) -> Bool {
+        guard var pending = pendingByteEventsBySurfaceID[surfaceID] else { return false }
+        let shouldDefer = pending.recordRenderGridMiss(maxRetries: maxDeferredHybridByteFlushRetries)
+        pendingByteEventsBySurfaceID[surfaceID] = pending
+        return shouldDefer
+    }
+
     private func pendingTerminalBytesPayload(surfaceID: UUID) -> [String: Any]? {
         guard let pending = pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID) else {
             return nil
         }
-        guard !pending.overflowed else { return nil }
+        guard !pending.data.isEmpty else { return nil }
         return [
             "surface_id": surfaceID.uuidString,
             "seq": pending.seq,

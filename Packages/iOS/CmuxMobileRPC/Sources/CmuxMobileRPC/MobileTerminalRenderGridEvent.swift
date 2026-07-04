@@ -11,8 +11,8 @@ public import Foundation
 public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
     /// The nested render-grid frame, if the payload used the wrapped form.
     public let frame: MobileTerminalRenderGridFrame?
-    /// Whether matching hybrid raw bytes were suppressed because the host-side
-    /// pending byte buffer overflowed before the render-grid flush.
+    /// Whether the host-side pending byte buffer overflowed before the
+    /// render-grid flush, making this full frame the authoritative recovery.
     public let hybridBytesOverflowed: Bool
 
     private enum CodingKeys: String, CodingKey {
