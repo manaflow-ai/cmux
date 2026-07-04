@@ -3868,6 +3868,9 @@ struct CMUXCLI {
         case "remotes", "remote":
             try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "issues":
+            try runIssuesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "mobile":
             let sub = commandArgs.first?.lowercased()
             let rest = Array(commandArgs.dropFirst())
@@ -14131,6 +14134,8 @@ struct CMUXCLI {
         switch command {
         case "remotes", "remote":
             return Self.remotesUsage
+        case "issues":
+            return Self.issuesUsage
         case "ping":
             return """
             Usage: cmux ping
@@ -34475,6 +34480,7 @@ export default CMUXSessionRestore;
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
+          issues <list|refresh|open|spawn> [--json]
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           rpc <method> [json-params]

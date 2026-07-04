@@ -55,6 +55,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "issues.refresh",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",

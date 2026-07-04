@@ -5501,6 +5501,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.agentSession", defaultValue: "Agent")
         case .project:
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
+        case .issueInbox:
+            return String(localized: "issueInbox.title", defaultValue: "Issue Inbox")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         }
@@ -5523,6 +5525,8 @@ struct ContentView: View {
             return ["agent", "codex", "claude", "opencode", "react", "solid"]
         case .project:
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
+        case .issueInbox:
+            return ["issue", "issues", "inbox", "github", "linear"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
         }
@@ -6351,6 +6355,15 @@ struct ContentView: View {
                 title: constant(String(localized: "command.openFolder.title", defaultValue: "Open Folder…")),
                 subtitle: constant(String(localized: "command.openFolder.subtitle", defaultValue: "Workspace")),
                 keywords: ["open", "folder", "repository", "project", "directory"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openIssueInbox",
+                title: constant(String(localized: "issueInbox.palette.open", defaultValue: "Open Issue Inbox")),
+                subtitle: constant(String(localized: "issueInbox.title", defaultValue: "Issue Inbox")),
+                keywords: ["issue", "issues", "inbox", "github", "linear"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
         contributions.append(
@@ -7552,6 +7565,13 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
             }
+        }
+        registry.register(commandId: "palette.openIssueInbox") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            _ = workspace.openOrFocusIssueInboxSurface()
         }
         registry.register(commandId: "palette.reopenPreviousSession") {
             if AppDelegate.shared?.reopenPreviousSession() != true {
@@ -11013,6 +11033,8 @@ struct VerticalTabsSidebar: View {
             return .agentSession
         case .project:
             return .project
+        case .issueInbox:
+            return .unknown
         case .extensionBrowser:
             return .unknown
         }

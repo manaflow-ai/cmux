@@ -83,6 +83,7 @@ Environment:
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
+| `issues` | List, refresh, open, and spawn workspaces from Issue Inbox. Supports `--json` on list, refresh, and spawn. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -206,6 +207,15 @@ Remotes subcommands:
 | `remotes list`, `remotes ls` | List the team's registered remotes (name, deviceId, routes, tag, last seen). Supports `--json`. |
 | `remotes add <name>` | Register or update a remote with one or more `--route <host:port>`. Supports `--tag` and `--json`. Idempotent on `<name>` (re-adding updates routes). The host must be a Tailscale address the phone can authenticate to (CGNAT `100.64.x.x`-`100.127.x.x` or `*.ts.net`); loopback, plain LAN IPs, and bare hostnames are rejected. |
 | `remotes remove <name-or-deviceId>` | Remove a remote you registered. Aliases `rm`, `delete`. Supports `--json`. |
+
+Issues subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `issues list`, `issues ls` | Print cached Issue Inbox rows. Does not force a refresh. Supports `--json`. |
+| `issues refresh` | Refresh all configured sources and report per-source counts or errors. Supports `--json`. |
+| `issues open` | Open or focus the Issue Inbox surface in the current workspace. |
+| `issues spawn <issue-id>` | Create or reuse a workspace for an issue. Supports `--cwd <path>` and `--json`. |
 
 Theme subcommands:
 
@@ -457,6 +467,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
+- `cmux issues --help` -> `Usage: cmux issues <list|refresh|open|spawn> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`

@@ -221,6 +221,8 @@ extension Workspace {
             return "agent_session"
         case .project:
             return "project"
+        case .issueInbox:
+            return "issue_inbox"
         case .extensionBrowser:
             return "extension_browser"
         }

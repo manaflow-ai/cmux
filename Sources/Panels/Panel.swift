@@ -12,6 +12,7 @@ public enum PanelType: String, Codable, Sendable {
     case customSidebar
     case agentSession
     case project
+    case issueInbox
     case extensionBrowser
 
     public init(from decoder: Decoder) throws {
@@ -35,6 +36,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
             self = .agentSession
+            return
+        }
+        if rawValue.lowercased() == Self.issueInbox.rawValue.lowercased() {
+            self = .issueInbox
             return
         }
         throw DecodingError.dataCorruptedError(
