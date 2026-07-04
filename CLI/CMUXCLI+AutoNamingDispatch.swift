@@ -21,7 +21,6 @@ extension CMUXCLI {
             )
         } catch {
             telemetry.breadcrumb("\(telemetryKey).probe-failed")
-            reportAutoNamingProblem("probe_failed", agent: agent, workspaceId: workspaceId, client: client)
             return nil
         }
         guard probe["enabled"] as? Bool == true else {
