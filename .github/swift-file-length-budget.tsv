@@ -15,7 +15,7 @@
 7743	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 7405	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6359	cmuxTests/SessionPersistenceTests.swift
+6383	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/GhosttyConfigTests.swift
 6169	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift

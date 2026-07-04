@@ -239,6 +239,30 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     }
 
     @MainActor
+    @Test("closing focused split restores focused panel current cwd when default cwd exists")
+    func closingFocusedSplitRestoresFocusedPanelCurrentDirectoryWithDefaultCwd() throws {
+        let defaultDirectory = "/tmp/cmux-default-\(UUID().uuidString)"
+        let firstDirectory = "/tmp/cmux-first-\(UUID().uuidString)"
+        let secondDirectory = "/tmp/cmux-second-\(UUID().uuidString)"
+        let workspace = Workspace(workingDirectory: defaultDirectory)
+        let firstPanel = try #require(workspace.focusedTerminalPanel)
+
+        workspace.updatePanelDirectory(panelId: firstPanel.id, directory: firstDirectory)
+        let secondPanel = try #require(workspace.newTerminalSplit(from: firstPanel.id, orientation: .horizontal))
+        workspace.updatePanelDirectory(panelId: secondPanel.id, directory: secondDirectory)
+
+        #expect(workspace.focusedPanelId == secondPanel.id)
+        #expect(workspace.currentDirectory == secondDirectory)
+        #expect(workspace.surfaceTabBarDirectory == defaultDirectory)
+
+        #expect(workspace.closePanel(secondPanel.id, force: true))
+
+        #expect(workspace.focusedPanelId == firstPanel.id)
+        #expect(workspace.currentDirectory == firstDirectory)
+        #expect(workspace.surfaceTabBarDirectory == defaultDirectory)
+    }
+
+    @MainActor
     @Test("clearing workspace default cwd falls back to focused live cwd")
     func clearingWorkspaceDefaultWorkingDirectoryFallsBackToFocusedLiveDirectory() throws {
         let defaultDirectory = "/tmp/cmux-default-\(UUID().uuidString)"
