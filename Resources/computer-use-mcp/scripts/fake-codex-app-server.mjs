@@ -97,6 +97,21 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         }, 5000);
         return;
       }
+      if (app === "QueueHoldApp") {
+        setTimeout(() => {
+          send({
+            id: message.id,
+            result: {
+              content: [
+                { type: "text", text: "0 button 'OK'" },
+                { type: "image", data: "AA==", mimeType: "image/png" },
+              ],
+              isError: false,
+            },
+          });
+        }, 100);
+        return;
+      }
       const calls = (stateCallsByApp.get(app) ?? 0) + 1;
       stateCallsByApp.set(app, calls);
       if ((app === "FlakyStateApp" || app === "FlakyScreenshotApp") && calls >= 2) {

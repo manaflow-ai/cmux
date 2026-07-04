@@ -62,8 +62,15 @@ async function runCalls({ withElicitation, calls, expectMessage = null, extraEnv
   );
   if (withElicitation) {
     client.setRequestHandler(ElicitRequestSchema, async (request) => {
-      if (expectMessage && !request.params.message.includes(expectMessage)) {
-        throw new Error(`unexpected elicitation message: ${request.params.message}`);
+      const expectedMessages = Array.isArray(expectMessage)
+        ? expectMessage
+        : expectMessage
+          ? [expectMessage]
+          : [];
+      for (const expected of expectedMessages) {
+        if (!request.params.message.includes(expected)) {
+          throw new Error(`unexpected elicitation message: ${request.params.message}`);
+        }
       }
       return { action: "accept", content: {} };
     });
@@ -196,7 +203,74 @@ async function runCancellationSmoke() {
   }
 }
 
-const accepted = await run({ withElicitation: true, expectMessage: "Allow Codex to use TestApp?" });
+async function runQueuedCancellationSmoke() {
+  const env = { ...process.env, CMUX_CU_CODEX: fakeCodex };
+  delete env.CMUX_CU_AUTO_APPROVE;
+  const child = spawn(process.execPath, [serverPath], { stdio: ["pipe", "pipe", "pipe"], env });
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => process.stderr.write(chunk));
+  const pending = new Map();
+  const lines = createInterface({ input: child.stdout });
+  const send = (message) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+  const request = (id, method, params, timeoutMs = 1000) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method} timed out`));
+      }, timeoutMs);
+      pending.set(id, { resolve, reject, timer });
+      send({ id, method, params });
+    });
+  const notify = (method, params) => send({ method, params });
+  lines.on("line", (line) => {
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+    const entry = pending.get(message.id);
+    if (!entry) return;
+    pending.delete(message.id);
+    clearTimeout(entry.timer);
+    entry.resolve(message);
+  });
+  child.on("exit", () => {
+    for (const [id, entry] of pending) {
+      pending.delete(id);
+      clearTimeout(entry.timer);
+      entry.reject(new Error("server exited"));
+    }
+  });
+  try {
+    await request("init", "initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+    const active = request(
+      "active-state",
+      "tools/call",
+      { name: "computer_state", arguments: { app: "QueueHoldApp" } },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+    const queued = request(
+      "queued-target",
+      "tools/call",
+      { name: "computer_target", arguments: {} },
+      1000
+    )
+      .then((message) => summarizeResult(message.result))
+      .catch((error) => ({ isError: true, text: String(error?.message ?? error) }));
+    setTimeout(() => notify("notifications/cancelled", { requestId: "queued-target", reason: "cancel smoke" }), 25);
+    return { active: await active, queued: await queued };
+  } finally {
+    child.kill();
+  }
+}
+
+const accepted = await run({
+  withElicitation: true,
+  expectMessage: ["Allow Codex to use TestApp?", "cu-elicitation-smoke", "screenshots", "accessibility tree"],
+});
 console.log(`with elicitation support -> isError=${accepted.isError} text=${accepted.text}`);
 if (accepted.isError || !accepted.text.includes("elicitation:accept")) {
   console.error("FAIL: elicitation was not forwarded to the client and accepted");
@@ -231,6 +305,15 @@ if (!cancelled.result.isError) {
 }
 if (cancelled.afterCancel.isError) {
   console.error("FAIL: cancellation should release the tool queue for the next call");
+  process.exit(1);
+}
+
+const queuedCancelled = await runQueuedCancellationSmoke();
+console.log(
+  `queued cancellation -> active=${queuedCancelled.active.isError} queued=${queuedCancelled.queued.isError}`
+);
+if (queuedCancelled.active.isError || !queuedCancelled.queued.isError) {
+  console.error("FAIL: cancelling a queued tool call should not stop the active tool call");
   process.exit(1);
 }
 

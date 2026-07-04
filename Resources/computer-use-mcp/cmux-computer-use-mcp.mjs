@@ -119,9 +119,12 @@ const MESSAGE_CATALOG = {
     dragged: "dragged",
     elementLatestState: "Element index from latest computer_state",
     engineApprovalFallback: "The computer-use engine requests approval.",
+    forwardedApprovalDisclosure: (client, prompt) =>
+      `cmux computer use is requesting approval for ${client}.\n\n${prompt}\n\nApproving lets cmux share screenshots, the accessibility tree, and control results with ${client}, and lets ${client} drive the app through Codex Computer Use.`,
     keyDescription:
       "Press a key / chord in an app, e.g. Return, Escape, cmd+l, cmd+t. Confirm with the user before destructive, irreversible, or high-stakes actions.",
     keySent: "key sent",
+    mcpClientFallback: "the current MCP client",
     noApps: "(no apps)",
     openAppNotApproved: (app) => `launching "${app}" was not approved`,
     openAndComplete: (url) => `Open and complete: ${url}`,
@@ -181,9 +184,12 @@ const MESSAGE_CATALOG = {
     dragged: "ドラッグしました",
     elementLatestState: "最新の computer_state の要素 index",
     engineApprovalFallback: "computer-use エンジンが承認を要求しています。",
+    forwardedApprovalDisclosure: (client, prompt) =>
+      `cmux computer use が ${client} のために承認を要求しています。\n\n${prompt}\n\n承認すると、cmux はスクリーンショット、アクセシビリティツリー、操作結果を ${client} に共有し、${client} が Codex Computer Use を通じてアプリを操作できるようにします。`,
     keyDescription:
       "アプリでキーまたはキーコード（Return、Escape、cmd+l、cmd+t など）を押します。破壊的、取り消し困難、または重要度の高い操作の前にはユーザーに確認してください。",
     keySent: "キーを送信しました",
+    mcpClientFallback: "現在の MCP クライアント",
     noApps: "（アプリなし）",
     openAppNotApproved: (app) => `「${app}」の起動は承認されませんでした`,
     openAndComplete: (url) => `開いて完了してください: ${url}`,
@@ -1201,6 +1207,7 @@ function mcpError(id, code, message) {
 // ---- Server -> client requests (elicitation forwarding) ----
 
 let clientSupportsElicitation = false;
+let mcpClientDisplayName = localizedMessage("mcpClientFallback");
 let nextOutboundId = 1;
 const outboundPending = new Map();
 const canceledRequestIds = new Set();
@@ -1208,6 +1215,14 @@ const activeToolCalls = new Map();
 let activeToolToken = null;
 
 const requestKey = (id) => String(id);
+
+function displayClientName(clientInfo) {
+  const raw = String(clientInfo?.name ?? "").trim();
+  if (!raw) return localizedMessage("mcpClientFallback");
+  const normalized = raw.replace(/\s+/g, " ");
+  if (!/^[A-Za-z0-9_. -]{1,80}$/.test(normalized)) return localizedMessage("mcpClientFallback");
+  return normalized;
+}
 
 function rejectOutboundForToken(token) {
   for (const outboundId of token.outboundIds) {
@@ -1226,15 +1241,17 @@ function cancelToolRequest(requestId) {
   const token = activeToolCalls.get(key);
   if (!token) return;
   token.canceled = true;
-  rejectOutboundForToken(token);
-  for (const controller of token.abortControllers) {
-    controller.abort();
-  }
-  token.abortControllers.clear();
-  try {
-    currentSession?.dispose();
-  } catch {
-    // best effort: a canceled app-server action leaves unknown state.
+  if (activeToolToken === token) {
+    rejectOutboundForToken(token);
+    for (const controller of token.abortControllers) {
+      controller.abort();
+    }
+    token.abortControllers.clear();
+    try {
+      currentSession?.dispose();
+    } catch {
+      // best effort: a canceled app-server action leaves unknown state.
+    }
   }
 }
 
@@ -1298,10 +1315,11 @@ async function approveLocalCapability(key, message) {
 async function forwardElicitationToClient(params) {
   if (AUTO_APPROVE) return { action: "accept", content: {} };
   if (!clientSupportsElicitation) return { action: "decline" };
-  let message = String(params?.message ?? localizedMessage("engineApprovalFallback"));
+  let prompt = String(params?.message ?? localizedMessage("engineApprovalFallback"));
   if (params?.mode === "url" && params?.url) {
-    message = `${message}\n\n${localizedMessage("openAndComplete", params.url)}`.trim();
+    prompt = `${prompt}\n\n${localizedMessage("openAndComplete", params.url)}`.trim();
   }
+  const message = localizedMessage("forwardedApprovalDisclosure", mcpClientDisplayName, prompt);
   const requestedSchema =
     (params?.mode === "form" || params?.mode === "openai/form") && params?.requestedSchema
       ? params.requestedSchema
@@ -1347,6 +1365,7 @@ async function handleRequest(message) {
   switch (method) {
     case "initialize":
       clientSupportsElicitation = params?.capabilities?.elicitation != null;
+      mcpClientDisplayName = displayClientName(params?.clientInfo);
       mcpReply(id, {
         protocolVersion: SUPPORTED_MCP_PROTOCOL_VERSIONS.has(params?.protocolVersion)
           ? params.protocolVersion
