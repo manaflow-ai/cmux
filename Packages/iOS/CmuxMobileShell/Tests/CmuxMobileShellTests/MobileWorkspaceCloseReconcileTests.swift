@@ -9,7 +9,7 @@ import Testing
 // already in flight against a pre-close snapshot — can still observe the old
 // list) must never resurrect the deleted row.
 //
-// The scripted Mac fixtures live in MobileWorkspaceCloseReconcileTestSupport.swift.
+// The scripted Mac fixtures live in the CloseReconcile* test support files.
 
 @MainActor
 struct MobileWorkspaceCloseReconcileTests {
@@ -21,7 +21,7 @@ struct MobileWorkspaceCloseReconcileTests {
     @Test func confirmedCloseDropsStaleSidebarRow() async throws {
         let router = CloseReconcileHostRouter()
         let clock = TestClock()
-        let store = try await makeConnectedCloseStore(router: router, clock: clock)
+        let store = try await CloseReconcileStoreFactory(router: router, clock: clock).makeConnectedStore()
 
         // Wait for the list AND the host.status capability resolution that stamps
         // `supportsCloseActions` onto the rows (a separate async step from the list
@@ -56,7 +56,7 @@ struct MobileWorkspaceCloseReconcileTests {
     @Test func tombstoneClearsOnceMacListCatchesUp() async throws {
         let router = CloseReconcileHostRouter()
         let clock = TestClock()
-        let store = try await makeConnectedCloseStore(router: router, clock: clock)
+        let store = try await CloseReconcileStoreFactory(router: router, clock: clock).makeConnectedStore()
 
         #expect(try await pollUntil {
             store.workspaces.count == 2
