@@ -36,8 +36,6 @@ final class AppCompositionRoot {
     /// shell store. Its export header is stamped with app/device metadata so a
     /// submitted bundle proves which TestFlight/dev build it came from.
     let diagnosticLog: DiagnosticLog
-    /// Human-readable auth/connection event log for Share Diagnostics.
-    let diagnosticsEventLog: MobileDiagnosticsEventLog
 
     init(
         runtime: CMUXMobileRuntime,
@@ -70,7 +68,6 @@ final class AppCompositionRoot {
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
         self.diagnosticLog = DiagnosticLog(buildStamp: MobileDiagnosticsAppInfoResolver().current().buildStamp)
-        self.diagnosticsEventLog = MobileDiagnosticsEventLog()
     }
 
     /// The most recent scene phase, so a `.active` transition is classified as a

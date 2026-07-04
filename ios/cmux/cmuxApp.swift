@@ -76,8 +76,7 @@ struct cmuxApp: App {
             displaySettings: Self.root.displaySettings,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            diagnosticLog: Self.root.diagnosticLog,
-            diagnosticsEventLog: Self.root.diagnosticsEventLog
+            diagnosticLog: Self.root.diagnosticLog
         )
     }
 }

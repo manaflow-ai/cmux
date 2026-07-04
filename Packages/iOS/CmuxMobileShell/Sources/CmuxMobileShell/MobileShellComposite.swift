@@ -893,7 +893,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         forgottenMacStore: any PairedMacForgottenStoring = InMemoryPairedMacForgottenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
-        diagnosticsEventLog: MobileDiagnosticsEventLog? = nil,
+        diagnosticsEventLog: MobileDiagnosticsEventLog? = MobileDiagnosticsEventLog(),
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,

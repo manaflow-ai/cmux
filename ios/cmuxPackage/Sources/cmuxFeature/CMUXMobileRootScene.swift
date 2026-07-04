@@ -57,8 +57,6 @@ public struct CMUXMobileRootScene: View {
     private let draftStore: any TerminalDraftStoring
     /// The structured diagnostic log injected into the shell store.
     private let diagnosticLog: DiagnosticLog?
-    /// Human-readable auth/connection event log for Share Diagnostics.
-    private let diagnosticsEventLog: MobileDiagnosticsEventLog?
 
     #if os(iOS)
     /// Creates the root scene.
@@ -78,8 +76,6 @@ public struct CMUXMobileRootScene: View {
     ///     the environment for the pairing and disconnected surfaces.
     ///   - diagnosticLog: The structured diagnostic log injected into the shell
     ///     store for feedback and diagnostics exports.
-    ///   - diagnosticsEventLog: Human-readable auth/connection event log for
-    ///     Share Diagnostics.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -89,8 +85,7 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
-        diagnosticLog: DiagnosticLog? = nil,
-        diagnosticsEventLog: MobileDiagnosticsEventLog? = nil
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -103,7 +98,6 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
-        self.diagnosticsEventLog = diagnosticsEventLog
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -121,7 +115,6 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = nil
-        self.diagnosticsEventLog = nil
     }
     #endif
 
@@ -285,7 +278,6 @@ public struct CMUXMobileRootScene: View {
             forgottenMacStore: forgottenMacStore,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
-            diagnosticsEventLog: diagnosticsEventLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore
