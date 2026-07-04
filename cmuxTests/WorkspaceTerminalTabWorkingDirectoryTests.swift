@@ -290,11 +290,11 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(localRereportSnapshot.currentDirectory == "")
         #expect(localRereportSnapshot.focusedPanel == nil)
 
+        workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "local-main", isDirty: false)
         #expect(TerminalController.shared.handleSocketLine("report_pwd \(remoteDirectory) --tab=\(workspace.id.uuidString) --panel=\(remotePanelId.uuidString)") == "OK")
         TerminalMutationBus.shared.drainForTesting()
         let postReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
-        #expect(postReportSnapshot.currentDirectory == remoteDirectory)
-        #expect(postReportSnapshot.focusedPanel?.directory == remoteDirectory)
+        #expect(postReportSnapshot.currentDirectory == remoteDirectory && postReportSnapshot.focusedPanel?.directory == remoteDirectory && postReportSnapshot.gitBranch == nil)
 
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
         let postLocalRereportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
