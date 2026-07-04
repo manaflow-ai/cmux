@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "./icons";
 import type { DiffViewerLabelResolver, DiffViewerLabelKey } from "./labels";
 
@@ -94,6 +95,60 @@ const GROUP_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
   recent: "branchPickerGroupRecent",
 };
 
+// Inline `position: fixed` style for the popover, recomputed from the Base
+// button's viewport rect. Only the fields the popover needs to override. When
+// flipped above the button, `top` is `auto` and `bottom` anchors it to just
+// above the button so a short popover stays glued to the button, not the
+// viewport top.
+type PopoverStyle = Pick<React.CSSProperties, "top" | "bottom" | "left" | "maxHeight">;
+
+// Popover sizing constants. Width matches `.base-picker-popover` (320px) so the
+// right-edge clamp is correct; the gap matches the CSS `top: calc(100% + 6px)`.
+const POPOVER_WIDTH = 320;
+const POPOVER_GAP = 6;
+// Keep at least this much breathing room from each viewport edge.
+const VIEWPORT_MARGIN = 8;
+// Don't bother flipping above unless the popover can be at least this tall there.
+const POPOVER_MIN_HEIGHT = 160;
+
+// Anchor the fixed popover under (or above) the Base button, clamped to the
+// viewport. Horizontal: align to the button's left edge, but shift left so the
+// 320px popover never overruns the right edge. Vertical: prefer below the
+// button; flip above when there is more room there, and cap max-height to the
+// space available on the chosen side so the list scrolls instead of overflowing
+// the viewport. The popover is portaled to `document.body`, so this fixed
+// element resolves against the viewport, escaping the toolbar cell's
+// container-query containing block and its `overflow-x: clip`.
+function computePopoverStyle(rect: DOMRect): PopoverStyle {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  const maxLeft = viewportWidth - POPOVER_WIDTH - VIEWPORT_MARGIN;
+  const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.left, maxLeft));
+
+  const spaceBelow = viewportHeight - rect.bottom - POPOVER_GAP - VIEWPORT_MARGIN;
+  const spaceAbove = rect.top - POPOVER_GAP - VIEWPORT_MARGIN;
+  // Flip above only when below is too cramped AND above is genuinely roomier.
+  const flipAbove = spaceBelow < POPOVER_MIN_HEIGHT && spaceAbove > spaceBelow;
+
+  if (flipAbove) {
+    return {
+      top: "auto",
+      // Anchor the popover's bottom POPOVER_GAP above the button top; it grows
+      // upward and a short popover stays glued just above the button.
+      bottom: viewportHeight - rect.top + POPOVER_GAP,
+      left,
+      maxHeight: Math.max(0, spaceAbove),
+    };
+  }
+  return {
+    top: rect.bottom + POPOVER_GAP,
+    bottom: "auto",
+    left,
+    maxHeight: Math.max(0, spaceBelow),
+  };
+}
+
 export function BranchBasePicker({
   label,
   onNavigate,
@@ -109,8 +164,16 @@ export function BranchBasePicker({
   const [loadState, setLoadState] = useState<"idle" | "loading" | "error">("idle");
   const [highlight, setHighlight] = useState(0);
   const [generatingRef, setGeneratingRef] = useState<string | null>(null);
+  // Inline position for the viewport-anchored (position: fixed) popover. Null
+  // until the first measurement after open, so the popover is not painted at a
+  // stale 0,0 for a frame. Recomputed on open, resize, and ancestor scroll.
+  const [popoverStyle, setPopoverStyle] = useState<PopoverStyle | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The popover is portaled to `document.body`, so it is NOT a descendant of
+  // `containerRef`. Track its root separately so the outside-click handler keeps
+  // the popover open when a click lands inside it (search input, a row).
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const listboxId = useId();
 
@@ -160,20 +223,58 @@ export function BranchBasePicker({
     );
   };
 
-  // Outside-click + Escape dismissal while open. Isolated to one effect with a
-  // narrow contract; keyboard nav inside the popover is handled on the input.
+  // Outside-click dismissal while open. Isolated to one effect with a narrow
+  // contract; keyboard nav inside the popover is handled on the input. Because
+  // the popover is portaled to `document.body` it is not inside `containerRef`,
+  // so a click inside it would otherwise read as "outside" and close it; keep it
+  // open when the target is inside EITHER the picker cell or the portaled popover.
   useEffect(() => {
     if (!open) {
       return;
     }
     const onPointerDown = (event: MouseEvent) => {
-      if (event.target instanceof Node && containerRef.current?.contains(event.target)) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      const target = event.target;
+      if (containerRef.current?.contains(target) || popoverRef.current?.contains(target)) {
         return;
       }
       setOpen(false);
     };
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
+  // Viewport-anchor the popover while open. The popover is `position: fixed` and
+  // portaled to `document.body`, so it escapes `.toolbar-left`'s container-query
+  // containing block and `overflow-x: clip` and renders fully over the diff
+  // content. One effect gated on
+  // `open`: it positions under the Base button, clamped to the viewport (shift
+  // left if it would overrun the right edge, flip above if there is more room
+  // there, cap max-height to the chosen side), and recomputes on resize and
+  // ancestor scroll so it stays glued to the moving button. All listeners are
+  // removed on close/unmount.
+  useEffect(() => {
+    if (!open) {
+      setPopoverStyle(null);
+      return;
+    }
+    const reposition = () => {
+      const button = buttonRef.current;
+      if (!button) {
+        return;
+      }
+      setPopoverStyle(computePopoverStyle(button.getBoundingClientRect()));
+    };
+    reposition();
+    window.addEventListener("resize", reposition);
+    // Capture phase so scrolling ANY ancestor (not just window) repositions it.
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
   }, [open]);
 
   const onInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -244,9 +345,15 @@ export function BranchBasePicker({
           <BranchBaseButtonLabel picker={picker} />
         )}
       </button>
-      {open ? (
-        /* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */
-        <div className="base-picker-popover" role="dialog" aria-label={label("branchPickerOpen")}>
+      {open && popoverStyle ? createPortal(
+        <div
+          ref={popoverRef}
+          className="base-picker-popover"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+          role="dialog"
+          aria-label={label("branchPickerOpen")}
+          style={popoverStyle}
+        >
           <div className="base-picker-search">
             <Icon name="search" />
             <input
@@ -293,7 +400,8 @@ export function BranchBasePicker({
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

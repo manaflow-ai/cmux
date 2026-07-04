@@ -17,20 +17,17 @@
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
   --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-toolbar-bg: var(--cmux-diff-bg);
-  --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
+  --cmux-diff-toolbar-bg: transparent;
+  --cmux-diff-sidebar-bg: transparent;
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
   --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
   --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
-  /* Page fill for the diff surface. Opaque themes (background-opacity 1) paint
-     the terminal color so loading/empty regions match the theme; transparent
-     themes leave it clear so the blurred window backdrop shows. The actual
-     opaque-vs-transparent choice is set per opacity by applyDiffViewerAppearance;
-     these defaults cover the no-appearance case. */
-  --cmux-diff-surface-fill-light: var(--cmux-diff-bg-light);
-  --cmux-diff-surface-fill-dark: var(--cmux-diff-bg-dark);
+  /* The native browser panel behind the WebView owns the themed fill. Keep the
+     page itself transparent so terminal/window transparency survives. */
+  --cmux-diff-surface-fill-light: transparent;
+  --cmux-diff-surface-fill-dark: transparent;
   --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-light);
 
   background: var(--cmux-diff-surface-fill);
@@ -56,12 +53,6 @@ body {
   margin: 0;
   height: 100vh;
   min-height: 0;
-  /* Opaque themes paint the terminal color here so loading and empty regions
-     match the theme: the browser pane behind a transparent diff page is a plain
-     gray window backdrop, not the terminal color (only transparent themes get a
-     terminal-colored window-root backdrop behind every pane). Transparent themes
-     keep this clear so the blurred backdrop shows, matching the markdown and
-     terminal panels. `--cmux-diff-bg` is still used opaque for blends. */
   background: var(--cmux-diff-surface-fill);
   color: var(--cmux-diff-fg);
   display: flex;
@@ -104,7 +95,13 @@ body {
   position: relative;
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(124px, 0.9fr) auto;
+  /* Every track is shrinkable to zero so no cell can be starved into
+     overflowing its neighbor. The actions track is `auto` but its contents have
+     min-width:0 and the cell clips, so even a momentarily-too-wide actions row
+     cannot overlay the left cell. The JS priority-overflow keeps the actions
+     within budget; this template + `overflow: clip` on the cells is the hard
+     no-overlap guarantee that holds even if a measurement is briefly stale. */
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, auto);
   align-items: center;
   /* When the Files sidebar is shown, JumpSelect is not rendered (it duplicates
      the sidebar's file navigation). Collapse the centered middle track so
@@ -126,7 +123,7 @@ body {
    re-declares its own template and overrides this for its range. */
 @media (min-width: 521px) {
   body[data-files-hidden="false"] #toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
   }
   body[data-files-hidden="false"] .toolbar-middle {
     display: none;
@@ -138,6 +135,17 @@ body {
   display: flex;
   align-items: center;
   min-width: 0;
+  /* Safety net: grid cells do not clip by default, so a cell whose content is
+     wider than its track would visually overflow into the neighboring cell and
+     overlay it. Clip HORIZONTAL overflow so any residual width spill disappears
+     cleanly instead of overlapping, while leaving the VERTICAL axis visible so
+     the Base picker and options popovers (which drop below the toolbar) still
+     escape. `overflow-x: clip` + `overflow-y: visible` is a safe pair: neither
+     value is coerced, so vertical stays truly visible. The JS priority-overflow
+     keeps content within the track in practice; this is the guarantee, not the
+     mechanism. */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 .toolbar-left,
 .toolbar-middle {
@@ -404,12 +412,20 @@ body {
   }
 }
 .base-picker-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
+     `.toolbar-left`'s `overflow-x: clip` AND its `container-type: inline-size`:
+     a container-query container is the containing block for `position: fixed`
+     descendants and still clips them, so a fixed popover left inside the cell
+     would be positioned against (and clipped by) the cell, not the viewport.
+     `#app` likewise has `contain: strict`, which is also a fixed-positioning
+     containing block, so the popover is mounted on `document.body` (outside both)
+     in `BranchBasePicker`. `top` / `bottom` / `left` / `max-height` are set
+     inline by JS from the Base button's rect, clamped to the viewport (see
+     computePopoverStyle); `body` spans the full viewport and does not clip the
+     clamped fixed element. */
+  position: fixed;
   width: 320px;
   max-width: min(86vw, 360px);
-  max-height: min(60vh, 420px);
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
@@ -521,7 +537,7 @@ body {
 }
 @media (max-width: 760px) {
   #toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
     grid-template-areas:
       "source actions"
       "jump actions";
@@ -933,9 +949,27 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   --diffs-font-size: var(--cmux-diff-font-size);
   --diffs-line-height: var(--cmux-diff-line-height);
   --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+  width: 100%;
+  min-height: 30px;
+  flex: 1 1 auto;
   display: block;
   overflow: clip;
   contain: layout paint style;
+}
+/* Per-file diff header at small widths: the @pierre/diffs header is a flex
+   space-between of the file-path side (`[data-header-content]`, already
+   min-width:0 + truncating) and the diffstat side (`[data-metadata]`: the status
+   icon + `+N`/`-N` counts). The library leaves [data-metadata] flex-shrinkable
+   with white-space:nowrap and no overflow handling, so when the panel is narrow
+   it is squished below its content and its text spills LEFT, overlapping the
+   change-status icon. Principled fix, same priority+ idea as the toolbar: pin the
+   diffstat (never shrink it) so the path side absorbs all the shrinking and
+   truncates, and clip the header as a hard no-overlap safety net. */
+#viewer diffs-container [data-diffs-header] {
+  overflow-x: clip;
+}
+#viewer diffs-container [data-diffs-header=default] [data-metadata] {
+  flex-shrink: 0;
 }
 #loading-layer {
   grid-area: viewer;

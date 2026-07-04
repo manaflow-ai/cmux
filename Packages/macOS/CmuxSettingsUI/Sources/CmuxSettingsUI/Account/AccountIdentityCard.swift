@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -21,10 +22,10 @@ struct AccountIdentityCard: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(titleText)
-                        .font(.system(size: 13, weight: .medium))
+                        .cmuxFont(size: 13, weight: .medium)
                     if let subtitle = subtitleText {
                         Text(subtitle)
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                 }
@@ -60,7 +61,7 @@ struct AccountIdentityCard: View {
                 localized: "settings.account.signIn.slowHint",
                 defaultValue: "The system sign-in window may stop responding. If nothing happens, open sign-in in your default browser instead."
             ))
-            .font(.system(size: 11))
+            .cmuxFont(size: 11)
             .foregroundColor(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)

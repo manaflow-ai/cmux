@@ -10,6 +10,8 @@ import Foundation
 public protocol TokenProviding: Sendable {
     /// The current access token, throwing when there is no valid session.
     func accessToken() async throws -> String
+    /// The currently stored access token, without refresh or auth-state mutation.
+    func storedAccessToken() async -> String?
     /// The current refresh token, or `nil` when there is no valid session.
     func refreshToken() async -> String?
     /// Force-mint a fresh access token, bypassing the cached-token freshness

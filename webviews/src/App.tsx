@@ -44,6 +44,8 @@ import {
   type DiffViewerOptions,
 } from "./pierre-options";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
+import { resolveToolbarOverflow } from "./toolbar-overflow";
+import { useToolbarWidth } from "./useToolbarWidth";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
@@ -561,8 +563,43 @@ function Toolbar({
   state: AppState;
 }) {
   const payload = config.payload ?? {};
+  const externalURL =
+    typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null;
+  const toolbarRef = useRef<HTMLElement>(null);
+  const toolbarWidth = useToolbarWidth(toolbarRef);
+  // Optional ACCESSORY controls, HIGH priority first (last = first to overflow).
+  // Drop order at narrowing: external link -> layout toggle -> files toggle. Each
+  // has a canonical copy in the "..." menu, so overflowing one only hides its
+  // duplicate bar icon and it stays reachable from the menu. The source select,
+  // repo select, and Base picker are NOT in this list: they are always rendered
+  // in the bar (a native <select> has no menu equivalent, so the repo select must
+  // never be dropped — it shrinks/ellipsizes in place instead). Estimated widths
+  // include each control's ~4px inter-item gap.
+  const overflowItems = [
+    { id: "files-toggle" as const, width: TOOLBAR_ICON_SLOT },
+    { id: "layout-toggle" as const, width: TOOLBAR_ICON_SLOT },
+    ...(externalURL ? [{ id: "external-link" as const, width: TOOLBAR_ICON_SLOT }] : []),
+  ];
+  const overflow =
+    toolbarWidth == null
+      ? new Set<string>()
+      : new Set(
+          resolveToolbarOverflow({
+            available: toolbarWidth,
+            // Always-present zone: source select + repo select + Base picker +
+            // "..." button + horizontal padding. Generous so we shed before, not
+            // after, overlap; the CSS clip covers any residual under-estimate. The
+            // repo select is always in the bar now, so reserve its slot too (it
+            // shrinks in place rather than overflowing).
+            reserved: TOOLBAR_ALWAYS_PRESENT_WIDTH + (hasRepoSelect(payload) ? TOOLBAR_REPO_SELECT_MIN : 0),
+            items: overflowItems,
+          }).overflow,
+        );
+  const showFilesToggle = !overflow.has("files-toggle");
+  const showLayoutToggle = !overflow.has("layout-toggle");
+  const showExternalLink = externalURL != null && !overflow.has("external-link");
   return (
-    <header id="toolbar">
+    <header id="toolbar" ref={toolbarRef}>
       <SourceControls label={label} onNavigate={onNavigate} payload={payload} />
       {/* The jump-to-file select duplicates the Files sidebar (both scroll to a
           file). It is the only file-jump control when the sidebar is hidden, so
@@ -573,12 +610,12 @@ function Toolbar({
       <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
         <JumpSelect items={state.items} label={label} onJump={onJump} selectedItemId={state.activeItemId} />
       </div>
-      <div className="toolbar-actions flex shrink-0 items-center gap-1.5">
-        {typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? (
+      <div className="toolbar-actions flex items-center gap-1.5">
+        {showExternalLink ? (
           <a
             id="external-link"
             className="toolbar-icon"
-            href={payload.externalURL}
+            href={externalURL ?? undefined}
             target="_blank"
             rel="noreferrer"
             title={label("openSourceURL")}
@@ -587,16 +624,18 @@ function Toolbar({
             <Icon name="external" />
           </a>
         ) : null}
-        <button
-          id="layout-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-          aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-          onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
-        >
-          <Icon name={state.options.layout} />
-        </button>
+        {showLayoutToggle ? (
+          <button
+            id="layout-toggle"
+            className="toolbar-icon"
+            type="button"
+            title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
+            aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
+            onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
+          >
+            <Icon name={state.options.layout} />
+          </button>
+        ) : null}
         <button
           id="options-button"
           className="toolbar-icon"
@@ -609,17 +648,19 @@ function Toolbar({
         >
           <Icon name="dots" />
         </button>
-        <button
-          id="files-toggle"
-          className="toolbar-icon"
-          type="button"
-          title={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
-          aria-pressed={state.filesVisible}
-          onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
-        >
-          <Icon name="files" />
-        </button>
+        {showFilesToggle ? (
+          <button
+            id="files-toggle"
+            className="toolbar-icon"
+            type="button"
+            title={state.filesVisible ? label("hideFiles") : label("showFiles")}
+            aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
+            aria-pressed={state.filesVisible}
+            onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
+          >
+            <Icon name="files" />
+          </button>
+        ) : null}
         <span id="copy-feedback" className="visually-hidden" aria-live="polite">
           {state.copyFeedback}
         </span>
@@ -627,14 +668,34 @@ function Toolbar({
       {state.optionsOpen ? (
         <OptionsMenu
           dispatch={dispatch}
+          externalURL={externalURL}
           label={label}
           onCopyGitApply={onCopyGitApply}
           onReload={onReload}
+          onSetLayout={onSetLayout}
           state={state}
         />
       ) : null}
     </header>
   );
+}
+
+// Pixel slot for one toolbar-actions icon button: 20px control + ~8px gap. The
+// resolver only uses these as relative estimates; the CSS `overflow: clip` on
+// the toolbar cells is the hard no-overlap guarantee, so exactness is not load
+// bearing.
+const TOOLBAR_ICON_SLOT = 28;
+// Width reserved for the always-present zone (source select + Base picker + the
+// "..." button + horizontal padding/gaps). Deliberately generous: the optional
+// controls shed early rather than allowing the always-present zone to overflow.
+const TOOLBAR_ALWAYS_PRESENT_WIDTH = 248;
+// Min width the always-present repo select can shrink to (its CSS `min-width`
+// floor of 56px + ~4px gap). It ellipsizes in place down to this floor rather
+// than overflowing, so reserve only the floor, not its full natural width.
+const TOOLBAR_REPO_SELECT_MIN = 60;
+
+function hasRepoSelect(payload: any): boolean {
+  return Array.isArray(payload?.repoOptions) && payload.repoOptions.length >= 2;
 }
 
 function SourceControls({
@@ -655,6 +716,9 @@ function SourceControls({
         options={payload.sourceOptions}
         onNavigate={onNavigate}
       />
+      {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
+          equivalent, so dropping it would strand multi-repo users). It shrinks
+          and ellipsizes in place via field-sizing + the .toolbar-left clip. */}
       <NavigationSelect
         ariaLabel={label("repoPath")}
         fallbackValue={payload.repoRoot ?? ""}
@@ -846,15 +910,19 @@ function JumpSelect({
 
 function OptionsMenu({
   dispatch,
+  externalURL,
   label,
   onCopyGitApply,
   onReload,
+  onSetLayout,
   state,
 }: {
   dispatch: React.Dispatch<AppAction>;
+  externalURL: string | null;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
   onReload: () => void;
+  onSetLayout: (layout: DiffViewerLayout) => void;
   state: AppState;
 }) {
   const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
@@ -864,6 +932,14 @@ function OptionsMenu({
       <MenuButton checked={state.options.wordWrap} icon="wrap" label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")} onClick={() => toggle("wordWrap")} />
       <MenuButton checked={state.options.collapsed} icon={state.options.collapsed ? "expand" : "collapse"} label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
       <div className="menu-separator" />
+      {/* Secondary actions that can overflow from the bar at narrow widths are
+          always listed here so they stay reachable regardless of what the bar
+          decided to drop. The bar hides its duplicate icon button when it
+          overflows; the menu copy is the canonical fallback. */}
+      <MenuButton icon={state.options.layout} label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")} onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")} />
+      {externalURL ? (
+        <MenuButton icon="external" label={label("openSourceURL")} onClick={() => window.open(externalURL, "_blank", "noreferrer")} />
+      ) : null}
       <MenuButton checked={state.filesVisible} icon="files" label={state.filesVisible ? label("hideFiles") : label("showFiles")} onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })} />
       <MenuButton checked={state.options.expandUnchanged} icon="document" label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")} onClick={() => toggle("expandUnchanged")} />
       <MenuButton checked={state.options.showBackgrounds} icon="background" label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")} onClick={() => toggle("showBackgrounds")} />

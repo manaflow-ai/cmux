@@ -426,10 +426,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
-    private struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
-    private typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
+    struct ProcessRunResult { let status: Int32; let stdout: String; let stderr: String; let timedOut: Bool }
+    typealias SurfaceFixture = (id: String, ref: String, focused: Bool)
 
-    private struct ClaudeHookContext {
+    struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
         let listenerFD: Int32
@@ -445,7 +445,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private final class MockSocketServerState: @unchecked Sendable {
+    final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
 
@@ -463,7 +463,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
+    func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
         let socketPath = makeSocketPath(String(name.prefix(6)))
@@ -597,7 +597,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return handled
     }
 
-    private func startClaudeSurfaceResolutionServer(
+    func startClaudeSurfaceResolutionServer(
         context: ClaudeHookContext,
         surfaces: [SurfaceFixture],
         ttyName: String,
@@ -668,7 +668,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         }
     }
 
-    private func claudeHookEnvironment(context: ClaudeHookContext, surfaceId: String, ttyName: String, storeURL: URL) -> [String: String] {
+    func claudeHookEnvironment(context: ClaudeHookContext, surfaceId: String, ttyName: String, storeURL: URL) -> [String: String] {
         [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -779,7 +779,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
-    private func assertSuccessfulHook(_ result: ProcessRunResult) {
+    func assertSuccessfulHook(_ result: ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "OK\n")
@@ -822,7 +822,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         return data.base64EncodedString()
     }
 
-    private func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
+    func runProcess(executablePath: String, arguments: [String], environment: [String: String], standardInput: String? = nil, timeout: TimeInterval) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

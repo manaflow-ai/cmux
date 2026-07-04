@@ -1,4 +1,3 @@
-import XCTest
 import CmuxCore
 import AppKit
 import CmuxFoundation
@@ -18,6 +17,7 @@ import CmuxTerminal
 import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -225,7 +225,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         )
 
         XCTAssertNotNil(railColor)
-        XCTAssertEqual(railColor?.hexString(), "#C0392B")
+        XCTAssertEqual(railColor?.hexString(), "#D13929")
     }
 
     @MainActor
@@ -565,9 +565,8 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
         let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
         let expectedActions: [KeyboardShortcutSettings.Action] = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
+            .focusRightSidebar, .toggleRightSidebar, .findInDirectory,
+            .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
@@ -3186,6 +3185,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             isLoading: false,
             isPinned: false,
             directory: directory,
+            directoryDisplayLabel: nil,
             ttyName: nil,
             cachedTitle: nil,
             customTitle: nil,
@@ -3194,6 +3194,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
@@ -3224,7 +3225,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
-            workspaceEnvironment: [String: String]
+            workspaceEnvironment: [String: String],
+            allowTextBoxFocusDefault: Bool
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
@@ -3236,7 +3238,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
-                workspaceEnvironment: workspaceEnvironment
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
         }
     }
@@ -3527,7 +3530,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             initialTerminalCommand: String?,
             initialTerminalInput: String?,
             initialTerminalEnvironment: [String: String],
-            workspaceEnvironment: [String: String]
+            workspaceEnvironment: [String: String],
+            allowTextBoxFocusDefault: Bool
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
@@ -3539,7 +3543,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment,
-                workspaceEnvironment: workspaceEnvironment
+                workspaceEnvironment: workspaceEnvironment,
+                allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
         }
     }
@@ -5881,7 +5886,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "{ cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -5982,7 +5987,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.panelDirectories[forkPanel.id], "/Users/cmux/fallback repo")
         XCTAssertEqual(
             forkPanel.surface.initialInput,
-            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -6205,7 +6210,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "{ cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -6242,7 +6247,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.remoteConfiguration)
         XCTAssertEqual(
             launch.initialTerminalInput,
-            "{ cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ]; } && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
+            "cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
         )
     }
 
@@ -6741,6 +6746,39 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.directory),
             [liveDirectory]
+        )
+    }
+
+    func testSidebarDirectoryDisplayLabelUpgradesSharedRowWhileFilesystemVariantKeepsPath() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected panels for display-label ordering test")
+            return
+        }
+
+        let sharedDirectory = "/tmp/cmux-display-label-shared"
+        workspace.updatePanelDirectory(panelId: firstPanelId, directory: sharedDirectory)
+        workspace.updatePanelDirectory(
+            panelId: secondPanel.id,
+            directory: sharedDirectory,
+            displayLabel: "Shared  main"
+        )
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(orderedPanelIds, [firstPanelId, secondPanel.id])
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            ["Shared  main"]
+        )
+        XCTAssertEqual(
+            workspace.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [Workspace.SidebarDisplayedDirectory(text: "Shared  main", isDisplayLabel: true)]
+        )
+        XCTAssertEqual(
+            workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [sharedDirectory]
         )
     }
 
@@ -7347,6 +7385,18 @@ final class ExtensionWorktreePrototypeTests: XCTestCase {
         let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: outputData, encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
+            // Apple's `/usr/bin/git` shim resolves the real git via
+            // `xcodebuild -find git`. On a CI runner whose xcode-select default is
+            // an Xcode ABI-incompatible with the test host, that resolution
+            // dlopen-crashes ("Symbol not found" / "Error loading required
+            // libraries") before git can run. That is a runner toolchain defect,
+            // not a product failure, so skip rather than fail. scripts/select-ci-
+            // xcode.sh aligns the default to prevent this; this guard keeps the
+            // test honest if a runner still diverges.
+            if output.contains("libxcodebuildLoader")
+                || output.contains("Error loading required libraries") {
+                throw XCTSkip("git toolchain unavailable on this runner: \(output)")
+            }
             XCTFail("git \(arguments.joined(separator: " ")) failed: \(output)")
             throw NSError(domain: "ExtensionWorktreePrototypeTests", code: Int(process.terminationStatus))
         }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -113,7 +114,7 @@ public struct TerminalSection: View {
             ) {
                 HStack(spacing: 8) {
                     Text(verbatim: "0")
-                        .font(.caption.monospacedDigit())
+                        .cmuxFont(.caption, monospacedDigit: true)
                         .foregroundColor(.secondary)
                     Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
                         hostActions.openConfigInExternalEditor()
@@ -147,7 +148,7 @@ public struct TerminalSection: View {
                         .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
 
                         Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(surfaceTabBarFont.points)))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
 
@@ -162,7 +163,7 @@ public struct TerminalSection: View {
 
                     if fontSaveFailed {
                         Text(String(localized: "settings.terminal.tabBarFontSize.saveFailed", defaultValue: "Couldn't save tab bar font size. Please try again."))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
@@ -188,7 +189,7 @@ public struct TerminalSection: View {
                     .accessibilityIdentifier("SettingsTerminalScrollSpeedSlider")
 
                     Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), displayedScrollSpeed))
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
 
@@ -219,8 +220,8 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.copyOnSelect"),
                 String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
                 subtitle: copyOnSelect.current
-                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is copied to the system clipboard when the selection is committed.")
-                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually.")
+                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is also copied to the system clipboard when the selection is committed.")
+                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "cmux does not add system-clipboard copy on selection. Ghostty config still controls Paste Selection.")
             ) {
                 Toggle("", isOn: Binding(get: { copyOnSelect.current }, set: { copyOnSelect.set($0) }))
                     .labelsHidden()

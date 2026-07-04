@@ -1,7 +1,7 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
@@ -35,6 +35,7 @@ public struct AppSection: View {
     @State private var preferredEditor: DefaultsValueModel<String>
     @State private var openSupported: DefaultsValueModel<Bool>
     @State private var openMarkdown: DefaultsValueModel<Bool>
+    @State private var globalFontMagnification: DefaultsValueModel<Int>
     @State private var markdownFontSize: DefaultsValueModel<Int>
     @State private var markdownFontFamily: DefaultsValueModel<String>
     @State private var markdownMaxWidth: DefaultsValueModel<Int>
@@ -48,6 +49,9 @@ public struct AppSection: View {
     @State private var showInMenuBar: DefaultsValueModel<Bool>
     @State private var paneRing: DefaultsValueModel<Bool>
     @State private var paneFlash: DefaultsValueModel<Bool>
+    @State private var agentPermissionPrompt: DefaultsValueModel<Bool>
+    @State private var agentTurnComplete: DefaultsValueModel<String>
+    @State private var agentIdleReminder: DefaultsValueModel<Bool>
     @State private var soundName: DefaultsValueModel<String>
     @State private var soundCommand: DefaultsValueModel<String>
     @State private var customSoundFile: DefaultsValueModel<String>
@@ -81,6 +85,7 @@ public struct AppSection: View {
         _preferredEditor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.preferredEditor))
         _openSupported = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openSupportedFilesInCmux))
         _openMarkdown = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.openMarkdownInCmuxViewer))
+        _globalFontMagnification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.globalFontMagnification))
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
@@ -94,6 +99,9 @@ public struct AppSection: View {
         _showInMenuBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.showInMenuBar))
         _paneRing = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.unreadPaneRing))
         _paneFlash = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlash))
+        _agentPermissionPrompt = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentPermissionPrompt))
+        _agentTurnComplete = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentTurnComplete))
+        _agentIdleReminder = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.agentIdleReminder))
         _soundName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.sound))
         _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
         _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
@@ -126,9 +134,27 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
+    }
+
+    private var globalFontMagnificationSubtitle: String {
+        if globalFontMagnification.current != GlobalFontMagnification.defaultPercent {
+            return String(
+                localized: "settings.app.globalFontMagnification.subtitleOn",
+                defaultValue: "Terminals, tabs, and chrome all render at this magnification. Per-pane zoom (Cmd= / Cmd-) still overrides for the focused pane."
+            )
+        }
+        return String(
+            localized: "settings.app.globalFontMagnification.subtitleOff",
+            defaultValue: "Scale every font in cmux by the same percentage. 100% = design size."
+        )
+    }
+
+    private func setGlobalFontMagnification(_ percent: Int) {
+        let clamped = GlobalFontMagnification.clamp(percent)
+        globalFontMagnification.set(clamped) { NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil) }
     }
 
     @ViewBuilder
@@ -228,8 +254,8 @@ public struct AppSection: View {
                 configurationReview: .json("app.keepWorkspaceOpenWhenClosingLastSurface"),
                 String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"),
                 subtitle: !keepWorkspaceOpen.current
-                    ? String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn", defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly.")
-                    : String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff", defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut also closes the workspace.")
+                    ? String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn", defaultValue: "When the focused surface is the last one in its workspace, closing it with the close-surface shortcut, tab close button, or middle-click closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly.")
+                    : String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff", defaultValue: "When the focused surface is the last one in its workspace, closing it with the close-surface shortcut, tab close button, or middle-click also closes the workspace.")
             ) {
                 Toggle("", isOn: Binding(get: { !keepWorkspaceOpen.current }, set: { keepWorkspaceOpen.set(!$0) }))
                     .labelsHidden()
@@ -308,6 +334,19 @@ public struct AppSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Global Font Magnification
+            SettingsCardRow(
+                configurationReview: .json("app.globalFontMagnification"),
+                String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"),
+                subtitle: globalFontMagnificationSubtitle
+            ) {
+                GlobalFontMagnificationControl(
+                    percent: globalFontMagnification.current,
+                    onChange: setGlobalFontMagnification
+                )
             }
             SettingsCardDivider()
 
@@ -524,6 +563,46 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
             }
+            SettingsCardDivider()
+
+            // Agent: Needs Permission
+            SettingsCardRow(
+                configurationReview: .json("notifications.agentPermissionPrompt"),
+                String(localized: "settings.notifications.agentPermissionPrompt.title", defaultValue: "Agent Needs Permission"),
+                subtitle: String(localized: "settings.notifications.agentPermissionPrompt.subtitle", defaultValue: "Notify when an agent is blocked waiting for your permission to run a tool.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentPermissionPrompt.current }, set: { agentPermissionPrompt.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Agent: Turn Complete
+            SettingsCardRow(
+                configurationReview: .json("notifications.agentTurnComplete"),
+                String(localized: "settings.notifications.agentTurnComplete.title", defaultValue: "Agent Finished"),
+                subtitle: String(localized: "settings.notifications.agentTurnComplete.subtitle", defaultValue: "When to notify that an agent finished. When idle waits until background tasks and scheduled wakeups drain.")
+            ) {
+                Picker("", selection: Binding(get: { agentTurnComplete.current }, set: { agentTurnComplete.set($0) })) {
+                    Text(String(localized: "settings.notifications.agentTurnComplete.option.whenIdle", defaultValue: "When idle")).tag("whenIdle")
+                    Text(String(localized: "settings.notifications.agentTurnComplete.option.always", defaultValue: "Always")).tag("always")
+                    Text(String(localized: "settings.notifications.agentTurnComplete.option.never", defaultValue: "Never")).tag("never")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+            SettingsCardDivider()
+
+            // Agent: Idle Reminder
+            SettingsCardRow(
+                configurationReview: .json("notifications.agentIdleReminder"),
+                String(localized: "settings.notifications.agentIdleReminder.title", defaultValue: "Agent Waiting for Input"),
+                subtitle: String(localized: "settings.notifications.agentIdleReminder.subtitle", defaultValue: "Notify when an agent has been idle waiting for your input. Suppressed while background work is still running.")
+            ) {
+                Toggle("", isOn: Binding(get: { agentIdleReminder.current }, set: { agentIdleReminder.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
 
             // Desktop Notifications — legacy renders this row
             // unconditionally with a permission-state status text +
@@ -542,7 +621,7 @@ public struct AppSection: View {
             ) {
                 HStack(spacing: 6) {
                     Text(String(localized: "settings.notifications.desktop.status.unknown", defaultValue: "Permission unknown"))
-                        .font(.system(size: 11, weight: .semibold))
+                        .cmuxFont(size: 11, weight: .semibold)
                         .foregroundStyle(.secondary)
                         .frame(width: 98, alignment: .trailing)
                     Button(String(localized: "settings.notifications.desktop.action.enable", defaultValue: "Enable")) {
@@ -728,7 +807,7 @@ public struct AppSection: View {
                         hostActions.previewNotificationSound(value: model.current, customFilePath: customFile.current)
                     } label: {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 9))
+                            .cmuxFont(size: 9)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -740,7 +819,7 @@ public struct AppSection: View {
                         // display name slot, with a "No file selected"
                         // fallback when the path is empty.
                         Text(customSoundFileDisplayName(path: customFile.current))
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -766,13 +845,7 @@ public struct AppSection: View {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "aiff"),
-            UTType(filenameExtension: "wav"),
-            UTType(filenameExtension: "caf"),
-            UTType(filenameExtension: "m4a"),
-            UTType(filenameExtension: "mp3"),
-        ].compactMap { $0 }
+        panel.allowedContentTypes = Self.customNotificationSoundAllowedContentTypes
         panel.title = String(localized: "settings.notifications.sound.custom.panelTitle", defaultValue: "Choose Notification Sound")
         if panel.runModal() == .OK, let url = panel.url {
             model.set(url.path)

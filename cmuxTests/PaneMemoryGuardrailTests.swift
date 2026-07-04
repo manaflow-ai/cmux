@@ -402,34 +402,23 @@ struct PaneMemoryGuardrailTests {
 
     @MainActor
     @Test
-    func appDelegateGuardrailCloseRoutesThroughOwningWindowManager() throws {
+    func appDelegateGuardrailDescriptorsKeepBackgroundWorkspacesLive() throws {
         let app = AppDelegate()
-        let bootstrapManager = TabManager()
-        let owningManager = TabManager()
-        app.tabManager = bootstrapManager
-
-        let windowId = app.registerMainWindowContextForTesting(tabManager: owningManager)
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
         defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-        let workspace = try #require(owningManager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
+        let firstWorkspace = try #require(manager.selectedWorkspace)
+        let backgroundWorkspace = manager.addWorkspace(title: "Background", select: false)
 
-        #expect(app.closePaneForMemoryGuardrail(workspaceId: workspace.id, panelId: panelId))
-        #expect(workspace.panels[panelId] == nil)
-        #expect(bootstrapManager.selectedWorkspace?.panels[panelId] == nil)
-    }
+        let initialWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
+        #expect(initialWorkspaceIds.contains(firstWorkspace.id))
+        #expect(initialWorkspaceIds.contains(backgroundWorkspace.id))
 
-    @MainActor
-    @Test
-    func guardrailBannerScopesWarningToOwningTabManager() throws {
-        let owningManager = TabManager()
-        let otherManager = TabManager()
-        let workspace = try #require(owningManager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let warning = sample(workspace: workspace.id, pane: panelId, memoryGB: 9).warning
+        manager.selectWorkspace(backgroundWorkspace)
 
-        #expect(owningManager.ownsPaneMemoryGuardrailWarning(warning))
-        #expect(!otherManager.ownsPaneMemoryGuardrailWarning(warning))
-        #expect(!owningManager.ownsPaneMemoryGuardrailWarning(nil))
+        let selectedWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
+        #expect(selectedWorkspaceIds.contains(firstWorkspace.id))
+        #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
     }
 }

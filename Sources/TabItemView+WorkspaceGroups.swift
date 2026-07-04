@@ -6,6 +6,25 @@ extension TabItemView {
         targetIds: [UUID],
         isMulti: Bool
     ) -> some View {
+        let newWorkspaceGroupShortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
+        let newWorkspaceGroupLabel = String(
+            localized: "contextMenu.workspaceGroup.newEmpty",
+            defaultValue: "New Empty Workspace Group"
+        )
+        let canCreateEmptyWorkspaceGroup = tabManager.selectedTab?.isRemoteTmuxMirror != true
+        if let key = newWorkspaceGroupShortcut.keyEquivalent {
+            Button(newWorkspaceGroupLabel) {
+                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            }
+            .keyboardShortcut(key, modifiers: newWorkspaceGroupShortcut.eventModifiers)
+            .disabled(!canCreateEmptyWorkspaceGroup)
+        } else {
+            Button(newWorkspaceGroupLabel) {
+                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            }
+            .disabled(!canCreateEmptyWorkspaceGroup)
+        }
+
         let targetWorkspaces = targetIds.compactMap { id in
             tabManager.tabs.first(where: { $0.id == id })
         }
@@ -14,6 +33,7 @@ extension TabItemView {
         let eligibleTargetIds = eligibleTargets.map(\.id)
         if !eligibleTargetIds.isEmpty {
             let groups = workspaceGroupMenuSnapshot.items
+            let moveToGroupMenuState = WorkspaceGroupMoveToMenuState(groups: groups)
             let allTargetsInSameGroup: UUID? = {
                 let groupIds = eligibleTargets.map(\.groupId)
                 guard let first = groupIds.first, groupIds.allSatisfy({ $0 == first }) else {
@@ -44,22 +64,25 @@ extension TabItemView {
                 }
             }
 
-            Menu(
-                String(
-                    localized: "contextMenu.workspaceGroup.moveTo",
-                    defaultValue: "Move to Group"
-                )
-            ) {
-                ForEach(groups) { group in
-                    Button(group.name) {
-                        for id in eligibleTargetIds {
-                            tabManager.addWorkspaceToGroup(workspaceId: id, groupId: group.id)
+            let moveToGroupLabel = String(
+                localized: "contextMenu.workspaceGroup.moveTo",
+                defaultValue: "Move to Group"
+            )
+            if moveToGroupMenuState.rendersSubmenu {
+                Menu(moveToGroupLabel) {
+                    ForEach(groups) { group in
+                        Button(group.name) {
+                            for id in eligibleTargetIds {
+                                tabManager.addWorkspaceToGroup(workspaceId: id, groupId: group.id)
+                            }
                         }
+                        .disabled(allTargetsInSameGroup == group.id)
                     }
-                    .disabled(allTargetsInSameGroup == group.id)
                 }
+            } else {
+                Button(moveToGroupLabel) {}
+                    .disabled(true)
             }
-            .disabled(groups.isEmpty)
 
             if hasAnyGroupedTarget {
                 Button(
