@@ -15,13 +15,14 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
     @MainActor
     @Test("auto-resumed agents return the shell to the session directory")
     func restorableAgentMissingCwdReturnsToSessionDirectory() throws {
-        try harness.withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
-            UserDefaults.standard.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        try withIsolatedAutoResumeDefaults { defaults in
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let sessionDirectory = "/tmp/cmux-issue-7031-agent-repo"
             let restored = try restoredPanel(
                 sessionDirectory: sessionDirectory,
                 sessionId: "agent-issue-7031-session",
+                defaults: defaults,
                 makeSurfaceResumeBindingIndex: nil
             )
 
@@ -32,13 +33,14 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
     @MainActor
     @Test("auto-resumed hook bindings return the shell to the session directory")
     func bindingMissingCwdReturnsToSessionDirectory() throws {
-        try harness.withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
-            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        try withIsolatedAutoResumeDefaults { defaults in
+            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let sessionDirectory = "/tmp/cmux-issue-7031-binding-repo"
             let restored = try restoredPanel(
                 sessionDirectory: sessionDirectory,
                 sessionId: "binding-issue-7031-session",
+                defaults: defaults,
                 makeSurfaceResumeBindingIndex: { workspaceId, panelId in
                     SurfaceResumeBindingIndex(bindingsByPanel: [
                         SurfaceResumeBindingIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): SurfaceResumeBindingSnapshot(
@@ -65,8 +67,8 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
     @MainActor
     @Test("cwd-ignore agents do not return the shell to a saved session directory")
     func cwdIgnoreAgentDoesNotReturnToSessionDirectory() throws {
-        try harness.withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
-            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        try withIsolatedAutoResumeDefaults { defaults in
+            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let sessionDirectory = "/tmp/cmux-issue-7031-ignore-repo"
             let sessionId = "ignore-issue-7031-session"
@@ -78,7 +80,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
                 resumeCommand: "acme-agent --session {{sessionId}}",
                 cwd: .ignore
             )
-            let source = Workspace()
+            let source = Workspace(agentSessionAutoResumeDefaults: defaults)
             let sourcePanelId = try #require(source.focusedPanelId)
             source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
             source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
@@ -100,7 +102,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
             )
             let snapshot = source.sessionSnapshot(includeScrollback: false)
 
-            let restored = Workspace()
+            let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let panel = try #require(restored.terminalPanel(for: restoredPanelId))
@@ -113,13 +115,22 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         }
     }
 
+    private func withIsolatedAutoResumeDefaults<T>(_ body: (UserDefaults) throws -> T) throws -> T {
+        let suiteName = "cmux.AgentSessionAutoResumeReturnDirectoryTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        return try body(defaults)
+    }
+
     @MainActor
     private func restoredPanel(
         sessionDirectory: String,
         sessionId: String,
+        defaults: UserDefaults,
         makeSurfaceResumeBindingIndex: ((UUID, UUID) -> SurfaceResumeBindingIndex?)? = nil
     ) throws -> (workspace: Workspace, panel: TerminalPanel) {
-        let source = Workspace()
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
         let sourcePanelId = try #require(source.focusedPanelId)
         _ = source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
         let sourceIndex = try harness.makeRestorableAgentIndex(
@@ -140,7 +151,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         snapshot.panels[panelIndex].terminal?.workingDirectory = sessionDirectory
         snapshot.panels[panelIndex].directory = sessionDirectory
 
-        let restored = Workspace()
+        let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
         return (restored, try #require(restored.terminalPanel(for: restoredPanelId)))
