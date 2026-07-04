@@ -3076,7 +3076,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
-        updateSurfaceSize(bypassLiveResizeCoalescing: true)
+        _ = updateSurfaceSize()
         invalidateTextInputCoordinates()
     }
 
