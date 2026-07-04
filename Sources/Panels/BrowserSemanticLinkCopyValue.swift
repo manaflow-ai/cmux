@@ -10,8 +10,18 @@ struct BrowserSemanticLinkCopyValue: Equatable, Sendable {
     let string: String
 
     init?(linkURL url: URL) {
-        _ = url
-        return nil
+        switch url.scheme?.lowercased() {
+        case "mailto":
+            guard let addressList = Self.mailtoAddressList(from: url) else { return nil }
+            self.kind = .emailAddress
+            self.string = addressList
+        case "tel":
+            guard let phoneNumber = Self.telephoneNumber(from: url) else { return nil }
+            self.kind = .phoneNumber
+            self.string = phoneNumber
+        default:
+            return nil
+        }
     }
 
     var menuTitle: String {
