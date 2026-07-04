@@ -1110,6 +1110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
+    /// Undoes a system-driven main-window shrink that happens while cmux is in
+    /// the background (display sleep/wake, native-fullscreen exit, un-zoom
+    /// revert). Fed by the resign/activate handlers and the display-transition
+    /// observers below; see issue #5492.
+    private let mainWindowFrameRestorer = MainWindowFrameRestorer()
     /// Owns the per-window command-palette state (visibility, pending-open,
     /// escape suppression, selection, debug snapshot). This delegate resolves
     /// `NSWindow` values to identifiers and forwards into the store.
@@ -1809,6 +1814,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
         }
+        mainWindowFrameRestorer.restoreIfNeeded(
+            windows: mainWindowsForVisibilityController(),
+            visibleFrames: NSScreen.screens.map(\.visibleFrame)
+        )
         sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
             "tabCount": tabManager?.tabs.count ?? 0
         ])
@@ -2031,6 +2040,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp else { return }
         PortScanner.shared.setTrackedAgentScanningPaused(true)
         clearConfiguredShortcutChordState()
+        mainWindowFrameRestorer.captureFrames(of: mainWindowsForVisibilityController())
         if Self.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
@@ -3907,6 +3917,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // Arm the inactive-window-restore (#5492) on a real display transition,
+        // on the sleep side so it is set while the user is still away — display
+        // sleep also fires here on full-system sleep, and screen reconfiguration
+        // covers an external display being unplugged.
+        let armInactiveDisplayTransition: @Sendable (Notification) -> Void = { [weak self] _ in
+            // Update the flag synchronously on the main-queue delivery (no Task
+            // hop) so it is armed before applicationDidBecomeActive runs the
+            // restore — otherwise wake/reconfiguration could activate the app
+            // first, clearing the captured frames before the flag is set. This
+            // matches ScreenLockObserver's pattern (issue #5492).
+            MainActor.assumeIsolated {
+                self?.mainWindowFrameRestorer.noteDisplayTransition(appIsActive: NSApp.isActive)
+            }
+        }
+        lifecycleSnapshotObservers.append(
+            workspaceCenter.addObserver(
+                forName: NSWorkspace.screensDidSleepNotification,
+                object: nil,
+                queue: .main,
+                using: armInactiveDisplayTransition
+            )
+        )
+        lifecycleSnapshotObservers.append(
+            workspaceCenter.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil,
+                queue: .main,
+                using: armInactiveDisplayTransition
+            )
+        )
+        lifecycleSnapshotObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification,
+                object: nil,
+                queue: .main,
+                using: armInactiveDisplayTransition
+            )
+        )
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
