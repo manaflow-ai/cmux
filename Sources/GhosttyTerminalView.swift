@@ -2820,7 +2820,7 @@ class GhosttyApp {
             return false
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
-            Task { @MainActor [surfaceView, shape] in
+            DispatchQueue.main.async {
                 surfaceView.applyGhosttyMouseShape(shape)
             }
             return true
