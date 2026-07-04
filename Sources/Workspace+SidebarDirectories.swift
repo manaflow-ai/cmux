@@ -11,7 +11,12 @@ extension Workspace {
 
     private var reportedRemoteCurrentDirectory: String? {
         if let focusedPanelId {
-            return reportedPanelDirectory(panelId: focusedPanelId)
+            if let directory = reportedPanelDirectory(panelId: focusedPanelId) {
+                return directory
+            }
+            if terminalPanel(for: focusedPanelId) != nil {
+                return nil
+            }
         }
         let activeRemotePanelIds = panels.keys.filter { isRemoteTerminalSurface($0) }
         guard !activeRemotePanelIds.isEmpty else { return nil }

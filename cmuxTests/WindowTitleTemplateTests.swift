@@ -356,6 +356,47 @@ struct WindowTitleTemplateTests {
         #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
     }
 
+    @MainActor
+    @Test func remoteWorkspacePresentedDirectoryFallsBackToTrustedRemoteWhenAgentFocused() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(
+            workingDirectory: localDirectory,
+            initialTerminalCommand: sshCommand
+        )
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-agent-focus.sock",
+                terminalStartupCommand: sshCommand
+            ),
+            autoConnect: false
+        )
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        workspace.panelDirectories.removeValue(forKey: agentPanel.id)
+
+        #expect(workspace.terminalPanel(for: agentPanel.id) == nil)
+        #expect(workspace.focusedPanelId == agentPanel.id)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+    }
+
     private func isolatedDefaults() throws -> UserDefaults {
         let suiteName = "cmux.WindowTitleTemplateTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
