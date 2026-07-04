@@ -109,7 +109,7 @@
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
     "faqPlatformQ": "対応プラットフォームは？",
-    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。",
+    "faqPlatformA": "現在はmacOSのみです。cmuxはネイティブSwift + AppKitアプリです。Linux・Windows・Android 版が公開され次第お知らせします。<waitlist>順番待ちリストに登録</waitlist>してください。",
     "faqAgentsQ": "cmuxはどのコーディングエージェントに対応していますか？",
     "faqAgentsA": "すべてに対応しています。cmuxはターミナルなので、ターミナルで動作するすべてのエージェントがそのまま使えます：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent、その他コマンドラインから起動できるすべてのツール。",
     "faqNotificationsQ": "通知はどのように機能しますか？",
@@ -1043,6 +1043,8 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "paneBorderColor": "分割ワークスペースで cmux ペインの区切り線の色を上書きします。Ghostty 内部の分割ではなく、cmux のペイン境界に適用されます。",
+        "activePaneBorderColor": "分割ワークスペースでフォーカス中の cmux ペインの周囲に描画する任意の境界線色です。",
         "automation": {
           "ampIntegration": "Amp の cmux 連携フックを有効にします。無効にすると、バンドルされたプラグインは削除せずに非アクティブのままになります。",
           "suppressSubagentNotifications": "ネストされた Codex または Claude の子エージェントからの表示される完了通知とステータス変更を抑制し、それらのイベントは Feed テレメトリに残します。",

@@ -799,6 +799,8 @@
       "exampleConfig": "Configuración de ejemplo",
       "metaTitle": "Configuración",
       "schemaDescriptions": {
+        "paneBorderColor": "Sobrescribe el color del divisor de paneles de cmux en workspaces divididos. Afecta a los límites de paneles de cmux, no a las divisiones internas de Ghostty.",
+        "activePaneBorderColor": "Color de borde opcional que se dibuja alrededor del panel de cmux enfocado en workspaces divididos.",
         "automation": {
           "ampIntegration": "Habilita los hooks de integración de cmux para Amp. Cuando está desactivado, el complemento incluido permanece inactivo sin necesidad de eliminarlo.",
           "suppressSubagentNotifications": "Suprime las notificaciones visibles de finalización y los cambios de estado de agentes secundarios anidados de Codex o Claude, manteniendo sus eventos en la telemetría de Feed.",
