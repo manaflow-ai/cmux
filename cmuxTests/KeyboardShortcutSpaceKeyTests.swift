@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSettings
+@testable import CmuxSettingsUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -168,6 +169,27 @@ private typealias SettingsShortcutStroke = CmuxSettings.ShortcutStroke
                 configuredShortcut: focusLeft
             )
         )
+    }
+
+    @MainActor
+    @Test func paneFocusSettingsCaptionDescribesSplitWorkspaceScope() {
+        let splitCaption = KeyboardShortcutsSection.builtInScopeCaption(
+            for: ShortcutAction.focusLeft.defaultFocusWhenClause
+        )
+        let terminalCaption = KeyboardShortcutsSection.builtInScopeCaption(
+            for: ShortcutAction.renameTab.defaultFocusWhenClause
+        )
+
+        #expect(
+            splitCaption == String(
+                localized: "shortcut.when.caption.splitPaneNavigation",
+                defaultValue: "Only in split workspaces with more than one pane"
+            )
+        )
+        #expect(splitCaption == KeyboardShortcutsSection.builtInScopeCaption(
+            for: ShortcutAction.focusRight.defaultFocusWhenClause
+        ))
+        #expect(splitCaption != terminalCaption)
     }
 
     @Test func paneFocusMenuShortcutsSuppressDuplicateHistoryKeys() throws {
