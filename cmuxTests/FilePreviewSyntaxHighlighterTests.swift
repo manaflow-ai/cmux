@@ -154,6 +154,15 @@ struct FilePreviewSyntaxHighlighterTests {
         #expect(comments.contains("/* real comment */"))
     }
 
+    @Test("Rust lifetimes are not classified as string literals")
+    func rustLifetimesAreNotStringLiterals() {
+        let source = "let s = \"ok\"; fn foo<'a, 'b>(x: &'a str, y: &'b str) -> &'a str { x }"
+        let strings = kinds(source, .rust)
+            .filter { $0.1 == .string }
+            .map(\.0)
+        #expect(strings == ["\"ok\""])
+    }
+
     @Test("JSON keywords and strings are classified, braces are not")
     func jsonBasics() {
         let source = "{ \"enabled\": true, \"count\": 3 }"

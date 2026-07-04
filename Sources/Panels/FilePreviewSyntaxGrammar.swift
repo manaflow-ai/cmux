@@ -158,7 +158,7 @@ struct FilePreviewSyntaxGrammar: Sendable {
             return FilePreviewSyntaxGrammar(
                 lineComments: ["//"],
                 blockComment: (open: "/*", close: "*/"),
-                stringDelimiters: ["\"", "'"],
+                stringDelimiters: ["\""],
                 usesAtDecorators: true,
                 keywords: FilePreviewSyntaxKeywords.rust,
                 types: FilePreviewSyntaxTypes.rust
