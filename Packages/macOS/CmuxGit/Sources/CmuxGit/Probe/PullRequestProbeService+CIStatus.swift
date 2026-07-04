@@ -8,12 +8,12 @@ extension PullRequestProbeService {
         session: URLSession,
         authHeader: String?
     ) async -> [Int: PullRequestCIStatus]? {
-        guard let authHeader, !authHeader.isEmpty else {
-            return [:]
-        }
         let numbers = pullRequestNumbers.filter { $0 > 0 }.sorted()
         guard !numbers.isEmpty else {
             return [:]
+        }
+        guard let authHeader, !authHeader.isEmpty else {
+            return Dictionary(uniqueKeysWithValues: numbers.map { ($0, PullRequestCIStatus.neutral) })
         }
         guard let repository = repositoryParts(repoSlug: repoSlug) else {
             return nil
@@ -117,8 +117,8 @@ extension PullRequestProbeService {
                     fetchedAt: fetchTimestamp
                 )
             }
-            for number in missingNumbers {
-                ciStatusesByNumber[number] = fetchedStatuses[number] ?? .neutral
+            for (number, status) in fetchedStatuses where missingNumbers.contains(number) {
+                ciStatusesByNumber[number] = status
             }
         }
 
@@ -138,7 +138,7 @@ extension PullRequestProbeService {
         WorkspacePullRequestRepoCacheEntry(
             fetchedAt: fetchedAt,
             pullRequestsByBranch: entry.pullRequestsByBranch.mapValues {
-                $0.withCIStatus(ciStatusesByNumber[$0.number] ?? .neutral)
+                $0.withCIStatus(ciStatusesByNumber[$0.number] ?? $0.ciStatus)
             },
             knownAbsentBranches: entry.knownAbsentBranches,
             includesCIStatus: true,
