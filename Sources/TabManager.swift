@@ -371,12 +371,18 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
-    private struct PanelTitleUpdateKey: Hashable {
+    /// Key into `pendingPanelTitleUpdates`. Internal so the dictionary's
+    /// access level (internal, for `@testable` test observability of the
+    /// coalescing queue) is well-formed.
+    struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
         let panelId: UUID
     }
-    private struct PendingPanelTitleUpdate { let title: String; weak var sourceSurface: TerminalSurface? }
-    private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
+    struct PendingPanelTitleUpdate { let title: String; weak var sourceSurface: TerminalSurface? }
+    /// Coalesced panel-title updates awaiting the next 30 Hz flush.
+    /// Internal so regression tests can assert queue depth via
+    /// `@testable import` instead of a `ForTesting` accessor in production.
+    var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
     private let panelTitleUpdateCoalescer: NotificationBurstCoalescer
 
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
@@ -3300,6 +3306,7 @@ class TabManager: ObservableObject {
         }
     }
     func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() { panelTitleUpdateCoalescer.flushNow() }
+
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
         guard let tab = workspacesById[tabId], let terminalPanel = tab.terminalPanel(for: panelId), terminalPanel.surface === sourceSurface else { return }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)

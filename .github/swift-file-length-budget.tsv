@@ -17,7 +17,7 @@
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6359	cmuxTests/SessionPersistenceTests.swift
 6255	cmuxTests/GhosttyConfigTests.swift
-6166	Sources/TabManager.swift
+6173	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5809	Sources/TextBoxInput.swift
 5573	cmuxTests/BrowserConfigTests.swift
@@ -26,8 +26,8 @@
 4367	cmuxTests/BrowserPanelTests.swift
 4283	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 4121	Sources/BrowserWindowPortal.swift
+3981	cmuxTests/TabManagerUnitTests.swift
 3934	Sources/Feed/FeedPanelView.swift
-3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
 3668	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
