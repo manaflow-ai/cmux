@@ -9989,6 +9989,7 @@ struct VerticalTabsSidebar: View {
     @State private var selectedWorkspaceTagFilter: String?
     @State private var workspaceTagProjection = WorkspaceTagProjection.empty
     @State private var workspaceTagsRevision: UInt64 = 0
+    @State private var workspaceTagsRefreshScheduled = false
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
     // re-subscribed `.onReceive` to a fresh publisher every render, replaying
@@ -10759,8 +10760,7 @@ struct VerticalTabsSidebar: View {
                         guard let workspace = notification.object as? Workspace,
                               observedWorkspaceIds.contains(workspace.id)
                         else { continue }
-                        workspaceTagsRevision &+= 1
-                        refreshWorkspaceTagsList(tabs: tabManager.tabs)
+                        scheduleWorkspaceTagsListRefresh(tabs: tabManager.tabs)
                     }
                 }
             }
@@ -10781,6 +10781,17 @@ struct VerticalTabsSidebar: View {
         let nextProjection = WorkspaceTagProjection.make(in: tabs)
         guard workspaceTagProjection != nextProjection else { return }
         workspaceTagProjection = nextProjection
+    }
+
+    private func scheduleWorkspaceTagsListRefresh(tabs: [Workspace]) {
+        guard !workspaceTagsRefreshScheduled else { return }
+        workspaceTagsRefreshScheduled = true
+        Task { @MainActor in
+            await Task.yield()
+            workspaceTagsRefreshScheduled = false
+            workspaceTagsRevision &+= 1
+            refreshWorkspaceTagsList(tabs: tabs)
+        }
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
