@@ -123,8 +123,13 @@ struct RendererRealizationPlannerTests {
         for i in 0..<5 {
             let id = UUID()
             ids.append(id)
-            // i = 0 is most recently visible; all are idle past the threshold.
-            inputs.append(input(id, lastVisibleAt: now - TimeInterval(100 + i)))
+            // i = 0 is most recently visible; the warm entries are still under
+            // the idle threshold, while the overflow entries are old enough to
+            // release either way.
+            let lastVisibleAt = i < 2
+                ? now - TimeInterval(i + 1)
+                : now - TimeInterval(100 + i)
+            inputs.append(input(id, lastVisibleAt: lastVisibleAt))
         }
         let selected = RendererRealizationPlanner.selectedSurfaceIds(
             inputs: inputs, settings: settings(idle: 5, warm: 2), now: now
