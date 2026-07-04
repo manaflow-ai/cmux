@@ -2649,7 +2649,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line,
         predicate: () -> Bool
-    ) throws {
+    ) {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if predicate() {
@@ -2658,12 +2658,10 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
 
+        // Keep CI-load WebKit waits as ordinary XCTest assertion failures. A
+        // thrown timeout is reported as an unexpected failure, which this PR's
+        // xcodebuild result policy must reject.
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
-        throw BrowserTestTimeout(description: description)
-    }
-
-    private struct BrowserTestTimeout: Error, CustomStringConvertible {
-        let description: String
     }
 
     private func waitForBrowserPanel(
@@ -2808,29 +2806,32 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertEqual(panel.pageTitle, "Race A")
 
         panel.navigate(to: pageB)
-        try waitUntil("server to receive provisional page B request") {
+        waitUntil("server to receive provisional page B request") {
             server.didReceiveBRequest
         }
-        try waitUntil("browser back availability during provisional page B navigation") {
+        waitUntil("browser back availability during provisional page B navigation") {
             panel.canGoBack && panel.webView.isLoading
         }
         XCTAssertFalse(panel.canGoForward)
 
         panel.goBack()
-        try waitUntil("back action to expose page B as forward history before it can commit") {
+        waitUntil("back action to expose page B as forward history before it can commit") {
             panel.currentURL?.path == pageA.path && !panel.webView.isLoading
                 && panel.canGoForward
         }
 
         let releasedBResponseCount = server.releaseHeldBResponses()
         XCTAssertGreaterThan(releasedBResponseCount, 0)
-        try waitUntil("browser to remain on page A after held page B response is released") {
+        waitUntil("browser to remain on page A after held page B response is released") {
             !panel.webView.isLoading &&
                 panel.pageTitle == "Race A" &&
                 panel.currentURL?.path == pageA.path
         }
 
-        let publishedURL = try XCTUnwrap(panel.currentURL)
+        guard let publishedURL = panel.currentURL else {
+            XCTFail("expected panel.currentURL to be non-nil after the held page B response is released")
+            return
+        }
         XCTAssertEqual(publishedURL.path, pageA.path)
         XCTAssertEqual(panel.pageTitle, "Race A")
     }

@@ -20,7 +20,7 @@
 6166	Sources/TabManager.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5809	Sources/TextBoxInput.swift
-5573	cmuxTests/BrowserConfigTests.swift
+5578	cmuxTests/BrowserConfigTests.swift
 4483	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift

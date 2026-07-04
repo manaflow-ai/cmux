@@ -146,6 +146,7 @@ jobs:
           set +e
           OUTPUT=$(run_unit_tests)
           EXIT_CODE=$?
+          printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail with
@@ -158,19 +159,12 @@ jobs:
             set +e
             OUTPUT=$(run_unit_tests)
             EXIT_CODE=$?
+            printf '%s\n' "$OUTPUT" > /tmp/test-output.txt
             set -e
           fi
 
           echo "$OUTPUT"
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
-          fi
+          python3 scripts/ci/check-xcodebuild-test-result.py --exit-code "$EXIT_CODE" /tmp/test-output.txt
 
       - name: Run UI tests
         if: ${{ !inputs.skip_ui_tests }}
