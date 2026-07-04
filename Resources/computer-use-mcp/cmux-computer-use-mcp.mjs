@@ -74,6 +74,7 @@ const TIMEOUT_MS = positiveIntegerEnv("CMUX_CU_TIMEOUT_MS", 180000);
 const MAX_TREE = positiveIntegerEnv("CMUX_CU_MAX_TREE", 60000);
 const MAX_PENDING_TOOL_CALLS = 8;
 const MAX_TOOL_CALL_ARGUMENT_BYTES = 256 * 1024;
+const MAX_TYPE_TEXT_CHARS = positiveIntegerEnv("CMUX_CU_MAX_TYPE_TEXT_CHARS", 8000);
 const MAX_RETAINED_SNAPSHOTS = 4;
 // Explicit opt-in for headless automation: pre-approve the engine's per-app
 // control elicitations instead of forwarding them to the MCP client. Headless
@@ -151,6 +152,8 @@ const MESSAGE_CATALOG = {
       `too many computer-use requests are already pending (limit ${limit}); wait for the current request to finish and retry`,
     toolCallTooLarge: (limit) =>
       `computer-use request arguments are too large (limit ${limit} bytes)`,
+    typeTextTooLarge: (limit) =>
+      `computer_type text is too large (limit ${limit} characters)`,
     typeDescription:
       "Type text into an app (the focused field). Confirm with the user before destructive, irreversible, or high-stakes actions.",
     typed: "typed",
@@ -230,6 +233,8 @@ const MESSAGE_CATALOG = {
       `保留中の computer-use リクエストが多すぎます（上限 ${limit} 件）。現在のリクエストが完了してから再試行してください`,
     toolCallTooLarge: (limit) =>
       `computer-use リクエストの引数が大きすぎます（上限 ${limit} バイト）`,
+    typeTextTooLarge: (limit) =>
+      `computer_type のテキストが大きすぎます（上限 ${limit} 文字）`,
     typeDescription:
       "アプリのフォーカス中フィールドにテキストを入力します。破壊的、取り消し困難、または重要度の高い操作の前にはユーザーに確認してください。",
     typed: "入力しました",
@@ -1537,12 +1542,17 @@ const TOOLS = [
     description: localizedMessage("typeDescription"),
     inputSchema: {
       type: "object",
-      properties: { app: { type: "string" }, text: { type: "string" } },
+      properties: { app: { type: "string" }, text: { type: "string", maxLength: MAX_TYPE_TEXT_CHARS } },
       required: ["app", "text"],
       additionalProperties: false,
     },
-    run: async ({ app, text: value }) =>
-      passthrough(await callInputTool("type_text", { app, text: value }), localizedMessage("typed")),
+    run: async ({ app, text: value }) => {
+      const textValue = String(value ?? "");
+      if (textValue.length > MAX_TYPE_TEXT_CHARS) {
+        return err(localizedMessage("typeTextTooLarge", MAX_TYPE_TEXT_CHARS));
+      }
+      return passthrough(await callInputTool("type_text", { app, text: textValue }), localizedMessage("typed"));
+    },
   },
   {
     name: "computer_key",

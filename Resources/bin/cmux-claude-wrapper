@@ -812,6 +812,32 @@ cmux_computer_use_workspace_root() {
     return 1
 }
 
+cmux_computer_use_canonical_executable() {
+    local candidate="$1"
+    [[ "$candidate" = /* && -x "$candidate" ]] || return 1
+    local path="$candidate"
+    local hops=0
+    while :; do
+        local dir="${path%/*}"
+        local base="${path##*/}"
+        local dir_real
+        dir_real="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+        path="$dir_real/$base"
+        [[ -L "$path" ]] || break
+        (( hops < 16 )) || return 1
+        local target
+        target="$(/usr/bin/readlink "$path" 2>/dev/null || readlink "$path" 2>/dev/null)" || return 1
+        if [[ "$target" = /* ]]; then
+            path="$target"
+        else
+            path="$dir_real/$target"
+        fi
+        hops=$((hops + 1))
+    done
+    [[ -x "$path" ]] || return 1
+    printf '%s' "$path"
+}
+
 cmux_computer_use_resolve_node() {
     local node_bin
     node_bin="$(command -v node 2>/dev/null)" || return 1
@@ -835,10 +861,8 @@ cmux_computer_use_resolve_node() {
             return 1
             ;;
     esac
-    local node_dir="${node_bin%/*}"
-    local node_dir_real
-    node_dir_real="$(cd "$node_dir" 2>/dev/null && pwd -P)" || return 1
-    local node_real="$node_dir_real/${node_bin##*/}"
+    local node_real
+    node_real="$(cmux_computer_use_canonical_executable "$node_bin")" || return 1
     local cwd_real
     cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
     if [[ -n "$cwd_real" ]]; then

@@ -884,6 +884,7 @@ def computer_use_sandbox(
     disabled: bool = False,
     workspace_node_first: bool = False,
     workspace_node_outside_pwd: bool = False,
+    workspace_node_symlink_target_first: bool = False,
     untrusted_node_ancestor_first: bool = False,
     path_helper_trap: bool = False,
 ):
@@ -931,6 +932,30 @@ exit 88
             )
             env["FAKE_WRAPPER_CWD"] = str(cwd)
             env["PATH"] = f"{node_dir}:{env['PATH']}"
+        if workspace_node_symlink_target_first:
+            workspace = tmp / "workspace-symlink-target"
+            target_dir = workspace / "tools"
+            cwd = workspace / "subdir"
+            link_dir = tmp / "trusted-node-link-bin"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            cwd.mkdir(parents=True, exist_ok=True)
+            link_dir.mkdir(parents=True, exist_ok=True)
+            (workspace / ".git").mkdir(parents=True, exist_ok=True)
+            node_real = shutil.which("node")
+            if node_real:
+                env["FAKE_TRUSTED_NODE"] = node_real
+            make_executable(
+                target_dir / "node",
+                """#!/usr/bin/env bash
+if [[ "${1:-}" == "${FAKE_REAL_NODE_SCRIPT:-}" && -n "${FAKE_TRUSTED_NODE:-}" ]]; then
+  exec "$FAKE_TRUSTED_NODE" "$@"
+fi
+exit 88
+""",
+            )
+            (link_dir / "node").symlink_to(target_dir / "node")
+            env["FAKE_WRAPPER_CWD"] = str(cwd)
+            env["PATH"] = f"{link_dir}:{env['PATH']}"
         if untrusted_node_ancestor_first:
             parent = tmp / "world-writable-node-parent"
             node_dir = parent / "bin"
@@ -1091,6 +1116,22 @@ def test_computer_use_mcp_skips_workspace_root_node(failures: list[str]) -> None
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use workspace-root node: expected no injection with workspace node outside PWD, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_mcp_skips_workspace_node_symlink_target(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(
+            workspace_node_symlink_target_first=True,
+        ),
+    )
+    expect(code == 0, f"computer use workspace symlink node: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use workspace symlink node: expected no injection with node symlink target in workspace, got {real_argv}",
         failures,
     )
 
@@ -2164,6 +2205,7 @@ def main() -> int:
     test_computer_use_mcp_does_not_require_external_runtime_auth(failures)
     test_computer_use_mcp_skips_workspace_node(failures)
     test_computer_use_mcp_skips_workspace_root_node(failures)
+    test_computer_use_mcp_skips_workspace_node_symlink_target(failures)
     test_computer_use_mcp_skips_untrusted_node_ancestor(failures)
     test_computer_use_mcp_skipped_for_strict_mcp_config(failures)
     test_computer_use_mcp_skipped_when_disabled(failures)

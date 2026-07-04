@@ -476,6 +476,17 @@ if (!largeArgs.isError || !largeArgs.text.includes("too large")) {
   process.exit(1);
 }
 
+const largeTypeText = await run({
+  withElicitation: false,
+  tool: "computer_type",
+  args: { app: "TestApp", text: "x".repeat(9000) },
+});
+console.log(`large type text -> isError=${largeTypeText.isError}`);
+if (!largeTypeText.isError || !largeTypeText.text.includes("too large")) {
+  console.error("FAIL: oversized computer_type text should be rejected before mutating the UI");
+  process.exit(1);
+}
+
 const appsDeclined = await run({ withElicitation: false, tool: "computer_apps", args: {} });
 console.log(`computer_apps without elicitation support -> isError=${appsDeclined.isError}`);
 if (!appsDeclined.isError || !appsDeclined.text.includes("not approved")) {
