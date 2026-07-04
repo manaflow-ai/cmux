@@ -30,15 +30,15 @@ export function ApproveForm({ initialCode }: { initialCode: string }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 flex max-w-sm flex-col gap-3">
-      <label className="text-sm font-medium text-foreground" htmlFor="vault-user-code">
+    <form onSubmit={onSubmit} className="mt-4 flex max-w-sm flex-col gap-2">
+      <label className="text-xs font-medium uppercase tracking-wide text-muted" htmlFor="vault-user-code">
         {t("codeLabel")}
       </label>
       <input
         id="vault-user-code"
         value={code}
         onChange={(event) => setCode(event.target.value.toUpperCase())}
-        className="h-10 rounded-md border border-border bg-background px-3 font-mono text-sm uppercase outline-none focus:border-foreground"
+        className="border border-border bg-background px-3 py-1.5 font-mono text-xs uppercase text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
         autoComplete="one-time-code"
         inputMode="text"
         maxLength={8}
@@ -46,15 +46,15 @@ export function ApproveForm({ initialCode }: { initialCode: string }) {
       <button
         type="submit"
         disabled={state.kind === "submitting"}
-        className="h-10 rounded-md bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60"
+        className="border border-border bg-background px-3 py-1.5 font-medium text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:text-foreground"
       >
         {state.kind === "submitting" ? t("approving") : t("approveButton")}
       </button>
       {state.kind === "success" ? (
-        <p className="text-sm text-green-600 dark:text-green-400">{t("success")}</p>
+        <p className="text-muted">{t("success")}</p>
       ) : null}
       {state.kind === "error" ? (
-        <p className="text-sm text-red-600 dark:text-red-400">{state.message}</p>
+        <p className="text-muted">{state.message}</p>
       ) : null}
     </form>
   );

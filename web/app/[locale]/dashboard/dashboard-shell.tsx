@@ -22,26 +22,29 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-sm text-foreground">
       <header className="sticky top-0 z-30 border-b border-border bg-background">
-        <div className="flex h-14 items-center justify-between px-4 sm:px-6">
-          <Link href="/dashboard/vault" className="text-sm font-semibold tracking-tight">
+        <div className="flex h-11 items-center justify-between px-3">
+          <Link
+            href="/dashboard/vault"
+            className="font-medium uppercase tracking-wide focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+          >
             {t("brand")}
           </Link>
           <UserButton />
         </div>
       </header>
-      <div className="grid min-h-[calc(100vh-3.5rem)] grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="border-b border-border px-4 py-3 md:border-b-0 md:border-r md:px-3 md:py-5">
+      <div className="grid min-h-[calc(100vh-2.75rem)] grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="border-b border-border px-3 py-3 md:border-b-0 md:border-r">
           <nav className="flex gap-2 overflow-x-auto md:flex-col">
             {items.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`whitespace-nowrap rounded-md px-3 py-2 text-sm transition-colors ${
+                className={`whitespace-nowrap border border-border px-3 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
                   item.active
                     ? "bg-foreground text-background"
-                    : "text-muted hover:bg-muted/10 hover:text-foreground"
+                    : "bg-background text-foreground hover:bg-foreground hover:text-background"
                 }`}
               >
                 {item.label}

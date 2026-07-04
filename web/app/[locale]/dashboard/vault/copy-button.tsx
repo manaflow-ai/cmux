@@ -19,7 +19,7 @@ export function CopyButton({
         void navigator.clipboard.writeText(value);
         setCopied(true);
       }}
-      className="rounded-md border border-border px-3 py-2 text-sm text-muted transition-colors hover:text-foreground"
+      className="border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
     >
       {copied ? copiedLabel : label}
     </button>

@@ -179,32 +179,32 @@ export function SessionsTable({
           : t("endOfList");
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-[640px] flex-col px-4 py-6 sm:px-6">
-      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="flex h-[calc(100vh-2.75rem)] min-h-[520px] flex-col px-3 py-3">
+      <div className="mb-3 flex flex-col gap-2 border-b border-border pb-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm font-medium text-muted">{t("eyebrow")}</p>
-          <h1 className="mt-2 text-3xl font-semibold">{t("title")}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">{t("description")}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">{t("eyebrow")}</p>
+          <h1 className="mt-1 text-sm font-medium uppercase tracking-wide">{t("title")}</h1>
+          <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
         </div>
         <Link
           href="/dashboard/vault"
-          className="text-sm text-muted underline underline-offset-4 hover:text-foreground"
+          className="text-muted focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:underline"
         >
           {t("backToOverview")}
         </Link>
       </div>
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex gap-2 overflow-x-auto">
           {AGENTS.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => applyFilters(item, query)}
-              className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+              className={`border border-border px-3 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
                 agent === item
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-border text-muted hover:text-foreground"
+                  ? "bg-foreground text-background"
+                  : "bg-background text-foreground hover:bg-foreground hover:text-background"
               }`}
             >
               {item === "all" ? t("agents.all") : t(`agents.${item}`)}
@@ -217,15 +217,15 @@ export function SessionsTable({
             value={query}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={t("searchPlaceholder")}
-            className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-foreground"
+            className="w-full border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           />
         </label>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-border">
+      <div className="overflow-hidden border border-border">
         <div
           role="row"
-          className="grid min-w-[1040px] grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border bg-muted/5 px-4 py-3 text-xs font-medium uppercase text-muted"
+          className="grid min-w-[1040px] grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] border-b border-border px-3 py-2 text-xs font-medium uppercase text-muted"
         >
           <div role="columnheader">{t("agent")}</div>
           <div role="columnheader">{t("session")}</div>
@@ -254,7 +254,7 @@ export function SessionsTable({
                   <div
                     key="status"
                     role="row"
-                    className="absolute left-0 top-0 flex w-full items-center px-4 text-sm text-muted"
+                    className="absolute left-0 top-0 flex w-full items-center px-3 text-muted"
                     style={{
                       height: `${virtualRow.size}px`,
                       transform: `translateY(${virtualRow.start}px)`,
@@ -319,11 +319,11 @@ function SessionRow({
         onNavigate();
         router.push(`/dashboard/vault/sessions/${row.id}`);
       }}
-      className="absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-4 text-sm transition-colors hover:bg-muted/5"
+      className="group absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[92px_180px_minmax(260px,1fr)_112px_132px_112px_152px_152px] items-center border-b border-border px-3 text-xs hover:bg-foreground hover:text-background"
       style={style}
     >
       <div role="cell">
-        <span className={`rounded-full px-2 py-1 text-xs font-medium ${agentBadgeClass(row.agent)}`}>
+        <span className="border border-border px-2 py-1 font-mono text-xs font-medium uppercase">
           {row.agent}
         </span>
       </div>
@@ -338,7 +338,7 @@ function SessionRow({
             void navigator.clipboard.writeText(row.agentSessionId);
             setCopied(true);
           }}
-          className="rounded border border-border px-1.5 py-0.5 text-xs text-muted hover:text-foreground"
+          className="border border-border bg-background px-2 py-1 text-xs text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
           aria-label={copied ? copiedLabel : copyLabel}
           title={copied ? copiedLabel : copyLabel}
         >
@@ -346,35 +346,36 @@ function SessionRow({
         </button>
       </div>
       <div role="cell" className="min-w-0 pr-5">
-        <div className="truncate font-medium" title={cwd}>
+        <div className="truncate font-mono text-xs" title={cwd}>
           {basename}
         </div>
-        <div className="truncate text-xs text-muted" title={cwd}>
+        <div className="truncate font-mono text-xs text-muted group-hover:text-background" title={cwd}>
           {truncateMiddle(cwd, 72)}
         </div>
       </div>
-      <div role="cell" className="tabular-nums">
+      <div role="cell" className="font-mono text-xs tabular-nums">
         {formatBytes(row.sizeBytes, locale)}
       </div>
-      <div role="cell" className="tabular-nums">
+      <div role="cell" className="font-mono text-xs tabular-nums">
         {formatBytes(row.compressedSizeBytes, locale)}
       </div>
-      <div role="cell" className="tabular-nums">
+      <div role="cell" className="font-mono text-xs tabular-nums">
         {row.snapshotCount.toLocaleString(locale)}
       </div>
-      <div role="cell" className="text-muted" title={formatDate(row.firstUploadedAt, locale)}>
+      <div
+        role="cell"
+        className="font-mono text-xs text-muted group-hover:text-background"
+        title={formatDate(row.firstUploadedAt, locale)}
+      >
         {formatDate(row.firstUploadedAt, locale)}
       </div>
-      <div role="cell" className="text-muted" title={formatDate(row.lastUploadedAt, locale)}>
+      <div
+        role="cell"
+        className="font-mono text-xs text-muted group-hover:text-background"
+        title={formatDate(row.lastUploadedAt, locale)}
+      >
         {formatRelativeTime(row.lastUploadedAt, locale, now)}
       </div>
     </div>
   );
-}
-
-function agentBadgeClass(agent: string): string {
-  if (agent === "claude") return "bg-orange-500/10 text-orange-700 dark:text-orange-300";
-  if (agent === "codex") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (agent === "pi") return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
-  return "bg-muted/10 text-muted";
 }

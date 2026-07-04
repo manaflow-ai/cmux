@@ -63,18 +63,18 @@ export default async function VaultSessionDetailPage({
   const resumeCommand = `cmux-vault resume ${session.agentSessionId}`;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
-      <div className="mb-8">
-        <p className="text-sm font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-2 text-3xl font-semibold">{t("title")}</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">{t("description")}</p>
+    <div className="mx-auto w-full max-w-6xl px-3 py-4">
+      <div className="mb-4 border-b border-border pb-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium uppercase tracking-wide">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
 
-      <section className="border-y border-border py-6">
-        <h2 className="text-lg font-medium">{t("metadata")}</h2>
-        <dl className="mt-5 grid gap-4 text-sm md:grid-cols-2">
+      <section className="border border-border p-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide">{t("metadata")}</h2>
+        <dl className="mt-3 grid gap-3 md:grid-cols-2">
           <Metadata label={t("agent")} value={session.agent} />
-          <Metadata label={t("agentSessionId")} value={session.agentSessionId} mono />
+          <Metadata label={t("agentSessionId")} value={session.agentSessionId} />
           <Metadata label={t("cwd")} value={session.cwd ?? t("unknownCwd")} />
           <Metadata label={t("relPath")} value={session.relPath} />
           <Metadata label={t("rawSize")} value={formatBytes(session.sizeBytes, locale)} />
@@ -87,56 +87,56 @@ export default async function VaultSessionDetailPage({
         </dl>
       </section>
 
-      <section className="border-b border-border py-6">
-        <h2 className="text-lg font-medium">{t("resumeTitle")}</h2>
-        <p className="mt-2 text-sm text-muted">{t("resumeHint")}</p>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <code className="block overflow-x-auto rounded-md bg-muted/10 px-3 py-2 font-mono text-sm">
+      <section className="border-x border-b border-border p-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide">{t("resumeTitle")}</h2>
+        <p className="mt-1 text-muted">{t("resumeHint")}</p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <code className="block overflow-x-auto border border-border bg-code-bg px-3 py-1.5 font-mono text-xs">
             {resumeCommand}
           </code>
           <CopyButton value={resumeCommand} label={t("copyCommand")} copiedLabel={t("copiedCommand")} />
         </div>
       </section>
 
-      <section className="border-b border-border py-6">
-        <h2 className="text-lg font-medium">{t("downloadTitle")}</h2>
+      <section className="border-x border-b border-border p-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide">{t("downloadTitle")}</h2>
         {downloadUrl ? (
           <>
             <a
               href={downloadUrl}
               rel="nofollow"
-              className="mt-3 inline-flex rounded-md border border-border px-3 py-2 text-sm text-muted transition-colors hover:text-foreground"
+              className="mt-3 inline-flex border border-border bg-background px-3 py-1.5 text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
             >
               {t("downloadLink")}
             </a>
-            <p className="mt-2 text-sm text-muted">{t("downloadExpires")}</p>
+            <p className="mt-2 text-muted">{t("downloadExpires")}</p>
           </>
         ) : (
-          <p className="mt-2 text-sm text-muted">{t("downloadUnavailable")}</p>
+          <p className="mt-2 text-muted">{t("downloadUnavailable")}</p>
         )}
       </section>
 
-      <section className="border-b border-border py-6">
-        <h2 className="text-lg font-medium">{t("snapshotsTitle")}</h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[700px] border-collapse text-left text-sm">
+      <section className="border-x border-b border-border p-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide">{t("snapshotsTitle")}</h2>
+        <div className="mt-3 overflow-x-auto border border-border">
+          <table className="w-full min-w-[700px] border-collapse text-left">
             <thead className="text-xs uppercase text-muted">
-              <tr>
-                <th className="py-3 pr-4 font-medium">{t("sha256")}</th>
-                <th className="py-3 pr-4 font-medium">{t("rawSize")}</th>
-                <th className="py-3 pr-4 font-medium">{t("compressedSize")}</th>
-                <th className="py-3 font-medium">{t("uploadedAt")}</th>
+              <tr className="border-b border-border">
+                <th className="px-3 py-2 font-medium">{t("sha256")}</th>
+                <th className="px-3 py-2 font-medium">{t("rawSize")}</th>
+                <th className="px-3 py-2 font-medium">{t("compressedSize")}</th>
+                <th className="px-3 py-2 font-medium">{t("uploadedAt")}</th>
               </tr>
             </thead>
             <tbody>
               {snapshots.map((snapshot) => (
-                <tr key={snapshot.sha256} className="border-t border-border">
-                  <td className="py-3 pr-4 font-mono text-xs" title={snapshot.sha256}>
+                <tr key={snapshot.sha256} className="border-b border-border">
+                  <td className="px-3 py-2 font-mono text-xs" title={snapshot.sha256}>
                     {truncateMiddle(snapshot.sha256, 22)}
                   </td>
-                  <td className="py-3 pr-4 tabular-nums">{formatBytes(snapshot.sizeBytes, locale)}</td>
-                  <td className="py-3 pr-4 tabular-nums">{formatBytes(snapshot.compressedSizeBytes, locale)}</td>
-                  <td className="py-3 text-muted">{formatDate(snapshot.uploadedAt, locale)}</td>
+                  <td className="px-3 py-2 font-mono text-xs tabular-nums">{formatBytes(snapshot.sizeBytes, locale)}</td>
+                  <td className="px-3 py-2 font-mono text-xs tabular-nums">{formatBytes(snapshot.compressedSizeBytes, locale)}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-muted">{formatDate(snapshot.uploadedAt, locale)}</td>
                 </tr>
               ))}
             </tbody>
@@ -144,26 +144,26 @@ export default async function VaultSessionDetailPage({
         </div>
       </section>
 
-      <section className="py-6">
-        <h2 className="text-lg font-medium">{t("transcriptTitle")}</h2>
+      <section className="border-x border-b border-border p-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide">{t("transcriptTitle")}</h2>
         {preview ? (
           <>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-1 text-muted">
               {preview.capped || preview.messageLimitReached
                 ? t("previewTruncated", { count: preview.messages.length })
                 : t("previewShowing", { count: preview.messages.length })}
             </p>
-            <div className="mt-4 max-h-[520px] overflow-auto rounded-md border border-border">
+            <div className="mt-3 max-h-[520px] overflow-auto border border-border">
               {preview.messages.length === 0 ? (
-                <p className="p-4 text-sm text-muted">{t("previewEmpty")}</p>
+                <p className="p-3 text-muted">{t("previewEmpty")}</p>
               ) : (
                 <ul className="divide-y divide-border">
                   {preview.messages.map((message, index) => (
-                    <li key={`${message.role}:${index}`} className="grid gap-2 p-4 md:grid-cols-[110px_minmax(0,1fr)]">
-                      <div className="text-xs font-medium uppercase text-muted">
+                    <li key={`${message.role}:${index}`} className="grid gap-2 p-3 md:grid-cols-[110px_minmax(0,1fr)]">
+                      <div className="font-mono text-xs font-medium uppercase text-muted">
                         {roleLabel(message.role, t)}
                       </div>
-                      <div className="whitespace-pre-wrap break-words text-sm leading-6">
+                      <div className="whitespace-pre-wrap break-words">
                         {message.text}
                       </div>
                     </li>
@@ -173,7 +173,7 @@ export default async function VaultSessionDetailPage({
             </div>
           </>
         ) : (
-          <p className="mt-2 text-sm text-muted">{t("previewUnavailable")}</p>
+          <p className="mt-2 text-muted">{t("previewUnavailable")}</p>
         )}
       </section>
     </div>
@@ -183,16 +183,14 @@ export default async function VaultSessionDetailPage({
 function Metadata({
   label,
   value,
-  mono,
 }: {
   readonly label: string;
   readonly value: string;
-  readonly mono?: boolean;
 }) {
   return (
     <div>
-      <dt className="text-muted">{label}</dt>
-      <dd className={`mt-1 break-words ${mono ? "font-mono text-xs" : "font-medium"}`}>{value}</dd>
+      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="mt-1 break-words font-mono text-xs">{value}</dd>
     </div>
   );
 }

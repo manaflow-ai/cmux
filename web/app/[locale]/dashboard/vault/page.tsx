@@ -59,18 +59,18 @@ export default async function VaultOverviewPage({
   );
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
-      <div className="mb-8">
-        <p className="text-sm font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-2 text-3xl font-semibold">{t("title")}</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">{t("description")}</p>
+    <div className="mx-auto w-full max-w-6xl px-3 py-4">
+      <div className="mb-4 border-b border-border pb-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium uppercase tracking-wide">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
 
       {rows.length === 0 ? (
-        <div className="border-y border-border py-10">
-          <h2 className="text-lg font-medium">{t("emptyTitle")}</h2>
-          <p className="mt-2 text-sm text-muted">{t("emptyBody")}</p>
-          <code className="mt-4 inline-block rounded-md bg-muted/10 px-3 py-2 font-mono text-sm">
+        <div className="border border-border p-3">
+          <h2 className="text-sm font-medium uppercase tracking-wide">{t("emptyTitle")}</h2>
+          <p className="mt-1 text-muted">{t("emptyBody")}</p>
+          <code className="mt-3 inline-block border border-border bg-code-bg px-3 py-1.5 font-mono text-xs">
             cmux-vault sync
           </code>
         </div>
@@ -91,26 +91,26 @@ export default async function VaultOverviewPage({
               <Link
                 key={row.agent}
                 href={`/dashboard/vault/sessions?agent=${row.agent}`}
-                className="rounded-md border border-border p-4 transition-colors hover:border-foreground"
+                className="group border border-border p-3 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:bg-foreground hover:text-background"
               >
-                <div className="flex items-center justify-between gap-4">
-                  <h2 className="text-lg font-medium">{row.agent}</h2>
-                  <span className="rounded-full bg-muted/10 px-2 py-1 text-xs text-muted">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="font-mono text-xs font-medium uppercase">{row.agent}</h2>
+                  <span className="border border-border px-2 py-1 font-mono text-xs uppercase text-muted group-hover:text-background">
                     {t("sessionsCount", { count: row.sessionCount })}
                   </span>
                 </div>
-                <dl className="mt-5 grid gap-3 text-sm">
+                <dl className="mt-4 grid gap-2 text-xs">
                   <div>
-                    <dt className="text-muted">{t("rawBytes")}</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{formatBytes(row.rawBytes, locale)}</dd>
+                    <dt className="text-muted group-hover:text-background">{t("rawBytes")}</dt>
+                    <dd className="mt-1 font-mono tabular-nums">{formatBytes(row.rawBytes, locale)}</dd>
                   </div>
                   <div>
-                    <dt className="text-muted">{t("compressedBytes")}</dt>
-                    <dd className="mt-1 font-medium tabular-nums">{formatBytes(row.compressedBytes, locale)}</dd>
+                    <dt className="text-muted group-hover:text-background">{t("compressedBytes")}</dt>
+                    <dd className="mt-1 font-mono tabular-nums">{formatBytes(row.compressedBytes, locale)}</dd>
                   </div>
                   <div>
-                    <dt className="text-muted">{t("lastUpload")}</dt>
-                    <dd className="mt-1 font-medium">
+                    <dt className="text-muted group-hover:text-background">{t("lastUpload")}</dt>
+                    <dd className="mt-1 font-mono">
                       {row.lastUploadedAt ? formatDate(row.lastUploadedAt, locale) : t("never")}
                     </dd>
                   </div>
@@ -126,9 +126,9 @@ export default async function VaultOverviewPage({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border p-4">
-      <p className="text-sm text-muted">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
+    <div className="border border-border p-3">
+      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-2 font-mono text-xs tabular-nums">{value}</p>
     </div>
   );
 }

@@ -30,10 +30,12 @@ export default async function VaultCliAuthPage({
   const initialCode = typeof code === "string" ? code.toUpperCase() : "";
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-12">
-      <p className="text-sm font-medium text-muted">{t("eyebrow")}</p>
-      <h1 className="mt-2 text-3xl font-semibold">{t("title")}</h1>
-      <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">{t("description")}</p>
+    <div className="mx-auto w-full max-w-3xl px-3 py-4">
+      <div className="border-b border-border pb-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium uppercase tracking-wide">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+      </div>
       <ApproveForm initialCode={initialCode} />
     </div>
   );
