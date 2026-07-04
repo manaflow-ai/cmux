@@ -8,9 +8,10 @@ struct InboxRowActions {
     let openOriginal: () -> Void
 }
 
-enum InboxSourceTint {
-    static func color(for source: InboxSource) -> Color {
-        switch source {
+extension InboxSource {
+    /// Accent tint used across inbox rows and badges.
+    var tint: Color {
+        switch self {
         case .agent: return Color.purple
         case .gmail: return Color.red
         case .slack: return Color.pink
@@ -30,7 +31,7 @@ struct InboxRowView: View {
 
     @State private var isHovering = false
 
-    private var tint: Color { InboxSourceTint.color(for: row.source) }
+    private var tint: Color { row.source.tint }
 
     var body: some View {
         Button(action: actions.select) {
