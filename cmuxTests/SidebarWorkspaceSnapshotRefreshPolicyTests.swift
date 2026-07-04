@@ -260,12 +260,31 @@ import Testing
         ) == anchorId)
     }
 
-    private func makeGroup(isCollapsed: Bool, anchorWorkspaceId: UUID) -> WorkspaceGroup {
+    @Test func scrollTargetUsesCollapsedAncestorAnchor() {
+        let parentId = UUID()
+        let parentAnchorId = UUID()
+        let child = makeGroup(isCollapsed: false, anchorWorkspaceId: UUID(), parentGroupId: parentId)
+        let parent = makeGroup(id: parentId, isCollapsed: true, anchorWorkspaceId: parentAnchorId)
+
+        #expect(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
+            selectedWorkspaceId: UUID(),
+            group: child,
+            groupsById: [parent.id: parent, child.id: child]
+        ) == parentAnchorId)
+    }
+
+    private func makeGroup(
+        id: UUID = UUID(),
+        isCollapsed: Bool,
+        anchorWorkspaceId: UUID,
+        parentGroupId: UUID? = nil
+    ) -> WorkspaceGroup {
         WorkspaceGroup(
-            id: UUID(),
+            id: id,
             name: "group",
             isCollapsed: isCollapsed,
             isPinned: false,
+            parentGroupId: parentGroupId,
             anchorWorkspaceId: anchorWorkspaceId,
             customColor: nil,
             iconSymbol: nil

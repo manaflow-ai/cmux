@@ -215,7 +215,7 @@ import Testing
         #expect(items == [
             .groupHeader(group("hotels", anchor: "hotels-anchor"), hasUnread: false),
             .workspace(workspace("hotels-loose", group: "hotels"), indented: true),
-            .groupHeader(group("marriott", anchor: "marriott-anchor", parent: "hotels"), hasUnread: false),
+            .groupHeader(group("marriott", anchor: "marriott-anchor", parent: "hotels"), hasUnread: false, depth: 1),
             .workspace(workspace("terminal", group: "marriott"), indented: true),
             .workspace(workspace("outside"), indented: false),
         ])
@@ -258,7 +258,8 @@ import Testing
             .groupHeader(group("hotels", anchor: "hotels-anchor"), hasUnread: false),
             .groupHeader(
                 group("marriott", anchor: "marriott-anchor", collapsed: true, parent: "hotels"),
-                hasUnread: true
+                hasUnread: true,
+                depth: 1
             ),
         ])
     }

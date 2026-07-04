@@ -10325,7 +10325,8 @@ struct VerticalTabsSidebar: View {
             .flatMap { renderContext.workspaceGroupById[$0] }
         proxy.scrollTo(SidebarSelectedWorkspaceScrollPolicy.scrollTargetWorkspaceId(
             selectedWorkspaceId: selectedWorkspaceId,
-            group: group
+            group: group,
+            groupsById: renderContext.workspaceGroupById
         ))
         pendingSelectedWorkspaceScrollId = nil
     }
@@ -16061,13 +16062,6 @@ struct SidebarTabDropDelegate: DropDelegate {
             )
 #endif
             return false
-        }
-
-        guard fromIndex != targetIndex || explicitGroupId != nil else {
-#if DEBUG
-            cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
-#endif
-            return true
         }
 
 #if DEBUG

@@ -84,9 +84,18 @@ enum SidebarSelectedWorkspaceScrollPolicy {
     /// never from what the lazy layout happens to have realized.
     static func scrollTargetWorkspaceId(
         selectedWorkspaceId: UUID,
-        group: WorkspaceGroup?
+        group: WorkspaceGroup?,
+        groupsById: [UUID: WorkspaceGroup] = [:]
     ) -> UUID {
-        guard let group, group.isCollapsed else { return selectedWorkspaceId }
-        return group.anchorWorkspaceId
+        var cursor = group
+        var visited: Set<UUID> = []
+        while let current = cursor {
+            guard visited.insert(current.id).inserted else { return selectedWorkspaceId }
+            if current.isCollapsed {
+                return current.anchorWorkspaceId
+            }
+            cursor = current.parentGroupId.flatMap { groupsById[$0] }
+        }
+        return selectedWorkspaceId
     }
 }

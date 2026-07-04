@@ -18,7 +18,10 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// anchor workspace (visible member rows carry their own dots); while
     /// collapsed it reflects the whole group, anchor included, so hidden
     /// member activity is never silently swallowed.
-    case groupHeader(MobileWorkspaceGroupPreview, hasUnread: Bool)
+    ///
+    /// `depth` is the normalized parent-chain depth used by the view to indent
+    /// nested group headers.
+    case groupHeader(MobileWorkspaceGroupPreview, hasUnread: Bool, depth: Int = 0)
     /// A workspace row. `indented` is `true` for non-anchor members nested under
     /// a group header, so the view can inset them.
     case workspace(MobileWorkspacePreview, indented: Bool)
@@ -28,7 +31,7 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// never collide even though both wrap UUID-backed ids.
     public var id: String {
         switch self {
-        case .groupHeader(let group, _):
+        case .groupHeader(let group, _, _):
             return "group.\(group.id.rawValue)"
         case .workspace(let workspace, _):
             return "workspace.\(workspace.id.rawValue)"
@@ -120,6 +123,22 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             parentGroupIDByGroupID[groupID] ?? nil
         }
 
+        var depthByGroupID: [MobileWorkspaceGroupPreview.ID: Int] = [:]
+        func groupDepth(for groupID: MobileWorkspaceGroupPreview.ID, visiting: inout Set<MobileWorkspaceGroupPreview.ID>) -> Int {
+            if let cached = depthByGroupID[groupID] {
+                return cached
+            }
+            guard visiting.insert(groupID).inserted else { return 0 }
+            defer { visiting.remove(groupID) }
+            guard let parentID = normalizedParentGroupID(for: groupID) else {
+                depthByGroupID[groupID] = 0
+                return 0
+            }
+            let depth = groupDepth(for: parentID, visiting: &visiting) + 1
+            depthByGroupID[groupID] = depth
+            return depth
+        }
+
         var items: [MobileWorkspaceListItem] = []
         items.reserveCapacity(workspaces.count + groups.count)
         var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
@@ -144,7 +163,9 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             let hasUnread = group.isCollapsed
                 ? subtreeHasUnread(for: group.id, visiting: &visiting)
                 : anchorUnreadByGroupID[group.id, default: false]
-            items.append(.groupHeader(group, hasUnread: hasUnread))
+            var depthVisiting: Set<MobileWorkspaceGroupPreview.ID> = []
+            let depth = groupDepth(for: group.id, visiting: &depthVisiting)
+            items.append(.groupHeader(group, hasUnread: hasUnread, depth: depth))
             collapsedByGroupID[group.id] = group.isCollapsed
         }
 
