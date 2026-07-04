@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CmuxInbox
+@testable import CmuxInbox
 
 @Suite struct InboxStorageTests {
     private let fixtures = InboxFixtures()
