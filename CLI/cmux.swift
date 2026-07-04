@@ -170,6 +170,7 @@ struct ClaudeHookSessionRecord: Codable {
     var activePromptTurnId: String?
     var activePromptTurnIds: [String]?
     var lastPromptTurnId: String?
+    var lastPrompt: String?
     var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
@@ -433,6 +434,7 @@ final class ClaudeHookSessionStore {
         agentLifecycle: AgentHibernationLifecycleState? = nil,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
+        lastPrompt: String? = nil,
         autoNameMessages: [AutoNamingTranscriptMessage] = [],
         rejectTerminalTurn: Bool = false
     ) throws -> (staleTerminalTurn: Bool, nested: Bool) {
@@ -469,6 +471,7 @@ final class ClaudeHookSessionStore {
                 updateLastNotificationStatus: false,
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
+                lastPrompt: lastPrompt,
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
@@ -691,6 +694,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        lastPrompt: String? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -740,6 +744,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                lastPrompt: lastPrompt,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1111,6 +1116,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        lastPrompt: String? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1161,6 +1167,9 @@ final class ClaudeHookSessionStore {
         }
         if let hadPendingBackgroundWorkAtStop {
             record.hadPendingBackgroundWorkAtStop = hadPendingBackgroundWorkAtStop
+        }
+        if let prompt = normalizeOptional(lastPrompt) {
+            record.lastPrompt = prompt
         }
         record.updatedAt = now
     }
@@ -23323,7 +23332,7 @@ struct CMUXCLI {
                         title: title,
                         subtitle: completion.subtitle,
                         body: completion.body,
-                        meta: notifyMeta(.turnComplete, pending: hasPendingBackgroundWork)
+                        meta: notifyMeta(.turnComplete, pending: hasPendingBackgroundWork, agentId: "claude")
                     )
                     _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
@@ -23529,17 +23538,6 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
-            }
-
-            let title = String(
-                localized: "cli.claude-hook.notification.title",
-                defaultValue: "Claude Code"
-            )
-
             // Classify the Notification so the app can gate it by user config.
             // `permission_prompt` = Claude is blocked on the user (always worth a
             // ping); `idle_prompt` = the ~60s idle nag, which fires even while a
@@ -23548,6 +23546,19 @@ struct CMUXCLI {
             let notificationType = parsedInput.rawObject.flatMap {
                 firstString(in: $0, keys: ["notification_type"])
             }
+            if isGenericClaudeNotificationBody(summary.body),
+               let replacementBody = normalizedHookValue(mappedSession?.lastBody)
+                    ?? parsedInput.transcriptPath
+                        .flatMap({ readTranscriptSummary(path: $0)?.lastAssistantMessage })
+                        .flatMap(normalizedHookValue) {
+                summary = (subtitle: summary.subtitle, body: truncate(replacementBody, maxLength: 180))
+            }
+
+            let title = String(
+                localized: "cli.claude-hook.notification.title",
+                defaultValue: "Claude Code"
+            )
+
             let notifyCategory: AgentHookNotifyCategory
             let notifyPending: Bool
             switch notificationType {
@@ -23590,15 +23601,15 @@ struct CMUXCLI {
             // status; the app still gates the (tagged) notification itself.
             let suppressNeedsInputState = (notifyCategory == .idleReminder && notifyPending)
 
-            // `.other` means "ungated, always deliver" — identical to an untagged
-            // payload, so don't put it on the wire: the app parser accepts only
-            // the three known category literals, keeping the reserved suffix
-            // grammar as narrow as possible.
+            // `.other` remains ungated but still carries agent identity so the app
+            // can compose workspace-aware agent banners.
             let payload = notificationPayload(
                 title: title,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                meta: notifyCategory == .other ? nil : notifyMeta(notifyCategory, pending: notifyPending)
+                meta: notifyCategory == .other
+                    ? notifyMeta(agentId: "claude")
+                    : notifyMeta(notifyCategory, pending: notifyPending, agentId: "claude")
             )
 
             if let sessionId = parsedInput.sessionId, !suppressNeedsInputState {
@@ -23894,7 +23905,7 @@ struct CMUXCLI {
                         title: title,
                         subtitle: waitingSubtitle,
                         body: needsInputBody,
-                        meta: notifyMeta(.needsPermission, pending: false)
+                        meta: notifyMeta(.needsPermission, pending: false, agentId: "claude")
                     )
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
@@ -24740,7 +24751,18 @@ struct CMUXCLI {
             ?? firstString(in: extra, keys: keys)
         guard let message else { return nil }
         let normalized = normalizedSingleLine(message)
+        guard !isJSONBlobAssistantMessage(normalized) else { return nil }
         return normalized.isEmpty ? nil : normalized
+    }
+
+    private func isJSONBlobAssistantMessage(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+              let data = trimmed.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil else {
+            return false
+        }
+        return true
     }
 
     private struct TranscriptSummary {
@@ -25867,7 +25889,12 @@ struct CMUXCLI {
             defaultValue: "Codex is asking a question"
         )
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+            let payload = notificationPayload(
+                title: "Codex",
+                subtitle: subtitle,
+                body: body,
+                meta: notifyMeta(agentId: "codex")
+            )
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
@@ -25885,7 +25912,12 @@ struct CMUXCLI {
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            let payload = notificationPayload(
+                title: "Codex",
+                subtitle: summary.subtitle,
+                body: summary.body,
+                meta: notifyMeta(agentId: "codex")
+            )
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(
@@ -25973,6 +26005,16 @@ struct CMUXCLI {
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
+    }
+
+    private func isGenericClaudeNotificationBody(_ body: String) -> Bool {
+        let normalized = normalizedSingleLine(body)
+        let placeholders: Set<String> = [
+            "Claude is waiting for your input",
+            "Claude needs your input",
+            "Claude needs your attention"
+        ]
+        return placeholders.contains(normalized)
     }
 
     private func summarizeAgentHookNotification(
@@ -26440,10 +26482,31 @@ struct CMUXCLI {
         return base + "|" + meta
     }
 
-    /// Delimiter-safe meta segment: `c=<category>;p=<0|1>`. No "|" and no spaces,
-    /// so it survives the pipe-delimited payload and the app's strict `c=` guard.
-    private func notifyMeta(_ category: AgentHookNotifyCategory, pending: Bool) -> String {
-        "c=\(category.rawValue);p=\(pending ? 1 : 0)"
+    /// Delimiter-safe meta segment. Categorized forms serialize as
+    /// `c=<category>;p=<0|1>` with optional `;a=<agent-id>`; uncategorized
+    /// agent notifications use `a=<agent-id>`. No "|" or spaces, so it survives
+    /// the pipe-delimited payload and the app's strict parser.
+    private func notifyMeta(_ category: AgentHookNotifyCategory, pending: Bool, agentId: String? = nil) -> String {
+        let base = "c=\(category.rawValue);p=\(pending ? 1 : 0)"
+        guard let agentId = normalizedNotifyAgentId(agentId) else { return base }
+        return "\(base);a=\(agentId)"
+    }
+
+    private func notifyMeta(agentId: String) -> String? {
+        normalizedNotifyAgentId(agentId).map { "a=\($0)" }
+    }
+
+    private func normalizedNotifyAgentId(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              (1...32).contains(value.count),
+              value.utf8.allSatisfy({ byte in
+                  (byte >= 0x61 && byte <= 0x7A)
+                      || (byte >= 0x30 && byte <= 0x39)
+                      || byte == 0x2D
+              }) else {
+            return nil
+        }
+        return value
     }
 
     /// True when a Claude `Stop`/`Notification` payload reports unfinished
@@ -29945,6 +30008,7 @@ export default CMUXSessionRestore;
                 cwd: hookCwd ?? mapped?.cwd
             )
             let transcriptPathForStore = input.transcriptPath ?? mapped?.transcriptPath
+            let lastPrompt = agentHookPromptSnippet(from: input)
             let activePromptTurnStack = mapped?.activePromptTurnIds?
                 .compactMap({ normalizedHookValue($0) }) ?? []
             let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
@@ -30086,6 +30150,7 @@ export default CMUXSessionRestore;
                         pid: pid,
                         launchCommand: launchCommand,
                         agentLifecycle: .running,
+                        lastPrompt: lastPrompt,
                         autoNameMessages: autoNamingMessages(
                             for: def,
                             parsedInput: input,
@@ -30340,10 +30405,17 @@ export default CMUXSessionRestore;
                     projectName
                 )
             }
+            let promptCompletionBody = mapped?.lastPrompt.map { prompt in
+                String.localizedStringWithFormat(
+                    String(localized: "agent.generic.completion.body.finishedPrompt", defaultValue: "Finished: %@"),
+                    prompt
+                )
+            }
             let body = codexFailure?.body
                 ?? antigravityFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                ?? promptCompletionBody
                 ?? String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.body.sessionCompleted",
@@ -30482,12 +30554,13 @@ export default CMUXSessionRestore;
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
-                // Tag successful turn-end pings so the app's "Agent Finished"
-                // setting covers every built-in agent, not just Claude. Error
-                // alerts stay untagged and always deliver.
+                // Tag successful turn-end pings by category so the app's "Agent
+                // Finished" setting covers every built-in agent, not just Claude.
+                // Error alerts keep .other delivery semantics but still carry
+                // agent identity for workspace-aware banner composition.
                 let stopMeta: String? = stopNotificationStatus == .idle
-                    ? notifyMeta(.turnComplete, pending: antigravityHasActiveBackgroundWork)
-                    : nil
+                    ? notifyMeta(.turnComplete, pending: antigravityHasActiveBackgroundWork, agentId: def.name)
+                    : notifyMeta(agentId: def.name)
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
@@ -30866,7 +30939,9 @@ export default CMUXSessionRestore;
                 // "Agent Needs Permission", waiting-for-input cues under "Agent
                 // Waiting for Input", turn-boundary completions (grok and
                 // antigravity route them through this hook) under "Agent
-                // Finished". Errors and unclassified alerts stay untagged.
+                // Finished". Errors and unclassified alerts keep .other delivery
+                // semantics but still carry agent identity for workspace-aware
+                // banner composition.
                 let notificationMeta: String? = summary.notifyCategory.map { category in
                     // Completions AND waiting nags are both "pending" while
                     // background work is live, so a fullyIdle=false Antigravity
@@ -30874,9 +30949,10 @@ export default CMUXSessionRestore;
                     notifyMeta(
                         category,
                         pending: (category == .turnComplete || category == .idleReminder)
-                            && hasActiveAntigravityBackgroundWork()
+                            && hasActiveAntigravityBackgroundWork(),
+                        agentId: def.name
                     )
-                }
+                } ?? notifyMeta(agentId: def.name)
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
@@ -31194,6 +31270,16 @@ export default CMUXSessionRestore;
             }
         }
         return nil
+    }
+
+    private func agentHookPromptSnippet(from parsedInput: ClaudeHookParsedInput) -> String? {
+        let prompt = feedPromptText(from: parsedInput.object)
+            ?? feedPromptText(from: parsedInput.rawObject)
+            ?? parsedInput.rawFallback
+        guard let prompt else { return nil }
+        let normalized = normalizedSingleLine(prompt)
+        guard !normalized.isEmpty else { return nil }
+        return truncate(normalized, maxLength: 120)
     }
 
     private func feedWorkspaceId(rawObject: [String: Any]?, fallback: String?) -> String? {

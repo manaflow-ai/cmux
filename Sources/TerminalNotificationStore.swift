@@ -181,6 +181,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let agentId: String?
+    let workspaceTitle: String?
     let createdAt: Date
     var isRead: Bool
     var paneFlash: Bool = true
@@ -194,6 +196,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         title: String,
         subtitle: String,
         body: String,
+        agentId: String? = nil,
+        workspaceTitle: String? = nil,
         createdAt: Date,
         isRead: Bool,
         paneFlash: Bool = true,
@@ -206,6 +210,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.agentId = agentId
+        self.workspaceTitle = workspaceTitle
         self.createdAt = createdAt
         self.isRead = isRead
         self.paneFlash = paneFlash
@@ -880,6 +886,7 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
+        agentId: String? = nil,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
@@ -914,6 +921,7 @@ final class TerminalNotificationStore: ObservableObject {
         if let cooldownReservation {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
         }
+        let workspaceTitle = resolvedWorkspaceTitle(forTabId: tabId)
 
         let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
@@ -928,6 +936,8 @@ final class TerminalNotificationStore: ObservableObject {
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
                 cooldownReservation: cooldownReservation,
+                agentId: agentId,
+                workspaceTitle: workspaceTitle,
                 clickAction: clickAction
             )
             return
@@ -945,6 +955,8 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    agentId: agentId,
+                    workspaceTitle: workspaceTitle,
                     clickAction: clickAction
                 )
                 return
@@ -961,6 +973,8 @@ final class TerminalNotificationStore: ObservableObject {
                     envelope: envelope,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    agentId: agentId,
+                    workspaceTitle: workspaceTitle,
                     clickAction: clickAction
                 )
             case .failure(let failure):
@@ -969,6 +983,8 @@ final class TerminalNotificationStore: ObservableObject {
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
+                    agentId: agentId,
+                    workspaceTitle: workspaceTitle,
                     clickAction: clickAction
                 )
                 self.reportNotificationHookFailure(failure)
@@ -1059,11 +1075,22 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
+    private func resolvedWorkspaceTitle(forTabId tabId: UUID) -> String? {
+        guard let title = AppDelegate.shared?.tabTitle(for: tabId)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !title.isEmpty else {
+            return nil
+        }
+        return title
+    }
+
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        agentId: String?,
+        workspaceTitle: String?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let payload = envelope.notification
@@ -1082,6 +1109,8 @@ final class TerminalNotificationStore: ObservableObject {
             effects: envelope.effects,
             now: now,
             cooldownReservation: cooldownReservation,
+            agentId: agentId,
+            workspaceTitle: workspaceTitle,
             clickAction: clickAction
         )
     }
@@ -1091,6 +1120,8 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
+        agentId: String?,
+        workspaceTitle: String?,
         clickAction: TerminalNotificationClickAction?
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
@@ -1105,6 +1136,8 @@ final class TerminalNotificationStore: ObservableObject {
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
+            agentId: agentId,
+            workspaceTitle: workspaceTitle,
             createdAt: now,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
@@ -1588,6 +1621,8 @@ final class TerminalNotificationStore: ObservableObject {
             title: notification.title,
             subtitle: notification.subtitle,
             body: notification.body,
+            agentId: notification.agentId,
+            workspaceTitle: notification.workspaceTitle,
             createdAt: notification.createdAt,
             isRead: notification.isRead,
             paneFlash: notification.paneFlash,
@@ -1679,6 +1714,8 @@ final class TerminalNotificationStore: ObservableObject {
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body,
+                agentId: notification.agentId,
+                workspaceTitle: notification.workspaceTitle,
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
@@ -1730,31 +1767,42 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func resolvedNotificationTitle(for notification: TerminalNotification) -> String {
-        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+    private func notificationAppName() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
             ?? "cmux"
-        return notification.title.isEmpty ? appName : notification.title
+    }
+
+    private func bannerContent(for notification: TerminalNotification) -> NotificationBannerContent {
+        composeNotificationBannerContent(
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body,
+            agentId: notification.agentId,
+            workspaceTitle: notification.workspaceTitle,
+            appName: notificationAppName()
+        )
     }
 
     private func scheduleUserNotification(
         _ notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        let banner = bannerContent(for: notification)
         guard effects.desktop else {
             playLocalNotificationFeedback(
-                title: resolvedNotificationTitle(for: notification),
-                subtitle: notification.subtitle,
-                body: notification.body,
+                title: banner.title,
+                subtitle: banner.subtitle,
+                body: banner.body,
                 effects: effects
             )
             return
         }
 
         let nativeDeliveryHooks = nativeNotificationDeliveryHooks
-        let notificationTitle = resolvedNotificationTitle(for: notification)
-        let notificationSubtitle = notification.subtitle
-        let notificationBody = notification.body
+        let notificationTitle = banner.title
+        let notificationSubtitle = banner.subtitle
+        let notificationBody = banner.body
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
@@ -1814,10 +1862,11 @@ final class TerminalNotificationStore: ObservableObject {
         for notification: TerminalNotification,
         effects: TerminalNotificationPolicyEffects
     ) {
+        let banner = bannerContent(for: notification)
         nativeNotificationDeliveryHooks.runLocalFeedback(
-            title: resolvedNotificationTitle(for: notification),
-            subtitle: notification.subtitle,
-            body: notification.body,
+            title: banner.title,
+            subtitle: banner.subtitle,
+            body: banner.body,
             effects: effects
         )
     }

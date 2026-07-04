@@ -5115,6 +5115,7 @@ class TerminalController {
 
         CmuxEventBus.shared.publishWorkstreamEvent(event, phase: "received")
         v2ApplyIMessageModeSideEffects(for: event)
+        v2PostOpenCodeStopNotificationIfNeeded(for: event)
         Task { @MainActor in self.agentChatTranscriptService?.noteHookEvent(event) }
 
         let result = FeedCoordinator.shared.ingestBlocking(
@@ -5127,6 +5128,51 @@ class TerminalController {
             result: FeedSocketEncoding.payload(for: result)
         )
         return .ok(FeedSocketEncoding.payload(for: result))
+    }
+
+    private nonisolated func v2PostOpenCodeStopNotificationIfNeeded(for event: WorkstreamEvent) {
+        guard event.hookEventName == .stop,
+              event.source == "opencode",
+              let rawWorkspaceId = event.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let rawSurfaceId = event.surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let tabId = UUID(uuidString: rawWorkspaceId),
+              let surfaceId = UUID(uuidString: rawSurfaceId) else {
+            return
+        }
+
+        let catalog = NotificationsCatalogSection()
+        let turnMode = AgentTurnCompleteMode(rawValue: catalog.agentTurnComplete.value(in: .standard)) ?? .whenIdle
+        guard agentNotificationShouldDeliver(
+            category: .turnComplete,
+            pending: false,
+            permissionEnabled: catalog.agentPermissionPrompt.value(in: .standard),
+            turnMode: turnMode,
+            idleEnabled: catalog.agentIdleReminder.value(in: .standard)
+        ) else {
+            return
+        }
+
+        let title = String(localized: "agentSession.provider.opencode", defaultValue: "OpenCode")
+        let subtitle = String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed")
+        let promptBody = notificationBannerSnippet(event.context?.lastUserMessage, maxLength: 120).map { prompt in
+            String.localizedStringWithFormat(
+                String(localized: "agent.generic.completion.body.finishedPrompt", defaultValue: "Finished: %@"),
+                prompt
+            )
+        }
+        let body = notificationBannerSnippet(event.assistantFinalMessage, maxLength: 180)
+            ?? promptBody
+            ?? String(localized: "agent.opencode.completion.body.sessionCompleted", defaultValue: "OpenCode session completed")
+
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            agentId: "opencode",
+            coalesces: false
+        )
     }
 
     private nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
@@ -11465,7 +11511,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentId: meta?.agentId
             )
         }
         return result
@@ -11498,7 +11545,8 @@ class TerminalController {
                 surfaceId: surfaceId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentId: meta?.agentId
             )
         }
         return result
@@ -11535,7 +11583,8 @@ class TerminalController {
                     surfaceId: panelId,
                     title: title,
                     subtitle: subtitle,
-                    body: body
+                    body: body,
+                    agentId: meta?.agentId
                 )
             }
             return result
@@ -11563,7 +11612,8 @@ class TerminalController {
                 surfaceId: panelId,
                 title: title,
                 subtitle: subtitle,
-                body: body
+                body: body,
+                agentId: meta?.agentId
             )
         }
         return result
@@ -11616,6 +11666,7 @@ class TerminalController {
             title: title,
             subtitle: subtitle,
             body: body,
+            agentId: meta?.agentId,
             coalesces: false
         )
         return "OK"
@@ -12443,30 +12494,24 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
-    /// delivery by user config. The 4th segment is only treated as meta when it
-    /// begins with `c=`; otherwise it is folded back into the body, so legacy
-    /// callers whose body itself contains `|` parse byte-identically to before
-    /// (the fold reconstructs exactly the `maxSplits: 2` result).
+    /// `meta` segment (`c=<category>;p=<0|1>`, `c=...;p=...;a=<agent-id>`, or
+    /// `a=<agent-id>`) that agent hooks append to gate delivery and identify the
+    /// source agent. The 4th segment is only treated as meta when it fully parses;
+    /// otherwise it is folded back into the body, so legacy callers whose body
+    /// itself contains `|` parse byte-identically to before.
     private func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return ("Notification", "", "", nil) }
         var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
-            // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
-            // a legacy body that happens to contain "|c=..." — is folded back into
-            // the body so pre-meta callers parse byte-identically to before.
-            // Conscious tradeoff: this reserves exactly three trailing literals
-            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
-            // tail (unknown categories included) stays part of the body. Accepted
-            // because the only meta producers are cmux's own agent hooks (whose
-            // fields are |-sanitized) and a collision requires one of those exact
-            // suffixes.
+            // The 4th segment is metadata only when it parses as the full strict
+            // grammar. Anything else — including a legacy body that happens to
+            // contain "|c=..." or "|a=..." — is folded back into the body so
+            // pre-meta callers parse byte-identically to before.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
-            if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
+            if (candidate.hasPrefix("c=") || candidate.hasPrefix("a=")),
+               let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed
             } else {
                 parts[2] += "|" + parts[3]

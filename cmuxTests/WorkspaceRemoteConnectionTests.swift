@@ -5058,7 +5058,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response|a=codex")
             },
             "Expected monitor to send no-final-response notification, saw \(state.commands)"
         )
@@ -5237,7 +5237,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?|a=codex")
             },
             "Expected monitor to send Codex input notification, saw \(state.snapshot())"
         )

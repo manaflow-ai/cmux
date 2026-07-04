@@ -408,6 +408,10 @@ export const CMUXFeed = async (ctx) => {
       typeof process.env.CMUX_WORKSPACE_ID === "string" && process.env.CMUX_WORKSPACE_ID.trim()
         ? process.env.CMUX_WORKSPACE_ID.trim()
         : null;
+    const surfaceId =
+      typeof process.env.CMUX_SURFACE_ID === "string" && process.env.CMUX_SURFACE_ID.trim()
+        ? process.env.CMUX_SURFACE_ID.trim()
+        : null;
     const event = {
       session_id: `opencode-${sessionId}`,
       _source: "opencode",
@@ -416,6 +420,7 @@ export const CMUXFeed = async (ctx) => {
       ...extra,
     };
     if (workspaceId) event.workspace_id = workspaceId;
+    if (surfaceId) event.surface_id = surfaceId;
     if (context) event.context = context;
     return event;
   };
@@ -508,9 +513,12 @@ export const CMUXFeed = async (ctx) => {
         case "session.idle": {
           const sid = event.properties?.sessionID;
           if (!sid) break;
-          pushTelemetry(base(sid, {
+          const state = sessionState(sid);
+          const idleEvent = {
             hook_event_name: "Stop",
-          }));
+          };
+          if (state.assistantPreamble) idleEvent.last_assistant_message = state.assistantPreamble;
+          pushTelemetry(base(sid, idleEvent));
           break;
         }
         case "session.deleted": {
