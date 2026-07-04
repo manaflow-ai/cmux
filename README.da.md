@@ -419,6 +419,11 @@ Måder at deltage:
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> Scan QR-koden for at blive en del af fællesskabet.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode til at blive en del af cmux-fællesskabet" width="240" />
+</p>
+
 ## Founder's Edition
 
 cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte udviklingen og få tidlig adgang til det, der kommer:
