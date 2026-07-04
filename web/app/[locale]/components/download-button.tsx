@@ -16,16 +16,22 @@ import { ctaButtonStyle } from "./cta-styles";
 import { PlatformIcon } from "./platform-icons";
 import { WaitlistDialog } from "./waitlist-dialog";
 
-// Optional per-instance padding override in px, used only by the /debug tuner
-// to fine-tune both sizes live. When absent (every production call site), the
-// Tailwind classes below are the single source of truth and rendering is
-// unchanged. downloadRight = gap LEFT of divider; caretLeft = gap RIGHT of it.
+// Per-size pill padding in px. downloadRight = gap LEFT of the divider,
+// caretLeft = gap RIGHT of it. Applied as inline styles (not Tailwind classes)
+// because the tuned values include odd px like 7 that have no spacing token,
+// and because arbitrary `pr-[7px]` did not reliably resolve on the base-ui
+// Menu.Trigger button; inline px renders the exact value in dev and prod and
+// matches the /debug tuner one-to-one.
 export type PadOverride = {
   downloadLeft?: number;
   downloadRight?: number;
   caretLeft?: number;
   caretRight?: number;
 };
+const PILL_PADDING = {
+  default: { downloadLeft: 20, downloadRight: 8, caretLeft: 6, caretRight: 7 },
+  sm: { downloadLeft: 12, downloadRight: 7, caretLeft: 5, caretRight: 7 },
+} as const;
 
 export function DownloadButton({
   size = "default",
@@ -61,13 +67,17 @@ export function DownloadButton({
   const onConfirmationPage = pathname === DOWNLOAD_CONFIRMATION_PATH;
   const macHref = onConfirmationPage ? DOWNLOAD_URL : DOWNLOAD_CONFIRMATION_HREF;
 
-  // Inline padding overrides win over the Tailwind classes; undefined in prod.
-  const downloadStyle = padOverride
-    ? { paddingLeft: padOverride.downloadLeft, paddingRight: padOverride.downloadRight }
-    : undefined;
-  const caretStyle = padOverride
-    ? { paddingLeft: padOverride.caretLeft, paddingRight: padOverride.caretRight }
-    : undefined;
+  // Resolve padding from the per-size config, with the optional /debug override
+  // merged in. Applied inline below so odd px render exactly.
+  const pad = { ...PILL_PADDING[isSmall ? "sm" : "default"], ...padOverride };
+  const downloadStyle = {
+    paddingLeft: pad.downloadLeft,
+    paddingRight: pad.downloadRight,
+  };
+  const caretStyle = {
+    paddingLeft: pad.caretLeft,
+    paddingRight: pad.caretRight,
+  };
 
   // The split button is one pill with two zones (Mac download + platform caret)
   // that tint independently on hover. `overflow-hidden` clips the hover tint to
@@ -84,13 +94,10 @@ export function DownloadButton({
   // makes the label/caret visibly jump on hover (Safari only, worst at the
   // small size). Instant tint avoids the promotion, so nothing shifts.
   const downloadZone = `flex items-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
-    isSmall
-      ? "gap-2 pl-3 pr-[7px] py-1.5 text-xs"
-      : "gap-2.5 pl-5 pr-2 py-2.5 text-[15px]"
+    isSmall ? "gap-2 py-1.5 text-xs" : "gap-2.5 py-2.5 text-[15px]"
   }`;
-  const caretZone = `group flex items-center justify-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
-    isSmall ? "pl-[5px] pr-[7px]" : "pl-1.5 pr-[7px]"
-  }`;
+  const caretZone =
+    "group flex items-center justify-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03]";
 
   const captureMac = () =>
     posthog.capture("cmuxterm_download_clicked", { location, platform: "mac" });
