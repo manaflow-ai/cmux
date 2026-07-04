@@ -71,6 +71,7 @@ pub struct Surface {
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     dirty: AtomicBool,
+    name: Mutex<Option<String>>,
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
     size: Mutex<(u16, u16)>,
@@ -162,6 +163,7 @@ impl Surface {
             killer: Mutex::new(killer),
             dead: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
+            name: Mutex::new(None),
             title: Mutex::new(String::new()),
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
@@ -273,6 +275,14 @@ impl Surface {
 
     pub fn title(&self) -> String {
         self.title.lock().unwrap().clone()
+    }
+
+    pub fn set_name(&self, name: Option<String>) {
+        *self.name.lock().unwrap() = name;
+    }
+
+    pub fn name(&self) -> Option<String> {
+        self.name.lock().unwrap().clone()
     }
 
     pub fn pwd(&self) -> Option<String> {

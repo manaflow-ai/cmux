@@ -140,6 +140,11 @@ enum Command {
         /// Empty clears the name (falls back to the tab title).
         name: String,
     },
+    RenameSurface {
+        surface: SurfaceId,
+        /// Empty clears the name (falls back to the generated tab label).
+        name: String,
+    },
     RenameScreen {
         screen: ScreenId,
         /// Empty clears the name (falls back to the screen number).
@@ -305,6 +310,7 @@ fn pane_json(state: &State, id: PaneId) -> Value {
             let surface = state.surfaces.get(sid);
             json!({
                 "surface": sid,
+                "name": surface.and_then(|s| s.name()),
                 "title": surface.map(|s| s.title()).unwrap_or_default(),
                 "size": surface.map(|s| {
                     let (c, r) = s.size();
@@ -477,6 +483,12 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         Command::RenamePane { pane, name } => {
             if !mux.rename_pane(pane, name) {
                 anyhow::bail!("unknown pane {pane}");
+            }
+            Ok(json!({}))
+        }
+        Command::RenameSurface { surface, name } => {
+            if !mux.rename_surface(surface, name) {
+                anyhow::bail!("unknown surface {surface}");
             }
             Ok(json!({}))
         }

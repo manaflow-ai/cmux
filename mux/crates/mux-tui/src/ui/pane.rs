@@ -85,8 +85,12 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let Some(screen_view) = app.tree.active_screen() else { return };
     let Some(pane) = screen_view.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
-    let tabs: Vec<String> =
-        pane.tabs.iter().enumerate().map(|(i, t)| tab_label(&tab_cfg, i, &t.title)).collect();
+    let tabs: Vec<String> = pane
+        .tabs
+        .iter()
+        .enumerate()
+        .map(|(i, t)| tab_label(&tab_cfg, i, &t.title, t.name.as_deref()))
+        .collect();
     let active_tab = pane.active_tab;
     let pane_id = area.pane;
     let hover = app.hover;

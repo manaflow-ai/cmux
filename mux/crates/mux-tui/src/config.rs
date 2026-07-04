@@ -210,7 +210,7 @@ pub enum Action {
     SplitRight,
     SplitDown,
     CloseTab,
-    RenamePane,
+    RenameTab,
     RenameWorkspace,
     NextScreen,
     NewScreen,
@@ -235,7 +235,7 @@ impl Action {
             Action::SplitRight => "split-right",
             Action::SplitDown => "split-down",
             Action::CloseTab => "close-tab",
-            Action::RenamePane => "rename-pane",
+            Action::RenameTab => "rename-tab",
             Action::RenameWorkspace => "rename-workspace",
             Action::NextScreen => "next-screen",
             Action::NewScreen => "new-screen",
@@ -293,7 +293,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
                 bind(KeyCode::Char('x'), Action::CloseTab),
-                bind(KeyCode::Char(','), Action::RenamePane),
+                bind(KeyCode::Char(','), Action::RenameTab),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
                 bind(KeyCode::Tab, Action::NextScreen),
                 bind(KeyCode::Char('S'), Action::NewScreen),
@@ -341,7 +341,7 @@ impl Keys {
                 Action::SplitRight,
                 Action::SplitDown,
                 Action::CloseTab,
-                Action::RenamePane,
+                Action::RenameTab,
                 Action::RenameWorkspace,
                 Action::NextScreen,
                 Action::NewScreen,
@@ -356,7 +356,9 @@ impl Keys {
                 Action::ScrollDown,
                 Action::Detach,
             ];
-            match all.iter().find(|a| a.config_key() == name) {
+            match all.iter().find(|a| {
+                a.config_key() == name || (**a == Action::RenameTab && name == "rename-pane")
+            }) {
                 Some(action) => {
                     self.bindings.retain(|(_, a)| a != action);
                     self.bindings.push((chord, *action));
@@ -476,9 +478,15 @@ pub fn load() -> Config {
     config
 }
 
-/// The label for a tab: its 1-based number, plus a recognized agent
-/// program name (or the full title when `show_titles` is on).
-pub fn tab_label(tabs: &Tabs, index: usize, title: &str) -> String {
+/// The label for a tab: user name if set, otherwise its 1-based number
+/// plus a recognized agent program name (or the full title when
+/// `show_titles` is on).
+pub fn tab_label(tabs: &Tabs, index: usize, title: &str, name: Option<&str>) -> String {
+    if let Some(name) = name {
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
     let number = index + 1;
     let suffix = if tabs.show_titles {
         (!title.is_empty()).then(|| title.to_string())
@@ -581,19 +589,20 @@ mod tests {
     #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
-        assert_eq!(tab_label(&tabs, 0, ""), "1");
-        assert_eq!(tab_label(&tabs, 1, "zsh"), "2");
-        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs"), "3");
+        assert_eq!(tab_label(&tabs, 0, "", None), "1");
+        assert_eq!(tab_label(&tabs, 1, "zsh", None), "2");
+        assert_eq!(tab_label(&tabs, 2, "vim src/main.rs", None), "3");
         // Recognized agent programs surface in the label.
-        assert_eq!(tab_label(&tabs, 0, "claude"), "1 claude");
-        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI"), "4 codex");
-        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug"), "5 opencode");
+        assert_eq!(tab_label(&tabs, 0, "claude", None), "1 claude");
+        assert_eq!(tab_label(&tabs, 3, "✳ Codex CLI", None), "4 codex");
+        assert_eq!(tab_label(&tabs, 4, "opencode - fix bug", None), "5 opencode");
         // "pi" matches only as a word, not inside other words.
-        assert_eq!(tab_label(&tabs, 5, "pick a file"), "6");
-        assert_eq!(tab_label(&tabs, 5, "pi chat"), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pick a file", None), "6");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", None), "6 pi");
+        assert_eq!(tab_label(&tabs, 5, "pi chat", Some("api")), "api");
 
         let titled = Tabs { show_titles: true, ..Tabs::default() };
-        assert_eq!(tab_label(&titled, 1, "zsh"), "2 zsh");
+        assert_eq!(tab_label(&titled, 1, "zsh", None), "2 zsh");
     }
 
     #[test]
@@ -612,7 +621,8 @@ mod tests {
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
                 "sidebar": {"width": 30},
-                "scrollbar": {"position": "border"}
+                "scrollbar": {"position": "border"},
+                "keys": {"rename-pane": "r"}
             }"##,
         )
         .unwrap();
@@ -628,6 +638,10 @@ mod tests {
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert_eq!(
+            config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+            Some(Action::RenameTab)
+        );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
     }

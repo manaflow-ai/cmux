@@ -114,10 +114,11 @@ pub enum MenuAction {
     CloseWorkspace(WorkspaceId),
     RenameScreen(mux_core::ScreenId),
     CloseScreen(mux_core::ScreenId),
-    RenamePane(PaneId),
+    RenameTab(PaneId),
     NewTab(PaneId),
     SplitRight(PaneId),
     SplitDown(PaneId),
+    CloseTab(PaneId),
     ClosePane(PaneId),
 }
 
@@ -128,10 +129,11 @@ impl MenuAction {
             MenuAction::CloseWorkspace(_) => "Close workspace",
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
-            MenuAction::RenamePane(_) => "Rename pane",
+            MenuAction::RenameTab(_) => "Rename tab",
             MenuAction::NewTab(_) => "New tab",
             MenuAction::SplitRight(_) => "Split right",
             MenuAction::SplitDown(_) => "Split down",
+            MenuAction::CloseTab(_) => "Close tab",
             MenuAction::ClosePane(_) => "Close pane",
         }
     }
@@ -185,7 +187,7 @@ impl ContextMenu {
 pub enum PromptTarget {
     Workspace(WorkspaceId),
     Screen(mux_core::ScreenId),
-    Pane(PaneId),
+    Surface(SurfaceId),
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
@@ -679,9 +681,9 @@ impl App {
                     self.session.rename_workspace(id, prompt.buffer);
                 }
             }
-            // Empty screen/pane names clear back to the default.
+            // Empty screen/tab names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
-            PromptTarget::Pane(id) => self.session.rename_pane(id, prompt.buffer),
+            PromptTarget::Surface(id) => self.session.rename_surface(id, prompt.buffer),
         }
     }
 
@@ -802,7 +804,7 @@ impl App {
                     self.session.close_surface(surface);
                 }
             }
-            Action::RenamePane => self.open_rename_pane_prompt(pane),
+            Action::RenameTab => self.open_rename_tab_prompt(pane),
             Action::RenameWorkspace => self.open_rename_workspace_prompt(),
             Action::NextScreen => self.session.select_screen(None, Some(1)),
             Action::NewScreen => self.new_screen()?,
@@ -825,10 +827,13 @@ impl App {
         Ok(true)
     }
 
-    fn open_rename_pane_prompt(&mut self, pane: Option<PaneId>) {
+    fn open_rename_tab_prompt(&mut self, pane: Option<PaneId>) {
         let Some(pane) = pane else { return };
-        let buffer = self.tree.pane(pane).and_then(|p| p.name.clone()).unwrap_or_default();
-        self.prompt = Some(Prompt::new("Rename pane", buffer, PromptTarget::Pane(pane)));
+        let Some(tab) = self.tree.pane(pane).and_then(|p| p.tabs.get(p.active_tab)) else {
+            return;
+        };
+        let buffer = tab.name.clone().unwrap_or_default();
+        self.prompt = Some(Prompt::new("Rename tab", buffer, PromptTarget::Surface(tab.surface)));
     }
 
     fn open_rename_workspace_prompt(&mut self) {
@@ -863,10 +868,16 @@ impl App {
                 self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(id)));
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
-            MenuAction::RenamePane(id) => self.open_rename_pane_prompt(Some(id)),
+            MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
             MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
+            MenuAction::CloseTab(id) => {
+                if let Some(surface) = self.tree.pane(id).and_then(|p| p.active_surface()) {
+                    self.render_states.remove(&surface);
+                    self.session.close_surface(surface);
+                }
+            }
             MenuAction::ClosePane(id) => self.session.close_pane(id),
         }
         Ok(())
@@ -1304,10 +1315,11 @@ impl App {
                 x,
                 y,
                 vec![
-                    MenuAction::RenamePane(area.pane),
+                    MenuAction::RenameTab(area.pane),
                     MenuAction::NewTab(area.pane),
                     MenuAction::SplitRight(area.pane),
                     MenuAction::SplitDown(area.pane),
+                    MenuAction::CloseTab(area.pane),
                     MenuAction::ClosePane(area.pane),
                 ],
             ));

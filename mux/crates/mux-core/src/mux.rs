@@ -446,6 +446,16 @@ impl Mux {
         renamed
     }
 
+    /// Set a tab's user-visible name. An empty name clears it (the tab
+    /// falls back to its process title/number label).
+    pub fn rename_surface(&self, target: SurfaceId, name: String) -> bool {
+        let surface = self.state.lock().unwrap().surfaces.get(&target).cloned();
+        let Some(surface) = surface else { return false };
+        surface.set_name((!name.is_empty()).then_some(name));
+        self.emit(MuxEvent::TreeChanged);
+        true
+    }
+
     /// Set a screen's user-visible name. An empty name clears it (the
     /// screen falls back to its number).
     pub fn rename_screen(&self, target: ScreenId, name: String) -> bool {
@@ -810,22 +820,30 @@ mod tests {
         mux.new_workspace(None, None).unwrap();
         mux.new_workspace(Some("dev".into()), None).unwrap();
 
-        let (ws0, ws1, pane1) = mux.with_state(|s| {
+        let (ws0, ws1, pane1, surface1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
-            (s.workspaces[0].id, s.workspaces[1].id, s.workspaces[1].screens[0].active_pane)
+            let pane = s.workspaces[1].screens[0].active_pane;
+            let surface = s.panes[&pane].tabs[0];
+            (s.workspaces[0].id, s.workspaces[1].id, pane, surface)
         });
 
         assert!(mux.rename_workspace(ws0, "ops".into()));
         assert!(mux.rename_pane(pane1, "logs".into()));
+        assert!(mux.rename_surface(surface1, "api".into()));
         mux.with_state(|s| {
             assert_eq!(s.workspaces[0].name, "ops");
             assert_eq!(s.panes[&pane1].name.as_deref(), Some("logs"));
+            assert_eq!(s.surfaces[&surface1].name().as_deref(), Some("api"));
         });
-        // Clearing the name falls back to the tab title.
+        // Clearing the names falls back to the generated labels.
         assert!(mux.rename_pane(pane1, String::new()));
-        mux.with_state(|s| assert_eq!(s.panes[&pane1].name, None));
+        assert!(mux.rename_surface(surface1, String::new()));
+        mux.with_state(|s| {
+            assert_eq!(s.panes[&pane1].name, None);
+            assert_eq!(s.surfaces[&surface1].name(), None);
+        });
 
         assert!(mux.close_workspace(ws1));
         mux.with_state(|s| {

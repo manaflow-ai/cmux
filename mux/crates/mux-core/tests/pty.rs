@@ -113,6 +113,7 @@ fn control_socket_round_trip() {
     let ws_id = v["data"]["workspaces"][0]["id"].as_u64().unwrap();
     let screen_id = screen["id"].as_u64().unwrap();
     let pane_id = screen["panes"][0]["id"].as_u64().unwrap();
+    let surface_id = screen["panes"][0]["tabs"][0]["surface"].as_u64().unwrap();
     for (id, cmd) in [
         (
             3,
@@ -127,6 +128,12 @@ fn control_socket_round_trip() {
                 r#"{{"id":5,"cmd":"rename-screen","screen":{screen_id},"name":"renamed-screen"}}"#
             ),
         ),
+        (
+            6,
+            format!(
+                r#"{{"id":6,"cmd":"rename-surface","surface":{surface_id},"name":"renamed-tab"}}"#
+            ),
+        ),
     ] {
         line.clear();
         writeln!(writer, "{cmd}").unwrap();
@@ -135,30 +142,31 @@ fn control_socket_round_trip() {
         assert_eq!(v["ok"], true, "request {id} failed: {line}");
     }
     line.clear();
-    writeln!(writer, r#"{{"id":6,"cmd":"list-workspaces"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":7,"cmd":"list-workspaces"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["data"]["workspaces"][0]["name"], "renamed-ws");
     let screen = &v["data"]["workspaces"][0]["screens"][0];
     assert_eq!(screen["name"], "renamed-screen");
     assert_eq!(screen["panes"][0]["name"], "renamed-pane");
+    assert_eq!(screen["panes"][0]["tabs"][0]["name"], "renamed-tab");
 
     // New tab in the pane: two tabs, second active.
     line.clear();
-    writeln!(writer, r#"{{"id":7,"cmd":"new-tab","pane":{pane_id}}}"#).unwrap();
+    writeln!(writer, r#"{{"id":8,"cmd":"new-tab","pane":{pane_id}}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-tab failed: {line}");
 
     // Split and resize the split ratio over the socket.
     line.clear();
-    writeln!(writer, r#"{{"id":8,"cmd":"split","pane":{pane_id},"dir":"right"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":9,"cmd":"split","pane":{pane_id},"dir":"right"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "split failed: {line}");
 
     line.clear();
-    writeln!(writer, r#"{{"id":9,"cmd":"set-ratio","pane":{pane_id},"dir":"right","ratio":0.7}}"#)
+    writeln!(writer, r#"{{"id":10,"cmd":"set-ratio","pane":{pane_id},"dir":"right","ratio":0.7}}"#)
         .unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
@@ -166,7 +174,7 @@ fn control_socket_round_trip() {
 
     // New screen in the workspace: two screens, second active.
     line.clear();
-    writeln!(writer, r#"{{"id":10,"cmd":"new-screen"}}"#).unwrap();
+    writeln!(writer, r#"{{"id":11,"cmd":"new-screen"}}"#).unwrap();
     reader.read_line(&mut line).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], true, "new-screen failed: {line}");

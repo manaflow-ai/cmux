@@ -275,7 +275,8 @@ print("sidebar click switches workspace ok")
 os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
-assert "Rename pane" in text, text[-800:]
+assert "Rename tab" in text, text[-800:]
+assert "Close tab" in text, text[-800:]
 assert "[ OK ]" not in text, text[-800:]
 os.write(fd, b"\x1b")  # close menu
 drain(0.4)
@@ -299,26 +300,51 @@ tabs_after = sum(
 assert tabs_after == tabs_before + 1, (tabs_before, tabs_after, tree())
 print("right-drag menu row activation ok")
 
-# Open the menu normally again and left-click "Rename pane".
+# Open the menu normally again and left-click "Rename tab".
 os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
-assert "Rename pane" in text, text[-800:]
+assert "Rename tab" in text, text[-800:]
+assert "Close tab" in text, text[-800:]
 os.write(fd, b"\x1b[<0;82;6M\x1b[<0;82;6m")
 drain(0.8)
 # A centered rename dialog opens (title + OK/Cancel buttons).
 text = output.decode("utf-8", "replace")
 assert "[ OK ]" in text and "[ Cancel ]" in text, text[-800:]
-os.write(fd, b"clicked-name\r")
+os.write(fd, b"clicked-tab")
+drain(0.5)
+output = b""
+os.write(fd, b"\x1b[<0;65;17M\x1b[<0;65;17m")
 drain(1.0)
-names = [
-    p.get("name")
+tab_names = [
+    t.get("name")
     for w in tree()
     for s in w["screens"]
     for p in s["panes"]
+    for t in p["tabs"]
 ]
-assert "clicked-name" in names, names
-print("right-click menu -> rename prompt ok")
+assert "clicked-tab" in tab_names, tab_names
+text = output.decode("utf-8", "replace")
+assert "clicked-tab" in text, text[-1200:]
+print("right-click menu -> rename tab prompt ok")
+
+# "Close tab" closes the active tab for the pane under the context menu.
+tabs_before = sum(
+    len(p["tabs"])
+    for w in tree()
+    for s in w["screens"]
+    for p in s["panes"]
+)
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;10M\x1b[<2;81;10m")
+drain(1.0)
+tabs_after = sum(
+    len(p["tabs"])
+    for w in tree()
+    for s in w["screens"]
+    for p in s["panes"]
+)
+assert tabs_after == tabs_before - 1, (tabs_before, tabs_after, tree())
+print("right-click menu -> close tab ok")
 
 # Prefix + d: quit.
 os.write(fd, b"\x02d")

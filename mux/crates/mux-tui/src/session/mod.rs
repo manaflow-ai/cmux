@@ -227,13 +227,14 @@ impl Session {
         }
     }
 
-    pub fn rename_pane(&self, pane: PaneId, name: String) {
+    pub fn rename_surface(&self, surface: SurfaceId, name: String) {
         match self {
             Session::Local(mux) => {
-                mux.rename_pane(pane, name);
+                mux.rename_surface(surface, name);
             }
             Session::Remote(remote) => {
-                let _ = remote.request(json!({"cmd": "rename-pane", "pane": pane, "name": name}));
+                let _ = remote
+                    .request(json!({"cmd": "rename-surface", "surface": surface, "name": name}));
             }
         }
     }
