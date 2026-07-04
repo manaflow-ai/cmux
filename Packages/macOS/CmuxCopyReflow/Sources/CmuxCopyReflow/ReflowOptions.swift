@@ -28,6 +28,16 @@ public struct ReflowOptions: Sendable {
     /// list tails on their own lines.
     public var sentenceTerminators: Set<Character>
 
+    /// Creates a copy-reflow configuration.
+    ///
+    /// - Parameters:
+    ///   - decorationCharacters: Leading terminal decoration glyphs to strip
+    ///     before joining prose lines.
+    ///   - minWrapWidth: Minimum visible width for width-based wrap joins.
+    ///   - widthTolerance: Allowed difference between a line and the widest
+    ///     candidate line when deciding whether a line reached the wrap width.
+    ///   - sentenceTerminators: Characters that end a paragraph and prevent
+    ///     joining the next physical line onto it.
     public init(
         decorationCharacters: Set<Character>,
         minWrapWidth: Int,

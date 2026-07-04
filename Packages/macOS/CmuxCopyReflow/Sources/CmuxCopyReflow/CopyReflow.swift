@@ -239,21 +239,21 @@ private extension ReflowOptions {
         guard lines.count == lineKinds.count else { return }
         for i in lines.indices {
             guard isPromotableTableKind(lineKinds[i]),
-                  LineKind.isMarkdownTableSeparatorRow(lines[i]) else { continue }
+                  lineKindIsMarkdownTableSeparatorRow(lines[i]) else { continue }
 
             lineKinds[i] = .tableRow
 
             let headerIndex = i - 1
             if headerIndex >= 0,
                isPromotableTableKind(lineKinds[headerIndex]),
-               LineKind.isMarkdownTableCandidateRow(lines[headerIndex]) {
+               lineKindIsMarkdownTableCandidateRow(lines[headerIndex]) {
                 lineKinds[headerIndex] = .tableRow
             }
 
             var bodyIndex = i + 1
             while bodyIndex < lines.count,
                   isPromotableTableKind(lineKinds[bodyIndex]),
-                  LineKind.isMarkdownTableCandidateRow(lines[bodyIndex]) {
+                  lineKindIsMarkdownTableCandidateRow(lines[bodyIndex]) {
                 lineKinds[bodyIndex] = .tableRow
                 bodyIndex += 1
             }

@@ -21,6 +21,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether terminal copy reflows hard-wrapped text for the normal Copy action.
     public let reflowCopy = DefaultsKey<Bool>(
         id: "terminal.reflowCopy",
         defaultValue: true,
