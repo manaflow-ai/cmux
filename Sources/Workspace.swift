@@ -2238,6 +2238,13 @@ final class Workspace: Identifiable, ObservableObject {
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
 
+    /// Posted (with the `Workspace` as `object`) when `customColor` changes so
+    /// the workspace's appearance host can re-run the authoritative Ghostty
+    /// chrome refresh — which paints the custom color into the top tab bar.
+    static let customColorDidChangeNotification = Notification.Name(
+        "cmux.workspaceCustomColorDidChange"
+    )
+
     let id: UUID
     /// When this workspace instance came into existence in this app session
     /// (creation, or restore at launch). The mobile list's last-activity
@@ -2880,6 +2887,7 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
         renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        topTabBarTintHex: String? = nil,
         paneBorderColorHex: String? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
@@ -2890,6 +2898,21 @@ final class Workspace: Identifiable, ObservableObject {
         let defaultBorderHex = WindowChromeColorResolver()
             .separatorColor(forChromeBackground: backgroundColor)
             .hexString(includeAlpha: true)
+        // When the workspace carries a custom color, paint the top tab bar with
+        // it (Peacock-style) so the active project is identifiable from the top
+        // chrome and not just the sidebar. `nil` leaves the default fill — and
+        // therefore every existing default-color workspace — untouched. The
+        // light/dark brightness decision uses the *composited* chrome color
+        // (background + opacity) that bonsplit actually renders, so translucent
+        // themes pick the same tint as the rendered surface.
+        let compositedChromeColor = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: backgroundColor,
+            opacity: backgroundOpacity
+        )
+        let tabBarTintHex = resolvedTopTabBarTintHex(
+            fromCustomColorHex: topTabBarTintHex,
+            chromeBackgroundColor: compositedChromeColor
+        )
         let borderHex = PaneChromeSettings.resolvedPaneBorderHex(
             configuredHex: paneBorderColorHex,
             fallback: defaultBorderHex
@@ -2898,7 +2921,7 @@ final class Workspace: Identifiable, ObservableObject {
         if sharesWindowBackdrop {
             return .init(
                 backgroundHex: surfaceHex,
-                tabBarBackgroundHex: "#00000000",
+                tabBarBackgroundHex: tabBarTintHex ?? "#00000000",
                 splitButtonBackdropHex: "#00000000",
                 paneBackgroundHex: "#00000000",
                 borderHex: borderHex
@@ -2913,11 +2936,40 @@ final class Workspace: Identifiable, ObservableObject {
             : "#00000000"
         return .init(
             backgroundHex: surfaceHex,
-            tabBarBackgroundHex: surfaceHex,
+            tabBarBackgroundHex: tabBarTintHex ?? surfaceHex,
             splitButtonBackdropHex: surfaceHex,
             paneBackgroundHex: paneBackgroundHex,
             borderHex: borderHex
         )
+    }
+
+    /// Resolves a workspace custom-color hex into a solid top-tab-bar tint.
+    ///
+    /// Brightens the color for dark chrome (mirroring the sidebar's
+    /// dark-appearance handling in `WorkspaceTabColorSettings`) so the same
+    /// workspace color reads consistently in the sidebar and the top tab bar.
+    /// Returns `nil` for a missing or malformed hex, which leaves the default
+    /// tab-bar fill in place.
+    ///
+    /// - Parameter chromeBackgroundColor: the color the tab bar is actually
+    ///   rendered against — i.e. the terminal background already composited with
+    ///   its opacity — so the light/dark decision matches the rendered surface.
+    nonisolated static func resolvedTopTabBarTintHex(
+        fromCustomColorHex hex: String?,
+        chromeBackgroundColor: NSColor
+    ) -> String? {
+        guard let hex,
+              let normalized = WorkspaceTabColorSettings.normalizedHex(hex) else {
+            return nil
+        }
+        let prefersBrightTint = chromeBackgroundColor.luminance < 0.5
+        guard let tint = WorkspaceTabColorSettings.displayNSColor(
+            hex: normalized,
+            colorScheme: prefersBrightTint ? .dark : .light
+        ) else {
+            return nil
+        }
+        return tint.hexString()
     }
 
     nonisolated static func resolvedChromeColors(
@@ -3020,6 +3072,7 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: config.backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
+            topTabBarTintHex: customColor,
             paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
@@ -3079,6 +3132,7 @@ final class Workspace: Identifiable, ObservableObject {
             backgroundOpacity: backgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
             renderingMode: renderingMode,
+            topTabBarTintHex: customColor,
             paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
@@ -4509,11 +4563,18 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setCustomColor(_ hex: String?) {
-        if let hex {
-            customColor = WorkspaceTabColorSettings.normalizedHex(hex)
-        } else {
-            customColor = nil
-        }
+        let nextCustomColor = hex.flatMap { WorkspaceTabColorSettings.normalizedHex($0) }
+        guard customColor != nextCustomColor else { return }
+        customColor = nextCustomColor
+        // The top tab bar reflects the workspace color through the bonsplit
+        // chrome, but a color change does not alter the Ghostty config, so the
+        // appearance host's signature-diff would otherwise skip the refresh.
+        // Notify it to re-run the authoritative chrome path (which owns the live
+        // terminal background) instead of caching the background here.
+        NotificationCenter.default.post(
+            name: Self.customColorDidChangeNotification,
+            object: self
+        )
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {

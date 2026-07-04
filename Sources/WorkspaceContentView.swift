@@ -353,6 +353,15 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: Workspace.customColorDidChangeNotification)) { notification in
+            guard (notification.object as? Workspace)?.id == workspace.id else { return }
+            // A workspace color change leaves the Ghostty config (and its
+            // signature) untouched, so force the chrome apply that the
+            // signature-diff gate in refreshGhosttyAppearanceConfig would
+            // otherwise skip. applyGhosttyChrome(from:) then paints the custom
+            // color into the top tab bar using the live terminal background.
+            refreshGhosttyAppearanceConfig(reason: "customColorDidChange", forceInitialApply: true)
+        }
 
         Group {
             if workspace.layoutMode == .canvas {

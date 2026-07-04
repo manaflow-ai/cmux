@@ -1622,6 +1622,206 @@ final class WorkspaceChromeColorTests: XCTestCase {
     }
 }
 
+// MARK: - Top tab bar workspace color tint (issue #6706)
+
+@MainActor
+@Suite struct WorkspaceTopTabBarTintTests {
+    private let darkChromeBackground = NSColor(
+        srgbRed: 30.0 / 255.0, green: 30.0 / 255.0, blue: 30.0 / 255.0, alpha: 1.0
+    )
+    private let lightChromeBackground = NSColor(
+        srgbRed: 253.0 / 255.0, green: 246.0 / 255.0, blue: 227.0 / 255.0, alpha: 1.0
+    )
+
+    @Test func tintsTopTabBarWhenSharingWindowBackdrop() {
+        let customColorHex = "#1565C0" // "Blue" palette entry
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: customColorHex
+        )
+        let expectedTint = Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: customColorHex,
+            chromeBackgroundColor: darkChromeBackground
+        )
+        #expect(expectedTint != nil)
+        // The top tab bar is painted with the workspace color instead of the
+        // shared-backdrop transparent sentinel.
+        #expect(colors.tabBarBackgroundHex == expectedTint)
+        #expect(colors.tabBarBackgroundHex != "#00000000")
+        // The remaining chrome surfaces keep their shared-backdrop defaults.
+        #expect(colors.splitButtonBackdropHex == "#00000000")
+        #expect(colors.paneBackgroundHex == "#00000000")
+    }
+
+    @Test func tintsTopTabBarWhenNotSharingWindowBackdrop() {
+        let surfaceHex = Workspace.bonsplitChromeHex(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0
+        )
+        let customColorHex = "#196F3D" // "Green" palette entry
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: false,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: customColorHex
+        )
+        let expectedTint = Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: customColorHex,
+            chromeBackgroundColor: darkChromeBackground
+        )
+        #expect(colors.tabBarBackgroundHex == expectedTint)
+        #expect(colors.tabBarBackgroundHex != surfaceHex)
+        // Only the tab bar is tinted; the rest of the chrome keeps the terminal
+        // surface fill.
+        #expect(colors.backgroundHex == surfaceHex)
+        #expect(colors.splitButtonBackdropHex == surfaceHex)
+    }
+
+    @Test func leavesTopTabBarDefaultWithoutCustomColor() {
+        let shared = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: nil
+        )
+        #expect(shared.tabBarBackgroundHex == "#00000000")
+
+        let surfaceHex = Workspace.bonsplitChromeHex(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0
+        )
+        let local = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: false,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: nil
+        )
+        #expect(local.tabBarBackgroundHex == surfaceHex)
+    }
+
+    @Test func ignoresMalformedCustomColor() {
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: 1.0,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: "not-a-hex"
+        )
+        #expect(colors.tabBarBackgroundHex == "#00000000")
+    }
+
+    @Test func tintBrightnessUsesCompositedChromeColorForTranslucentBackgrounds() {
+        // A translucent theme renders the tab bar against the composited
+        // background (color + opacity), so the light/dark tint decision must use
+        // that composited color rather than the raw background.
+        let opacity = 0.25
+        let customColorHex = "#1565C0"
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: darkChromeBackground,
+            backgroundOpacity: opacity,
+            sharesWindowBackdrop: true,
+            renderingMode: .windowHostBackdrop,
+            topTabBarTintHex: customColorHex
+        )
+        let compositedChromeColor = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: darkChromeBackground,
+            opacity: opacity
+        )
+        #expect(colors.tabBarBackgroundHex == Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: customColorHex,
+            chromeBackgroundColor: compositedChromeColor
+        ))
+    }
+
+    @Test func resolvedTintMatchesWorkspaceDisplayColorAndBrightensForDarkChrome() {
+        let customColorHex = "#1565C0"
+        let lightExpected = WorkspaceTabColorSettings.displayNSColor(
+            hex: customColorHex,
+            colorScheme: .light
+        )?.hexString()
+        let darkExpected = WorkspaceTabColorSettings.displayNSColor(
+            hex: customColorHex,
+            colorScheme: .dark
+        )?.hexString()
+        #expect(lightExpected != nil)
+        #expect(darkExpected != nil)
+        // Dark chrome brightens the color, so the two resolutions differ.
+        #expect(lightExpected != darkExpected)
+
+        #expect(
+            Workspace.resolvedTopTabBarTintHex(
+                fromCustomColorHex: customColorHex,
+                chromeBackgroundColor: lightChromeBackground
+            ) == lightExpected
+        )
+        #expect(
+            Workspace.resolvedTopTabBarTintHex(
+                fromCustomColorHex: customColorHex,
+                chromeBackgroundColor: darkChromeBackground
+            ) == darkExpected
+        )
+    }
+
+    @Test func resolvedTintReturnsNilForMissingOrMalformedHex() {
+        #expect(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: nil,
+            chromeBackgroundColor: darkChromeBackground
+        ) == nil)
+        #expect(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: "",
+            chromeBackgroundColor: darkChromeBackground
+        ) == nil)
+        #expect(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: "#12",
+            chromeBackgroundColor: darkChromeBackground
+        ) == nil)
+        #expect(Workspace.resolvedTopTabBarTintHex(
+            fromCustomColorHex: "GGGGGG",
+            chromeBackgroundColor: darkChromeBackground
+        ) == nil)
+    }
+
+    @Test func customColorChangeNotificationOnlyPostsWhenNormalizedColorChanges() {
+        let workspace = Workspace()
+        var observedObjects: [Workspace] = []
+        let token = NotificationCenter.default.addObserver(
+            forName: Workspace.customColorDidChangeNotification,
+            object: workspace,
+            queue: nil
+        ) { notification in
+            MainActor.assumeIsolated {
+                if let workspace = notification.object as? Workspace {
+                    observedObjects.append(workspace)
+                }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        workspace.setCustomColor("#1565C0")
+        #expect(observedObjects.count == 1)
+
+        workspace.setCustomColor("#1565C0")
+        workspace.setCustomColor("1565c0")
+        #expect(observedObjects.count == 1)
+
+        workspace.setCustomColor("#196F3D")
+        #expect(observedObjects.count == 2)
+
+        workspace.setCustomColor(nil)
+        #expect(observedObjects.count == 3)
+
+        workspace.setCustomColor(nil)
+        #expect(observedObjects.count == 3)
+        #expect(observedObjects.allSatisfy { $0 === workspace })
+    }
+}
+
 // WindowTransparencyDecisionTests was deleted: its subjects (the free functions
 // cmuxShouldUseTransparentBackgroundWindow / cmuxShouldUseClearWindowBackground /
 // cmuxShouldApplyWindowGlass) were lifted out of the app target into
