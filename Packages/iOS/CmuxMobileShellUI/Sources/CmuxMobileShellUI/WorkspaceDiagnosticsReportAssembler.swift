@@ -1,5 +1,6 @@
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import Foundation
 
 #if canImport(UIKit)
