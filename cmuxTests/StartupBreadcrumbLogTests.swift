@@ -22,6 +22,28 @@ struct StartupBreadcrumbLogTests {
         ))
     }
 
+    @Test func appendWithoutBundleIdentifierWritesNothing() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logURL = directory.appendingPathComponent("startup-unknown.log")
+
+        StartupBreadcrumbLog.append(
+            "disabled.test",
+            configuration: StartupBreadcrumbLog.Configuration(
+                environment: [:],
+                bundleIdentifier: nil,
+                appVersion: "1.0",
+                build: "1",
+                pid: 123,
+                logURL: logURL,
+                now: Date(timeIntervalSince1970: 0),
+                fileManager: .default
+            )
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: logURL.path))
+    }
+
     @Test func appendRotatesOversizedLogToSingleSibling() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

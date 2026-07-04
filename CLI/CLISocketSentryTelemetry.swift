@@ -318,8 +318,10 @@ final class CLISocketSentryTelemetry {
         return parsedErrno(from: fallbackMessage)
     }
 
+    private static let errnoRegex = try? NSRegularExpression(pattern: #"errno[[:space:]:=]*([0-9]+)"#)
+
     private static func parsedErrno(from message: String) -> Int32? {
-        guard let regex = try? NSRegularExpression(pattern: #"errno[[:space:]:=]*([0-9]+)"#) else {
+        guard let regex = errnoRegex else {
             return nil
         }
         let range = NSRange(message.startIndex..<message.endIndex, in: message)

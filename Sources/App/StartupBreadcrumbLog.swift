@@ -20,7 +20,7 @@ enum StartupBreadcrumbLog {
 
     struct Configuration {
         let environment: [String: String]
-        let bundleIdentifier: String
+        let bundleIdentifier: String?
         let appVersion: String
         let build: String
         let pid: Int32
@@ -32,7 +32,7 @@ enum StartupBreadcrumbLog {
             let bundle = Bundle.main
             return Configuration(
                 environment: ProcessInfo.processInfo.environment,
-                bundleIdentifier: bundle.bundleIdentifier ?? "unknown",
+                bundleIdentifier: bundle.bundleIdentifier,
                 appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
                 build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
                 pid: ProcessInfo.processInfo.processIdentifier,
@@ -57,7 +57,7 @@ enum StartupBreadcrumbLog {
             "timestamp": ISO8601DateFormatter().string(from: configuration.now),
             "event": event,
             "pid": configuration.pid,
-            "bundleIdentifier": configuration.bundleIdentifier,
+            "bundleIdentifier": configuration.bundleIdentifier ?? "unknown",
             "appVersion": configuration.appVersion,
             "build": configuration.build
         ]
