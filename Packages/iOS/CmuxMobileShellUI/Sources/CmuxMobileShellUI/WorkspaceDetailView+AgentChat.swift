@@ -154,7 +154,7 @@ extension WorkspaceDetailView {
             applyChatModeFallback(canInvalidateSelection: false)
             return
         }
-        let reducer = ChatSessionListReducer(workspaceID: workspaceID)
+        var reducer = ChatSessionListReducer(workspaceID: workspaceID)
         let stream = await source.sessionEvents()
         let seedOutcome: WorkspaceChatSessionRefreshOutcome
         do {
@@ -183,8 +183,22 @@ extension WorkspaceDetailView {
                   sourceIdentity == store.agentChatEventSourceIdentity
             else { break }
             let current = visibleChatSessions
-            let next = reducer.applying(frame, to: current)
-            guard next != current else { continue }
+            let reduced = reducer.applying(frame, to: current)
+            let next = reduced.preservingPinnedPendingAliasRemoval(
+                previous: current,
+                frame: frame,
+                pinnedID: pinnedChatSessionID,
+                cachedTerminalID: cachedChatToggleTerminalID
+            )
+            guard next != current else {
+                _ = await refreshAfterIgnoredChatSessionFrameIfNeeded(
+                    frame,
+                    source: source,
+                    workspaceID: workspaceID,
+                    sourceIdentity: sourceIdentity
+                )
+                continue
+            }
             withAnimation(.snappy(duration: 0.25)) {
                 chatSessionsWorkspaceID = workspaceID
                 chatSessions = next
@@ -192,6 +206,87 @@ extension WorkspaceDetailView {
             store.rememberChatSessions(next, workspaceID: workspaceID)
             reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
         }
+    }
+
+    /// If a live descriptor push names the selected terminal but carries a stale
+    /// or missing workspace id, a scoped reducer correctly ignores it. Pull the
+    /// authoritative workspace snapshot once so the toolbar toggle appears
+    /// without requiring the user to leave and re-enter the workspace.
+    private func refreshAfterIgnoredChatSessionFrameIfNeeded(
+        _ frame: ChatSessionEventFrame,
+        source: MobileChatEventSource,
+        workspaceID: String,
+        sourceIdentity: String
+    ) async -> Bool {
+        guard frame.shouldPullAuthoritativeSnapshotForIgnoredWorkspaceFrame(
+            workspaceID: workspaceID,
+            selectedTerminalID: selectedTerminalID,
+            cachedChatToggleTerminalID: cachedChatToggleTerminalID
+        )
+        else { return false }
+        guard !Task.isCancelled else { return false }
+        let sessions: [ChatSessionDescriptor]
+        guard let refreshed = await coalescedIgnoredChatSessionSnapshot(
+            source: source,
+            workspaceID: workspaceID,
+            sourceIdentity: sourceIdentity
+        ) else {
+            return false
+        }
+        sessions = refreshed
+        guard !Task.isCancelled,
+              workspaceID == workspace.id.rawValue,
+              sourceIdentity == store.agentChatEventSourceIdentity
+        else { return false }
+        let next = WorkspaceChatSessionRefreshOutcome.authoritative(sessions)
+            .applying(to: visibleChatSessions)
+        guard next != visibleChatSessions else { return true }
+        withAnimation(.snappy(duration: 0.25)) {
+            chatSessionsWorkspaceID = workspaceID
+            chatSessions = next
+        }
+        store.rememberChatSessions(next, workspaceID: workspaceID)
+        reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
+        return true
+    }
+
+    private func coalescedIgnoredChatSessionSnapshot(
+        source: MobileChatEventSource,
+        workspaceID: String,
+        sourceIdentity: String
+    ) async -> [ChatSessionDescriptor]? {
+        let key = "\(workspaceID)#\(sourceIdentity)"
+        if let task = ignoredChatSessionRefreshTask,
+           ignoredChatSessionRefreshKey == key {
+            return await withTaskCancellationHandler {
+                await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        }
+        let taskID = UUID()
+        let task = Task { () -> [ChatSessionDescriptor]? in
+            do {
+                return try await source.sessions(workspaceID: workspaceID)
+            } catch {
+                return nil
+            }
+        }
+        ignoredChatSessionRefreshKey = key
+        ignoredChatSessionRefreshID = taskID
+        ignoredChatSessionRefreshTask = task
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        if ignoredChatSessionRefreshKey == key,
+           ignoredChatSessionRefreshID == taskID {
+            ignoredChatSessionRefreshKey = nil
+            ignoredChatSessionRefreshID = nil
+            ignoredChatSessionRefreshTask = nil
+        }
+        return result
     }
 
     /// Runs the selected terminal's chat store while terminal mode is visible.
@@ -291,15 +386,12 @@ extension WorkspaceDetailView {
     /// so the GUI becomes editable again.
     private func repinToReopenedSession() {
         guard isChatMode,
-              let pinnedID = pinnedChatSessionID,
-              let pinned = visibleChatSessions.first(where: { $0.id == pinnedID }),
-              pinned.state == .ended,
-              let terminalID = pinned.terminalID else { return }
-        let live = visibleChatSessions
-            .filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
-            .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }
-        if let live {
-            pinnedChatSessionID = live.id
+              let pinnedID = pinnedChatSessionID else { return }
+        if let replacementID = visibleChatSessions.replacementSessionIDForPinnedChat(
+            pinnedID: pinnedID,
+            cachedTerminalID: cachedChatToggleTerminalID
+        ) {
+            pinnedChatSessionID = replacementID
         }
     }
 
