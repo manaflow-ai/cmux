@@ -692,6 +692,22 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertTrue(bare.contains(exec), bare)
     }
 
+    private func withRestoredDefaults<T>(
+        key: String,
+        defaults: UserDefaults = .standard,
+        body: () throws -> T
+    ) rethrows -> T {
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        return try body()
+    }
+
     @MainActor
     private func assertAgentAutoResumeUsesStartupCommand(
         _ panel: TerminalPanel,
@@ -700,11 +716,8 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         line: UInt = #line
     ) throws {
         let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
-        let prefix = "/bin/zsh "
-        XCTAssertTrue(command.hasPrefix(prefix + "'"), command, file: file, line: line)
-        // `debugInitialCommand()` is `/bin/zsh '<single-quoted script path>'`; reverse the shell
-        // single-quoting rather than trimming raw characters so a path containing a `'` resolves.
-        let scriptPath = Self.singleUnquotedShellWord(String(command.dropFirst(prefix.count)))
+        XCTAssertTrue(command.hasPrefix("/bin/zsh '"), command, file: file, line: line)
+        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for needle in needles {
@@ -717,6 +730,52 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         XCTAssertTrue(script.contains("exec -l \"$_cmux_resume_shell\""), script, file: file, line: line)
     }
 
+    private func makeRestorableAgentIndex(
+        workspaceId: UUID,
+        panelId: UUID,
+        sessionId: String,
+        extraArguments: [String] = []
+    ) throws -> RestorableAgentSessionIndex {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
+        let previousHookStateDir = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
+        setenv("CMUX_AGENT_HOOK_STATE_DIR", home.appendingPathComponent("hook-state", isDirectory: true).path, 1)
+        defer {
+            if let previousHookStateDir {
+                setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDir, 1)
+            } else {
+                unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
+            }
+        }
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "updatedAt": Date().timeIntervalSince1970,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"] + extraArguments,
+                        "workingDirectory": "/tmp/repo",
+                        "environment": ["CODEX_HOME": "/tmp/codex"],
+                        "capturedAt": Date().timeIntervalSince1970,
+                        "source": "process",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+        return RestorableAgentSessionIndex.load(homeDirectory: home.path)
+    }
 }
 
 final class TerminalCopyOnSelectSettingsTests: XCTestCase {

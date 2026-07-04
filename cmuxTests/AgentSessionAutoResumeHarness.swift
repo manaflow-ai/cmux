@@ -13,22 +13,6 @@ struct AgentSessionAutoResumeHarness {
         case unexpectedInitialCommand(String)
     }
 
-    func withRestoredDefaults<T>(
-        key: String,
-        defaults: UserDefaults = .standard,
-        body: () throws -> T
-    ) rethrows -> T {
-        let previous = defaults.object(forKey: key)
-        defer {
-            if let previous {
-                defaults.set(previous, forKey: key)
-            } else {
-                defaults.removeObject(forKey: key)
-            }
-        }
-        return try body()
-    }
-
     @MainActor
     func resumeLauncherScript(from panel: TerminalPanel) throws -> String {
         guard let command = panel.surface.debugInitialCommand() else {
@@ -94,33 +78,5 @@ struct AgentSessionAutoResumeHarness {
         let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
         try data.write(to: storeURL, options: .atomic)
         return RestorableAgentSessionIndex.load(homeDirectory: home.path)
-    }
-}
-
-extension AgentSessionAutoResumeSettingsTests {
-    func withRestoredDefaults<T>(
-        key: String,
-        defaults: UserDefaults = .standard,
-        body: () throws -> T
-    ) rethrows -> T {
-        try AgentSessionAutoResumeHarness().withRestoredDefaults(key: key, defaults: defaults, body: body)
-    }
-
-    static func singleUnquotedShellWord(_ value: String) -> String {
-        AgentSessionAutoResumeHarness().singleUnquotedShellWord(value)
-    }
-
-    func makeRestorableAgentIndex(
-        workspaceId: UUID,
-        panelId: UUID,
-        sessionId: String,
-        extraArguments: [String] = []
-    ) throws -> RestorableAgentSessionIndex {
-        try AgentSessionAutoResumeHarness().makeRestorableAgentIndex(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            sessionId: sessionId,
-            extraArguments: extraArguments
-        )
     }
 }
