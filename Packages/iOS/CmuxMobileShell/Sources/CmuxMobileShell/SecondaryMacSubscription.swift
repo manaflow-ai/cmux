@@ -7,8 +7,8 @@ import Foundation
 @MainActor
 final class SecondaryMacSubscription {
     let macDeviceID: String
-    let client: MobileCoreRPCClient
     /// The route and ticket this client was dialed on, kept for promotion.
+    @CancelOnDeinit var client: MobileCoreRPCClient
     let route: CmxAttachRoute
     let ticket: CmxAttachTicket
     /// Raw host capabilities reported by this secondary Mac.
@@ -17,9 +17,9 @@ final class SecondaryMacSubscription {
     let actionCapabilities: MobileWorkspaceActionCapabilities
     /// Per-connection stream id for the `mobile.events.subscribe` handshake.
     let streamID: String
-    var task: Task<Void, Never>?
+    @CancelOnDeinit var task: Task<Void, Never>?
     /// Coalesces hot `workspace.updated` bursts to one leading and one trailing fetch.
-    var refreshTask: Task<Void, Never>?
+    @CancelOnDeinit var refreshTask: Task<Void, Never>?
     var refreshPending = false
 
     init(
@@ -45,6 +45,7 @@ final class SecondaryMacSubscription {
         refreshTask?.cancel()
         refreshTask = nil
         let client = self.client
+        _client.disarm()
         Task { await client.disconnect() }
     }
 
@@ -54,5 +55,6 @@ final class SecondaryMacSubscription {
         task = nil
         refreshTask?.cancel()
         refreshTask = nil
+        _client.disarm()
     }
 }

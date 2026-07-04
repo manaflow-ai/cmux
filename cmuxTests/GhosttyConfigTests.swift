@@ -747,6 +747,15 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundBlur, .macosGlassClear)
     }
 
+    func testParseSplitDividerColorOverridesResolvedDividerColor() {
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#272822")!
+        config.parse("split-divider-color = #FF00AA")
+
+        XCTAssertEqual(config.splitDividerColor?.hexString(), "#FF00AA")
+        XCTAssertEqual(config.resolvedSplitDividerColor.hexString(includeAlpha: true), "#FF00AAFF")
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
@@ -1405,7 +1414,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#FDF6E3")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#FDF6E3")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#DED7C442")
+        XCTAssertEqual(colors.borderHex, "#C5BFB1FF")
     }
 
     func testResolvedChromeColorsUsesDarkGhosttyBackground() {
@@ -1419,7 +1428,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+        XCTAssertEqual(colors.borderHex, "#676864FF")
     }
 
     func testResolvedChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
@@ -1436,7 +1445,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+        XCTAssertEqual(colors.borderHex, "#676864FF")
     }
 
     func testResolvedChromeColorsKeepPaneClearForRendererOwnedBackgrounds() {
@@ -1453,7 +1462,21 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.tabBarBackgroundHex, "#272822")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#272822")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
-        XCTAssertEqual(colors.borderHex, "#4F504A5B")
+        XCTAssertEqual(colors.borderHex, "#676864FF")
+    }
+
+    func testResolvedChromeColorsUsesConfiguredSplitDividerColor() {
+        guard let backgroundColor = NSColor(hex: "#272822"),
+              let dividerColor = NSColor(hex: "#FF00AA") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            splitDividerColor: dividerColor
+        )
+        XCTAssertEqual(colors.borderHex, "#FF00AAFF")
     }
 
     func testResolvedChromeColorsUseConfiguredPaneBorderColor() {
@@ -1475,7 +1498,7 @@ final class WorkspaceChromeThemeTests: XCTestCase {
 }
 
 final class WindowChromeSeparatorColorTests: XCTestCase {
-    func testDarkChromeSeparatorMatchesBonsplitDerivation() {
+    func testDarkChromeSeparatorMatchesWindowChromeDerivation() {
         guard let backgroundColor = NSColor(hex: "#272822") else {
             XCTFail("Expected valid test color")
             return
@@ -1490,7 +1513,7 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
         XCTAssertEqual(rgba.alpha, CGFloat(0.36), accuracy: 0.0001)
     }
 
-    func testLightChromeSeparatorMatchesBonsplitDerivation() {
+    func testLightChromeSeparatorMatchesWindowChromeDerivation() {
         guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
             XCTFail("Expected valid test color")
             return

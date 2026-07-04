@@ -10,6 +10,7 @@ struct RemoteTmuxLayoutContainer: View {
     let node: RemoteTmuxLayoutNode
     let mirror: RemoteTmuxWindowMirror
     let appearance: PanelAppearance
+    let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onClosePane: (Int) -> Void
@@ -43,7 +44,7 @@ struct RemoteTmuxLayoutContainer: View {
                 TerminalPanelView(
                     panel: panel,
                     paneId: syntheticPaneId,
-                    isFocused: mirror.activePaneId == paneId,
+                    isFocused: isFocused && mirror.activePaneId == paneId,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     isSplit: true,
@@ -101,6 +102,7 @@ struct RemoteTmuxLayoutContainer: View {
                 node: children[index],
                 mirror: mirror,
                 appearance: appearance,
+                isFocused: isFocused,
                 isVisibleInUI: isVisibleInUI,
                 portalPriority: portalPriority,
                 onClosePane: onClosePane

@@ -33,6 +33,9 @@ struct PanelContentView: View {
     var body: some View {
         renderedPanel
             .overlay {
+                activePaneBoundaryOverlay
+            }
+            .overlay {
                 paneDropTargetOverlay
             }
     }
@@ -65,7 +68,9 @@ struct PanelContentView: View {
                     paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    isSplit: isSplit,
                     portalPriority: portalPriority,
+                    activePaneBoundaryColor: appearance.activePaneBoundaryNSColor,
                     paneOwnershipOverride: paneOwnershipOverride,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
@@ -144,6 +149,26 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var activePaneBoundaryOverlay: some View {
+        if shouldShowSwiftUIActivePaneBoundary,
+           let activePaneBoundaryColor = appearance.activePaneBoundaryColor {
+            Rectangle()
+                .strokeBorder(activePaneBoundaryColor, lineWidth: CGFloat(PaneChromeSettings.activeBorderLineWidth))
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var shouldShowSwiftUIActivePaneBoundary: Bool {
+        guard isSplit && isFocused && isVisibleInUI && appearance.activePaneBoundaryColor != nil else { return false }
+        switch panel.panelType {
+        case .terminal, .browser:
+            return false
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser:
+            return true
         }
     }
 

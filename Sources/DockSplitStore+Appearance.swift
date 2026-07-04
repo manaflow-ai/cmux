@@ -51,6 +51,7 @@ extension DockSplitStore {
             chromeColors: Workspace.bonsplitChromeColors(
                 backgroundColor: config.backgroundColor,
                 backgroundOpacity: config.backgroundOpacity,
+                splitDividerColor: config.resolvedSplitDividerColor,
                 sharesWindowBackdrop: sharesWindowBackdrop,
                 renderingMode: renderingMode,
                 paneBorderColorHex: PaneChromeSettings.paneBorderColorHex()

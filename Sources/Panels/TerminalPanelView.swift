@@ -29,10 +29,26 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        if let hibernationState = panel.agentHibernationState {
-            hibernationBody(hibernationState)
-        } else {
-            terminalBody
+        Group {
+            if let hibernationState = panel.agentHibernationState {
+                hibernationBody(hibernationState)
+            } else {
+                terminalBody
+            }
+        }
+        .overlay {
+            hibernatedActivePaneBoundaryOverlay
+        }
+    }
+
+    @ViewBuilder
+    private var hibernatedActivePaneBoundaryOverlay: some View {
+        if panel.agentHibernationState != nil,
+           let activePaneBoundaryColor = appearance.activePaneBoundaryColor,
+           isSplit && isFocused && isVisibleInUI {
+            Rectangle()
+                .strokeBorder(activePaneBoundaryColor, lineWidth: activeBoundaryLineWidth)
+                .allowsHitTesting(false)
         }
     }
 
@@ -73,6 +89,9 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
+                showsActivePaneBoundary: isSplit && isFocused && isVisibleInUI && appearance.activePaneBoundaryNSColor != nil,
+                activePaneBoundaryIncludesBottomEdge: !panel.isTextBoxActive,
+                activePaneBoundaryColor: appearance.activePaneBoundaryNSColor ?? .clear,
                 showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
@@ -140,6 +159,9 @@ struct TerminalPanelView: View {
                         panel.preserveTextBoxContentForUnmount(from: view)
                     }
                 )
+                .overlay {
+                    terminalTextBoxActivePaneBoundaryOverlay
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -185,6 +207,30 @@ struct TerminalPanelView: View {
         } else {
             context += "\n\(marker)"
         }
+    }
+
+    @ViewBuilder
+    private var terminalTextBoxActivePaneBoundaryOverlay: some View {
+        if panel.isTextBoxActive,
+           let activePaneBoundaryColor = appearance.activePaneBoundaryColor,
+           isSplit && isFocused && isVisibleInUI {
+            ZStack {
+                HStack(spacing: 0) {
+                    activePaneBoundaryColor.frame(width: activeBoundaryLineWidth)
+                    Spacer(minLength: 0)
+                    activePaneBoundaryColor.frame(width: activeBoundaryLineWidth)
+                }
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    activePaneBoundaryColor.frame(height: activeBoundaryLineWidth)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var activeBoundaryLineWidth: CGFloat {
+        CGFloat(PaneChromeSettings.activeBorderLineWidth)
     }
 }
 
@@ -306,7 +352,10 @@ private func terminalViewportFormat(_ value: CGFloat) -> String {
 struct PanelAppearance {
     let backgroundColor: NSColor
     let foregroundColor: NSColor
+    let dividerNSColor: NSColor
     let dividerColor: Color
+    let activePaneBoundaryNSColor: NSColor?
+    let activePaneBoundaryColor: Color?
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
     let usesClearContentBackground: Bool
@@ -332,13 +381,19 @@ struct PanelAppearance {
             backgroundColor: config.backgroundColor,
             opacity: config.backgroundOpacity
         )
+        let dividerColor = config.resolvedSplitDividerColor
+        let activeBoundaryColor = PaneChromeSettings.activePaneBorderColorHex()
+            .flatMap { NSColor(hex: $0) }
         return PanelAppearance(
             backgroundColor: backgroundColor,
             foregroundColor: cmuxReadableForegroundNSColor(
                 preferred: config.foregroundColor,
                 on: backgroundColor
             ),
-            dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
+            dividerNSColor: dividerColor,
+            dividerColor: Color(nsColor: dividerColor),
+            activePaneBoundaryNSColor: activeBoundaryColor,
+            activePaneBoundaryColor: activeBoundaryColor.map { Color(nsColor: $0) },
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,
             usesClearContentBackground: shouldUseClearContentBackground(

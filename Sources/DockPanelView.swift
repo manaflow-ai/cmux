@@ -256,8 +256,12 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
         nsView.focusFirstControl = { [weak store] in
             store?.focusFirstControl() == true
         }
-        nsView.ownsDockBrowserFocus = { [weak store] responder, window in
-            store?.browserPanel(owning: responder, in: window) != nil
+        nsView.dockBrowserPanelId = { [weak store] responder, window in
+            store?.browserPanel(owning: responder, in: window)?.id
+        }
+        nsView.applyFocusedPanelId = { [weak store] panelId in
+            guard let panelId else { return }
+            store?.focusPanel(panelId)
         }
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
@@ -265,7 +269,8 @@ private struct DockKeyboardFocusBridge: NSViewRepresentable {
 
 final class DockKeyboardFocusView: NSView {
     var focusFirstControl: (() -> Bool)?
-    var ownsDockBrowserFocus: ((NSResponder, NSWindow) -> Bool)?
+    var dockBrowserPanelId: ((NSResponder, NSWindow) -> UUID?)?
+    var applyFocusedPanelId: ((UUID?) -> Void)?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 
@@ -275,12 +280,29 @@ final class DockKeyboardFocusView: NSView {
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
         if responder === self { return true }
-        if let window, ownsDockBrowserFocus?(responder, window) == true { return true }
+        return rightSidebarDockPanelId(for: responder) != nil
+    }
+
+    func applyKeyboardFocusOwnership(responder: NSResponder?) {
+        guard let responder else {
+            applyFocusedPanelId?(nil)
+            return
+        }
+        applyFocusedPanelId?(rightSidebarDockPanelId(for: responder))
+    }
+
+    private func rightSidebarDockPanelId(for responder: NSResponder) -> UUID? {
+        if let window, let browserPanelId = dockBrowserPanelId?(responder, window) {
+            return browserPanelId
+        }
         guard let ghosttyView = cmuxOwningGhosttyView(for: responder),
               let surfaceId = ghosttyView.terminalSurface?.id else {
-            return false
+            return nil
         }
-        return GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId)
+        guard GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(id: surfaceId) else {
+            return nil
+        }
+        return surfaceId
     }
 
     func focusFirstItemFromCoordinator() { _ = focusFirstControl?() }

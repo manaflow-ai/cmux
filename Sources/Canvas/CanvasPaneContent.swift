@@ -56,6 +56,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             // the clip view crops instead.
             TerminalWindowPortalRegistry.detach(hostedView: hostedView)
             hostedView.setVisibleInUI(true)
+            hostedView.setActivePaneBoundary(visible: false, color: .clear)
             hostedView.setFocusHandler { [weak self] in
                 guard let self else { return }
                 self.onFocusPanel?(self.panelId)
@@ -117,6 +118,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
                 opacity: CGFloat(inactiveOverlayOpacity),
                 visible: showsInactiveOverlay
             )
+            hostedView.setActivePaneBoundary(visible: false, color: .clear)
         case .hosted:
             break
         }
@@ -148,6 +150,7 @@ final class CanvasPaneContentMount: CanvasPaneContentMounting {
             hostedView.setActive(false)
             hostedView.setFocusHandler(nil)
             hostedView.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
+            hostedView.setActivePaneBoundary(visible: false, color: .clear)
             panel.surface.setOcclusion(true)
             hostedView.removeFromSuperview()
         case .hosted(let panel, let view):

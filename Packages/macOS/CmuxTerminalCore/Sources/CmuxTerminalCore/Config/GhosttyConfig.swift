@@ -150,14 +150,13 @@ public struct GhosttyConfig {
     }
 
     /// The split-divider color: the explicit ``splitDividerColor`` when set,
-    /// otherwise a contrast-adjusted shade of the background color.
+    /// otherwise an opaque, high-contrast shade of the background color.
     public var resolvedSplitDividerColor: NSColor {
         if let splitDividerColor {
             return splitDividerColor
         }
 
-        let isLightBackground = backgroundColor.isLightColor
-        return backgroundColor.darken(by: isLightBackground ? 0.08 : 0.4)
+        return backgroundColor.ghosttyDefaultSplitDividerColor
     }
 
     /// Loads the resolved terminal config for `preferredColorScheme` (or the
