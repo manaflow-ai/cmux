@@ -331,8 +331,8 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "agent-session is only supported by surface.create", data: .object(["type": .string(typeRawValue)]))
         case .dockUnsupportedType(let typeRawValue, let message):
             return .err(code: "invalid_params", message: message, data: .object(["type": .string(typeRawValue)]))
-        case .dockUnavailable(let message):
-            return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
+        case .dockUnavailable(let message): return .err(code: "invalid_params", message: message, data: .object(["placement": .string("dock")]))
+        case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabledInvalidURL(let rawURL):
             return .err(code: "invalid_params", message: "Invalid URL", data: .object(["url": .string(rawURL)]))
         case .browserDisabledNoURL:

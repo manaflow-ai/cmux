@@ -78,16 +78,16 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             var refreshedCount = 0
             for panel in dock.panels.values {
                 if let terminalPanel = panel as? TerminalPanel {
-                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh.globalDock")
+                    terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh.windowDock")
                     refreshedCount += 1
                 }
             }
             return .refreshed(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 refreshedCount: refreshedCount
             )
@@ -119,7 +119,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let target = terminalPanel(
                 in: dock,
                 explicitSurfaceID: surfaceID,
@@ -138,9 +138,9 @@ extension TerminalController {
             guard terminalPanel.performBindingAction("clear_screen") else {
                 return .bindingActionUnavailable
             }
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.globalDock")
+            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.windowDock")
             return .cleared(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId
             )
@@ -179,7 +179,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let surfaceId = surfaceID ?? dock.focusedPanelId
             guard let surfaceId else {
                 return .noFocusedSurface
@@ -187,11 +187,11 @@ extension TerminalController {
             guard dock.panels[surfaceId] != nil else {
                 return .surfaceNotFound(surfaceId)
             }
-            v2MaybeFocusWindow(for: tabManager)
-            revealDockForFocus(tabManager: tabManager)
-            dock.focusPanel(surfaceId)
+            // `surface.trigger_flash` is not focus intent: flash a visible Dock
+            // panel if it is already rendered, but never reveal/raise its window.
+            dock.triggerFocusFlash(panelId: surfaceId)
             return .flashed(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId
             )
@@ -270,7 +270,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let target = terminalPanel(
                 in: dock,
                 explicitSurfaceID: surfaceID,
@@ -289,7 +289,7 @@ extension TerminalController {
             let queued: Bool
             switch terminalPanel.sendInputResult(text) {
             case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.globalDock")
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText.windowDock")
                 queued = false
             case .queued:
                 queued = true
@@ -301,7 +301,7 @@ extension TerminalController {
                 return .processExited(surfaceId)
             }
             return .sent(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId,
                 queued: queued
@@ -349,7 +349,7 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let dock = globalDockForRouting(routing) {
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let target = terminalPanel(
                 in: dock,
                 explicitSurfaceID: surfaceID,
@@ -368,7 +368,7 @@ extension TerminalController {
             let sendResult = terminalPanel.sendNamedKeyResult(key)
             switch sendResult {
             case .sent:
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey.globalDock")
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey.windowDock")
             case .queued:
                 break
             case .unknownKey:
@@ -381,7 +381,7 @@ extension TerminalController {
                 return .processExited(surfaceId)
             }
             return .sent(
-                windowID: v2ResolveWindowId(tabManager: tabManager),
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
                 workspaceID: dock.workspaceId,
                 surfaceID: surfaceId,
                 queued: sendResult == .queued
@@ -424,9 +424,10 @@ extension TerminalController {
     // `surface.read_text` is no longer a coordinator witness: it moved to the
     // socket-worker lane (issue #5757) so its full-scrollback formatting stays
     // off the main actor. See `TerminalController.v2SurfaceReadText`, which
-    // reuses the same `globalDockForRouting` / `resolveSurfaceWorkspace` /
-    // `readTerminalTextRawSnapshot` primitives but splits the main-actor
-    // capture from the off-main formatting.
+    // reuses the same `windowDockForRouting` / `dockResultWindowId` /
+    // `resolveSurfaceWorkspace` / `readTerminalTextRawSnapshot` primitives
+    // (per-window docks, post-#7144) but splits the main-actor capture from
+    // the off-main formatting.
 
     // MARK: - debug.terminals
 

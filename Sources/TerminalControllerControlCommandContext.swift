@@ -18,7 +18,7 @@ extension TerminalController: ControlCommandContext {
     /// known `kind:N` refs FIRST, mirroring the main-lane dispatch preamble
     /// (`v2MainActorResponse`) byte-for-byte so caller-supplied refs resolve.
     /// NOTE: the refresh covers only main-window workspace topology; dock-hosted
-    /// surfaces/panes (DockSplitStore, synthetic `globalDockWorkspaceId`) are
+    /// surfaces/panes (the per-window `DockSplitStore`s, post-#7144) are
     /// first-minted by each body's in-hop mint pass, so every mint pass MUST
     /// preserve its payload's literal mint order — that ordering, not the
     /// refresh, is what keeps `kind:N` ordinals identical to the legacy build.
