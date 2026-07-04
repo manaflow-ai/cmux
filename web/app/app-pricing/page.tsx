@@ -37,7 +37,7 @@ export default async function AppPricingPage({
   const params = await searchParams;
   const banner = appPricingBanner(params);
   const appearance = appPricingAppearance(params);
-  const stickyBackground = appPricingStickyBackground(params, appearance);
+  const pageBackground = appPricingPageBackground(params, appearance);
   const proFeatures = visibleProFeatures({
     base: pricing.pro.features,
     vault: pricing.pro.vaultFeatures,
@@ -48,130 +48,137 @@ export default async function AppPricingPage({
   const faqItems = visibleFaqItems(pricing.faq.items as FaqItem[]);
 
   return (
-    <main
-      className="min-h-screen w-full px-6 py-10 text-foreground sm:py-12"
-      data-app-pricing-appearance={appearance}
-      style={appPricingStyle(appearance, stickyBackground)}
-    >
-      <div className="mx-auto w-full max-w-6xl">
-        {banner ? <BillingBanner banner={banner} /> : null}
+    <>
+      <style>{`
+        html, body {
+          background: ${pageBackground} !important;
+        }
+      `}</style>
+      <main
+        className="min-h-screen w-full px-6 py-10 text-foreground sm:py-12"
+        data-app-pricing-appearance={appearance}
+        style={appPricingStyle(appearance, pageBackground)}
+      >
+        <div className="mx-auto w-full max-w-6xl">
+          {banner ? <BillingBanner banner={banner} /> : null}
 
-        <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
+          <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
 
-        <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
-          <PlanCard
-            name={pricing.free.name}
-            price={pricing.free.price}
-            period={pricing.perMonth}
-            badge={
-              snapshot.planId === FREE_PLAN_ID ? (
-                <CurrentPlanBadge>Current plan</CurrentPlanBadge>
-              ) : null
-            }
-          >
-            {snapshot.planId === FREE_PLAN_ID ? (
-              <DisabledButton>Current plan</DisabledButton>
-            ) : (
-              <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
-                {pricing.free.cta}
-              </PrimaryLink>
-            )}
-            <p className="mt-5 text-sm font-medium text-muted">
-              {pricing.free.featuresLead}
-            </p>
-            <FeatureList items={pricing.free.features} muted />
-          </PlanCard>
+          <div className="mt-10 grid items-stretch gap-5 md:grid-cols-2 lg:grid-cols-4">
+            <PlanCard
+              name={pricing.free.name}
+              price={pricing.free.price}
+              period={pricing.perMonth}
+              badge={
+                snapshot.planId === FREE_PLAN_ID ? (
+                  <CurrentPlanBadge>Current plan</CurrentPlanBadge>
+                ) : null
+              }
+            >
+              {snapshot.planId === FREE_PLAN_ID ? (
+                <DisabledButton>Current plan</DisabledButton>
+              ) : (
+                <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
+                  {pricing.free.cta}
+                </PrimaryLink>
+              )}
+              <p className="mt-5 text-sm font-medium text-muted">
+                {pricing.free.featuresLead}
+              </p>
+              <FeatureList items={pricing.free.features} muted />
+            </PlanCard>
 
-          <PlanCard
-            name={pricing.pro.name}
-            price={pricing.pro.price}
-            period={pricing.perMonth}
-            badge={
-              snapshot.isPro ? (
-                <CurrentPlanBadge>Current plan</CurrentPlanBadge>
-              ) : null
-            }
-          >
-            {snapshot.isPro ? (
-              <DisabledButton>Current plan</DisabledButton>
-            ) : (
-              <PrimaryLink href={APP_PRICING_CHECKOUT_URL}>{pricing.pro.cta}</PrimaryLink>
-            )}
-            <p className="mt-5 text-sm font-medium">
-              {pricing.pro.featuresLead}
-            </p>
-            <FeatureList items={proFeatures} />
-          </PlanCard>
+            <PlanCard
+              name={pricing.pro.name}
+              price={pricing.pro.price}
+              period={pricing.perMonth}
+              badge={
+                snapshot.isPro ? (
+                  <CurrentPlanBadge>Current plan</CurrentPlanBadge>
+                ) : null
+              }
+            >
+              {snapshot.isPro ? (
+                <DisabledButton>Current plan</DisabledButton>
+              ) : (
+                <PrimaryLink href={APP_PRICING_CHECKOUT_URL}>{pricing.pro.cta}</PrimaryLink>
+              )}
+              <p className="mt-5 text-sm font-medium">
+                {pricing.pro.featuresLead}
+              </p>
+              <FeatureList items={proFeatures} />
+            </PlanCard>
 
-          <PlanCard
-            name={pricing.team.name}
-            price={pricing.team.price}
-            period={pricing.perUserMonth}
-          >
-            <PrimaryLink href={TEAM_CTA_URL}>{pricing.team.cta}</PrimaryLink>
-            <p className="mt-5 text-sm font-medium">
-              {pricing.team.featuresLead}
-            </p>
-            <FeatureList items={pricing.team.features} />
-          </PlanCard>
+            <PlanCard
+              name={pricing.team.name}
+              price={pricing.team.price}
+              period={pricing.perUserMonth}
+            >
+              <PrimaryLink href={TEAM_CTA_URL}>{pricing.team.cta}</PrimaryLink>
+              <p className="mt-5 text-sm font-medium">
+                {pricing.team.featuresLead}
+              </p>
+              <FeatureList items={pricing.team.features} />
+            </PlanCard>
 
-          <PlanCard
-            name={pricing.enterprise.name}
-            price={pricing.enterprise.price}
-          >
-            <SecondaryLink href={`mailto:${SALES_EMAIL}`}>
-              {pricing.enterprise.cta}
-            </SecondaryLink>
-            <p className="mt-5 text-sm font-medium">
-              {pricing.enterprise.featuresLead}
-            </p>
-            <FeatureList items={pricing.enterprise.features} />
-          </PlanCard>
-        </div>
-
-        <section className="mt-16">
-          <PricingCompareTable
-            rows={compareRows}
-            stickyTopClassName="top-0"
-            names={{
-              free: pricing.free.name,
-              pro: pricing.pro.name,
-              team: pricing.team.name,
-              enterprise: pricing.enterprise.name,
-            }}
-            prices={{
-              free: pricing.free.price,
-              pro: `${pricing.pro.price}${pricing.perMonth}`,
-              team: `${pricing.team.price}${pricing.perUserMonth}`,
-              enterprise: pricing.enterprise.price,
-            }}
-          />
-        </section>
-
-        <PricingSizeTable
-          rows={sizeRows}
-          title={pricing.sizes.title}
-          body={pricing.sizes.body}
-          colSize={pricing.sizes.colSize}
-          colUse={pricing.sizes.colUse}
-          colRate={pricing.sizes.colRate}
-        />
-
-        <section className="mt-16 border-t border-border pt-10">
-          <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
-            {pricing.faq.title}
-          </h2>
-          <div className="max-w-2xl space-y-5 text-[15px] leading-relaxed">
-            {faqItems.map((item, i) => (
-              <div key={i}>
-                <p className="mb-1 font-medium">{item.q}</p>
-                <p className="text-muted">{item.a}</p>
-              </div>
-            ))}
+            <PlanCard
+              name={pricing.enterprise.name}
+              price={pricing.enterprise.price}
+            >
+              <SecondaryLink href={`mailto:${SALES_EMAIL}`}>
+                {pricing.enterprise.cta}
+              </SecondaryLink>
+              <p className="mt-5 text-sm font-medium">
+                {pricing.enterprise.featuresLead}
+              </p>
+              <FeatureList items={pricing.enterprise.features} />
+            </PlanCard>
           </div>
-        </section>
-      </div>
-    </main>
+
+          <section className="mt-16">
+            <PricingCompareTable
+              rows={compareRows}
+              stickyTopClassName="top-0"
+              names={{
+                free: pricing.free.name,
+                pro: pricing.pro.name,
+                team: pricing.team.name,
+                enterprise: pricing.enterprise.name,
+              }}
+              prices={{
+                free: pricing.free.price,
+                pro: `${pricing.pro.price}${pricing.perMonth}`,
+                team: `${pricing.team.price}${pricing.perUserMonth}`,
+                enterprise: pricing.enterprise.price,
+              }}
+            />
+          </section>
+
+          <PricingSizeTable
+            rows={sizeRows}
+            title={pricing.sizes.title}
+            body={pricing.sizes.body}
+            colSize={pricing.sizes.colSize}
+            colUse={pricing.sizes.colUse}
+            colRate={pricing.sizes.colRate}
+          />
+
+          <section className="mt-16 border-t border-border pt-10">
+            <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
+              {pricing.faq.title}
+            </h2>
+            <div className="max-w-2xl space-y-5 text-[15px] leading-relaxed">
+              {faqItems.map((item, i) => (
+                <div key={i}>
+                  <p className="mb-1 font-medium">{item.q}</p>
+                  <p className="text-muted">{item.a}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </main>
+    </>
   );
 }
 
@@ -266,7 +273,7 @@ function appPricingAppearance(
   return firstParam(params.appearance) === "dark" ? "dark" : "light";
 }
 
-function appPricingStickyBackground(
+function appPricingPageBackground(
   params: Record<string, string | string[] | undefined>,
   appearance: "light" | "dark",
 ): string {
@@ -274,12 +281,12 @@ function appPricingStickyBackground(
   if (background && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(background)) {
     return background;
   }
-  return appearance === "dark" ? "rgba(24, 24, 24, 0.96)" : "rgba(245, 245, 245, 0.96)";
+  return appearance === "dark" ? "#272822" : "#fafafa";
 }
 
 function appPricingStyle(
   appearance: "light" | "dark",
-  stickyBackground: string,
+  pageBackground: string,
 ): CSSProperties {
   if (appearance === "dark") {
     return {
@@ -287,9 +294,11 @@ function appPricingStyle(
       "--muted": "#a3a3a3",
       "--border": "rgba(255, 255, 255, 0.18)",
       "--code-bg": "rgba(24, 24, 24, 0.72)",
-      "--background": "transparent",
-      "--pricing-sticky-bg": stickyBackground,
-      "--button-foreground": "#0a0a0a",
+      "--background": pageBackground,
+      "--pricing-sticky-bg": pageBackground,
+      "--button-foreground": pageBackground,
+      backgroundColor: pageBackground,
+      colorScheme: "dark",
     } as CSSProperties;
   }
   return {
@@ -297,8 +306,10 @@ function appPricingStyle(
     "--muted": "#5f6368",
     "--border": "rgba(0, 0, 0, 0.14)",
     "--code-bg": "rgba(245, 245, 245, 0.78)",
-    "--background": "transparent",
-    "--pricing-sticky-bg": stickyBackground,
+    "--background": pageBackground,
+    "--pricing-sticky-bg": pageBackground,
     "--button-foreground": "#ffffff",
+    backgroundColor: pageBackground,
+    colorScheme: "light",
   } as CSSProperties;
 }
