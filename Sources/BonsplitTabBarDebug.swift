@@ -318,7 +318,7 @@ private struct BonsplitTabBarDebugView: View {
     }
 
     private func refreshLiveWorkspaces() {
-        let managers = AppDelegate.shared?.allMainWindowTabManagersForDebug() ?? []
+        let managers = AppDelegate.shared?.allMainWindowTabManagers() ?? []
         var seen = Set<ObjectIdentifier>()
         for manager in managers {
             guard seen.insert(ObjectIdentifier(manager)).inserted else { continue }

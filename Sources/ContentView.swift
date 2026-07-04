@@ -9983,7 +9983,7 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
-    @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
+    @State var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -10877,7 +10877,7 @@ struct VerticalTabsSidebar: View {
         }
     }
 
-    private func refreshExtensionSidebarSnapshot() {
+    func refreshExtensionSidebarSnapshot() {
         extensionSidebarUpdateToken &+= 1
     }
 
@@ -11665,7 +11665,12 @@ struct VerticalTabsSidebar: View {
         now: Date
     ) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
-        let canCreateWorktree = section.treeSection.projectRootPath != nil
+        let worktreeIdentity = CmuxExtensionWorktreePrototype.managedWorktreeIdentity(
+            gitRootPath: section.treeSection.projectRootPath
+        )
+        // A managed worktree section manages an existing worktree (remove / open
+        // terminal inside); a plain project section offers worktree creation.
+        let canCreateWorktree = worktreeIdentity == nil && section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
 
@@ -11694,7 +11699,14 @@ struct VerticalTabsSidebar: View {
 
                 Spacer(minLength: 0)
 
-                if canCreateWorktree {
+                if let worktreeIdentity {
+                    ExtensionSidebarWorktreeHeaderControls(
+                        worktree: worktreeIdentity,
+                        sectionId: section.id,
+                        onOpenTerminal: { openTerminalInExtensionWorktree(worktreePath: $0) },
+                        onRemove: { requestRemoveExtensionWorktree(worktreePath: $0) }
+                    )
+                } else if canCreateWorktree {
                     let worktreeButtonSymbol = extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id)
                         ? "clock"
                         : "plus"
@@ -11717,15 +11729,24 @@ struct VerticalTabsSidebar: View {
             if !isCollapsed {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(section.rows) { row in
+                        let rowSnapshot = workspaceSnapshotsById[row.workspaceId]
+                        let rowWorktree = CmuxExtensionWorktreePrototype.managedWorktreeIdentity(
+                            gitRootPath: rowSnapshot?.projectRootPath
+                        )
                         CmuxExtensionSidebarWorkspaceRowView(
                             row: row,
-                            workspace: workspaceSnapshotsById[row.workspaceId],
+                            workspace: rowSnapshot,
                             providerId: providerId,
                             relativeNow: now,
                             isSelected: row.workspaceId == selectedWorkspaceId,
                             onSelect: selectExtensionSidebarWorkspace,
                             onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
                         )
+                        .modifier(ExtensionSidebarWorktreeRowContextMenu(
+                            worktree: rowWorktree,
+                            onOpenTerminal: { openTerminalInExtensionWorktree(worktreePath: $0) },
+                            onRemove: { requestRemoveExtensionWorktree(worktreePath: $0) }
+                        ))
                         .id(row.id)
                         .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
                     }
@@ -11754,36 +11775,6 @@ struct VerticalTabsSidebar: View {
         selectedTabIds = [workspaceId]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspaceId }
         tabManager.selectWorkspace(workspace)
-    }
-
-    private func createExtensionWorktreeWorkspace(for section: CmuxSidebarProviderTreeSection) {
-        guard let projectRootPath = section.projectRootPath,
-              !extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id) else {
-            return
-        }
-
-        extensionSidebarWorktreeCreationInFlightSectionIds.insert(section.id)
-        Task {
-            do {
-                let result = try await CmuxExtensionWorktreePrototype.createWorktree(projectRootPath: projectRootPath)
-                let spawnArgs = result.workspaceSpawnArgs()
-                tabManager.addWorkspace(
-                    title: spawnArgs.title,
-                    workingDirectory: spawnArgs.workingDirectory,
-                    initialTerminalInput: spawnArgs.initialTerminalInput,
-                    inheritWorkingDirectory: spawnArgs.inheritWorkingDirectory,
-                    select: true,
-                    eagerLoadTerminal: false,
-                    autoWelcomeIfNeeded: spawnArgs.initialTerminalInput == nil
-                )
-            } catch {
-                NSSound.beep()
-#if DEBUG
-                cmuxDebugLog("extensionSidebar.worktree.failed project=\(projectRootPath) error=\(error.localizedDescription)")
-#endif
-            }
-            extensionSidebarWorktreeCreationInFlightSectionIds.remove(section.id)
-        }
     }
 
     private func workspaceScrollContent(
