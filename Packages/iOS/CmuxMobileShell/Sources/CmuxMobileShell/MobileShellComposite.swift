@@ -688,7 +688,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var connections: [String: MacConnection] = [:]
     var foregroundMacDeviceID: String? {
         didSet {
-            if oldValue == nil, let foregroundMacDeviceID { createdTerminalSelection?.adoptMacDeviceID(foregroundMacDeviceID) }
+            if oldValue == nil, let foregroundMacDeviceID { createdTerminalSelection?.adoptMacDeviceIDIfMissing(foregroundMacDeviceID) }
             recomputeDerivedWorkspaceState()
         }
     }
