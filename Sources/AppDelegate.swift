@@ -662,6 +662,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let display: SessionDisplaySnapshot?
     }
 
+    private struct PreSleepWindowGeometry {
+        let frame: SessionRectSnapshot
+        let display: SessionDisplaySnapshot?
+    }
+
     nonisolated static let persistedWindowGeometrySchemaVersion = 2
     private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
 #if DEBUG
@@ -807,6 +812,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
+    private var preSleepWindowGeometries: [UUID: PreSleepWindowGeometry] = [:]
+    private var wakeWindowGeometryRestoreGeneration = 0
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
@@ -3590,6 +3597,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    nonisolated static func shouldRestoreWindowFrameAfterWake(
+        currentFrame: CGRect,
+        targetFrame: CGRect,
+        sizeTolerance: CGFloat = 12,
+        originTolerance: CGFloat = 12,
+        shrinkRatioThreshold: CGFloat = 0.85,
+        dimensionShrinkRatioThreshold: CGFloat = 0.90
+    ) -> Bool {
+        guard isValidRestorableWindowFrame(currentFrame),
+              isValidRestorableWindowFrame(targetFrame) else {
+            return false
+        }
+
+        let current = currentFrame.standardized
+        let target = targetFrame.standardized
+        let widthDelta = abs(current.width - target.width)
+        let heightDelta = abs(current.height - target.height)
+        let originDelta = max(
+            abs(current.minX - target.minX),
+            abs(current.minY - target.minY)
+        )
+        if widthDelta <= sizeTolerance,
+           heightDelta <= sizeTolerance,
+           originDelta <= originTolerance {
+            return false
+        }
+
+        let currentArea = max(current.width * current.height, 1)
+        let targetArea = max(target.width * target.height, 1)
+        if currentArea < targetArea * shrinkRatioThreshold {
+            return true
+        }
+
+        let widthShrank = current.width < target.width * dimensionShrinkRatioThreshold
+        let heightShrank = current.height < target.height * dimensionShrinkRatioThreshold
+        if widthShrank || heightShrank {
+            return true
+        }
+
+        let sizeIsStable = widthDelta <= sizeTolerance * 2
+            && heightDelta <= sizeTolerance * 2
+        return sizeIsStable && originDelta > originTolerance * 2
+    }
+
+    nonisolated static func isValidRestorableWindowFrame(_ frame: CGRect) -> Bool {
+        frame.origin.x.isFinite
+            && frame.origin.y.isFinite
+            && frame.width.isFinite
+            && frame.height.isFinite
+            && frame.width >= CGFloat(SessionPersistencePolicy.minimumWindowWidth)
+            && frame.height >= CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+    }
+
     private nonisolated static func resolvedWindowFrame(
         frame: CGRect,
         displaySnapshot: SessionDisplaySnapshot?,
@@ -3891,11 +3951,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
+                    self.capturePreSleepWindowGeometries()
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
             }
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
+
+        let screensSleepObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.capturePreSleepWindowGeometries()
+            }
+        }
+        lifecycleSnapshotObservers.append(screensSleepObserver)
+
+        let screensWakeObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleWakeWindowGeometryRestore()
+            }
+        }
+        lifecycleSnapshotObservers.append(screensWakeObserver)
 
         let didWakeObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
@@ -3903,10 +3986,115 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+                guard let self else { return }
+                self.restartSocketListenerIfEnabled(source: "workspace.didWake")
+                self.scheduleWakeWindowGeometryRestore()
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        let sessionActiveObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.sessionDidBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleWakeWindowGeometryRestore()
+            }
+        }
+        lifecycleSnapshotObservers.append(sessionActiveObserver)
+    }
+
+    private func capturePreSleepWindowGeometries() {
+        preSleepWindowGeometries = Dictionary(
+            uniqueKeysWithValues: mainWindowContexts.values.compactMap { context in
+                guard let window = resolvedWindow(for: context) ?? context.window,
+                      window.isVisible,
+                      !window.isMiniaturized,
+                      Self.isValidRestorableWindowFrame(window.frame) else {
+                    return nil
+                }
+                return (
+                    context.windowId,
+                    PreSleepWindowGeometry(
+                        frame: SessionRectSnapshot(window.frame),
+                        display: displaySnapshot(for: window)
+                    )
+                )
+            }
+        )
+    }
+
+    private func scheduleWakeWindowGeometryRestore() {
+        guard !preSleepWindowGeometries.isEmpty else { return }
+        wakeWindowGeometryRestoreGeneration += 1
+        let generation = wakeWindowGeometryRestoreGeneration
+        for delay in [0.25, 1.0, 2.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.wakeWindowGeometryRestoreGeneration == generation else { return }
+                    self.restorePreSleepWindowGeometriesIfNeeded()
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.wakeWindowGeometryRestoreGeneration == generation else { return }
+                self.preSleepWindowGeometries.removeAll()
+            }
+        }
+    }
+
+    private func restorePreSleepWindowGeometriesIfNeeded() {
+        guard !preSleepWindowGeometries.isEmpty else { return }
+        let displays = currentDisplayGeometries()
+        for context in mainWindowContexts.values {
+            guard let captured = preSleepWindowGeometries[context.windowId],
+                  let window = resolvedWindow(for: context) ?? context.window,
+                  !window.isMiniaturized,
+                  let targetFrame = Self.resolvedWindowFrame(
+                      from: captured.frame,
+                      display: captured.display,
+                      availableDisplays: displays.available,
+                      fallbackDisplay: displays.fallback
+                  ),
+                  Self.shouldRestoreWindowFrameAfterWake(
+                      currentFrame: window.frame,
+                      targetFrame: targetFrame
+                  ) else {
+                continue
+            }
+            window.setFrame(targetFrame, display: true)
+        }
+    }
+
+    private func sessionWindowGeometry(
+        for context: MainWindowContext
+    ) -> (frame: SessionRectSnapshot?, display: SessionDisplaySnapshot?) {
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        if let cached = preSleepWindowGeometries[context.windowId] {
+            guard let window else {
+                return (cached.frame, cached.display)
+            }
+            let displays = currentDisplayGeometries()
+            if let targetFrame = Self.resolvedWindowFrame(
+                from: cached.frame,
+                display: cached.display,
+                availableDisplays: displays.available,
+                fallbackDisplay: displays.fallback
+            ),
+            Self.shouldRestoreWindowFrameAfterWake(
+                currentFrame: window.frame,
+                targetFrame: targetFrame
+            ) {
+                return (cached.frame, cached.display)
+            }
+        }
+
+        return (
+            window.map { SessionRectSnapshot($0.frame) },
+            displaySnapshot(for: window)
+        )
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -4020,8 +4208,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasher.combine(1)
             }
 
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
-                Self.hashFrame(window.frame, into: &hasher)
+            let geometry = sessionWindowGeometry(for: context)
+            if let frame = geometry.frame {
+                Self.hashFrame(frame.cgRect, into: &hasher)
+                if let display = geometry.display {
+                    Self.hashDisplaySnapshot(display, into: &hasher)
+                } else {
+                    hasher.combine(-1)
+                }
             } else {
                 hasher.combine(-1)
             }
@@ -4406,6 +4600,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         quantized.forEach { hasher.combine($0) }
     }
 
+    private nonisolated static func hashDisplaySnapshot(
+        _ display: SessionDisplaySnapshot,
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(display.displayID.map(Int.init) ?? -1)
+        if let frame = display.frame?.cgRect {
+            hashFrame(frame, into: &hasher)
+        } else {
+            hasher.combine(-1)
+        }
+        if let visibleFrame = display.visibleFrame?.cgRect {
+            hashFrame(visibleFrame, into: &hasher)
+        } else {
+            hasher.combine(-1)
+        }
+    }
+
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
@@ -4534,11 +4745,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
 
-        let window = context.window ?? windowForMainWindowId(context.windowId)
+        let geometry = sessionWindowGeometry(for: context)
         return SessionWindowSnapshot(
             windowId: context.windowId,
-            frame: window.map { SessionRectSnapshot($0.frame) },
-            display: displaySnapshot(for: window),
+            frame: geometry.frame,
+            display: geometry.display,
             tabManager: tabManagerSnapshot,
             sidebar: SessionSidebarSnapshot(
                 isVisible: context.sidebarState.isVisible,
@@ -16016,6 +16227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
         let closingContext = contextForMainTerminalWindow(window, reindex: false)
+        if let closingContext {
+            preSleepWindowGeometries.removeValue(forKey: closingContext.windowId)
+        }
         let closingWindowIsCrashDiagnostic = closingContext.map { context in
             closeWindowSnapshotPruningCrashDiagnostics(
                 for: context,
