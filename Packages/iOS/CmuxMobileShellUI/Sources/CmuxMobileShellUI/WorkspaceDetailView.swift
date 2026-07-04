@@ -397,7 +397,7 @@ struct WorkspaceDetailView: View {
                     ? { queueTerminalPickerAction(.toggleWorkspaceReadState) }
                     : nil,
                 closeWorkspace: closeWorkspace != nil ? { queueTerminalPickerAction(.closeWorkspace) } : nil,
-                openTextSheet: activeBrowser == nil ? { queueTerminalPickerAction(.openTextSheet) } : nil,
+                openTextSheet: activeBrowser == nil && !isChatMode ? { queueTerminalPickerAction(.openTextSheet) } : nil,
                 #if DEBUG
                 copyDebugLogs: copyDebugLogsAction,
                 #endif
