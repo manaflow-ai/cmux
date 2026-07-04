@@ -32,7 +32,7 @@ import Testing
         )
     }
 
-    @Test func rootScopedDropOverNestedGroupHeaderTargetsRootGroupAnchor() throws {
+    @Test func ungroupedWorkspaceEdgeDropOverNestedGroupHeaderTargetsParentGroup() throws {
         let rootGroupId = UUID()
         let childGroupId = UUID()
         let rootAnchor = UUID()
@@ -96,15 +96,15 @@ import Testing
             )
         ))
 
-        #expect(plan.indicator == SidebarDropIndicator(tabId: rootAnchor, edge: .top))
-        #expect(plan.indicatorScope == .topLevel)
+        #expect(plan.indicator == SidebarDropIndicator(tabId: childAnchor, edge: .top))
+        #expect(plan.indicatorScope == .group(rootGroupId))
         guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
-            Issue.record("Expected top-level reorder plan")
+            Issue.record("Expected parent-group reorder plan")
             return
         }
-        #expect(targetIndex == 0)
-        #expect(usesTopLevelRows)
-        #expect(explicitGroupId == nil)
+        #expect(targetIndex == 1)
+        #expect(!usesTopLevelRows)
+        #expect(explicitGroupId == rootGroupId)
     }
 
     @Test func draggingNestedGroupAnchorToRootEndProducesPromotionPlan() throws {
@@ -249,10 +249,10 @@ import Testing
         let siblingMember = UUID()
         let outside = UUID()
 
-        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+        func request(point: CGPoint, draggedWorkspaceId: UUID) -> SidebarWorkspaceReorderDropRequest {
             SidebarWorkspaceReorderDropRequest(
                 point: point,
-                draggedWorkspaceId: draggedAnchor,
+                draggedWorkspaceId: draggedWorkspaceId,
                 workspaces: [
                     SidebarWorkspaceReorderWorkspaceSnapshot(id: parentAnchor, isPinned: false, groupId: parentGroupId),
                     SidebarWorkspaceReorderWorkspaceSnapshot(id: draggedAnchor, isPinned: false, groupId: draggedGroupId),
@@ -318,16 +318,22 @@ import Testing
         }
 
         let topPlan = try #require(SidebarWorkspaceReorderDropResolver().plan(
-            for: request(point: CGPoint(x: 20, y: 124))
+            for: request(point: CGPoint(x: 20, y: 124), draggedWorkspaceId: draggedAnchor)
         ))
         #expect(topPlan.indicator == SidebarDropIndicator(tabId: siblingAnchor, edge: .top))
         assertParentGroupPlan(topPlan, parentGroupId: parentGroupId, targetIndex: 2)
 
         let bottomPlan = try #require(SidebarWorkspaceReorderDropResolver().plan(
-            for: request(point: CGPoint(x: 20, y: 148))
+            for: request(point: CGPoint(x: 20, y: 148), draggedWorkspaceId: draggedAnchor)
         ))
         #expect(bottomPlan.indicator == SidebarDropIndicator(tabId: siblingAnchor, edge: .bottom))
         assertParentGroupPlan(bottomPlan, parentGroupId: parentGroupId, targetIndex: 3)
+
+        let memberPlan = try #require(SidebarWorkspaceReorderDropResolver().plan(
+            for: request(point: CGPoint(x: 20, y: 124), draggedWorkspaceId: draggedMember)
+        ))
+        #expect(memberPlan.indicator == SidebarDropIndicator(tabId: siblingAnchor, edge: .top))
+        assertParentGroupPlan(memberPlan, parentGroupId: parentGroupId, targetIndex: 2)
     }
 
     private func assertParentGroupPlan(

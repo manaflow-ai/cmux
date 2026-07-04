@@ -136,15 +136,15 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     ) -> UUID? {
         guard let candidate = groupScopeCandidate(
             context: context,
-            draggedWorkspace: draggedWorkspace,
-            groupsById: groupsById,
-            groupByAnchorId: groupByAnchorId
+            groupsById: groupsById
         ) else {
             return nil
         }
-        if let draggedGroup = groupByAnchorId[draggedWorkspace.id],
-           candidate.groupId != draggedGroup.parentGroupId {
-            return nil
+        if let draggedGroup = groupByAnchorId[draggedWorkspace.id] {
+            guard draggedGroup.parentGroupId != nil,
+                  candidate.groupId != draggedGroup.id else {
+                return nil
+            }
         }
         guard candidate.isAmbiguous else { return candidate.groupId }
         // Ambiguous group/root dividers use a coarse hierarchy lane: the left
@@ -166,17 +166,13 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
 
     private func groupScopeCandidate(
         context: SidebarWorkspaceReorderHitContext,
-        draggedWorkspace: SidebarWorkspaceReorderWorkspaceSnapshot,
-        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
-        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
     ) -> (groupId: UUID, isAmbiguous: Bool)? {
-        let draggedGroupParentId = groupByAnchorId[draggedWorkspace.id]?.parentGroupId
         if let target = context.target {
             if target.isGroupHeader,
                let groupId = target.groupId,
                let parentGroupId = groupsById[groupId]?.parentGroupId,
-               groupsById[parentGroupId] != nil,
-               draggedWorkspace.groupId == parentGroupId || draggedGroupParentId == parentGroupId {
+               groupsById[parentGroupId] != nil {
                 return (parentGroupId, false)
             }
             if let groupId = target.groupId,
