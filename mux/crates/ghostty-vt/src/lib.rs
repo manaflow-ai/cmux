@@ -12,7 +12,7 @@ mod terminal;
 pub use ghostty_vt_sys as sys;
 
 pub use key::{KeyAction, KeyEncoder, KeyInput, Mods};
-pub use render::{Cell, CursorInfo, CursorShape, Dirty, RenderState};
+pub use render::{Cell, ColorSpec, CursorInfo, CursorShape, Dirty, RenderState};
 pub use terminal::{Callbacks, NotifyFn, PtyWriteFn, Rgb, Screen, Scrollbar, Terminal};
 
 pub(crate) fn check(result: ghostty_vt_sys::GhosttyResult) -> std::result::Result<(), Error> {

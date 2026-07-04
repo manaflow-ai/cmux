@@ -26,6 +26,7 @@ def active_screen(ws):
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
+    os.environ.pop("NO_COLOR", None)
     os.execv(BIN, [BIN, "--session", SESSION])
 
 # Set a real window size
@@ -135,6 +136,19 @@ os.write(fd, b"printf 'smoke-marker-%s\\n' ok\r")
 wait_screen_contains(surface_id, "smoke-marker-ok")
 print("keystroke -> pty -> ghostty screen ok")
 
+color_output_start = len(output)
+os.write(
+    fd,
+    b"printf '\\033[31mCF1\\033[93mCF2\\033[38;5;196mCF3\\033[48;5;236mCF4\\033[0m\\n'\r",
+)
+wait_screen_contains(surface_id, "CF1CF2CF3CF4")
+color_output = output[color_output_start:]
+assert re.search(rb"\x1b\[[0-9;]*(31|38;5;1)(;[0-9]*)?m", color_output), color_output[-2000:]
+assert b"38;5;196" in color_output, color_output[-2000:]
+assert b"48;5;236" in color_output, color_output[-2000:]
+assert b"204;102;102" not in color_output, color_output[-2000:]
+print("indexed color passthrough ok")
+
 inner_osc_query = """python3 - <<'PY'
 import os, select, termios, time, tty
 fd = os.open('/dev/tty', os.O_RDWR)
@@ -163,6 +177,8 @@ print("inner OSC 11 query receives seeded background ok")
 # Pane content starts at column 24 (sidebar 22 + left border 1; SGR
 # 1-based) and row offset 1 for the top border. On release the TUI must
 # copy the selection to the host clipboard as an OSC 52 sequence.
+os.write(fd, b"clear; printf 'smoke-marker-%s\\n' ok\r")
+wait_screen_contains(surface_id, "smoke-marker-ok")
 lines = rpc({"id": 100, "cmd": "read-screen", "surface": surface_id})["data"]["text"].splitlines()
 vrow = next(i for i, l in enumerate(lines) if "smoke-marker-ok" in l)
 row = vrow + 2  # +1 top border, +1 SGR 1-based

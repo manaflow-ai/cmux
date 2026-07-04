@@ -29,6 +29,8 @@ Every pane draws a border box; the active pane's border is highlighted, the pane
 
 Drag to select text; on release the selection is copied to the host clipboard via OSC 52 (works over SSH). The highlight is viewport-anchored and clears on scroll or typing. Wheel scrolls the pane under the mouse, focusing it first (arrow keys on the alternate screen). The scrollbar defaults to a dedicated column just inside the right border; `scrollbar.position = "border"` restores the old border-overlay placement. A `▕` thumb appears whenever the surface has any scrollback (hidden only when no scrolling is possible at all). Hovering or dragging the thumb renders it as `▐`; clicking the thumb anchors a drag without moving the viewport, while clicking the track outside the thumb jumps there and then drags relative to that anchor.
 
+Indexed colors pass through to the host terminal's palette, so `cmux-mux` inherits the host theme like tmux. Truecolor cells pass through unchanged; palette entries overridden by an inner app with OSC 4 render as the override RGB because the host palette does not know about that inner override.
+
 ## Configuration
 
 `~/.config/cmux/mux.json` (override with `CMUX_MUX_CONFIG`); every key is optional:

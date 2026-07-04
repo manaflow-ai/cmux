@@ -6,7 +6,7 @@
 //! pane's border is highlighted — this is also where flashing
 //! notifications will hook in later.
 
-use ghostty_vt::{Cell as VtCell, RenderState};
+use ghostty_vt::{Cell as VtCell, ColorSpec, RenderState, Rgb};
 use mux_core::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
@@ -256,6 +256,7 @@ fn draw_content(
     let buf = frame.buffer_mut();
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x)) as usize;
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y)) as usize;
+    let colors = PaletteResolver::from_render_state(rs);
 
     rs.walk_rows(|row, _dirty, cells| {
         if row >= max_rows {
@@ -268,7 +269,7 @@ fn draw_content(
             }
             let x = rect.x + col as u16;
             let selected = selection.is_some_and(|s| s.contains(col as u16, row as u16));
-            apply_cell(&mut buf[(x, y)], cell, selected.then_some(&theme));
+            apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(&theme));
         }
         // Pane narrower than the rect (during resize races): blank the rest.
         for col in cells.len()..max_cols {
@@ -390,7 +391,69 @@ fn push_resize_hits(app: &mut App, area: &PaneArea) {
     app.hits.extend(hits);
 }
 
-fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: Option<&Theme>) {
+#[derive(Clone, Copy)]
+struct PaletteResolver {
+    colors: [Rgb; 256],
+    overridden: [bool; 256],
+}
+
+impl PaletteResolver {
+    fn from_render_state(rs: &RenderState) -> Self {
+        Self {
+            colors: std::array::from_fn(|idx| rs.palette_color(idx as u8)),
+            overridden: std::array::from_fn(|idx| rs.palette_overridden(idx as u8)),
+        }
+    }
+
+    fn resolve(&self, spec: ColorSpec) -> Color {
+        match spec {
+            ColorSpec::Default => Color::Reset,
+            ColorSpec::Rgb(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
+            ColorSpec::Palette(idx) => {
+                resolve_palette_color(idx, self.overridden[idx as usize], self.colors[idx as usize])
+            }
+        }
+    }
+}
+
+fn resolve_palette_color(idx: u8, overridden: bool, rgb: Rgb) -> Color {
+    if overridden {
+        return Color::Rgb(rgb.r, rgb.g, rgb.b);
+    }
+    if idx < 16 {
+        return BASIC_PALETTE_COLORS[idx as usize];
+    }
+    Color::Indexed(idx)
+}
+
+// ANSI palette slots 0-15 as host-terminal colors. Ratatui maps these to crossterm's
+// dark/bright variants; crossterm 0.28 serializes them as the indexed equivalent of
+// SGR 30-37 and 90-97 (foreground) or 40-47 and 100-107 (background).
+const BASIC_PALETTE_COLORS: [Color; 16] = [
+    Color::Black,        // 0: 30/40
+    Color::Red,          // 1: 31/41
+    Color::Green,        // 2: 32/42
+    Color::Yellow,       // 3: 33/43
+    Color::Blue,         // 4: 34/44
+    Color::Magenta,      // 5: 35/45
+    Color::Cyan,         // 6: 36/46
+    Color::Gray,         // 7: 37/47
+    Color::DarkGray,     // 8: 90/100
+    Color::LightRed,     // 9: 91/101
+    Color::LightGreen,   // 10: 92/102
+    Color::LightYellow,  // 11: 93/103
+    Color::LightBlue,    // 12: 94/104
+    Color::LightMagenta, // 13: 95/105
+    Color::LightCyan,    // 14: 96/106
+    Color::White,        // 15: 97/107
+];
+
+fn apply_cell(
+    target: &mut ratatui::buffer::Cell,
+    cell: &VtCell,
+    colors: &PaletteResolver,
+    selected: Option<&Theme>,
+) {
     if cell.text.is_empty() {
         target.set_symbol(" ");
     } else {
@@ -398,14 +461,8 @@ fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: Optio
     }
 
     let mut style = Style::default();
-    style = match cell.fg {
-        Some(rgb) => style.fg(Color::Rgb(rgb.r, rgb.g, rgb.b)),
-        None => style.fg(Color::Reset),
-    };
-    style = match cell.bg {
-        Some(rgb) => style.bg(Color::Rgb(rgb.r, rgb.g, rgb.b)),
-        None => style.bg(Color::Reset),
-    };
+    style = style.fg(colors.resolve(cell.fg));
+    style = style.bg(colors.resolve(cell.bg));
     let mut modifier = Modifier::empty();
     if cell.bold {
         modifier |= Modifier::BOLD;
@@ -443,4 +500,45 @@ fn apply_cell(target: &mut ratatui::buffer::Cell, cell: &VtCell, selected: Optio
         style = style.remove_modifier(Modifier::REVERSED);
     }
     target.set_style(style);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn palette_color_mapping_preserves_host_palette_when_not_overridden() {
+        let rgb = Rgb { r: 1, g: 2, b: 3 };
+        let expected = [
+            Color::Black,
+            Color::Red,
+            Color::Green,
+            Color::Yellow,
+            Color::Blue,
+            Color::Magenta,
+            Color::Cyan,
+            Color::Gray,
+            Color::DarkGray,
+            Color::LightRed,
+            Color::LightGreen,
+            Color::LightYellow,
+            Color::LightBlue,
+            Color::LightMagenta,
+            Color::LightCyan,
+            Color::White,
+        ];
+
+        for (idx, color) in expected.into_iter().enumerate() {
+            assert_eq!(resolve_palette_color(idx as u8, false, rgb), color);
+        }
+        assert_eq!(resolve_palette_color(16, false, rgb), Color::Indexed(16));
+        assert_eq!(resolve_palette_color(196, false, rgb), Color::Indexed(196));
+    }
+
+    #[test]
+    fn palette_color_mapping_renders_overrides_as_rgb() {
+        let rgb = Rgb { r: 1, g: 2, b: 3 };
+        assert_eq!(resolve_palette_color(1, true, rgb), Color::Rgb(1, 2, 3));
+        assert_eq!(resolve_palette_color(196, true, rgb), Color::Rgb(1, 2, 3));
+    }
 }
