@@ -167,6 +167,7 @@ public struct IntegrationsSection: View {
         case .slack: return String(localized: "settings.integrations.source.slack", defaultValue: "Slack")
         case .discord: return String(localized: "settings.integrations.source.discord", defaultValue: "Discord")
         case .imessage: return String(localized: "settings.integrations.source.imessage", defaultValue: "iMessage")
+        case .notifications: return String(localized: "settings.integrations.source.notifications", defaultValue: "App Notifications")
         case .generic: return String(localized: "settings.integrations.source.generic", defaultValue: "Generic")
         }
     }
@@ -183,6 +184,8 @@ public struct IntegrationsSection: View {
             return String(localized: "settings.integrations.source.discord.subtitle", defaultValue: "Official bot and Gateway connector for selected channels, mentions, DMs, and accessible threads.")
         case .imessage:
             return String(localized: "settings.integrations.source.imessage.subtitle", defaultValue: "Uses the cmux-imsg helper for status, recent sync, history, dedupe, and approved sends.")
+        case .notifications:
+            return String(localized: "settings.integrations.source.notifications.subtitle", defaultValue: "Surfaces every app's delivered macOS notifications locally — Slack, Mail, calendars, anything — with one Full Disk Access grant and no per-app credentials.")
         case .generic:
             return String(localized: "settings.integrations.source.generic.subtitle", defaultValue: "Accepts normalized events from CLI, Shortcuts, webhooks, Zapier, or internal tools.")
         }

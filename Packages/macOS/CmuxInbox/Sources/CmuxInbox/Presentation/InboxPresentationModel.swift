@@ -89,6 +89,7 @@ public struct InboxPresentationModel: Sendable {
         case .slack: return "number"
         case .discord: return "gamecontroller"
         case .imessage: return "message"
+        case .notifications: return "bell.badge"
         case .generic: return "tray"
         }
     }
@@ -101,6 +102,7 @@ public struct InboxPresentationModel: Sendable {
         case .slack: return "Slack"
         case .discord: return "Discord"
         case .imessage: return "iMessage"
+        case .notifications: return "Notifications"
         case .generic: return "Generic"
         }
     }

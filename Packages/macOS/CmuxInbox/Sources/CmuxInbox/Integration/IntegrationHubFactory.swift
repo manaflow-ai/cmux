@@ -33,10 +33,30 @@ public struct IntegrationHubFactory: Sendable {
         let connectors: [any InboxConnector] = [
             GenericInboxConnector(),
             IMessageHelperConnector(helper: LocalIMessageHelperClient(candidatePaths: iMessageHelperPaths)),
-            SlackConnector(tokenStore: tokenStore, httpClient: httpClient),
+            NotificationCenterConnector(
+                helper: LocalIMessageHelperClient(
+                    candidatePaths: LocalIMessageHelperClient.defaultHelperPaths(binaryName: "cmux-notif")
+                )
+            ),
+            SlackConnector(tokenStore: tokenStore, httpClient: httpClient, apiBase: Self.slackAPIBase()),
             GmailConnector(tokenStore: tokenStore, httpClient: httpClient),
             DiscordConnector(tokenStore: tokenStore, httpClient: httpClient),
         ]
         return IntegrationHub(store: store, connectors: connectors, tokenStore: tokenStore)
+    }
+
+    /// Debug builds may point Slack at a local protocol-compatible server for
+    /// end-to-end pipeline verification. Release builds ignore the override:
+    /// honoring an env var there would let a hostile environment redirect
+    /// API calls carrying the user's token.
+    private static func slackAPIBase() -> URL {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["CMUX_SLACK_API_BASE"],
+           let url = URL(string: raw), url.scheme == "http" || url.scheme == "https",
+           let host = url.host, host == "127.0.0.1" || host == "localhost" {
+            return url
+        }
+        #endif
+        return SlackConnector.productionAPIBase
     }
 }

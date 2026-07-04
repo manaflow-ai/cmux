@@ -12,6 +12,8 @@ public enum InboxSource: String, Codable, CaseIterable, Sendable, Hashable, Iden
     case discord
     /// iMessage helper events provided by `cmux-imsg`.
     case imessage
+    /// macOS Notification Center records from every app, via `cmux-notif`.
+    case notifications
     /// Generic CLI, webhook, Shortcuts, Zapier, or internal-tool events.
     case generic
 

@@ -83,6 +83,20 @@ mkdir -p ~/.cmuxterm/bin && cp .build/release/cmux-imsg ~/.cmuxterm/bin/
 
 Release builds bundle the helper at `Contents/Resources/cmux-imsg`.
 
+### App Notifications (every Mac app, zero credentials)
+
+The `notifications` source reads the local macOS Notification Center store
+through the `cmux-notif` helper, so every delivered notification — Slack,
+Mail, Discord, calendars, anything — lands in the Inbox with no per-app
+setup. Nothing leaves your Mac, and cmux's own notifications are excluded to
+prevent feedback loops. It needs the same one-time **Full Disk Access** grant
+as iMessage. Build alongside the iMessage helper:
+
+```bash
+cd tools/cmux-imsg && swift build -c release
+cp .build/release/cmux-notif ~/.cmuxterm/bin/
+```
+
 ### Generic
 
 No credentials. Push normalized events from your own tools:

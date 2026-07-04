@@ -17,6 +17,7 @@ extension InboxSource {
         case .slack: return Color.pink
         case .discord: return Color.indigo
         case .imessage: return Color.green
+        case .notifications: return Color.orange
         case .generic: return Color.teal
         }
     }

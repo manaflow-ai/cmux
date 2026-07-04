@@ -18,6 +18,8 @@ enum InboxLocalized {
             return String(localized: "inbox.source.discord", defaultValue: "Discord")
         case .imessage:
             return String(localized: "inbox.source.imessage", defaultValue: "iMessage")
+        case .notifications:
+            return String(localized: "inbox.source.notifications", defaultValue: "Notifications")
         case .generic:
             return String(localized: "inbox.source.generic", defaultValue: "Generic")
         }

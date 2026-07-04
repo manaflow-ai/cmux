@@ -254,3 +254,40 @@ import CmuxInbox
         #expect(try await missingPermissions.sync(cursor: nil).status.status == .permissionDenied)
     }
 }
+
+@Suite("Notification Center connector")
+struct NotificationCenterConnectorTests {
+    private actor StubNotifHelper: IMessageHelperClient {
+        func status() async -> IMessageHelperStatus {
+            IMessageHelperStatus(ok: true, lastSyncAt: Date(timeIntervalSince1970: 1_700_000_000))
+        }
+
+        func recent(cursor: String?) async throws -> InboxConnectorSyncResult {
+            try IMessageHelperJSONAdapter.syncResult(from: Data("""
+            {"ok":true,"account_id":"local",
+             "threads":[{"thread_id":"com.tinyspeck.slackmacgap","display_name":"Slack","last_activity_at":1700000000}],
+             "messages":[{"thread_id":"com.tinyspeck.slackmacgap","message_id":"rec-42","sender":"Slack",
+                          "timestamp":1700000000,"preview":"#ops — deploy finished","body":"#ops — deploy finished","unread":true}],
+             "cursor":"42"}
+            """.utf8))
+        }
+
+        func sendApprovedReply(draft: InboxDraft, thread: InboxThread) async throws {
+            throw InboxError.unsupported("read-only")
+        }
+    }
+
+    @Test func syncRebrandsHelperRecordsToNotificationsSource() async throws {
+        let connector = NotificationCenterConnector(helper: StubNotifHelper())
+        let result = try await connector.sync(cursor: nil)
+        #expect(result.status.source == .notifications)
+        #expect(result.items.first?.source == .notifications)
+        #expect(result.threads.first?.source == .notifications)
+        #expect(result.items.first?.itemID.hasPrefix("item:notifications:") == true)
+        #expect(result.items.first?.threadID == result.threads.first?.threadID)
+        #expect(result.nextCursor == "42")
+        let status = await connector.status()
+        #expect(status.status == .connected)
+        #expect(status.capabilities.contains(.sendReply) == false)
+    }
+}

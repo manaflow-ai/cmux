@@ -6,6 +6,7 @@ public enum IntegrationSettingsSource: String, CaseIterable, Identifiable, Senda
     case slack
     case discord
     case imessage
+    case notifications
     case generic
 
     public var id: String { rawValue }

@@ -14,5 +14,11 @@ let package = Package(
                 .linkedLibrary("sqlite3"),
             ]
         ),
+        .executableTarget(
+            name: "cmux-notif",
+            linkerSettings: [
+                .linkedLibrary("sqlite3"),
+            ]
+        ),
     ]
 )

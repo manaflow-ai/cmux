@@ -315,6 +315,11 @@ struct IntegrationConnectSheet: View {
                 ),
                 GuidedStep(String(localized: "settings.integrations.connectSheet.gmail.step3", defaultValue: "Paste the access token below. Access tokens expire after about an hour; the status shows Token expired when it lapses.")),
             ]
+        case .notifications:
+            return [
+                GuidedStep(String(localized: "settings.integrations.connectSheet.notifications.step1", defaultValue: "App Notifications reads the local macOS Notification Center store, so every app's notifications appear in the Inbox. Nothing leaves this Mac.")),
+                GuidedStep(String(localized: "settings.integrations.connectSheet.notifications.step2", defaultValue: "Grant Full Disk Access to cmux in System Settings > Privacy & Security > Full Disk Access, then relaunch cmux and press Connect.")),
+            ]
         case .imessage:
             return [
                 GuidedStep(String(localized: "settings.integrations.connectSheet.imessage.step1", defaultValue: "iMessage uses the local cmux-imsg helper. No credentials leave this Mac.")),

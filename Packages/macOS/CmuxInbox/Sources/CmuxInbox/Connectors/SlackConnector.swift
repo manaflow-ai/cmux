@@ -12,6 +12,7 @@ public actor SlackConnector: InboxConnector {
     private let channelIDs: [String]
     private let tokenStore: any InboxTokenStoring
     private let httpClient: any InboxHTTPClient
+    private let apiBase: URL
     private let identity = InboxIdentity()
 
     /// Creates a Slack connector.
@@ -20,14 +21,19 @@ public actor SlackConnector: InboxConnector {
         displayName: String = "Slack",
         channelIDs: [String] = [],
         tokenStore: any InboxTokenStoring,
-        httpClient: any InboxHTTPClient
+        httpClient: any InboxHTTPClient,
+        apiBase: URL = SlackConnector.productionAPIBase
     ) {
         self.accountID = accountID
         self.displayName = displayName
         self.channelIDs = channelIDs
         self.tokenStore = tokenStore
         self.httpClient = httpClient
+        self.apiBase = apiBase
     }
+
+    /// Production Slack Web API root.
+    public static let productionAPIBase = URL(string: "https://slack.com/api")!
 
     /// Returns Slack token status without exposing token bytes.
     public func status() async -> InboxConnectorStatus {
@@ -107,7 +113,8 @@ public actor SlackConnector: InboxConnector {
                     token: token,
                     channelID: channelID,
                     cursor: channelFloor,
-                    pageCursor: pageCursor
+                    pageCursor: pageCursor,
+                    apiBase: apiBase
                 ))
                 if let status = statusOverride(from: response) {
                     return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
@@ -209,8 +216,8 @@ public actor SlackConnector: InboxConnector {
     }
 
     /// Lists every conversation the bot user belongs to via `users.conversations`.
-    public static func usersConversationsRequest(token: String, cursor: String?) -> URLRequest {
-        var components = URLComponents(string: "https://slack.com/api/users.conversations")!
+    public static func usersConversationsRequest(token: String, cursor: String?, apiBase: URL = SlackConnector.productionAPIBase) -> URLRequest {
+        var components = URLComponents(url: apiBase.appendingPathComponent("users.conversations"), resolvingAgainstBaseURL: false)!
         var query = [
             URLQueryItem(name: "types", value: "public_channel,private_channel,mpim,im"),
             URLQueryItem(name: "exclude_archived", value: "true"),
@@ -246,7 +253,7 @@ public actor SlackConnector: InboxConnector {
         var channels: [DiscoveredConversation] = []
         var pageCursor: String?
         for _ in 0..<Self.discoveryPageLimit {
-            let response = try await httpClient.data(for: Self.usersConversationsRequest(token: token, cursor: pageCursor))
+            let response = try await httpClient.data(for: Self.usersConversationsRequest(token: token, cursor: pageCursor, apiBase: apiBase))
             if let status = statusOverride(from: response) {
                 return ([], status)
             }
@@ -264,7 +271,7 @@ public actor SlackConnector: InboxConnector {
               let token = String(data: tokenData, encoding: .utf8) else {
             throw InboxError.tokenUnavailable(.slack, accountID)
         }
-        let request = try Self.chatPostMessageRequest(token: token, draft: draft, thread: thread)
+        let request = try Self.chatPostMessageRequest(token: token, draft: draft, thread: thread, apiBase: apiBase)
         let response = try await httpClient.data(for: request)
         if let status = statusOverride(from: response), status.status != .connected {
             throw InboxError.connectorUnavailable(status.message ?? "Slack send failed")
@@ -281,8 +288,8 @@ public actor SlackConnector: InboxConnector {
     /// Builds the Web API history request. The cursor is this channel's
     /// message-timestamp high-watermark passed as `oldest` so each sync
     /// fetches only messages newer than the last one already ingested.
-    public static func conversationsHistoryRequest(token: String, channelID: String, cursor: String?, pageCursor: String? = nil) -> URLRequest {
-        var components = URLComponents(string: "https://slack.com/api/conversations.history")!
+    public static func conversationsHistoryRequest(token: String, channelID: String, cursor: String?, pageCursor: String? = nil, apiBase: URL = SlackConnector.productionAPIBase) -> URLRequest {
+        var components = URLComponents(url: apiBase.appendingPathComponent("conversations.history"), resolvingAgainstBaseURL: false)!
         var query = [URLQueryItem(name: "channel", value: channelID), URLQueryItem(name: "limit", value: "100")]
         if let cursor { query.append(URLQueryItem(name: "oldest", value: cursor)) }
         if let pageCursor, !pageCursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: pageCursor)) }
@@ -293,11 +300,11 @@ public actor SlackConnector: InboxConnector {
     }
 
     /// Builds the Web API send request.
-    public static func chatPostMessageRequest(token: String, draft: InboxDraft, thread: InboxThread) throws -> URLRequest {
+    public static func chatPostMessageRequest(token: String, draft: InboxDraft, thread: InboxThread, apiBase: URL = SlackConnector.productionAPIBase) throws -> URLRequest {
         guard let channelID = thread.metadata["channel_id"] else {
             throw InboxError.invalidParameters("Slack thread is missing channel_id")
         }
-        var request = URLRequest(url: URL(string: "https://slack.com/api/chat.postMessage")!)
+        var request = URLRequest(url: apiBase.appendingPathComponent("chat.postMessage"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

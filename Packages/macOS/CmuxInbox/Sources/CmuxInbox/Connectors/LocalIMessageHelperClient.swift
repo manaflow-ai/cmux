@@ -21,19 +21,19 @@ public struct LocalIMessageHelperClient: IMessageHelperClient {
     /// helper: preferring paths relative to the process working directory
     /// would execute whatever binary a user-controlled directory places at
     /// `tools/cmux-imsg/...`, so the dev-checkout paths are DEBUG-only.
-    public static func defaultHelperPaths() -> [URL] {
+    public static func defaultHelperPaths(binaryName: String = "cmux-imsg") -> [URL] {
         var paths: [URL] = []
         #if DEBUG
         let current = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        paths.append(current.appendingPathComponent("tools/cmux-imsg/cmux-imsg"))
-        paths.append(current.appendingPathComponent("tools/cmux-imsg/.build/release/cmux-imsg"))
+        paths.append(current.appendingPathComponent("tools/cmux-imsg/\(binaryName)"))
+        paths.append(current.appendingPathComponent("tools/cmux-imsg/.build/release/\(binaryName)"))
         #endif
-        paths.append(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/cmux-imsg"))
+        paths.append(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(binaryName)"))
         // User-installed helper shared across tagged builds; same trust domain
         // as the rest of ~/.cmuxterm (inbox database, file token vault).
         paths.append(
             FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cmuxterm/bin/cmux-imsg")
+                .appendingPathComponent(".cmuxterm/bin/\(binaryName)")
         )
         return paths
     }

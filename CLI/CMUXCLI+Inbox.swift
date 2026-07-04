@@ -97,7 +97,7 @@ extension CMUXCLI {
 
     private func runIntegrationsConnect(args: [String], client: SocketClient) throws -> [String: Any] {
         guard let source = args.first?.lowercased(), isInboxSource(source) else {
-            throw CLIError(message: String(localized: "cli.integrations.error.connectRequiresSource", defaultValue: "integrations connect requires gmail, slack, discord, or imessage"))
+            throw CLIError(message: String(localized: "cli.integrations.error.connectRequiresSource", defaultValue: "integrations connect requires gmail, slack, discord, imessage, or notifications"))
         }
         let rest = Array(args.dropFirst())
         let (accountID, afterAccount) = parseOption(rest, name: "--account")
@@ -418,6 +418,6 @@ extension CMUXCLI {
     }
 
     private func isInboxSource(_ source: String) -> Bool {
-        ["agent", "gmail", "slack", "discord", "imessage", "generic"].contains(source)
+        ["agent", "gmail", "slack", "discord", "imessage", "notifications", "generic"].contains(source)
     }
 }
