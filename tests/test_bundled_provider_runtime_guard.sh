@@ -131,4 +131,22 @@ if ! grep -Fq "Bun standalone runtime signature: Contents/Resources/bin/cmux" "$
   exit 1
 fi
 
+LARGE_BUN_SIGNATURE_APP="$TMP_DIR/bad-large-bun-signature/cmux.app"
+make_app "$LARGE_BUN_SIGNATURE_APP"
+{
+  printf '%s\n' '#!/bin/sh'
+  printf '%s\n' 'Bun v1.3.14 StandaloneExecutable /$bunfs/root'
+  awk 'BEGIN { for (i = 0; i < 5000; i++) print "cmux padding line after the early Bun signature" }'
+} > "$LARGE_BUN_SIGNATURE_APP/Contents/Resources/bin/cmux"
+chmod 0755 "$LARGE_BUN_SIGNATURE_APP/Contents/Resources/bin/cmux"
+if "$VERIFY_SCRIPT" "$LARGE_BUN_SIGNATURE_APP" >"$TMP_DIR/large-bun-signature.out" 2>&1; then
+  echo "FAIL: verifier allowed a large allowlisted executable with an early Bun standalone signature" >&2
+  exit 1
+fi
+if ! grep -Fq "Bun standalone runtime signature: Contents/Resources/bin/cmux" "$TMP_DIR/large-bun-signature.out"; then
+  echo "FAIL: large Bun signature rejection did not name the offending path" >&2
+  cat "$TMP_DIR/large-bun-signature.out" >&2
+  exit 1
+fi
+
 echo "PASS: bundled provider runtime guard rejects stale provider and Bun executables"
