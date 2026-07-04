@@ -179,23 +179,20 @@ enum AppshotCapturer {
     // MARK: Accessibility text
 
     private static func extractAccessibilityText(pid: pid_t, targetBounds: CGRect?) -> String {
-        // Bound EVERY synchronous AX IPC call in this process for the duration of
-        // the walk. A per-element timeout only covers that one element (not the
-        // window/child elements actually read), so set it on the system-wide
-        // element — which applies process-wide — and restore the default after,
-        // so a hung/hostile app can't block a child read and wedge `isCapturing`.
-        let systemWide = AXUIElementCreateSystemWide()
-        AXUIElementSetMessagingTimeout(systemWide, maxAccessibilityCallTimeout)
-        defer { AXUIElementSetMessagingTimeout(systemWide, 0) }
+        let app = AXUIElementCreateApplication(pid)
+        // Bound every synchronous AX IPC call to the target app for the duration
+        // of the walk. Setting the timeout on the system-wide element does not
+        // reliably bound requests made through the app/window/child elements.
+        AXUIElementSetMessagingTimeout(app, maxAccessibilityCallTimeout)
+        defer { AXUIElementSetMessagingTimeout(app, 0) }
 
         // One wall-clock budget for the ENTIRE capture: window resolution and
         // the node walk share it, so a slow or hostile app (many windows and/or
         // slow IPC) can't keep the capture — and
         // `isCapturing` — pending well past the advertised budget. Each AX call
-        // is separately bounded by the process-wide messaging timeout above, so
+        // is separately bounded by the app messaging timeout above, so
         // the worst-case overshoot is one in-flight call past the deadline.
         let deadline = Date().addingTimeInterval(maxAccessibilityDuration)
-        let app = AXUIElementCreateApplication(pid)
         guard let root = resolveTargetWindow(app: app, matching: targetBounds, deadline: deadline) else { return "" }
 
         var pieces: [String] = []
