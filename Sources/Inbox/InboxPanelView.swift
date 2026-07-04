@@ -50,6 +50,7 @@ private struct InboxPanelContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .accessibilityLabel(String(localized: "inbox.filter.accessibilityLabel", defaultValue: "Inbox filter"))
                 .accessibilityIdentifier("InboxFilterPicker")
 
                 Button {
