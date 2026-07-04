@@ -1267,9 +1267,12 @@ final class WindowTerminalPortal: NSObject {
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String) {
         // During live resize, AppKit can deliver frame churn where outer portal geometry
         // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
-        // in-place surface refresh when reconciliation actually changed terminal geometry.
+        // in-place surface refresh when reconciliation actually changed terminal geometry —
+        // and only for entries the user can see: a hosted view can lag with isHidden still
+        // false while its entry is already marked invisible, and the synchronous GPU-blocking
+        // redraw must not run for a surface on an unselected tab.
         for entry in entriesByHostedId.values {
-            guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
+            guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
                 hostedView.refreshSurfaceNow(reason: reason)
             }
@@ -1591,8 +1594,17 @@ final class WindowTerminalPortal: NSObject {
             }
             CATransaction.commit()
             if geometryChanged {
-                hostedView.reconcileGeometryNow()
-                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                _ = hostedView.reconcileGeometryNow()
+                // Only surfaces the user can actually see earn the synchronous
+                // redraw: refreshSurfaceNow blocks the main thread on the GPU,
+                // and one window-layout pass syncs EVERY hosted view — a mirror
+                // workspace holds 20+ surfaces, most on unselected tabs. Hidden
+                // surfaces keep the geometry bookkeeping above (frames/bounds
+                // stay current for a later reveal) and get their redraw from the
+                // reveal path below when they become visible.
+                if entry.visibleInUI, !shouldHide, !hostedView.isHidden {
+                    hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                }
             }
         }
 
