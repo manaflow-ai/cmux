@@ -146,7 +146,6 @@
 706	CLI/CMUXCLI+Config.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
 698	cmuxTests/RestorableAgentHookProviderResumeTests.swift
-697	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 696	cmuxTests/KeyboardShortcutContextTests.swift
 696	cmuxTests/UpdatePillReleaseVisibilityTests.swift
 691	Sources/NotificationSoundSettings.swift
