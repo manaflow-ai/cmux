@@ -25,6 +25,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
+    /// Right-sidebar Notes: an experimental mode for capturing notes while
+    /// offline and queuing them so cmux can hand them to an agent once
+    /// connectivity returns. Defaults off; while off, the Notes mode is
+    /// hidden from the switcher so the feature stays opt-in while in beta.
+    public let rightSidebarNotes = DefaultsKey<Bool>(
+        id: "rightSidebar.beta.notes.enabled",
+        defaultValue: false,
+        userDefaultsKey: "rightSidebar.beta.notes.enabled"
+    )
+
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
     /// (puzzle button, sidebar-toggle provider menu, installed-extension
     /// host, and the extensions browser). Defaults off; while off, every

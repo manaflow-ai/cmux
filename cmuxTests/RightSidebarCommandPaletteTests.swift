@@ -1,6 +1,6 @@
 import CmuxCommandPalette
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,76 +8,71 @@ import XCTest
 @testable import cmux
 #endif
 
-final class RightSidebarCommandPaletteTests: XCTestCase {
-    func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
+@Suite(.serialized)
+struct RightSidebarCommandPaletteTests {
+    @Test func commandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
 
             for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
-                let contribution = try XCTUnwrap(
+                let contribution = try #require(
                     contributionsByID[commandID],
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), mode.shortcutAction?.label ?? mode.label)
-                XCTAssertEqual(
-                    contribution.subtitle(context),
-                    String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
-                )
-                XCTAssertTrue(contribution.keywords.contains("right"))
-                XCTAssertTrue(contribution.keywords.contains("sidebar"))
-                XCTAssertTrue(contribution.keywords.contains(mode.rawValue))
-                XCTAssertTrue(contribution.when(context))
-                XCTAssertTrue(contribution.enablement(context))
+                #expect(contribution.title(context) == (mode.shortcutAction?.label ?? mode.label))
+                #expect(contribution.subtitle(context) == String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar"))
+                #expect(contribution.keywords.contains("right"))
+                #expect(contribution.keywords.contains("sidebar"))
+                #expect(contribution.keywords.contains(mode.rawValue))
+                #expect(contribution.when(context))
+                #expect(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 3)
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            #expect(contributions.count == 3)
+            #expect(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)] == nil)
+            #expect(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)] == nil)
+            #expect(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.notes)] == nil)
         }
     }
 
-    func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
+    @Test func commandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
             for mode in RightSidebarMode.allCases {
-                XCTAssertEqual(
+                #expect(
                     ContentView.commandPaletteShortcutAction(
                         forCommandID: ContentView.commandPaletteRightSidebarModeCommandID(mode)
-                    ),
-                    mode.shortcutAction
+                    ) == mode.shortcutAction
                 )
             }
         }
     }
 
-    func testCommandPaletteUnreadActionsUseConfigurableShortcutActions() {
-        XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread"),
-            .toggleUnread
-        )
-        XCTAssertEqual(
-            ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext"),
-            .markOldestUnreadAndJumpNext
-        )
+    @Test func commandPaletteUnreadActionsUseConfigurableShortcutActions() {
+        #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.toggleUnread") == .toggleUnread)
+        #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.markOldestUnreadAndJumpNext") == .markOldestUnreadAndJumpNext)
     }
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousNotes = defaults.object(forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousNotes, forKey: RightSidebarBetaFeatureSettings.notesEnabledKey)
         }
         try body()
     }
