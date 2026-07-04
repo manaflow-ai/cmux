@@ -57,17 +57,17 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
-    @Test func narrowWrappedParagraphRejoins() {
-        // A paragraph wrapped at ~75 columns (no extra indent, lines not at any
-        // single block-max). Mid-sentence lowercase continuation must rejoin it.
+    @Test func unindentedWrappedParagraphWithProseCueRejoins() {
+        // Without a continuation indent, lowercase starts alone are not enough:
+        // the previous/current words must also look like a sentence continuation.
         let input =
-            "Indeed the interlocutor having marshaled an arsenal of polysyllabic verbiage\n"
-            + "calibrated to bewilder rather than illuminate proceeded to expatiate upon the\n"
-            + "ostensibly intractable antinomies inhering within the dialectical interplay.\n"
+            "The relevant part for your agreement is that they only supply a pseudonymized participant and the\n"
+            + "recording itself is controlled entirely on our own platform while the final export package is\n"
+            + "available to authorized reviewers after the session closes.\n"
         let result = reflow(input)
         #expect(result.split(separator: "\n").count == 1, "expected one joined paragraph, got: \(result)")
-        #expect(result.contains("verbiage calibrated to bewilder"))
-        #expect(result.contains("upon the ostensibly intractable"))
+        #expect(result.contains("and the recording itself"))
+        #expect(result.contains("export package is available"))
     }
 
     @Test func longUppercaseLogLinesNotJoined() {
@@ -76,6 +76,13 @@ struct ReflowParagraphTests {
         let input =
             "INFO Starting the background worker process for the queue subsystem right now\n"
             + "WARN The downstream service returned an unexpected status during the last call\n"
+        #expect(reflow(input) == input)
+    }
+
+    @Test func longLowercaseLogLinesNotJoined() {
+        let input =
+            "error fetching metadata from the remote provider after the retry budget was exceeded\n"
+            + "error starting fallback sync because the previous request is still pending\n"
         #expect(reflow(input) == input)
     }
 

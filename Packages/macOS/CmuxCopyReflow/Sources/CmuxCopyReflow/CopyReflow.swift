@@ -184,10 +184,18 @@ private extension ReflowOptions {
                     let candidateMaxVisibleLength = max(p.maxVisibleLength, visLen)
                     let previousLineWasFull = p.prevVisibleLength >= minWrapWidth
                         && p.prevVisibleLength + max(0, widthTolerance) >= candidateMaxVisibleLength
+                    let lowercaseContinuation = startsLowercaseLetter(content)
+                        && hasProseContinuationEvidence(
+                            previous: p.prevContent,
+                            current: content,
+                            commonIndent: commonIndent,
+                            alreadyJoined: p.hasJoined
+                        )
+                        && !startsIndependentRecord(content, after: p.prevContent)
                     let s4 = p.prevHasSpace
                         && p.allowsWidthJoin
                         && previousLineWasFull
-                        && (startsLowercaseLetter(content) || startsCommandContinuationToken(content))
+                        && (lowercaseContinuation || startsCommandContinuationToken(content))
                     let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
 
                     if canJoin {
