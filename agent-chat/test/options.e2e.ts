@@ -16,6 +16,58 @@ interface SessionOption {
   disabled?: boolean;
 }
 
+async function commandExists(name: string): Promise<boolean> {
+  const proc = Bun.spawn(["zsh", "-lc", `command -v ${name}`], { stdout: "pipe", stderr: "pipe" });
+  const code = await proc.exited;
+  return code === 0;
+}
+
+async function testClaudeCatalogCache(): Promise<string> {
+  if (!(await commandExists("claude"))) return "claude catalog: SKIP (claude binary missing)";
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+  const events: any[] = [];
+  const errors: string[] = [];
+  let opened = false;
+  const waitFor = <T>(name: string, pred: () => T | false | null | undefined, timeout = TIMEOUT_MS): Promise<T> =>
+    new Promise((resolve, reject) => {
+      const started = Date.now();
+      const tick = () => {
+        const v = pred();
+        if (v) return resolve(v);
+        if (Date.now() - started > timeout) return reject(new Error(`claude catalog: timeout waiting for ${name}`));
+        setTimeout(tick, 20);
+      };
+      tick();
+    });
+  const send = (obj: unknown) => ws.send(JSON.stringify(obj));
+  ws.onopen = () => {
+    opened = true;
+    send({ op: "list-options", provider: "claude", cwd: `${import.meta.dir}/../scratch` });
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(String(e.data));
+    events.push(msg);
+    if (msg.kind === "error") errors.push(String(msg.message ?? ""));
+  };
+  try {
+    await waitFor("open", () => opened);
+    const first = await waitFor("first options-list", () => events.find((e) => e.kind === "options-list" && e.provider === "claude"));
+    if (errors.length) throw new Error(`claude catalog: ${errors[0]}`);
+    const model = (first.options as SessionOption[]).find((o) => o.id === "model");
+    const choices = model?.choices ?? [];
+    if (choices.length <= 1) throw new Error(`claude catalog: expected >1 model choice, got ${choices.length}`);
+    const before = events.length;
+    const started = performance.now();
+    send({ op: "list-options", provider: "claude", cwd: `${import.meta.dir}/../scratch` });
+    await waitFor("cached options-list", () => events.slice(before).find((e) => e.kind === "options-list" && e.provider === "claude"), 1_000);
+    const elapsed = performance.now() - started;
+    if (elapsed >= 250) throw new Error(`claude catalog: cached response took ${elapsed.toFixed(1)}ms`);
+    return `claude catalog: OK (${choices.length} models, cached ${elapsed.toFixed(1)}ms)`;
+  } finally {
+    ws.close();
+  }
+}
+
 async function testProvider(provider: string): Promise<string> {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
   const events: any[] = [];
@@ -75,6 +127,7 @@ async function testProvider(provider: string): Promise<string> {
     });
     await waitFor("session-created", () => sessionId);
     await waitFor("initial options", () => options.length ? options : false);
+    if (provider === "pi") assertPiThinkingIsEffort(options);
     await waitFor("first done", () => doneCount >= 1);
 
     await setOptionAndAssert(provider, sessionId, () => options, () => optionsEventCount, () => errors, send, waitFor, "model");
@@ -131,7 +184,20 @@ function nextValue(opt: SessionOption): OptionValue {
   return choices[(i + 1 + choices.length) % choices.length]?.value ?? choices[0].value;
 }
 
+function assertPiThinkingIsEffort(options: SessionOption[]) {
+  const thinking = options.find((o) => o.id === "thinking");
+  if (!thinking) throw new Error("pi: missing thinking option");
+  if (String(thinking.value).toLowerCase() === "off") throw new Error("pi: thinking reported off");
+  if ((thinking.choices ?? []).some((c) => c.value.toLowerCase() === "off")) throw new Error("pi: thinking choices include off");
+}
+
 let failed = 0;
+try {
+  console.log(await testClaudeCatalogCache());
+} catch (err) {
+  failed++;
+  console.error(String(err));
+}
 for (const p of providersToTest) {
   try {
     console.log(await testProvider(p));

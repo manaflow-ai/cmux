@@ -67,8 +67,11 @@ body { background: var(--bg-body); color: var(--text); font: 14px/1.55 var(--san
 }
 .row-control:hover, .row-control[data-popup-open] { background: var(--bg-hover); color: var(--text); }
 .row-control:disabled, .row-control[data-disabled] { opacity: .42; cursor: default; }
-.row-icon, .row-control > svg, .provider-icon { width: 15px; height: 15px; flex: none; }
+.row-icon, .row-control > svg, .provider-icon, .provider-icon-img { width: 15px; height: 15px; flex: none; }
 .provider-icon { display: inline-block; }
+.provider-icon-img {
+  display: inline-block; background: center / contain no-repeat;
+}
 .row-value, .cwd-label { overflow: hidden; text-overflow: ellipsis; }
 .cwd-label { font-family: var(--mono); font-size: 11.5px; }
 .provider-trigger { max-width: 136px; }

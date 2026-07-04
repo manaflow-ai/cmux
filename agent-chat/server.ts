@@ -5,6 +5,7 @@ import type {
   ProviderCapabilities,
   ProviderDef,
   SessionCtx,
+  SessionOption,
   SessionStatus,
 } from "./types";
 import { claudeAdapter } from "./adapters/claude";
@@ -12,7 +13,8 @@ import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { resolveGhosttyTheme } from "./theme";
-import { readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { extname, isAbsolute, relative, resolve } from "node:path";
 
 const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 
@@ -25,6 +27,8 @@ const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 }
 const ROOT = import.meta.dir;
 const DEFAULT_CWD = `${ROOT}/scratch`;
+const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
+const CATALOG_TTL_MS = 10 * 60_000;
 
 const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude" },
@@ -59,6 +63,11 @@ interface WsData {
 
 const sessions = new Map<string, Session>();
 const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
+const optionCatalog = new Map<string, {
+  options: SessionOption[];
+  fetchedAt: number;
+  refreshing?: Promise<SessionOption[]>;
+}>();
 
 function sessionSummary(s: Session) {
   return {
@@ -78,6 +87,10 @@ function capabilitiesFor(provider: string): ProviderCapabilities {
 
 function capabilitiesMap(): Record<string, ProviderCapabilities> {
   return Object.fromEntries(PROVIDERS.map((p) => [p.id, capabilitiesFor(p.id)]));
+}
+
+function providerInfo(p: ProviderDef) {
+  return { id: p.id, label: p.label, ...(providerIconInfo.get(p.id) ?? {}) };
 }
 
 function broadcastSessions() {
@@ -105,6 +118,7 @@ function createSession(
     title,
     autoApprove,
     startOptions,
+    seedOptions: optionCatalog.get(provider)?.options,
     status: "idle",
     events: [],
     internal: {},
@@ -151,6 +165,113 @@ function parseOptions(raw: unknown): Record<string, OptionValue> {
   }
   return out;
 }
+
+async function sanitizeStartOptions(provider: string, cwd: string, raw: Record<string, OptionValue>): Promise<Record<string, OptionValue>> {
+  if (!Object.keys(raw).length) return raw;
+  const catalog = await catalogOptions(provider, cwd, { refreshMissing: false });
+  return filterOptions(raw, catalog);
+}
+
+function filterOptions(raw: Record<string, OptionValue>, catalog: SessionOption[]): Record<string, OptionValue> {
+  const byId = new Map(catalog.map((o) => [o.id, o]));
+  const out: Record<string, OptionValue> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    const option = byId.get(id);
+    if (!option) continue;
+    if (option.kind === "toggle" && typeof value === "boolean") out[id] = value;
+    if (option.kind === "select" && typeof value === "string" && option.choices?.some((c) => c.value === value)) out[id] = value;
+  }
+  return out;
+}
+
+function fallbackOptions(provider: string): SessionOption[] {
+  return adapters.get(provider)?.capabilities?.options ?? [];
+}
+
+function shouldRefreshCatalog(provider: string): boolean {
+  const entry = optionCatalog.get(provider);
+  return !entry || Date.now() - entry.fetchedAt > CATALOG_TTL_MS;
+}
+
+function refreshCatalog(provider: string, cwd: string): Promise<SessionOption[]> {
+  const adapter = adapters.get(provider);
+  if (!adapter) return Promise.reject(new Error(`unknown provider: ${provider}`));
+  const current = optionCatalog.get(provider);
+  if (current?.refreshing) return current.refreshing;
+  const refreshing = Promise.resolve(adapter.listOptions?.(cwd) ?? adapter.capabilities?.options ?? [])
+    .then((options) => {
+      optionCatalog.set(provider, { options, fetchedAt: Date.now() });
+      return options;
+    })
+    .catch((err) => {
+      if (!optionCatalog.has(provider)) optionCatalog.set(provider, { options: fallbackOptions(provider), fetchedAt: Date.now() });
+      throw err;
+    })
+    .finally(() => {
+      const entry = optionCatalog.get(provider);
+      if (entry?.refreshing === refreshing) optionCatalog.set(provider, { options: entry.options, fetchedAt: entry.fetchedAt });
+    });
+  optionCatalog.set(provider, { options: current?.options ?? fallbackOptions(provider), fetchedAt: current?.fetchedAt ?? 0, refreshing });
+  return refreshing;
+}
+
+async function catalogOptions(provider: string, cwd: string, opts: { refreshMissing?: boolean } = {}): Promise<SessionOption[]> {
+  if (!adapters.has(provider)) throw new Error(`unknown provider: ${provider}`);
+  const entry = optionCatalog.get(provider);
+  if (entry) {
+    if (!entry.fetchedAt && entry.refreshing && opts.refreshMissing !== false) {
+      try {
+        return await entry.refreshing;
+      } catch {
+        return fallbackOptions(provider);
+      }
+    }
+    if (shouldRefreshCatalog(provider)) refreshCatalog(provider, cwd).catch(() => {});
+    return entry.options;
+  }
+  if (opts.refreshMissing === false) {
+    refreshCatalog(provider, cwd).catch(() => {});
+    return fallbackOptions(provider);
+  }
+  try {
+    return await refreshCatalog(provider, cwd);
+  } catch {
+    return fallbackOptions(provider);
+  }
+}
+
+function iconFile(provider: string, dark: boolean): string | null {
+  const file = provider === "claude" ? "Claude.imageset/Claude@2x.png"
+    : provider === "codex" ? `Codex.imageset/${dark ? "Codex-dark@2x.png" : "Codex@2x.png"}`
+      : provider === "opencode" ? "OpenCode.imageset/OpenCode@2x.png"
+        : provider === "pi" ? "Pi.imageset/Pi.svg"
+          : null;
+  if (!file) return null;
+  const resolved = resolve(ICON_ROOT, file);
+  const rel = relative(ICON_ROOT, resolved);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
+  return existsSync(resolved) ? resolved : null;
+}
+
+function iconResponse(url: URL): Response {
+  const provider = url.pathname.slice("/icons/".length);
+  if (!/^[a-z0-9_-]+$/i.test(provider)) return new Response("not found", { status: 404 });
+  const file = iconFile(provider, url.searchParams.get("dark") === "1");
+  if (!file) return new Response("not found", { status: 404 });
+  const type = extname(file) === ".svg" ? "image/svg+xml" : "image/png";
+  return new Response(Bun.file(file), {
+    headers: {
+      "content-type": type,
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
+}
+
+const providerIconInfo = new Map(PROVIDERS.map((p) => {
+  const iconUrl = iconFile(p.id, false) ? `/icons/${p.id}` : undefined;
+  const iconDarkUrl = p.id === "codex" && iconFile(p.id, true) ? `/icons/${p.id}?dark=1` : undefined;
+  return [p.id, { ...(iconUrl ? { iconUrl } : {}), ...(iconDarkUrl ? { iconDarkUrl } : {}) }];
+}));
 
 // Inject the resolved Ghostty theme as CSS variables at serve time so the
 // page paints with the terminal's colors on first frame. `?transparent=1` is
@@ -220,6 +341,7 @@ const server = Bun.serve<WsData>({
         : new Response("upgrade failed", { status: 400 });
     }
     if (url.pathname === "/healthz") return new Response("ok");
+    if (url.pathname.startsWith("/icons/")) return iconResponse(url);
     if (url.pathname === "/app.js") {
       try {
         return new Response(await buildBundle(), {
@@ -248,7 +370,7 @@ const server = Bun.serve<WsData>({
       const title = prompt ? (prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt) : `${provider} chat`;
       let sess: Session;
       try {
-        sess = createSession(provider, cwd, body.autoApprove !== false, title, parseOptions(body.options));
+        sess = createSession(provider, cwd, body.autoApprove !== false, title, await sanitizeStartOptions(provider, cwd, parseOptions(body.options)));
       } catch (err) {
         return Response.json({ error: String(err) }, { status: 400 });
       }
@@ -266,7 +388,7 @@ const server = Bun.serve<WsData>({
       allSockets.add(ws);
       ws.send(JSON.stringify({
         kind: "hello",
-        providers: PROVIDERS.map((p) => ({ id: p.id, label: p.label })),
+        providers: PROVIDERS.map(providerInfo),
         capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
       }));
@@ -303,11 +425,16 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       if (!prompt) return;
       const cwd = String(msg.cwd || DEFAULT_CWD);
       const title = prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt;
-      const sess = createSession(String(msg.provider), cwd, Boolean(msg.autoApprove), title, parseOptions(msg.options));
-      subscribe(ws, sess);
-      ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess) }));
-      refreshSession(sess);
-      sendPrompt(sess, prompt);
+      const provider = String(msg.provider);
+      Promise.resolve(sanitizeStartOptions(provider, cwd, parseOptions(msg.options))).then((options) => {
+        const sess = createSession(provider, cwd, Boolean(msg.autoApprove), title, options);
+        subscribe(ws, sess);
+        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess) }));
+        refreshSession(sess);
+        sendPrompt(sess, prompt);
+      }).catch((err) => {
+        ws.send(JSON.stringify({ kind: "error", message: String(err) }));
+      });
       break;
     }
     case "send": {
@@ -350,13 +477,12 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "list-options": {
       const provider = String(msg.provider ?? "");
-      const adapter = adapters.get(provider);
-      if (!adapter) {
+      if (!adapters.has(provider)) {
         ws.send(JSON.stringify({ kind: "error", message: `unknown provider: ${provider}` }));
         return;
       }
       const cwd = String(msg.cwd || DEFAULT_CWD);
-      Promise.resolve(adapter.listOptions?.(cwd) ?? adapter.capabilities?.options ?? [])
+      Promise.resolve(catalogOptions(provider, cwd))
         .then((options) => ws.send(JSON.stringify({ kind: "options-list", provider, options })))
         .catch((err) => ws.send(JSON.stringify({ kind: "error", message: String(err) })));
       break;
@@ -403,5 +529,11 @@ buildBundle().then(
   () => console.log("bundle ready"),
   (err) => console.error(String(err)),
 );
+
+for (const p of PROVIDERS) {
+  refreshCatalog(p.id, process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD).catch((err) => {
+    console.warn(`catalog warm failed for ${p.id}: ${String(err)}`);
+  });
+}
 
 console.log(`cmux-agent-ui listening on http://127.0.0.1:${server.port}`);

@@ -24,6 +24,7 @@ export interface SessionOption {
   label: string;
   kind: OptionKind;
   value: OptionValue;
+  role?: "effort" | "thinking-budget";
   choices?: OptionChoice[];
   disabled?: boolean;
   description?: string;
@@ -41,7 +42,7 @@ export type Block =
   | { kind: "error"; text: string }
   | { kind: "footer"; text: string };
 
-export interface Provider { id: string; label: string; }
+export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; }
 export interface SessionSummary { id: string; provider: string; cwd: string; title: string; status: string; capabilities?: ProviderCapabilities; }
 
 function closeStreaming(blocks: Block[]): Block[] {
@@ -109,6 +110,7 @@ export interface SessionState {
   providerOptions: Record<string, SessionOption[]>;
   providerCommands: Record<string, CommandGroup[]>;
   start(opts: { provider: string; cwd: string; prompt: string; autoApprove: boolean; options?: Record<string, OptionValue> }): void;
+  compose(): void;
   reply(text: string): void;
   stop(): void;
   setOption(id: string, value: OptionValue): void;
@@ -216,6 +218,16 @@ export function useSession(): SessionState {
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; autoApprove: boolean; options?: Record<string, OptionValue> }) => {
     sendRaw({ op: "start", ...opts });
   }, [sendRaw]);
+  const compose = useCallback(() => {
+    history.replaceState(null, "", "/");
+    document.title = "cmux agent";
+    sessionIdRef.current = null;
+    setSession(null);
+    setBlocks([]);
+    setOptions([]);
+    setCommands([]);
+    setPhase("composer");
+  }, []);
   const reply = useCallback((text: string) => {
     if (sessionIdRef.current) sendRaw({ op: "send", sessionId: sessionIdRef.current, prompt: text });
   }, [sendRaw]);
@@ -246,6 +258,7 @@ export function useSession(): SessionState {
     providerOptions,
     providerCommands,
     start,
+    compose,
     reply,
     stop,
     setOption,

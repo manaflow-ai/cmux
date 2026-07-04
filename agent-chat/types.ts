@@ -29,6 +29,7 @@ export interface SessionOption {
   label: string;
   kind: OptionKind;
   value: OptionValue;
+  role?: "effort" | "thinking-budget";
   choices?: OptionChoice[];
   disabled?: boolean;
   description?: string;
@@ -52,6 +53,7 @@ export interface SessionCtx {
   title: string;
   autoApprove: boolean;
   startOptions: Record<string, OptionValue>;
+  seedOptions?: SessionOption[];
   status: SessionStatus;
   events: AgentEvent[];
   // Adapter-private state (child proc, provider session/thread ids, rpc counters).

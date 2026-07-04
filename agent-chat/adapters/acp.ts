@@ -67,8 +67,8 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
       const st = await ensureAcp(sess, def);
       emitAcpState(sess, st);
     },
-    async listOptions() {
-      return adapter.capabilities?.options ?? [];
+    async listOptions(cwd) {
+      return fetchAcpOptions(def, cwd, adapter.capabilities?.options ?? []);
     },
     async listCommands(cwd) {
       return [{ trigger: "/", commands: await fetchAcpCommands(def, cwd) }];
@@ -441,6 +441,65 @@ async function fetchAcpCommands(def: ProviderDef, cwd: string): Promise<CommandE
       }, () => {
         clearTimeout(timer);
         resolve([]);
+      });
+      write("initialize", {
+        protocolVersion: 1,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+      });
+    });
+  } finally {
+    proc.kill();
+  }
+}
+
+async function fetchAcpOptions(def: ProviderDef, cwd: string, fallback: SessionOption[]): Promise<SessionOption[]> {
+  if (!def.cmd?.length) return fallback;
+  const proc = Bun.spawn([...def.cmd], {
+    cwd,
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env },
+  });
+  try {
+    return await new Promise<SessionOption[]>((resolve, reject) => {
+      let nextId = 1;
+      const pending = new Set<number>();
+      const write = (method: string, params: unknown) => {
+        const id = nextId++;
+        pending.add(id);
+        proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+        proc.stdin.flush();
+        return id;
+      };
+      const timer = setTimeout(() => resolve(fallback), 8_000);
+      readLines(proc.stdout, (line) => {
+        const msg = tryParse(line);
+        if (!msg || msg.id == null || !pending.has(msg.id)) return;
+        pending.delete(msg.id);
+        if (msg.error) {
+          clearTimeout(timer);
+          reject(new Error(msg.error.message ?? "acp option catalog failed"));
+        } else if (msg.id === 1) {
+          write("session/new", { cwd, mcpServers: [] });
+        } else {
+          clearTimeout(timer);
+          const st: AcpState = {
+            proc,
+            acpSessionId: "",
+            request: () => Promise.reject(new Error("catalog probe closed")),
+            notify: () => {},
+            options: [],
+            sources: new Map(),
+            commands: [],
+            initialApplied: false,
+          };
+          ingestAcpOptions(st, msg.result ?? {});
+          resolve(st.options.length ? st.options : fallback);
+        }
+      }, () => {
+        clearTimeout(timer);
+        resolve(fallback);
       });
       write("initialize", {
         protocolVersion: 1,

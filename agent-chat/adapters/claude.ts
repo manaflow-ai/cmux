@@ -39,8 +39,8 @@ export const claudeAdapter: Adapter = {
     options: [
       { id: "model", label: "Model", kind: "select", value: "default", choices: [DEFAULT_MODEL], disabled: true, description: "Loads at start" },
       { id: "permissionMode", label: "Mode", kind: "select", value: "default", choices: PERMISSION_CHOICES },
-      { id: "thinking", label: "Thinking", kind: "select", value: "0", choices: THINKING_CHOICES },
-      { id: "effort", label: "Effort", kind: "select", value: "medium", choices: EFFORT_CHOICES },
+      { id: "thinking", label: "Thinking", kind: "select", value: "0", role: "thinking-budget", choices: THINKING_CHOICES },
+      { id: "effort", label: "Effort", kind: "select", value: "medium", role: "effort", choices: EFFORT_CHOICES },
       { id: "fastMode", label: "Fast", kind: "toggle", value: false },
     ],
   },
@@ -261,10 +261,18 @@ async function setClaudeOption(sess: SessionCtx, id: string, value: OptionValue)
 
 async function refreshClaudeOptions(sess: SessionCtx) {
   const st = state(sess);
+  if (seedModelChoices(sess, st)) emitOptions(sess);
   const res = await control(sess, "list_models");
   st.modelChoices = normalizeModels(res?.models);
   emitOptions(sess);
   if (st.commands.length) sess.emit({ kind: "commands", trigger: "/", commands: st.commands });
+}
+
+function seedModelChoices(sess: SessionCtx, st: ClaudeState): boolean {
+  const seeded = sess.seedOptions?.find((o) => o.id === "model")?.choices;
+  if (!seeded || seeded.length <= 1 || st.modelChoices.length > 1) return false;
+  st.modelChoices = seeded;
+  return true;
 }
 
 function emitOptions(sess: SessionCtx) {
@@ -275,8 +283,8 @@ function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "permissi
   return [
     { id: "model", label: "Model", kind: "select", value: st.model, choices: st.modelChoices.length ? st.modelChoices : [DEFAULT_MODEL] },
     { id: "permissionMode", label: "Mode", kind: "select", value: st.permissionMode, choices: PERMISSION_CHOICES },
-    { id: "thinking", label: "Thinking", kind: "select", value: st.thinking, choices: THINKING_CHOICES },
-    { id: "effort", label: "Effort", kind: "select", value: st.effort, choices: EFFORT_CHOICES },
+    { id: "thinking", label: "Thinking", kind: "select", value: st.thinking, role: "thinking-budget", choices: THINKING_CHOICES },
+    { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: EFFORT_CHOICES },
     { id: "fastMode", label: "Fast", kind: "toggle", value: st.fastMode },
   ];
 }

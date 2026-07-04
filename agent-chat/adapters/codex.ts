@@ -59,7 +59,7 @@ export const codexAdapter: Adapter = {
     triggers: ["$"],
     options: [
       { id: "model", label: "Model", kind: "select", value: "", disabled: true, description: "Loads at start" },
-      { id: "effort", label: "Effort", kind: "select", value: "medium", choices: FALLBACK_EFFORTS },
+      { id: "effort", label: "Effort", kind: "select", value: "medium", role: "effort", choices: FALLBACK_EFFORTS },
       { id: "approvals", label: "Approvals", kind: "select", value: "never", choices: APPROVAL_CHOICES },
       { id: "sandbox", label: "Sandbox", kind: "select", value: "workspace-write", choices: SANDBOX_CHOICES },
       { id: "mode", label: "Mode", kind: "select", value: "default", choices: [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }] },
@@ -455,7 +455,7 @@ function buildOptions(st: CodexState): SessionOption[] {
       choices: st.models.map((m) => ({ value: m.value, label: m.label, description: m.description })),
       disabled: !st.models.length,
     },
-    { id: "effort", label: "Effort", kind: "select", value: st.effort, choices: effort.choices },
+    { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: effort.choices },
   ];
   if (fastTier(st)) opts.push({ id: "fastMode", label: "Fast", kind: "toggle", value: st.fastMode });
   opts.push(
@@ -484,7 +484,7 @@ function normalizeModel(m: any): ModelInfo {
       value: String(e.reasoningEffort ?? e),
       label: String(e.reasoningEffort ?? e),
       description: e.description ? String(e.description) : undefined,
-    }))
+    })).filter((e: OptionChoice) => !isOffLike(e.value))
     : FALLBACK_EFFORTS;
   return {
     value: String(m.model ?? m.id),
@@ -527,6 +527,10 @@ function uniqueChoices(choices: OptionChoice[]): OptionChoice[] {
     seen.add(c.value);
     return true;
   });
+}
+
+function isOffLike(value: string): boolean {
+  return /^(none|off|no[-_ ]?reasoning)$/i.test(value);
 }
 
 function initialModel(models: ModelInfo[], requested: string): string {

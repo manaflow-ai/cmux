@@ -37,7 +37,18 @@ function Dot({ id }: { id: string }) {
   return <span className="dot" style={{ background: colorFor(id), color: colorFor(id) }} />;
 }
 
-function ProviderIcon({ id }: { id: string }) {
+function themeIsDark(): boolean {
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  const m = bg.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return true;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return (r * 299 + g * 587 + b * 114) / 1000 < 150;
+}
+
+function DrawnProviderIcon({ id }: { id: string }) {
   const color = colorFor(id);
   if (id === "claude") {
     return (
@@ -76,6 +87,14 @@ function ProviderIcon({ id }: { id: string }) {
     );
   }
   return <Dot id={id} />;
+}
+
+function ProviderIcon({ provider }: { provider: Provider }) {
+  const src = themeIsDark() ? (provider.iconDarkUrl ?? provider.iconUrl) : provider.iconUrl;
+  if (!src) return <DrawnProviderIcon id={provider.id} />;
+  return (
+    <span className="provider-icon-img" aria-hidden="true" style={{ backgroundImage: `url(${src})` }} />
+  );
 }
 
 const ArrowUp = () => (
@@ -151,12 +170,13 @@ function HintTooltip({ label, action, children }: { label: string; action?: KeyA
 }
 
 function ProviderSelect({ providers, value, onChange }: { providers: Provider[]; value: string; onChange: (v: string) => void }) {
-  const label = providers.find((p) => p.id === value)?.label ?? value;
+  const selected = providers.find((p) => p.id === value) ?? { id: value, label: value };
+  const label = selected.label;
   return (
     <Select.Root value={value} onValueChange={(v) => onChange(v as string)}>
-      <HintTooltip label="Switch provider">
+      <HintTooltip label="Switch harness">
         <Select.Trigger className="row-control provider-trigger select-trigger">
-          <ProviderIcon id={value} />
+          <ProviderIcon provider={selected} />
           <span className="row-value">{label}</span>
           <Select.Icon className="chev"><Chevron /></Select.Icon>
         </Select.Trigger>
@@ -166,7 +186,7 @@ function ProviderSelect({ providers, value, onChange }: { providers: Provider[];
           <Select.Popup className="menu">
             {providers.map((p) => (
               <Select.Item key={p.id} value={p.id} className="menu-item">
-                <ProviderIcon id={p.id} />
+                <ProviderIcon provider={p} />
                 <Select.ItemText>{p.label}</Select.ItemText>
                 <Select.ItemIndicator className="mi-check"><Check /></Select.ItemIndicator>
               </Select.Item>
@@ -218,6 +238,15 @@ function currentChoice(option?: SessionOption) {
   return option.choices?.find((c) => c.value === value) ?? (value ? { value, label: value } : null);
 }
 
+function isOffLikeValue(value: string): boolean {
+  return /^(off|none|no[-_ ]?reasoning)$/i.test(value);
+}
+
+function visibleChoices(option: SessionOption) {
+  const choices = option.choices ?? [];
+  return option.role === "effort" ? choices.filter((c) => !isOffLikeValue(c.value)) : choices;
+}
+
 function prettyValue(option?: SessionOption): string {
   const choice = currentChoice(option);
   if (!choice) return "";
@@ -264,8 +293,9 @@ function InlineSelect({
   onOpenChange: (open: boolean) => void;
 }) {
   const value = String(option.value ?? "");
-  const choices = option.choices?.length
-    ? option.choices
+  const visible = visibleChoices(option);
+  const choices = visible.length
+    ? visible
     : (value ? [{ value, label: value }] : []);
   const current = choices.find((c) => c.value === value)?.label ?? (value || option.label);
   return (
@@ -299,13 +329,18 @@ function InlineSelect({
 }
 
 function cycleSelect(option: SessionOption, onChange: (id: string, value: OptionValue) => void) {
-  if (option.kind !== "select" || !option.choices?.length || option.disabled) return;
-  const i = option.choices.findIndex((c) => c.value === option.value);
-  const next = option.choices[(i + 1 + option.choices.length) % option.choices.length];
+  const choices = visibleChoices(option);
+  if (option.kind !== "select" || !choices.length || option.disabled) return;
+  const i = choices.findIndex((c) => c.value === option.value);
+  const next = choices[(i + 1 + choices.length) % choices.length];
   if (next) onChange(option.id, next.value);
 }
 
-const INLINE_OPTION_IDS = new Set(["model", "effort", "thinking", "fastMode", "mode", "permissionMode"]);
+const INLINE_OPTION_IDS = new Set(["model", "fastMode", "mode", "permissionMode"]);
+
+function isInlineOption(option: SessionOption): boolean {
+  return INLINE_OPTION_IDS.has(option.id) || option.role === "effort";
+}
 
 function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChange: (id: string, value: OptionValue) => void }) {
   if (!options.length) return null;
@@ -355,12 +390,12 @@ function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChang
   );
 }
 
-function StaticProvider({ provider }: { provider: string }) {
+function StaticProvider({ provider }: { provider: Provider }) {
   return (
     <HintTooltip label="Provider">
       <span className="row-control static-provider">
-        <ProviderIcon id={provider} />
-        <span className="row-value">{provider}</span>
+        <ProviderIcon provider={provider} />
+        <span className="row-value">{provider.label}</span>
       </span>
     </HintTooltip>
   );
@@ -407,16 +442,17 @@ function StatusRow({
   trailing?: ReactNode;
 }) {
   const model = options.find((o) => o.id === "model" && o.kind === "select");
-  const effortLike = options.filter((o) => (o.id === "effort" || o.id === "thinking") && o.kind === "select");
+  const effortLike = options.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
   const fast = options.find((o) => o.id === "fastMode" && o.kind === "toggle");
   const mode = options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
-  const overflow = options.filter((o) => !INLINE_OPTION_IDS.has(o.id));
+  const overflow = options.filter((o) => !isInlineOption(o));
   const modeLabel = mode && !["", "default", "build"].includes(String(mode.value)) ? prettyValue(mode) : "";
+  const providerInfo = providers?.find((p) => p.id === provider) ?? { id: provider, label: provider };
   return (
     <div className="status-row">
       {providers && onProviderChange
         ? <ProviderSelect providers={providers} value={provider} onChange={onProviderChange} />
-        : <StaticProvider provider={provider} />}
+        : <StaticProvider provider={providerInfo} />}
       {model ? (
         <InlineSelect
           option={model}
@@ -588,10 +624,13 @@ function useCommandMenu(
 }
 
 function cycleOption(options: SessionOption[], ids: string[], setOption: (id: string, value: OptionValue) => void) {
-  const opt = ids.map((id) => options.find((o) => o.id === id)).find(Boolean);
-  if (!opt || opt.kind !== "select" || !opt.choices?.length || opt.disabled) return false;
-  const i = opt.choices.findIndex((c) => c.value === opt.value);
-  const next = opt.choices[(i + 1 + opt.choices.length) % opt.choices.length];
+  const opt = ids.includes("effort")
+    ? options.find((o) => o.role === "effort")
+    : ids.map((id) => options.find((o) => o.id === id)).find(Boolean);
+  const choices = opt ? visibleChoices(opt) : [];
+  if (!opt || opt.kind !== "select" || !choices.length || opt.disabled) return false;
+  const i = choices.findIndex((c) => c.value === opt.value);
+  const next = choices[(i + 1 + choices.length) % choices.length];
   if (!next) return false;
   setOption(opt.id, next.value);
   return true;
@@ -610,7 +649,7 @@ function actionSupported(action: KeyAction, options: SessionOption[], running: b
   if (action === "interrupt") return running;
   if (action === "cycle-mode") return Boolean(options.find((o) => ["permissionMode", "mode", "approvals"].includes(o.id) && o.kind === "select" && !o.disabled));
   if (action === "cycle-model" || action === "open-model") return Boolean(options.find((o) => o.id === "model" && o.kind === "select" && !o.disabled));
-  if (action === "cycle-thinking") return Boolean(options.find((o) => (o.id === "thinking" || o.id === "effort") && o.kind === "select" && !o.disabled));
+  if (action === "cycle-thinking") return Boolean(options.find((o) => o.role === "effort" && o.kind === "select" && visibleChoices(o).length && !o.disabled));
   if (action === "toggle-fast") return Boolean(options.find((o) => o.id === "fastMode" && o.kind === "toggle" && !o.disabled));
   if (action === "toggle-plan") return Boolean(options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.choices?.some((c) => c.value === "plan") && !o.disabled));
   return false;
@@ -666,7 +705,7 @@ function useKeymap({
       else if (action === "cycle-mode") cycleOption(options, ["permissionMode", "mode", "approvals"], setOption);
       else if (action === "cycle-model") cycleOption(options, ["model"], setOption);
       else if (action === "open-model") openModel();
-      else if (action === "cycle-thinking") cycleOption(options, ["thinking", "effort"], setOption);
+      else if (action === "cycle-thinking") cycleOption(options, ["effort"], setOption);
       else if (action === "toggle-fast") {
         const opt = options.find((o) => o.id === "fastMode" && o.kind === "toggle" && !o.disabled);
         if (opt) setOption(opt.id, !opt.value);
@@ -699,7 +738,47 @@ function ShortcutOverlay({ provider, options, running, onClose }: { provider: st
 }
 
 function withLocalValues(options: SessionOption[], local: Record<string, OptionValue>): SessionOption[] {
-  return options.map((o) => Object.prototype.hasOwnProperty.call(local, o.id) ? { ...o, value: local[o.id] } : o);
+  return options.map((o) => {
+    if (!Object.prototype.hasOwnProperty.call(local, o.id)) return o;
+    const value = local[o.id];
+    return optionAcceptsValue(o, value) ? { ...o, value } : o;
+  });
+}
+
+function optionAcceptsValue(option: SessionOption, value: OptionValue): boolean {
+  if (option.kind === "toggle") return typeof value === "boolean";
+  if (typeof value !== "string") return false;
+  return Boolean(option.choices?.some((c) => c.value === value));
+}
+
+function sanitizeStartOptions(dirty: Record<string, OptionValue>, options: SessionOption[]): Record<string, OptionValue> {
+  const byId = new Map(options.map((o) => [o.id, o]));
+  const out: Record<string, OptionValue> = {};
+  for (const [id, value] of Object.entries(dirty)) {
+    const option = byId.get(id);
+    if (option && optionAcceptsValue(option, value)) out[id] = value;
+  }
+  return out;
+}
+
+function readProviderOptions(provider: string): Record<string, OptionValue> {
+  try {
+    const raw = localStorage.getItem(`agentui.opts.${provider}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const out: Record<string, OptionValue> = {};
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string" || typeof value === "boolean") out[id] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeProviderOptions(provider: string, options: Record<string, OptionValue>) {
+  localStorage.setItem(`agentui.opts.${provider}`, JSON.stringify(options));
 }
 
 function useDefaultCwd(
@@ -753,13 +832,20 @@ function Composer() {
   const [provider, setProvider] = useState(() => localStorage.getItem("agentui.provider") || "claude");
   const [cwd, setCwd] = useState(() => localStorage.getItem("agentui.cwd") || "");
   const [committedCwd, setCommittedCwd] = useState(() => localStorage.getItem("agentui.cwd") || "");
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(() => {
+    const draft = sessionStorage.getItem("agentui.draft") || "";
+    sessionStorage.removeItem("agentui.draft");
+    return draft;
+  });
   const [autoApprove, setAutoApprove] = useState(true);
-  const [startOptions, setStartOptions] = useState<Record<string, OptionValue>>({});
+  const [startOptionsByProvider, setStartOptionsByProvider] = useState<Record<string, Record<string, OptionValue>>>(() => ({
+    [provider]: readProviderOptions(provider),
+  }));
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const taRef = useAutoGrow(prompt, 300);
   const baseOptions = providerOptions[provider]?.length ? providerOptions[provider] : capabilities[provider]?.options ?? [];
+  const startOptions = startOptionsByProvider[provider] ?? {};
   const options = withLocalValues(baseOptions, startOptions);
   const commandGroups = providerCommands[provider] ?? [];
   const commandMenu = useCommandMenu(prompt, setPrompt, commandGroups, taRef);
@@ -769,8 +855,12 @@ function Composer() {
   useProviderCatalog(ready, connectionEpoch, provider, committedCwd, requestProviderOptions, requestProviderCommands);
 
   const setLocalOption = useCallback((id: string, value: OptionValue) => {
-    setStartOptions((m) => ({ ...m, [id]: value }));
-  }, []);
+    setStartOptionsByProvider((all) => {
+      const nextForProvider = { ...(all[provider] ?? readProviderOptions(provider)), [id]: value };
+      writeProviderOptions(provider, nextForProvider);
+      return { ...all, [provider]: nextForProvider };
+    });
+  }, [provider]);
   useKeymap({
     options,
     setOption: setLocalOption,
@@ -790,7 +880,7 @@ function Composer() {
     const runCwd = cwd.trim();
     localStorage.setItem("agentui.provider", provider);
     localStorage.setItem("agentui.cwd", runCwd);
-    start({ provider, cwd: runCwd, prompt: text, autoApprove, options: startOptions });
+    start({ provider, cwd: runCwd, prompt: text, autoApprove, options: sanitizeStartOptions(startOptions, options) });
     setPrompt("");
   };
   const changeCwd = (v: string) => { setCwd(v); };
@@ -802,7 +892,7 @@ function Composer() {
   };
   const changeProvider = (v: string) => {
     setProvider(v);
-    setStartOptions({});
+    setStartOptionsByProvider((all) => all[v] ? all : { ...all, [v]: readProviderOptions(v) });
     localStorage.setItem("agentui.provider", v);
   };
 
@@ -902,7 +992,7 @@ function Blocks({ blocks }: { blocks: Block[] }) {
 }
 
 function Chat() {
-  const { session, blocks, options, commands, reply, stop, setOption } = useCtx();
+  const { providers, session, blocks, options, commands, reply, stop, setOption, compose } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -940,6 +1030,13 @@ function Chat() {
     reply(t);
     setText("");
   };
+  const switchHarness = (provider: string) => {
+    if (!session || provider === session.provider) return;
+    localStorage.setItem("agentui.provider", provider);
+    localStorage.setItem("agentui.cwd", session.cwd);
+    sessionStorage.setItem("agentui.draft", text);
+    compose();
+  };
 
   return (
     <section id="chat-view">
@@ -967,6 +1064,8 @@ function Chat() {
           </div>
           <StatusRow
             provider={session?.provider ?? "agent"}
+            providers={providers}
+            onProviderChange={switchHarness}
             cwd={session?.cwd ?? ""}
             options={options}
             onChange={setOption}

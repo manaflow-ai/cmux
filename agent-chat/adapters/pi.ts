@@ -1,7 +1,7 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 
-const THINKING_CHOICES: OptionChoice[] = ["off", "minimal", "low", "medium", "high", "xhigh"]
+const THINKING_CHOICES: OptionChoice[] = ["minimal", "low", "medium", "high", "xhigh"]
   .map((value) => ({ value, label: value }));
 
 interface PiState {
@@ -11,6 +11,7 @@ interface PiState {
   model: string;
   modelChoices: OptionChoice[];
   thinking: string;
+  thinkingNormalized: boolean;
   commands: CommandEntry[];
   initialApplied: boolean;
 }
@@ -20,7 +21,7 @@ export const piAdapter: Adapter = {
     triggers: ["/"],
     options: [
       { id: "model", label: "Model", kind: "select", value: "", disabled: true, description: "Loads at start" },
-      { id: "thinking", label: "Thinking", kind: "select", value: "off", choices: THINKING_CHOICES },
+      { id: "thinking", label: "Thinking", kind: "select", value: "minimal", role: "effort", choices: THINKING_CHOICES },
     ],
   },
   async send(sess, prompt) {
@@ -55,7 +56,7 @@ export const piAdapter: Adapter = {
     return buildOptions({
       model: models[0]?.value ?? "",
       modelChoices: models,
-      thinking: "off",
+      thinking: "minimal",
     });
   },
   async listCommands(cwd) {
@@ -72,6 +73,7 @@ function state(sess: SessionCtx): PiState {
       model: typeof sess.startOptions.model === "string" ? sess.startOptions.model : "",
       modelChoices: [],
       thinking: typeof sess.startOptions.thinking === "string" ? sess.startOptions.thinking : "off",
+      thinkingNormalized: false,
       commands: [],
       initialApplied: false,
     };
@@ -157,8 +159,10 @@ async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {
     }
     case "thinking":
       if (typeof value !== "string") throw new Error("thinking must be a string");
+      value = normalizeThinking(value);
       await request(sess, { type: "set_thinking_level", level: value });
       st.thinking = value;
+      st.thinkingNormalized = true;
       break;
     default:
       throw new Error(`unsupported pi option: ${id}`);
@@ -168,13 +172,27 @@ async function setPiOption(sess: SessionCtx, id: string, value: OptionValue) {
 
 async function refreshPi(sess: SessionCtx) {
   const st = state(sess);
+  if (seedModelChoices(sess, st)) emitOptions(sess);
   const models = await request(sess, { type: "get_available_models" });
   st.modelChoices = normalizeModels(models?.models ?? models?.data?.models);
   if (!st.model) st.model = st.modelChoices[0]?.value ?? "";
+  if (!st.thinkingNormalized && isOffLike(st.thinking)) {
+    await request(sess, { type: "set_thinking_level", level: "minimal" });
+    st.thinking = "minimal";
+    st.thinkingNormalized = true;
+  }
   emitOptions(sess);
   const commands = await request(sess, { type: "get_commands" });
   st.commands = normalizeCommands(commands?.commands ?? commands?.data?.commands);
   sess.emit({ kind: "commands", trigger: "/", commands: st.commands });
+}
+
+function seedModelChoices(sess: SessionCtx, st: PiState): boolean {
+  const seeded = sess.seedOptions?.find((o) => o.id === "model")?.choices;
+  if (!seeded || !seeded.length || st.modelChoices.length) return false;
+  st.modelChoices = seeded;
+  if (!st.model) st.model = seeded[0]?.value ?? "";
+  return true;
 }
 
 function emitOptions(sess: SessionCtx) {
@@ -184,8 +202,16 @@ function emitOptions(sess: SessionCtx) {
 function buildOptions(st: Pick<PiState, "model" | "modelChoices" | "thinking">): SessionOption[] {
   return [
     { id: "model", label: "Model", kind: "select", value: st.model, choices: st.modelChoices, disabled: !st.modelChoices.length },
-    { id: "thinking", label: "Thinking", kind: "select", value: st.thinking, choices: THINKING_CHOICES },
+    { id: "thinking", label: "Thinking", kind: "select", value: normalizeThinking(st.thinking), role: "effort", choices: THINKING_CHOICES },
   ];
+}
+
+function normalizeThinking(value: string): string {
+  return isOffLike(value) ? "minimal" : value;
+}
+
+function isOffLike(value: string): boolean {
+  return /^(off|none)$/i.test(value);
 }
 
 function handleLine(sess: SessionCtx, line: string) {
