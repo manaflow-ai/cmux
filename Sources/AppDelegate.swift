@@ -17840,8 +17840,8 @@ private extension NSWindow {
 /// Conforms the composition root to updater host actions, retry, and relaunch seams.
 /// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
-    func updaterRequestsRetryCheckForUpdates() {
-        checkForUpdates(nil)
+    func updaterRequestsRetryCheckForUpdates(preservingInstallIntent: Bool) {
+        updateController.retryAfterTransientFailure(preservingInstallIntent: preservingInstallIntent)
     }
 
     func updaterWillRelaunchApplication() {
@@ -17853,9 +17853,7 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
         }
     }
 
-    func attemptUpdate() {
-        attemptUpdate(nil)
-    }
+    func attemptUpdate() { attemptUpdate(nil) }
 
     var updateLogPath: String {
         updateLog.logPath()

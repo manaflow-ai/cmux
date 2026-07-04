@@ -44,18 +44,18 @@ import Testing
     }
 
     @Test func classifiesDebugAndStagingBundlesAsDevLike() {
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug.my-tag"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging"))
-        #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.staging.my-tag"))
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: "com.cmuxterm.app.debug") == .devLike)
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: "com.cmuxterm.app.debug.my-tag") == .devLike)
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: "com.cmuxterm.app.staging") == .devLike)
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: "com.cmuxterm.app.staging.my-tag") == .devLike)
     }
 
     @Test func doesNotClassifyPublicOrNightlyOrNilAsDevLike() {
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier(nil))
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: "com.cmuxterm.app") == .release)
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: nil) == .release)
         // A look-alike that is neither the exact base id nor a dotted suffix must not match.
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))
-        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.stagingx"))
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: "com.cmuxterm.app.debugger") == .release)
+        #expect(UpdateController.BundleReleaseChannel(bundleIdentifier: "com.cmuxterm.app.stagingx") == .release)
     }
 
     /// A manual "Check for Updates" on a DEV/staging build must not query the public appcast or

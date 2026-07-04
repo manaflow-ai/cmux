@@ -26,7 +26,7 @@ public final class UpdateController {
     private let hostBundle: Bundle
     private let backgroundProbeInterval: TimeInterval
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
-    /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
+    /// the public release appcast. See ``BundleReleaseChannel``.
     private let isDevLikeBundle: Bool
 
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
@@ -68,7 +68,7 @@ public final class UpdateController {
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
     ///     injectable so tests can avoid touching the real filesystem.
     ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
-    ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
+    ///     which derives it from `hostBundle.bundleIdentifier` via ``BundleReleaseChannel``.
     ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
     public init(log: any UpdateLogging,
                 clock: any UpdateClock = SystemUpdateClock(),
@@ -83,7 +83,7 @@ public final class UpdateController {
         self.fileManager = fileManager
         self.hostBundle = hostBundle
         self.backgroundProbeInterval = settings.scheduledCheckInterval
-        let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
+        let isDevLikeBundle = isDevLikeBundle ?? (BundleReleaseChannel(bundleIdentifier: hostBundle.bundleIdentifier) == .devLike)
         self.isDevLikeBundle = isDevLikeBundle
         settings.apply(to: defaults)
         if isDevLikeBundle {
@@ -202,13 +202,76 @@ public final class UpdateController {
         checkForUpdatesWhenReady()
     }
 
-    private func performCheckForUpdates() {
+    /// Retry after a transient Sparkle download failure. Unlike a user-started fresh check, this
+    /// preserves any in-progress install/attempt intent so a retried archive download continues
+    /// silently after Sparkle finds the same update again.
+    ///
+    /// The reaction is chosen by the pure ``TransientRetryPlan/init(preservingInstallIntent:coordinatorIsMonitoring:)``:
+    /// restart the coordinator's already-monitored check, re-arm the coordinator so the retried
+    /// check auto-confirms (when the interrupted phase carried install intent but the coordinator
+    /// was not yet monitoring — issue #6366), or run a plain fresh check.
+    ///
+    /// - Parameter preservingInstallIntent: Whether the retry request came from a Sparkle
+    ///   install/download phase whose update choice should be auto-confirmed again.
+    public func retryAfterTransientFailure(preservingInstallIntent: Bool = false) {
+        let plan = TransientRetryPlan(
+            preservingInstallIntent: preservingInstallIntent,
+            coordinatorIsMonitoring: attemptCoordinator.isMonitoring
+        )
+        log.append("retrying update after transient download failure (plan=\(plan))")
+        switch plan {
+        case .restartMonitoredCheck:
+            // Preserve the interrupted session's install intent so the retried check re-resolves and
+            // (the coordinator being already monitoring) auto-confirms the update it finds.
+            checkForUpdatesWhenReady(preservingInstallIntent: true)
+        case .rearmConfirmedInstall:
+            // Arm the attempt coordinator to auto-confirm the retried check's update, matching the
+            // pre-failure install intent — entering the coordinator's result-awaiting phase directly
+            // (see `armForConfirmedRetryCheck`) rather than via `requestInstallLatest`. The model
+            // here is the retry's own synthetic `.checking` pill, not a stale prompt, so a user
+            // cancel during the readiness wait disarms the coordinator instead of stranding it armed
+            // to silently auto-confirm a later, unrelated update. Route the check through the
+            // preserving path so the synthetic pill is not torn down and the bounded-retry count is
+            // preserved.
+            attemptCoordinator.armForConfirmedRetryCheck()
+            checkForUpdatesWhenReady(preservingInstallIntent: true)
+        case .plainCheck:
+            checkForUpdatesWhenReady(preservingInstallIntent: false)
+        }
+    }
+
+    private func performCheckForUpdates(preservingInstallIntent: Bool = false) {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
         // Cancel any pending deferred re-check on every path so a stale one can't fire a
         // duplicate checkForUpdates() after this new check starts.
         recheckTask?.cancel()
+        // A transient retry (preserved-intent or plain) only arrives from
+        // `retryAfterTransientFailure` after the driver's multi-second backoff, by which point
+        // Sparkle has already acknowledged and torn down the failed session at error time (see
+        // `showUpdaterError` → `acknowledgement()`). There is therefore no just-dismissed *live*
+        // session to coalesce with, so the non-idle teardown + 100ms delay below — which exists
+        // solely to let Sparkle finish aborting a session before an *immediate* re-check — does not
+        // apply. Routing a retry through it would also be wrong: the current non-idle state is then
+        // the driver's synthetic `.checking` backoff placeholder whose `cancel` aborts the retry and
+        // resets the bounded-retry failure count, so `cancelActiveStateForNewCheck()` would kill the
+        // very retry (flickering the pill to idle) and — on the readiness-delayed path, where this
+        // runs from `readyCheckTask` after the synchronous `isRestartingTransientRetry` window has
+        // closed — silently reset the `[1, 3, 8]` cap into an unbounded retry loop (autoreview P2).
+        // Start the fresh check directly instead.
+        //
+        // `canCheckForUpdates` was true at every caller (`checkForUpdatesWhenReady`,
+        // `waitForReadinessThenCheck`), so any live Sparkle session is already gone: a `.checking`
+        // here is only ever that synthetic placeholder, never a real in-flight check.
+        if preservingInstallIntent {
+            updater.checkForUpdates()
+            return
+        }
         if model.state == .idle {
+            updater.checkForUpdates()
+            return
+        }
+        if case .checking = model.state {
             updater.checkForUpdates()
             return
         }
@@ -228,7 +291,7 @@ public final class UpdateController {
     }
 
     /// Check for updates once the updater reports it can.
-    private func checkForUpdatesWhenReady() {
+    private func checkForUpdatesWhenReady(preservingInstallIntent: Bool = false) {
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train. A manual check (menu,
             // custom UI, or attempt-and-install) must not query the public appcast or offer the
@@ -246,22 +309,24 @@ public final class UpdateController {
         let canCheck = updater.canCheckForUpdates
         log.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
         if canCheck {
-            performCheckForUpdates()
+            performCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
             return
         }
         if model.state.isIdle {
             model.setState(.checking(.init(cancel: {})))
         }
-        waitForReadinessThenCheck()
+        waitForReadinessThenCheck(preservingInstallIntent: preservingInstallIntent)
     }
 
-    private func waitForReadinessThenCheck() {
+    private func waitForReadinessThenCheck(preservingInstallIntent: Bool = false) {
         readyCheckTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var remaining = self.readyRetryCount
             while remaining > 0 {
+                // Stop the wait when the pending check was cancelled; keep polling otherwise.
+                guard ReadinessWaitDecision(modelState: self.model.state) == .keepPolling else { return }
                 if self.updater.canCheckForUpdates {
-                    self.performCheckForUpdates()
+                    self.performCheckForUpdates(preservingInstallIntent: preservingInstallIntent)
                     return
                 }
                 remaining -= 1
@@ -342,7 +407,7 @@ public final class UpdateController {
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train; never probe the public
             // appcast (init also disables Sparkle's own scheduled checks). Tear down any probe a
-            // prior path may have started. See `isDevLikeBundleIdentifier(_:)` (#6292).
+            // prior path may have started. See `BundleReleaseChannel` (#6292).
             log.append("launch update probe skipped (dev/staging build)")
             backgroundProbeTask?.cancel()
             backgroundProbeTask = nil
@@ -425,25 +490,5 @@ public final class UpdateController {
         } catch {
             log.append("Failed creating Sparkle installation cache: \(error)")
         }
-    }
-}
-
-extension UpdateController {
-    /// Whether `bundleIdentifier` is a cmux DEV (`com.cmuxterm.app.debug[.<tag>]`) or staging
-    /// (`com.cmuxterm.app.staging[.<tag>]`) build.
-    ///
-    /// Such builds are produced from local source and are not on the public release train, so
-    /// they must never be compared against the public Sparkle appcast (#6292).
-    ///
-    /// Mirrors `SocketControlSettings.isDebugLikeBundleIdentifier` +
-    /// `isStagingBundleIdentifier` (in the CmuxSettings package). The classification is
-    /// duplicated here deliberately to avoid introducing a `CmuxUpdater → CmuxSettings` package
-    /// dependency edge for a small string check.
-    static func isDevLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
-        guard let bundleIdentifier else { return false }
-        return bundleIdentifier == "com.cmuxterm.app.debug"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
-            || bundleIdentifier == "com.cmuxterm.app.staging"
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
     }
 }
