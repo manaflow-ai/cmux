@@ -105,6 +105,10 @@ final class InboxRuntime {
             async let countsTask = hub.unreadCounts()
             async let accountsTask = hub.accounts()
             let items = try await hub.list(InboxListQuery(filter: filter, source: selectedSource, limit: 100))
+            // Notification tracking must not depend on what happens to be
+            // visible: the default .actionable filter (or a selected source)
+            // would silently drop notifications for every other unread item.
+            let notificationCandidates = try await hub.list(InboxListQuery(filter: .unread, source: nil, limit: 100))
             let threadIDs = Array(Set(items.map(\.threadID)))
             let threads = try await hub.threads(ids: threadIDs)
             statuses = await statusTask
@@ -116,7 +120,7 @@ final class InboxRuntime {
                 statuses: statuses
             )
             rows = presenter.rows(items: items, threads: threads)
-            updateNotificationState(items: items, seed: seedNotifications)
+            updateNotificationState(items: notificationCandidates, seed: seedNotifications)
             if let selectedThread {
                 try await refreshThread(threadID: selectedThread.threadID)
             }
