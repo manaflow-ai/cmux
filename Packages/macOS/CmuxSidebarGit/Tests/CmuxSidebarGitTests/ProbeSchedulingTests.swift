@@ -109,8 +109,10 @@ import CmuxGit
             branch: "remote-main",
             isDirty: false
         ))
+        service.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
         #expect(await clock.recordedDurations.isEmpty)
         #expect(await reader.probedDirectories.isEmpty)
+        #expect(service.activeWorkspaceGitProbePanelIds(workspaceId: workspaceId).isEmpty)
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 

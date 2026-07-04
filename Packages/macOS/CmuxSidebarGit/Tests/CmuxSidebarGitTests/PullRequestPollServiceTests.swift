@@ -164,6 +164,23 @@ import CmuxGit
         #expect(await clock.recordedDurations.isEmpty)
     }
 
+    @Test func remoteWorkspaceBranchAndBadgeAreSkippedByPollingRefresh() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/remote")
+        host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 7, status: .open)
+        let clock = ManualGitPollClock()
+        let service = makeService(host: host, clock: clock)
+
+        service.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "test")
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.number == 7)
+        #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+        #expect(await clock.recordedDurations.isEmpty)
+    }
+
     /// Disabling polling resets all tracking and clears every badge.
     @Test func disablingPollingSettingClearsBadgesAndTracking() async throws {
         let host = RecordingSidebarGitHost()

@@ -174,7 +174,7 @@ public final class PullRequestPollService: PullRequestProbing {
         var requestedKeys: [WorkspaceGitProbeKey] = []
         var validKeys: Set<WorkspaceGitProbeKey> = []
 
-        for workspaceId in host.orderedWorkspaceIds() {
+        for workspaceId in host.orderedWorkspaceIds() where host.isRemoteWorkspace(workspaceId) == false {
             let branchPanelIds = host.panelGitBranchPanelIds(in: workspaceId)
             let badgePanelIds = host.panelPullRequestPanelIds(in: workspaceId)
             for panelId in branchPanelIds.union(badgePanelIds) {

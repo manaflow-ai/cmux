@@ -27,12 +27,13 @@ extension SidebarGitMetadataService {
         delays: [TimeInterval] = [0]
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        guard let host else { return }
+        guard host.isRemoteWorkspace(workspaceId) == false else { return }
         guard sidebarGitMetadataWatchEnabled else {
             clearWorkspaceGitMetadata(for: key)
             return
         }
-        guard let host,
-              host.panelExists(workspaceId: workspaceId, panelId: panelId),
+        guard host.panelExists(workspaceId: workspaceId, panelId: panelId),
               let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId) else {
             return
         }
