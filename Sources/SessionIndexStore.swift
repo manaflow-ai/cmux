@@ -615,7 +615,6 @@ final class SessionIndexStore: ObservableObject {
         let baseClaudeVaultConfiguration = await claudeVaultConfiguration()
         let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
         let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
-        refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
         var merged = await Self.loadAgents(
             order.agents,
             registry: order.registry,
@@ -1322,7 +1321,6 @@ final class SessionIndexStore: ObservableObject {
                 registry = CmuxVaultAgentRegistry(registrations: [])
             }
             let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: registry)
-            refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
             entries = await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
                 offset: offset, limit: limit, errorBag: bag, registry: registry,
@@ -1336,7 +1334,6 @@ final class SessionIndexStore: ObservableObject {
             let target = offset + limit
             let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
             let claudeVaultConfiguration = baseClaudeVaultConfiguration.merging(registry: order.registry)
-            refreshVaultPathMappings(claudeVaultConfiguration.pathMappings)
             var merged = await Self.loadAgents(
                 order.agents,
                 registry: order.registry,
