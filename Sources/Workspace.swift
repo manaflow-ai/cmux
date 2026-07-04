@@ -10419,7 +10419,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = targetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
-        if defaultWorkingDirectory == nil, let dir = panelDirectories[targetPanelId] {
+        if let dir = panelDirectories[targetPanelId] {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[targetPanelId]
