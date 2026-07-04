@@ -176,6 +176,7 @@ extension TerminalController {
             let title = parsed.title
             let subtitle = parsed.subtitle
             let body = parsed.body
+            guard shouldDeliverAgentNotification(parsed.agentMeta) else { return }
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -211,6 +212,7 @@ extension TerminalController {
             let title = parsed.title
             let subtitle = parsed.subtitle
             let body = parsed.body
+            guard shouldDeliverAgentNotification(parsed.agentMeta) else { return }
             deliverNotificationSynchronously(
                 tabId: tabId,
                 surfaceId: surfaceId,
@@ -250,6 +252,7 @@ extension TerminalController {
                     result = "ERROR: Panel not found"
                     return
                 }
+                guard shouldDeliverAgentNotification(parsed.agentMeta) else { return }
                 deliverNotificationSynchronously(
                     tabId: workspaceId,
                     surfaceId: panelId,
@@ -278,6 +281,7 @@ extension TerminalController {
                 result = "ERROR: Panel not found"
                 return
             }
+            guard shouldDeliverAgentNotification(parsed.agentMeta) else { return }
             deliverNotificationSynchronously(
                 tabId: tab.id,
                 surfaceId: panelId,
@@ -302,6 +306,7 @@ extension TerminalController {
         let title = parsed.title
         let subtitle = parsed.subtitle
         let body = parsed.body
+        guard shouldDeliverAgentNotification(parsed.agentMeta) else { return "OK" }
 #if DEBUG
         cmuxDebugLog(
             "socket.notifyTargetAsync.enqueue workspace=\(request.tabId.uuidString.prefix(8)) surface=\(request.surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
