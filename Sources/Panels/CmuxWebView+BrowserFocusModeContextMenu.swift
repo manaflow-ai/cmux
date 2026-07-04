@@ -3,6 +3,9 @@ import AppKit
 extension CmuxWebView {
     private static let browserFocusModeContextMenuItemIdentifier =
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
+    static var contextMenuToggleBrowserFocusModeSelector: Selector {
+        #selector(contextMenuToggleBrowserFocusMode(_:))
+    }
 
     func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
         let state = AppDelegate.shared?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
@@ -14,7 +17,7 @@ extension CmuxWebView {
         if let item = menu.items.first(where: { $0.identifier == Self.browserFocusModeContextMenuItemIdentifier }) {
             item.title = title
             item.target = self
-            item.action = #selector(contextMenuToggleBrowserFocusMode(_:))
+            item.action = Self.contextMenuToggleBrowserFocusModeSelector
             item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
             return
         }
@@ -24,7 +27,7 @@ extension CmuxWebView {
         }
         let item = NSMenuItem(
             title: title,
-            action: #selector(contextMenuToggleBrowserFocusMode(_:)),
+            action: Self.contextMenuToggleBrowserFocusModeSelector,
             keyEquivalent: ""
         )
         item.identifier = Self.browserFocusModeContextMenuItemIdentifier
@@ -33,7 +36,7 @@ extension CmuxWebView {
         menu.addItem(item)
     }
 
-    @objc func contextMenuToggleBrowserFocusMode(_ sender: Any?) {
+    @objc private func contextMenuToggleBrowserFocusMode(_ sender: Any?) {
         _ = sender
         if AppDelegate.shared?.toggleBrowserFocusModeFromContextMenu(for: self) != true {
             NSSound.beep()

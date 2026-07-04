@@ -22,7 +22,7 @@ extension CmuxWebView {
         menu.insertItem(item, at: semanticCopyLinkInsertionIndex(in: menu))
     }
 
-    @objc func contextMenuCopySemanticLinkValue(_ sender: Any?) {
+    @objc private func contextMenuCopySemanticLinkValue(_ sender: Any?) {
         guard let item = sender as? NSMenuItem,
               let value = item.representedObject as? String,
               !value.isEmpty else {

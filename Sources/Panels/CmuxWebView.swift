@@ -1282,7 +1282,7 @@ final class CmuxWebView: WKWebView {
 
     private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
         guard target === self else { return false }
-        if action == #selector(contextMenuToggleBrowserFocusMode(_:)) {
+        if action == Self.contextMenuToggleBrowserFocusModeSelector {
             return true
         }
         if action == #selector(contextMenuCopyImage(_:)) {
