@@ -26,6 +26,7 @@ struct ClaudeHookConversationAttributionTests {
         let capture = try runClaudeStopHook(
             callerWorkspaceId: nil,
             surfaceEnvId: Self.strayEnvSurfaceId,
+            includeSessionStart: true,
             repeatCount: 2
         )
         #expect(
@@ -118,6 +119,7 @@ struct ClaudeHookConversationAttributionTests {
     private func runClaudeStopHook(
         callerWorkspaceId: String?,
         surfaceEnvId: String,
+        includeSessionStart: Bool = false,
         repeatCount: Int = 1
     ) throws -> FeedCapture {
         let root = FileManager.default.temporaryDirectory
@@ -169,11 +171,11 @@ struct ClaudeHookConversationAttributionTests {
         }
 
         let sessionId = "claude-7132-\(UUID().uuidString)"
-        for _ in 0..<repeatCount {
-            let stdin = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
+        func runHook(_ subcommand: String, eventName: String) throws {
+            let stdin = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"\#(eventName)"}"#
             let result = Self.runProcess(
                 executablePath: try Self.bundledCLIPath(),
-                arguments: ["hooks", "claude", "stop"],
+                arguments: ["hooks", "claude", subcommand],
                 environment: cliEnvironment(
                     root: root,
                     socketPath: socketPath,
@@ -184,6 +186,12 @@ struct ClaudeHookConversationAttributionTests {
                 timeout: 10
             )
             #expect(!result.timedOut, Comment(rawValue: "hooks claude stop timed out; stderr=\(result.stderr)"))
+        }
+        if includeSessionStart {
+            try runHook("session-start", eventName: "SessionStart")
+        }
+        for _ in 0..<repeatCount {
+            try runHook("stop", eventName: "Stop")
         }
 
         // Feed telemetry is delivered best-effort on a separate one-way socket
