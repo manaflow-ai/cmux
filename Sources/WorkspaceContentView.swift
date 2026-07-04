@@ -161,8 +161,7 @@ struct WorkspaceContentView: View {
         let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
+        let isSplit = workspace.bonsplitController.allPaneIds.count > 1
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()

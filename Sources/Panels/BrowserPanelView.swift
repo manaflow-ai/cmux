@@ -7825,9 +7825,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView.superview == nil ||
                 portalEntryMissing ||
                 previousVisible != shouldAttachWebView ||
-                previousZPriority != portalZPriority ||
-                previousShowsActivePaneBoundary != showsActivePaneBoundary ||
-                previousActivePaneBoundaryColor != activePaneBoundaryColor
+                previousZPriority != portalZPriority
             if shouldBindNow {
                 Self.installPortalAnchorView(portalAnchorView, in: host)
                 BrowserWindowPortalRegistry.bind(
