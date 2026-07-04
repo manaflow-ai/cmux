@@ -6,7 +6,7 @@
 // Diagnostic toggles (re-add transition, drop translateZ, magnify) exist to
 // pin down the Safari hover jump. Reach it at /debug. Not linked from anywhere.
 
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { DownloadButton } from "../components/download-button";
 
 type Pad = {
@@ -139,14 +139,20 @@ export default function DownloadButtonDebug() {
 
             <div
               className={dark ? "dark" : undefined}
-              style={{
-                background: dark ? "#0a0a0a" : "#fafafa",
-                borderRadius: 12,
-                padding: "48px 24px",
-                overflow: "auto",
-                display: "flex",
-                justifyContent: "center",
-              }}
+              style={
+                {
+                  // Pin the theme tokens so the pill has correct contrast even
+                  // though the surrounding app may be in the other mode.
+                  "--background": dark ? "#0a0a0a" : "#fafafa",
+                  "--foreground": dark ? "#ededed" : "#171717",
+                  background: dark ? "#0a0a0a" : "#fafafa",
+                  borderRadius: 12,
+                  padding: "48px 24px",
+                  overflow: "auto",
+                  display: "flex",
+                  justifyContent: "center",
+                } as CSSProperties
+              }
             >
               <div className={wrapClass}
                 style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}>
