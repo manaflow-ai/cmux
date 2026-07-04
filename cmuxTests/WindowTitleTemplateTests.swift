@@ -281,6 +281,76 @@ struct WindowTitleTemplateTests {
         #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
     }
 
+    @MainActor
+    @Test func remoteWorkspaceTitleUsesFocusedLocalTerminalDirectoryForActiveDirectoryTemplate() throws {
+        let defaults = UserDefaults.standard
+        let previousValues: [String: Any?] = [
+            WindowTitleTemplate.userDefaultsKey: defaults.object(forKey: WindowTitleTemplate.userDefaultsKey),
+        ]
+        defer {
+            restore(previousValues, defaults: defaults)
+        }
+        defaults.set("[cmux:{windowToken}] {activeDirectory}", forKey: WindowTitleTemplate.userDefaultsKey)
+
+        let windowId = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let initialDirectory = "/Users/alice/development"
+        let localTerminalDirectory = "/Users/alice/local-tools"
+        let remoteDirectory = "/home/seepine/workspace"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: initialDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        manager.windowId = windowId
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        let localPanel = try #require(workspace.newTerminalSplit(
+            from: remotePanelId,
+            orientation: .horizontal,
+            focus: false
+        ))
+        #expect(workspace.updatePanelDirectory(panelId: localPanel.id, directory: localTerminalDirectory))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "seepine@192.168.5.20",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: "relay-\(UUID().uuidString)",
+                relayToken: String(repeating: "a", count: 64),
+                localSocketPath: "/tmp/cmux-issue-7268-local-window-title.sock",
+                terminalStartupCommand: "ssh seepine@192.168.5.20"
+            ),
+            autoConnect: false
+        )
+        #expect(workspace.isRemoteTerminalSurface(remotePanelId))
+        #expect(!workspace.isRemoteTerminalSurface(localPanel.id))
+
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        workspace.focusPanel(localPanel.id)
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567] \(localTerminalDirectory)")
+
+        workspace.focusPanel(remotePanelId)
+        manager.refreshWindowTitle()
+        #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
+    }
+
     private func isolatedDefaults() throws -> UserDefaults {
         let suiteName = "cmux.WindowTitleTemplateTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
