@@ -123,7 +123,7 @@ import Testing
         #expect(workspace.customDescription == "human note")
     }
 
-    @Test func workspaceActionSetDescriptionDefaultsToUserSource() throws {
+    @Test func workspaceActionSetDescriptionDefaultsToAgentSource() throws {
         let controller = TerminalController.shared
         let originalTabManager = controller.tabManager
         let manager = TabManager()
@@ -134,6 +134,27 @@ import Testing
         _ = controller.v2WorkspaceAction(params: [
             "action": "set_description",
             "description": "CLI note",
+        ])
+
+        #expect(workspace.customDescription == "CLI note")
+        #expect(workspace.effectiveCustomDescriptionSource == .agent)
+
+        workspace.resetSidebarContext(reason: "test")
+        #expect(workspace.customDescription == nil)
+    }
+
+    @Test func workspaceActionSetDescriptionCanMarkUserSource() throws {
+        let controller = TerminalController.shared
+        let originalTabManager = controller.tabManager
+        let manager = TabManager()
+        controller.tabManager = manager
+        defer { controller.tabManager = originalTabManager }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        _ = controller.v2WorkspaceAction(params: [
+            "action": "set_description",
+            "description": "CLI note",
+            "description_source": "user",
         ])
 
         #expect(workspace.customDescription == "CLI note")

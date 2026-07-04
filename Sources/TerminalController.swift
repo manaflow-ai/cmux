@@ -4107,7 +4107,14 @@ class TerminalController {
                     v2String(params, "description_source")
                         ?? v2String(params, "descriptionSource")
                 )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                let source: Workspace.CustomDescriptionSource = sourceRaw == "agent" ? .agent : .user
+                let source: Workspace.CustomDescriptionSource = switch sourceRaw {
+                case "user":
+                    .user
+                case "agent", nil:
+                    .agent
+                default:
+                    .user
+                }
                 tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw, source: source)
                 finish(["description": v2OrNull(workspace.customDescription)])
 
