@@ -1232,7 +1232,7 @@ extension Workspace {
             // remember where the resume launcher actually sends the agent.
             let resumeSessionWorkingDirectory: String? = {
                 if restoredBindingLaunch != nil {
-                    return effectiveResumeBindingForStartup?.cwd
+                    return effectiveResumeBindingForStartup?.cwd ?? (restoresRemoteWorkspaceTerminalSnapshot ? nil : sessionReturnWorkingDirectory)
                 }
                 guard let restorableAgent else { return savedWorkingDirectory }
                 if let workingDirectory = restorableAgent.workingDirectory {

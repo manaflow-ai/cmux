@@ -19,13 +19,13 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
             UserDefaults.standard.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let sessionDirectory = "/tmp/cmux-issue-7031-agent-repo"
-            let panel = try restoredPanel(
+            let restored = try restoredPanel(
                 sessionDirectory: sessionDirectory,
                 sessionId: "agent-issue-7031-session",
                 makeSurfaceResumeBindingIndex: nil
             )
 
-            try expectReturnShell(panel, to: sessionDirectory)
+            try expectReturnShell(restored.panel, to: sessionDirectory)
         }
     }
 
@@ -36,7 +36,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
             UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
             let sessionDirectory = "/tmp/cmux-issue-7031-binding-repo"
-            let panel = try restoredPanel(
+            let restored = try restoredPanel(
                 sessionDirectory: sessionDirectory,
                 sessionId: "binding-issue-7031-session",
                 makeSurfaceResumeBindingIndex: { workspaceId, panelId in
@@ -55,7 +55,10 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
                 }
             )
 
-            try expectReturnShell(panel, to: sessionDirectory)
+            try expectReturnShell(restored.panel, to: sessionDirectory)
+            #expect(
+                restored.workspace.restoredResumeSessionWorkingDirectoriesByPanelId[restored.panel.id] == sessionDirectory
+            )
         }
     }
 
@@ -101,6 +104,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
             restored.restoreSessionSnapshot(snapshot)
             let restoredPanelId = try #require(restored.focusedPanelId)
             let panel = try #require(restored.terminalPanel(for: restoredPanelId))
+            #expect(restored.restoredResumeSessionWorkingDirectoriesByPanelId[restoredPanelId] == nil)
 
             let script = try harness.resumeLauncherScript(from: panel)
             let outerCd = "{ cd -- '\(sessionDirectory)' 2>/dev/null || true; }"
@@ -114,7 +118,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         sessionDirectory: String,
         sessionId: String,
         makeSurfaceResumeBindingIndex: ((UUID, UUID) -> SurfaceResumeBindingIndex?)? = nil
-    ) throws -> TerminalPanel {
+    ) throws -> (workspace: Workspace, panel: TerminalPanel) {
         let source = Workspace()
         let sourcePanelId = try #require(source.focusedPanelId)
         _ = source.updatePanelDirectory(panelId: sourcePanelId, directory: sessionDirectory)
@@ -139,7 +143,7 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restored.focusedPanelId)
-        return try #require(restored.terminalPanel(for: restoredPanelId))
+        return (restored, try #require(restored.terminalPanel(for: restoredPanelId)))
     }
 
     @MainActor
