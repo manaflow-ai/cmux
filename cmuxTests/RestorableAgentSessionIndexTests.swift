@@ -1326,7 +1326,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             processArgumentsProvider: { processId in
                 guard processId == process.pid else { return nil }
                 return CmuxTopProcessArguments(
-                    arguments: ["hermes", "--resume", "older-resumed", "--tui"],
+                    arguments: ["hermes", "--resume=older-resumed", "--tui"],
                     environment: [
                         "HERMES_HOME": hermesHome.path,
                         "CMUX_AGENT_LAUNCH_CWD": repo.path,
@@ -1462,7 +1462,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             processArgumentsProvider: { processId in
                 let arguments: [String]
                 switch processId {
-                case explicitProcess.pid: arguments = ["hermes", "--resume", "resumed-old"]
+                case explicitProcess.pid: arguments = ["hermes", "-r=resumed-old"]
                 case freshProcess.pid: arguments = ["hermes"]
                 default: return nil
                 }

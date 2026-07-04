@@ -1074,6 +1074,28 @@ private extension Array where Element == String {
         return value
     }
 
+    func resumeSessionID(options: [String]) -> String? {
+        for index in indices {
+            let argument = self[index]
+            if options.contains(argument) {
+                let nextIndex = self.index(after: index)
+                guard nextIndex < endIndex else { continue }
+                if let value = normalizedNonOptionValue(self[nextIndex]) {
+                    return value
+                }
+                continue
+            }
+            for option in options {
+                let prefix = option + "="
+                guard argument.hasPrefix(prefix) else { continue }
+                if let value = normalizedNonOptionValue(String(argument.dropFirst(prefix.count))) {
+                    return value
+                }
+            }
+        }
+        return nil
+    }
+
     func piCompatibleSessionID(startingAt startIndex: Int) -> String? {
         guard startIndex < endIndex else { return nil }
         for index in indices where index >= startIndex {
@@ -1107,37 +1129,15 @@ private extension Array where Element == String {
         return !value.isEmpty && !value.hasPrefix("-") ? value : nil
     }
 
-    /// The explicit session id from a live `hermes --resume <id>` / `-r <id>` argv, or nil for a
-    /// fresh launch. hermes rejects an id that does not exist, so an argv id names the exact running
-    /// session; the scanner trusts it over the state.db cwd-newest heuristic and excludes such panes
-    /// from the same-cwd ambiguity count (they do not compete for the cwd's newest fresh session).
+    /// The explicit session id from a live `hermes --resume <id>` / `--resume=<id>` /
+    /// `-r <id>` / `-r=<id>` argv, or nil for a fresh launch. Hermes rejects unknown ids, so the
+    /// scanner trusts argv over state.db and excludes these panes from same-cwd ambiguity counts.
     var hermesResumeSessionID: String? {
-        nonOptionValue(afterOption: "--resume") ?? nonOptionValue(afterOption: "-r")
+        resumeSessionID(options: ["--resume", "-r"])
     }
 
     var grokResumeSessionID: String? {
-        let options = ["-r", "--resume"]
-        for index in indices {
-            let argument = self[index]
-            if options.contains(argument) {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { continue }
-                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-                continue
-            }
-            for option in options {
-                let prefix = option + "="
-                guard argument.hasPrefix(prefix) else { continue }
-                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-            }
-        }
-        return nil
+        resumeSessionID(options: ["-r", "--resume"])
     }
 }
 
