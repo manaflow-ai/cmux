@@ -16,8 +16,13 @@ struct MonospacedFontFamilyCatalog {
         ] as CFDictionary)
         let matches = CTFontDescriptorCreateMatchingFontDescriptors(descriptor, nil) as? [CTFontDescriptor] ?? []
         return matches.contains { descriptor in
-            let font = CTFontCreateWithFontDescriptor(descriptor, 12, nil)
-            return CTFontGetSymbolicTraits(font).contains(.traitMonoSpace)
+            guard
+                let traits = CTFontDescriptorCopyAttribute(descriptor, kCTFontTraitsAttribute) as? NSDictionary,
+                let symbolicTraits = traits[kCTFontSymbolicTrait] as? NSNumber
+            else {
+                return false
+            }
+            return CTFontSymbolicTraits(rawValue: symbolicTraits.uint32Value).contains(.traitMonoSpace)
         }
     }
 }
