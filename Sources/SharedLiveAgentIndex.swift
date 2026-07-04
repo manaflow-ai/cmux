@@ -54,13 +54,17 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
+    func prepareForkAvailabilityProbe() -> Bool {
         scheduleRefreshIfStale()
-        guard forkAvailabilityProbeCompletedAt != nil else {
+        guard hasFreshForkAvailabilityProbe else {
             requestForkAvailabilityRefresh()
-            return nil
+            return false
         }
         requestForkAvailabilityRefresh()
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        return forkAvailabilityRefreshTask == nil
     }
 
     /// Current cached index. Never blocks.

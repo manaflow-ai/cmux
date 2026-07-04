@@ -63,7 +63,7 @@ extension GhosttyNSView {
 #endif
             return false
         }
-        let availability = located.workspace.forkAgentConversationContextMenuAvailability(
+        let availability = located.workspace.forkAgentConversationContextMenuOpenAvailability(
             forPanelId: panelId
         )
 #if DEBUG
