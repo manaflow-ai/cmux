@@ -318,6 +318,7 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
         let hiddenAt = Date(timeIntervalSince1970: 6_000)
+        workspace.setBrowserResourceLifecycleWorkspaceActive(true, reason: "test.workspaceActive")
         panel.noteWebViewVisibility(false, reason: "test.portalHidden", now: hiddenAt)
         workspace.focusPanel(panel.id)
 
@@ -332,6 +333,28 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
             "Focused browser panes must not be memory-discarded while still active in the workspace."
         )
         XCTAssertTrue(panel.webView === originalWebView)
+    }
+
+    func testFocusedBrowserPanelInInactiveWorkspaceDoesNotBlockHiddenWebViewDiscard() throws {
+        let workspace = Workspace(initialSurface: .browser)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let panel = try XCTUnwrap(workspace.panels[panelId] as? BrowserPanel)
+        defer { panel.close() }
+
+        let hiddenAt = Date(timeIntervalSince1970: 6_100)
+        workspace.setBrowserResourceLifecycleWorkspaceActive(true, reason: "test.workspaceActive")
+        panel.noteWebViewVisibility(false, reason: "test.portalHidden", now: hiddenAt)
+        workspace.setBrowserResourceLifecycleWorkspaceActive(false, reason: "test.workspaceInactive")
+        workspace.focusPanel(panel.id)
+
+        let payload = panel.webViewLifecycleTopPayload(now: hiddenAt.addingTimeInterval(1))
+        let blockers = try XCTUnwrap(payload["discard_blockers"] as? [String])
+        XCTAssertEqual(payload["active_in_workspace"] as? Bool, false)
+        XCTAssertEqual(payload["visible_in_ui"] as? Bool, false)
+        XCTAssertFalse(
+            blockers.contains("active_workspace_surface"),
+            "Selected browser panes in inactive workspaces must not keep the active-workspace discard blocker."
+        )
     }
 }
 
