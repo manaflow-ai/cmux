@@ -143,6 +143,26 @@ struct AuthEnvironmentTests {
         #expect(overrideURL.host == "billing-preview.example")
         #expect(overrideURL.path == "/api/billing/checkout")
     }
+
+    @Test("tagged debug app pricing uses launch web origin before dotfile fallback")
+    func taggedDebugAppPricingUsesLaunchWebOriginBeforeDotfileFallback() {
+        let environment = [
+            "CMUX_AUTH_WWW_ORIGIN": "http://127.0.0.1:9210",
+            "CMUX_PORT": "9210",
+        ]
+
+        let pricingURL = AuthEnvironment.resolvedPricingURL(environment: environment)
+        #expect(pricingURL.scheme == "http")
+        #expect(pricingURL.host == "localhost")
+        #expect(pricingURL.port == 9210)
+        #expect(pricingURL.path == "/pricing")
+
+        let appPricingURL = AuthEnvironment.resolvedAppPricingURL(environment: environment)
+        #expect(appPricingURL.scheme == "http")
+        #expect(appPricingURL.host == "localhost")
+        #expect(appPricingURL.port == 9210)
+        #expect(appPricingURL.path == "/app-pricing")
+    }
 }
 
 private func assertNativeSignInURL(_ url: URL) {
