@@ -952,6 +952,11 @@ def computer_use_sandbox(
                 override_dir.mkdir(parents=True, exist_ok=True)
                 make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
                 env["CMUX_CU_CODEX"] = str(override_dir / "codex")
+            elif codex_override == "<sandbox-codex-with-tab>":
+                override_dir = tmp / "codex\toverride"
+                override_dir.mkdir(parents=True, exist_ok=True)
+                make_executable(override_dir / "codex", "#!/usr/bin/env bash\nexit 0\n")
+                env["CMUX_CU_CODEX"] = str(override_dir / "codex")
             elif codex_override == "<sandbox-legacy-codex>":
                 override_dir = tmp / "codex-override"
                 override_dir.mkdir(parents=True, exist_ok=True)
@@ -1112,6 +1117,26 @@ def test_computer_use_mcp_honors_codex_override(failures: list[str]) -> None:
         expect(
             pinned.endswith("/codex-override/codex"),
             f"computer use override: expected the override binary pinned via env, got {config}",
+            failures,
+        )
+
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(codex_on_path=False, codex_override="<sandbox-codex-with-tab>"),
+    )
+    expect(code == 0, f"computer use escaped override: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect(
+        config is not None,
+        f"computer use escaped override: expected parseable --mcp-config JSON, got {real_argv}",
+        failures,
+    )
+    if config is not None:
+        pinned = config.get("mcpServers", {}).get("cmux-computer-use", {}).get("env", {}).get("CMUX_CU_CODEX", "")
+        expect(
+            "/codex\toverride/codex" in pinned,
+            f"computer use escaped override: expected tab-containing path round trip, got {config}",
             failures,
         )
 
