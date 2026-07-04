@@ -22987,12 +22987,10 @@ struct CMUXCLI {
             } else {
                 print(message)
             }
-
         default:
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
         }
     }
-
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -23193,7 +23191,6 @@ struct CMUXCLI {
                 )
             }
             print("OK")
-
         case "stop", "idle":
             telemetry.breadcrumb("claude-hook.stop")
             do {
@@ -23221,9 +23218,13 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                let hasAuthoritativeWorkspace = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId) != nil ||
-                    nonEmptyClaudeHookIdentifier(workspaceArg) != nil ||
-                    callerTTYBindingProvider?() != nil
+                let rawFeedWorkspace = nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId) ??
+                    nonEmptyClaudeHookIdentifier(workspaceArg)
+                let resolvedFeedWorkspace = rawFeedWorkspace.flatMap { try? resolveWorkspaceId($0, client: client) }
+                let hasAuthoritativeWorkspace = (
+                    resolvedFeedWorkspace == workspaceId &&
+                    (try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])) != nil
+                ) || callerTTYBindingProvider?()?.workspaceId == workspaceId
                 sendClaudeFeedTelemetry(
                     workspaceId: hasAuthoritativeWorkspace ? workspaceId : nil,
                     surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil
@@ -23283,7 +23284,6 @@ struct CMUXCLI {
                         launchCommand: mappedSession?.launchCommand
                     )
                 }
-
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,

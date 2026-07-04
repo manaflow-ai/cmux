@@ -37,6 +37,7 @@ struct ClaudeHookConversationAttributionTests {
     private static let focusedSurfaceId = "98989898-9898-9898-9898-989898989898"
     private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
+    private static let staleWorkspaceId = "33333333-3333-3333-3333-333333333333"
     /// A `CMUX_SURFACE_ID` that exists in no listed workspace — enough to clear
     /// the "no cmux target" hook guard while forcing a non-authoritative surface
     /// resolution, exactly like a detached/re-hosted session's leaked env.
@@ -109,6 +110,26 @@ struct ClaudeHookConversationAttributionTests {
         #expect(event["workspace_id"] as? String != Self.focusedWorkspaceId)
     }
 
+    /// A stale caller workspace must not become authoritative merely because a
+    /// raw env value was present. If resolving it falls back to the focused
+    /// workspace, feed telemetry still omits workspace attribution.
+    @Test func stopWithStaleCallerWorkspaceDoesNotAttributeToFocusedWorkspace() throws {
+        let capture = try runClaudeStopHook(
+            callerWorkspaceId: Self.staleWorkspaceId,
+            surfaceEnvId: Self.strayEnvSurfaceId
+        )
+        let event = try #require(
+            capture.feedEvent,
+            Comment(rawValue: "Expected the Stop hook to emit a feed.push, saw \(capture.commands)")
+        )
+        let attributed = event["workspace_id"] as? String
+        #expect(
+            attributed == nil,
+            Comment(rawValue: "Stale caller workspace must not fall through to focused workspace attribution; got \(String(describing: attributed))")
+        )
+        #expect(attributed != Self.focusedWorkspaceId)
+    }
+
     // MARK: - Harness
 
     private struct FeedCapture {
@@ -146,6 +167,13 @@ struct ClaudeHookConversationAttributionTests {
             case "surface.list":
                 let params = payload["params"] as? [String: Any]
                 let workspaceId = params?["workspace_id"] as? String
+                if workspaceId == Self.staleWorkspaceId {
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "workspace_not_found", "message": "Workspace not found"]
+                    )
+                }
                 return Self.v2Response(id: id, ok: true, result: ["surfaces": Self.surfaces(forWorkspace: workspaceId)])
             case "system.top":
                 return Self.v2Response(id: id, ok: true, result: ["windows": []])
