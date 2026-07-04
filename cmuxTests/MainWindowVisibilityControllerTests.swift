@@ -81,6 +81,58 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertEqual(activationCount, 0)
     }
 
+    func testFocusUnavailableWindowReturnsFalseBeforeWindowOperations() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var activeCount = 0
+        var operationCount = 0
+        var activationCount = 0
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                isWindowAvailable: { _ in false },
+                setActiveMainWindow: { _ in activeCount += 1 },
+                isApplicationHidden: { false },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    isMiniaturized: { _ in operationCount += 1; return false },
+                    deminiaturize: { _ in operationCount += 1 },
+                    makeKeyAndOrderFront: { _ in operationCount += 1 },
+                    orderFront: { _ in operationCount += 1 },
+                    softShow: { _ in operationCount += 1 }
+                )
+            )
+        )
+
+        XCTAssertFalse(controller.focus(window, reason: .focusMainWindow))
+        XCTAssertEqual(activeCount, 0)
+        XCTAssertEqual(operationCount, 0)
+        XCTAssertEqual(activationCount, 0)
+    }
+
+    func testFocusUnavailableWindowDoesNotUseSuppressedActiveContextShortcut() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var activeCount = 0
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { true },
+                isWindowAvailable: { _ in false },
+                setActiveMainWindow: { _ in activeCount += 1 },
+                isApplicationHidden: { false },
+                windowOperations: makeWindowOperations(
+                    makeKeyAndOrderFront: { _ in XCTFail("Unavailable windows must not be ordered") }
+                )
+            )
+        )
+
+        XCTAssertFalse(controller.focus(window, reason: .socketActivate))
+        XCTAssertEqual(activeCount, 0)
+    }
+
     func testHotkeyRestoreUsesCapturedVisibleTargetsWithoutDeminiaturizingMiniaturizedWindows() {
         let visibleWindow = makeWindow()
         let miniaturizedWindow = makeWindow()

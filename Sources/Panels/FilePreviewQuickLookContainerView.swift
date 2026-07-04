@@ -46,13 +46,27 @@ final class FilePreviewQuickLookContainerView: QLPreviewView {
     /// window detachment. Returns `nil` only if `QLPreviewView` itself fails to
     /// initialize.
     func livePreviewView() -> QLPreviewView? {
-        if let previewView, !previewView.didDetachFromWindow {
+        let staleReason: String?
+        if let previewView, previewView.didDetachFromWindow {
+            staleReason = "detach-flag"
+        } else if let previewView, window != nil, previewView.window == nil {
+            staleReason = "window-nil"
+        } else {
+            staleReason = nil
+        }
+
+        if let previewView, staleReason == nil {
             return previewView
         }
 
         // Retire a deactivated instance before mounting a fresh one. Assigning
         // `nil` is always safe (the assertion's `item == nil` branch holds).
         if let stale = previewView {
+            sentryBreadcrumb(
+                "quickLook.preview.retire",
+                category: "filePreview",
+                data: ["reason": staleReason ?? "unknown"]
+            )
             stale.previewItem = nil
             stale.removeFromSuperview()
         }

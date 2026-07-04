@@ -382,6 +382,7 @@ struct cmuxApp: App {
                 .cmuxFontMagnificationEnvironment()
                 .cmuxAppearanceColorScheme(appearanceMode)
                 .onAppear {
+                    StartupBreadcrumbLog.append("app.scene.onAppear")
                     SettingsWindowPresenter.configure(
                         openWindow: {
                             openWindow(id: SettingsWindowPresenter.windowID)
@@ -1129,9 +1130,11 @@ struct cmuxApp: App {
     }
 
     private func bootstrapMainWindowScene() {
+        StartupBreadcrumbLog.append("app.scene.bootstrapMainWindow.begin")
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
+        StartupBreadcrumbLog.append("app.scene.bootstrapMainWindow.complete")
     }
 
     private var currentSocketMode: SocketControlMode {

@@ -12,16 +12,19 @@ import LocalAuthentication
 import Security
 #endif
 
-struct CLIError: Error, CustomStringConvertible {
+struct CLIError: Error, CustomStringConvertible, CLIErrnoProviding {
     let message: String
     let exitCode: Int32
+    let errnoValue: Int32?
 
-    init(message: String, exitCode: Int32 = 1) {
+    init(message: String, exitCode: Int32 = 1, errnoValue: Int32? = nil) {
         self.message = message
         self.exitCode = exitCode
+        self.errnoValue = errnoValue
     }
 
     var description: String { message }
+    var cliErrnoValue: Int32? { errnoValue }
 }
 
 struct WindowInfo {
@@ -1737,13 +1740,15 @@ final class SocketClient {
         let port: UInt16
     }
 
-    private struct SocketConnectError: Error, CustomStringConvertible {
+    private struct SocketConnectError: Error, CustomStringConvertible, CLIErrnoProviding {
         let path: String
         let errnoValue: Int32
 
         var description: String {
             "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
         }
+
+        var cliErrnoValue: Int32? { errnoValue }
     }
 
     private struct RelayCredentials {
@@ -2054,7 +2059,7 @@ final class SocketClient {
 
         socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
         if socketFD < 0 {
-            throw CLIError(message: "Failed to create socket")
+            throw CLIError(message: "Failed to create socket", errnoValue: errno)
         }
         do {
             let timeout = responseTimeout ?? Self.responseTimeoutSeconds
@@ -2172,7 +2177,7 @@ final class SocketClient {
 
         socketFD = socket(AF_INET, SOCK_STREAM, 0)
         guard socketFD >= 0 else {
-            throw CLIError(message: "Failed to create relay socket")
+            throw CLIError(message: "Failed to create relay socket", errnoValue: errno)
         }
         do {
             try configureSocketWriteSafety(timeout)
@@ -2205,7 +2210,8 @@ final class SocketClient {
             let connectErrno = errno
             close()
             throw CLIError(
-                message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+                message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))",
+                errnoValue: connectErrno
             )
         }
 
@@ -2270,11 +2276,12 @@ final class SocketClient {
                     }
                     close()
                     if errorCode == EAGAIN || errorCode == EWOULDBLOCK || errorCode == ETIMEDOUT {
-                        throw CLIError(message: timeoutMessage)
+                        throw CLIError(message: timeoutMessage, errnoValue: errorCode)
                     }
                     let reason = String(cString: strerror(errorCode))
                     throw CLIError(
-                        message: "\(failureMessage) (\(reason), errno \(errorCode))"
+                        message: "\(failureMessage) (\(reason), errno \(errorCode))",
+                        errnoValue: errorCode
                     )
                 }
                 if written == 0 {
@@ -2294,10 +2301,10 @@ final class SocketClient {
     ) throws {
         let originalFlags = fcntl(socketFD, F_GETFL, 0)
         guard originalFlags >= 0 else {
-            throw CLIError(message: failureMessage)
+            throw CLIError(message: failureMessage, errnoValue: errno)
         }
         guard fcntl(socketFD, F_SETFL, originalFlags | O_NONBLOCK) == 0 else {
-            throw CLIError(message: failureMessage)
+            throw CLIError(message: failureMessage, errnoValue: errno)
         }
         defer {
             if socketFD >= 0 {
@@ -2325,7 +2332,7 @@ final class SocketClient {
                     if errorCode == EINTR { continue }
                     close()
                     let reason = String(cString: strerror(errorCode))
-                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))")
+                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))", errnoValue: errorCode)
                 }
                 if ready == 0 {
                     close()
@@ -2348,10 +2355,10 @@ final class SocketClient {
                     }
                     close()
                     if errorCode == ETIMEDOUT {
-                        throw CLIError(message: timeoutMessage)
+                        throw CLIError(message: timeoutMessage, errnoValue: errorCode)
                     }
                     let reason = String(cString: strerror(errorCode))
-                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))")
+                    throw CLIError(message: "\(failureMessage) (\(reason), errno \(errorCode))", errnoValue: errorCode)
                 }
                 if written == 0 {
                     close()
@@ -2374,7 +2381,7 @@ final class SocketClient {
             )
         }
         guard sendTimeoutResult == 0 else {
-            throw CLIError(message: "Failed to configure socket write timeout")
+            throw CLIError(message: "Failed to configure socket write timeout", errnoValue: errno)
         }
 
 #if os(macOS)
@@ -2389,7 +2396,7 @@ final class SocketClient {
             )
         }
         guard noSigPipeResult == 0 else {
-            throw CLIError(message: "Failed to disable SIGPIPE on socket")
+            throw CLIError(message: "Failed to disable SIGPIPE on socket", errnoValue: errno)
         }
 #endif
     }
@@ -2443,7 +2450,10 @@ final class SocketClient {
         guard result == 0 else {
             let errorCode = errno
             let reason = String(cString: strerror(errorCode))
-            throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
+            throw CLIError(
+                message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))",
+                errnoValue: errorCode
+            )
         }
         lastConfiguredReceiveTimeout = timeout
     }

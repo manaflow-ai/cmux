@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -86,5 +87,58 @@ final class PanelOwnedNativeViewSessionTests: XCTestCase {
         session.dismantle(firstView)
         session.dismantle(remountedView)
         panel.close()
+    }
+
+    func testQuickLookUpdateAfterWindowDetachRetiresStaleInnerPreviewView() throws {
+        let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-7311-quicklook-a-\(UUID().uuidString).txt")
+        let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-7311-quicklook-b-\(UUID().uuidString).txt")
+        try "first".write(to: firstURL, atomically: true, encoding: .utf8)
+        try "second".write(to: secondURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let firstPanel = FilePreviewPanel(workspaceId: UUID(), filePath: firstURL.path)
+        let secondPanel = FilePreviewPanel(workspaceId: UUID(), filePath: secondURL.path)
+        let session = FilePreviewQuickLookSession()
+        let container = try XCTUnwrap(session.view(
+            panel: firstPanel,
+            isVisibleInUI: true,
+            backgroundColor: .clear,
+            drawsBackground: false
+        ) as? FilePreviewQuickLookContainerView)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            session.dismantle(container)
+            firstPanel.close()
+            secondPanel.close()
+            window.close()
+        }
+
+        window.contentView = container
+        let stalePreviewView = try XCTUnwrap(container.livePreviewView())
+        XCTAssertNotNil(stalePreviewView.previewItem)
+
+        window.contentView = nil
+        session.update(
+            container,
+            panel: secondPanel,
+            isVisibleInUI: true,
+            backgroundColor: .clear,
+            drawsBackground: false
+        )
+
+        let freshPreviewView = try XCTUnwrap(container.livePreviewView())
+        XCTAssertFalse(freshPreviewView === stalePreviewView)
+        XCTAssertNil(stalePreviewView.previewItem)
     }
 }
