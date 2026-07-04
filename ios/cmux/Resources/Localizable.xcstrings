@@ -460,23 +460,6 @@
         }
       }
     },
-    "mobile.addDevice.hostLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HOST"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ホスト"
-          }
-        }
-      }
-    },
     "mobile.addDevice.invalidHost": {
       "extractionState": "manual",
       "localizations": {
