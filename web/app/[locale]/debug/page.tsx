@@ -17,9 +17,11 @@ type Pad = {
 };
 type Size = "default" | "sm";
 
+// Mirrors the values baked into download-button.tsx so /debug opens on the
+// currently-shipped spacing.
 const INITIAL: Record<Size, Pad> = {
-  default: { downloadLeft: 20, downloadRight: 10, caretLeft: 7, caretRight: 8 },
-  sm: { downloadLeft: 16, downloadRight: 7, caretLeft: 5, caretRight: 8 },
+  default: { downloadLeft: 20, downloadRight: 8, caretLeft: 6, caretRight: 7 },
+  sm: { downloadLeft: 12, downloadRight: 7, caretLeft: 5, caretRight: 7 },
 };
 
 const FIELDS: { key: keyof Pad; label: string; accent: string }[] = [

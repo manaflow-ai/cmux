@@ -85,11 +85,11 @@ export function DownloadButton({
   // small size). Instant tint avoids the promotion, so nothing shifts.
   const downloadZone = `flex items-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
     isSmall
-      ? "gap-2 pl-4 pr-[7px] py-1.5 text-xs"
-      : "gap-2.5 pl-5 pr-2.5 py-2.5 text-[15px]"
+      ? "gap-2 pl-3 pr-[7px] py-1.5 text-xs"
+      : "gap-2.5 pl-5 pr-2 py-2.5 text-[15px]"
   }`;
   const caretZone = `group flex items-center justify-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
-    isSmall ? "pl-[5px] pr-2" : "pl-[7px] pr-2"
+    isSmall ? "pl-[5px] pr-[7px]" : "pl-1.5 pr-[7px]"
   }`;
 
   const captureMac = () =>
