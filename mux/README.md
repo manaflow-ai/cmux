@@ -24,7 +24,7 @@ cargo test                      # unit + integration tests
 
 Detach with prefix-d while attached; the headless session keeps running and `attach` reconnects with full screen state (VT replay + live stream). A local (non-attach) `cmux-mux` ends its session on quit.
 
-Keys (prefix Ctrl-b, tmux-style): `c` new PTY tab in the active pane, `B` new browser tab URL prompt, `n`/`p`/`1`-`9` switch tab within the pane, `%` split right, `"` split down, `h j k l`/arrows move focus, `x` close tab (a pane collapses with its last tab), `,` rename tab, `$` rename workspace, `Tab` next screen, `S` new screen, `w` next workspace, `W` new workspace, `s` toggle the workspace sidebar, PageUp/PageDown scrollback, `d` quit, `Ctrl-b` twice sends a literal Ctrl-b.
+Keys (prefix Ctrl-b, tmux-style): `c` new screen, `n`/`p` next/previous screen, `&` close screen, `,` rename screen, `t` new PTY tab, `B` new browser tab URL prompt, `Tab`/`BackTab` next/previous tab, `1`-`9` select tab, `%` split right, `"` split down, `h j k l`/arrows move focus, `x` close tab, `X` close pane, `$` rename workspace, `w`/`W` switch/create workspace, `s` toggle the workspace sidebar, PageUp/PageDown scrollback, `d` quit, `Ctrl-b` twice sends a literal Ctrl-b. Modeless Alt shortcuts are also on by default: `Alt-n` smart-splits the focused pane, `Alt-h/j/k/l` or Alt-arrows move focus, `Alt-[`/`Alt-]` switch screens, `Alt-t` opens a tab, and `Alt-=`/`Alt--` resize the focused split.
 
 Every pane draws a border box; the active pane's border is highlighted, the pane under the mouse gets a hover shade, and the box is where flashing notifications will hook in later. The top border doubles as an always-visible tab bar: tabs are numbered (`1`, `2`, ...; the process title follows the number when reported), clicking a title switches, the trailing `+` opens a new tab, and when tabs overflow, `‹`/`›` arrows (or the wheel over the bar) scroll them while the active tab stays visible. User-assigned tab names replace the generated number/title label outright. Drag a shared pane border to resize that split live; dragging a corner moves both intersecting splits, and outer pane edges are inert. Click anywhere in a pane to focus it. The status bar shows the active workspace's screens: click an entry to switch, the trailing `+` for a new screen; it spans only the pane region (not the sidebar), with the session label right-aligned. Right-click a pane for rename tab / new tab / split right / split down / close tab / close pane; right-click a workspace in the sidebar for rename/close; right-click a screen in the status bar for rename/close. Context menus and prompts draw muted borders; menu items keep one-cell side padding and the hover/selection highlight spans the full inner row. Right-press, drag, and release on a row activates that row. Prompts use readline-style editing with shortcut buttons (`Clear ^C`, `Cancel esc`, `OK ⏎`); Enter commits, Esc cancels, Ctrl-C clears, and empty tab/screen names fall back to defaults. Right-clicking while the prompt is open shakes it instead of opening a menu. The sidebar reserves two lines per workspace (name, then the active pane's title) under a `workspaces` header with a blank line after it and between entries; click an entry to switch, `+ new workspace` to create one, and drag the sidebar's right border to resize it for the current session.
 
@@ -74,7 +74,7 @@ If no reusable browser is found and no Chrome binary is found, browser tab creat
     "show_titles": false,
     "agents": ["claude", "codex", "opencode", "pi"]
   },
-  "sidebar": { "width": 22 },
+  "sidebar": { "width": 22, "max_width": 0 },
   "browser": {
     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "cdp_url": "http://127.0.0.1:9222",
@@ -86,21 +86,28 @@ If no reusable browser is found and no Chrome binary is found, browser tab creat
   "scrollbar": { "position": "column" },
   "keys": {
     "prefix": "ctrl+b",
-    "new-tab": "c", "new_browser_tab": "B",
-    "next-tab": "n", "prev-tab": "p",
-    "split-right": "%", "split-down": "\"", "close-tab": "x",
-    "rename-tab": ",", "rename-workspace": "$",
-    "next-screen": "tab", "new-screen": "S",
+    "alt_shortcuts": true,
+    "new-screen": "c", "next-screen": ["n", "alt+]"], "prev-screen": ["p", "alt+["],
+    "close-screen": "&", "rename-screen": ",",
+    "new-tab": ["t", "alt+t"], "new_browser_tab": "B",
+    "next-tab": "tab", "prev-tab": "backtab", "close-tab": "x", "close-pane": "X",
+    "new-pane-smart": "alt+n",
+    "split-right": "%", "split-down": "\"",
+    "rename-tab": "none", "rename-workspace": "$",
     "next-workspace": "w", "new-workspace": "W",
     "toggle-sidebar": "s",
-    "focus-left": "h", "focus-right": "l", "focus-up": "k", "focus-down": "j",
+    "focus-left": ["h", "left", "alt+h", "alt+left"],
+    "focus-right": ["l", "right", "alt+l", "alt+right"],
+    "focus-up": ["k", "up", "alt+k", "alt+up"],
+    "focus-down": ["j", "down", "alt+j", "alt+down"],
+    "resize-grow": "alt+=", "resize-shrink": "alt+-",
     "scroll-up": "pageup", "scroll-down": "pagedown",
     "detach": "d"
   }
 }
 ```
 
-Colors are `#rrggbb`, `#rgb`, or an xterm-256 index. The selection colors default to the user's Ghostty config (`selection-background`/`selection-foreground` from `~/.config/ghostty/config`), falling back to a dark grey. `sidebar_rail` controls the active workspace rail, `sidebar_active_bg` its two-row background, `tab_rail` the active tab chip rail, `tab_bg` inactive solid tab chips, and `tab_active_bg` overrides the focused/unfocused active tab chip backgrounds when set. Tabs are numbered `1 2 3…` by default; recognized agent programs (the `agents` list) surface after the number, `show_titles` restores full process titles, and a user-assigned tab name overrides both. `scrollbar.position` is `"column"` by default or `"border"` for the old right-border overlay. Browser config is optional: `chrome_binary` overrides binary discovery, `cdp_url` accepts `ws://...` or `http://host:port`, `discover` defaults to true, `discover_ports` defaults to `[9222]`, `user_data_dir` overrides the launched profile path, and `ephemeral` restores temporary-profile behavior. When `ephemeral` is true it takes precedence over `user_data_dir`: cmux creates and later deletes a fresh temp profile and never deletes the configured directory. Every prefix binding is remappable via `keys` (formats: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"pageup"`); `1`-`9` stay fixed to tab selection. The old key name `"rename-pane"` is still accepted as an alias for `"rename-tab"`.
+Colors are `#rrggbb`, `#rgb`, or an xterm-256 index. The selection colors default to the user's Ghostty config (`selection-background`/`selection-foreground` from `~/.config/ghostty/config`), falling back to a dark grey. `sidebar_rail` controls the active workspace rail, `sidebar_active_bg` its two-row background, `tab_rail` the active tab chip rail, `tab_bg` inactive solid tab chips, and `tab_active_bg` overrides the focused/unfocused active tab chip backgrounds when set. Tabs are numbered `1 2 3…` by default; recognized agent programs (the `agents` list) surface after the number, `show_titles` restores full process titles, and a user-assigned tab name overrides both. `sidebar.max_width` defaults to `0` for unlimited, while live drag still leaves at least 40 columns for panes. `scrollbar.position` is `"column"` by default or `"border"` for the old right-border overlay. Browser config is optional: `chrome_binary` overrides binary discovery, `cdp_url` accepts `ws://...` or `http://host:port`, `discover` defaults to true, `discover_ports` defaults to `[9222]`, `user_data_dir` overrides the launched profile path, and `ephemeral` restores temporary-profile behavior. When `ephemeral` is true it takes precedence over `user_data_dir`: cmux creates and later deletes a fresh temp profile and never deletes the configured directory. Every prefix/modeless binding is remappable via `keys` (formats: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"tab"`, `"backtab"`, `"pageup"`); values may be a string, an array of strings, or `"none"` to unbind. Set `"alt_shortcuts": false` to remove default Alt chords without blocking user-configured Alt chords. `1`-`9` stay fixed to tab selection. The old key name `"rename-pane"` is still accepted as an alias for `"rename-tab"`.
 
 ## Control socket
 

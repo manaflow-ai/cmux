@@ -347,12 +347,23 @@ fn sidebar_width_for(
     width: u16,
     override_width: Option<u16>,
 ) -> u16 {
-    let w = override_width.unwrap_or(config.sidebar.width);
-    if !visible || width < w.saturating_add(48) {
-        0
-    } else {
-        w
+    if !visible {
+        return 0;
     }
+    clamp_sidebar_width(config, width, override_width.unwrap_or(config.sidebar.width)).unwrap_or(0)
+}
+
+fn clamp_sidebar_width(config: &Config, terminal_width: u16, desired: u16) -> Option<u16> {
+    let terminal_max = terminal_width.saturating_sub(40);
+    let configured_max =
+        if config.sidebar.max_width > 0 { config.sidebar.max_width } else { u16::MAX };
+    let effective_max = terminal_max.min(configured_max);
+    (effective_max >= 10).then_some(desired.clamp(10, effective_max))
+}
+
+fn sidebar_drag_width(config: &Config, content: Rect, sidebar_width: u16, x: u16) -> Option<u16> {
+    let terminal_width = content.width.saturating_add(sidebar_width);
+    clamp_sidebar_width(config, terminal_width, x.saturating_add(1))
 }
 
 fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u16, u16)> {
@@ -755,6 +766,10 @@ impl App {
         self.active_surface().and_then(|id| self.session.surface(id))
     }
 
+    fn active_screen_id(&self) -> Option<mux_core::ScreenId> {
+        self.tree.active_screen().map(|screen| screen.id)
+    }
+
     pub fn dragging_scrollbar(&self) -> Option<SurfaceId> {
         match self.drag {
             Some(Drag::Scrollbar { surface, .. }) => Some(surface),
@@ -779,6 +794,19 @@ impl App {
         self.session.split(pane, dir, hint)
     }
 
+    fn new_pane_smart(&mut self) -> anyhow::Result<()> {
+        let Some(pane) = self.active_pane() else { return Ok(()) };
+        let Some(area) = self.pane_areas.iter().find(|area| area.pane == pane) else {
+            return Ok(());
+        };
+        let dir = if area.content.width > area.content.height.saturating_mul(2) {
+            SplitDir::Right
+        } else {
+            SplitDir::Down
+        };
+        self.split_pane(pane, dir)
+    }
+
     fn new_workspace(&mut self) -> anyhow::Result<()> {
         self.session.new_workspace(self.size_of_rect(self.content_area))
     }
@@ -797,6 +825,9 @@ impl App {
         }
         if self.menu.is_some() {
             return self.handle_menu_key(key);
+        }
+        if let Some(action) = self.config.keys.modeless_action_for(&key) {
+            return self.run_action(action);
         }
         if self.prefix_armed {
             self.prefix_armed = false;
@@ -930,6 +961,7 @@ impl App {
                 self.session.new_tab(pane, None)?;
             }
             Action::NewBrowserTab => self.open_browser_tab_prompt(pane),
+            Action::NewPaneSmart => self.new_pane_smart()?,
             Action::NextTab => self.session.select_tab(pane, None, Some(1)),
             Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
             Action::SplitRight => {
@@ -950,8 +982,20 @@ impl App {
                     self.session.close_surface(surface);
                 }
             }
+            Action::ClosePane => {
+                if let Some(pane) = pane {
+                    self.session.close_pane(pane);
+                }
+            }
             Action::RenameTab => self.open_rename_tab_prompt(pane),
+            Action::RenameScreen => self.open_rename_screen_prompt(),
             Action::RenameWorkspace => self.open_rename_workspace_prompt(),
+            Action::CloseScreen => {
+                if let Some(screen) = self.active_screen_id() {
+                    self.session.close_screen(screen);
+                }
+            }
+            Action::PrevScreen => self.session.select_screen(None, Some(-1)),
             Action::NextScreen => self.session.select_screen(None, Some(1)),
             Action::NewScreen => self.new_screen()?,
             Action::NextWorkspace => self.session.select_workspace(None, Some(1)),
@@ -961,6 +1005,8 @@ impl App {
             Action::FocusRight => self.move_focus(1, 0),
             Action::FocusUp => self.move_focus(0, -1),
             Action::FocusDown => self.move_focus(0, 1),
+            Action::ResizeGrow => self.resize_focused_split(0.05),
+            Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
             Action::Detach => {
@@ -987,6 +1033,13 @@ impl App {
         let Some(ws) = self.tree.active_workspace() else { return };
         self.prompt =
             Some(Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id)));
+    }
+
+    fn open_rename_screen_prompt(&mut self) {
+        let Some(ws) = self.tree.active_workspace() else { return };
+        let Some(screen) = ws.active_screen_ref() else { return };
+        let buffer = screen.name.clone().unwrap_or_default();
+        self.prompt = Some(Prompt::new("Rename screen", buffer, PromptTarget::Screen(screen.id)));
     }
 
     fn open_browser_tab_prompt(&mut self, pane: Option<PaneId>) {
@@ -1373,7 +1426,11 @@ impl App {
                 Ok(true)
             }
             Some(Drag::SidebarResize) => {
-                self.sidebar_width_override = Some(x.saturating_add(1).clamp(10, 60));
+                if let Some(width) =
+                    sidebar_drag_width(&self.config, self.content_area, self.sidebar_width, x)
+                {
+                    self.sidebar_width_override = Some(width);
+                }
                 Ok(true)
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
@@ -1501,6 +1558,57 @@ impl App {
         if moved && self.selection.is_some_and(|s| s.surface == surface) {
             self.selection = None;
         }
+    }
+
+    fn resize_focused_split(&mut self, delta: f32) {
+        let Some(pane) = self.active_pane() else { return };
+        let Some(screen) = self.tree.active_screen() else { return };
+        let Some(area) = self.pane_areas.iter().find(|area| area.pane == pane) else {
+            return;
+        };
+        let candidates = [
+            (SplitEdge::Right, PaneEdge::Right),
+            (SplitEdge::Left, PaneEdge::Left),
+            (SplitEdge::Bottom, PaneEdge::Bottom),
+            (SplitEdge::Top, PaneEdge::Top),
+        ];
+        let Some((edge, target)) = candidates
+            .into_iter()
+            .filter_map(|(split_edge, pane_edge)| {
+                split_for_pane_edge(&screen.layout, self.content_area, pane, split_edge)
+                    .map(|target| (pane_edge, target))
+            })
+            .min_by_key(|(_, target)| target.area.width as u32 * target.area.height as u32)
+        else {
+            return;
+        };
+        let (current, dir, sign) = match edge {
+            PaneEdge::Left => (
+                (area.rect.x.saturating_sub(target.area.x)) as f32
+                    / target.area.width.max(1) as f32,
+                SplitDir::Right,
+                -1.0,
+            ),
+            PaneEdge::Right => (
+                (area.rect.x + area.rect.width).saturating_sub(target.area.x) as f32
+                    / target.area.width.max(1) as f32,
+                SplitDir::Right,
+                1.0,
+            ),
+            PaneEdge::Top => (
+                (area.rect.y.saturating_sub(target.area.y)) as f32
+                    / target.area.height.max(1) as f32,
+                SplitDir::Down,
+                -1.0,
+            ),
+            PaneEdge::Bottom => (
+                (area.rect.y + area.rect.height).saturating_sub(target.area.y) as f32
+                    / target.area.height.max(1) as f32,
+                SplitDir::Down,
+                1.0,
+            ),
+        };
+        self.session.set_ratio(target.set_pane, dir, (current + delta * sign).clamp(0.05, 0.95));
     }
 
     fn resize_split(&mut self, pane: PaneId, edge: PaneEdge, x: u16, y: u16) {

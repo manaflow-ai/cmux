@@ -22,7 +22,8 @@
 //!     "agents": ["claude", "codex", "opencode", "pi"]
 //!   },
 //!   "sidebar": {
-//!     "width": 22
+//!     "width": 22,
+//!     "max_width": 0
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -34,6 +35,13 @@
 //!   },
 //!   "scrollbar": {
 //!     "position": "column"
+//!   },
+//!   "keys": {
+//!     "prefix": "ctrl+b",
+//!     "alt_shortcuts": true,
+//!     "new-tab": ["t", "alt+t"],
+//!     "next-tab": "tab",
+//!     "prev-tab": "backtab"
 //!   }
 //! }
 //! ```
@@ -50,6 +58,7 @@ use std::path::PathBuf;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,10 +73,11 @@ struct RawConfig {
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
-    /// Key bindings: `"prefix"` plus one entry per action, e.g.
-    /// `{"prefix": "ctrl+b", "new-tab": "c", "split-right": "%"}`.
+    /// Key bindings: `"prefix"` plus one entry per action. Values may be
+    /// a chord string, an array of chord strings, `"none"`, or
+    /// `"alt_shortcuts": false`.
     #[serde(default)]
-    keys: HashMap<String, String>,
+    keys: HashMap<String, Value>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -97,6 +107,7 @@ struct RawTabs {
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
     width: Option<u16>,
+    max_width: Option<u16>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -214,11 +225,12 @@ impl Default for Tabs {
 #[derive(Debug, Clone, Copy)]
 pub struct Sidebar {
     pub width: u16,
+    pub max_width: u16,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { width: 22 }
+        Sidebar { width: 22, max_width: 0 }
     }
 }
 
@@ -250,13 +262,18 @@ impl Default for Browser {
 pub enum Action {
     NewTab,
     NewBrowserTab,
+    NewPaneSmart,
     NextTab,
     PrevTab,
     SplitRight,
     SplitDown,
     CloseTab,
+    ClosePane,
     RenameTab,
+    RenameScreen,
     RenameWorkspace,
+    CloseScreen,
+    PrevScreen,
     NextScreen,
     NewScreen,
     NextWorkspace,
@@ -266,6 +283,8 @@ pub enum Action {
     FocusRight,
     FocusUp,
     FocusDown,
+    ResizeGrow,
+    ResizeShrink,
     ScrollUp,
     ScrollDown,
     Detach,
@@ -276,13 +295,18 @@ impl Action {
         match self {
             Action::NewTab => "new-tab",
             Action::NewBrowserTab => "new_browser_tab",
+            Action::NewPaneSmart => "new-pane-smart",
             Action::NextTab => "next-tab",
             Action::PrevTab => "prev-tab",
             Action::SplitRight => "split-right",
             Action::SplitDown => "split-down",
             Action::CloseTab => "close-tab",
+            Action::ClosePane => "close-pane",
             Action::RenameTab => "rename-tab",
+            Action::RenameScreen => "rename-screen",
             Action::RenameWorkspace => "rename-workspace",
+            Action::CloseScreen => "close-screen",
+            Action::PrevScreen => "prev-screen",
             Action::NextScreen => "next-screen",
             Action::NewScreen => "new-screen",
             Action::NextWorkspace => "next-workspace",
@@ -292,6 +316,8 @@ impl Action {
             Action::FocusRight => "focus-right",
             Action::FocusUp => "focus-up",
             Action::FocusDown => "focus-down",
+            Action::ResizeGrow => "resize-grow",
+            Action::ResizeShrink => "resize-shrink",
             Action::ScrollUp => "scroll-up",
             Action::ScrollDown => "scroll-down",
             Action::Detach => "detach",
@@ -330,31 +356,49 @@ pub struct Keys {
 impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
+        let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
         Keys {
             prefix: Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL },
             bindings: vec![
-                bind(KeyCode::Char('c'), Action::NewTab),
+                bind(KeyCode::Char('t'), Action::NewTab),
+                alt(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
-                bind(KeyCode::Char('n'), Action::NextTab),
-                bind(KeyCode::Char('p'), Action::PrevTab),
+                alt(KeyCode::Char('n'), Action::NewPaneSmart),
+                bind(KeyCode::Tab, Action::NextTab),
+                bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
                 bind(KeyCode::Char('"'), Action::SplitDown),
                 bind(KeyCode::Char('x'), Action::CloseTab),
-                bind(KeyCode::Char(','), Action::RenameTab),
+                bind(KeyCode::Char('X'), Action::ClosePane),
+                bind(KeyCode::Char(','), Action::RenameScreen),
                 bind(KeyCode::Char('$'), Action::RenameWorkspace),
-                bind(KeyCode::Tab, Action::NextScreen),
-                bind(KeyCode::Char('S'), Action::NewScreen),
+                bind(KeyCode::Char('&'), Action::CloseScreen),
+                bind(KeyCode::Char('p'), Action::PrevScreen),
+                alt(KeyCode::Char('['), Action::PrevScreen),
+                bind(KeyCode::Char('n'), Action::NextScreen),
+                alt(KeyCode::Char(']'), Action::NextScreen),
+                bind(KeyCode::Char('c'), Action::NewScreen),
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
+                alt(KeyCode::Char('h'), Action::FocusLeft),
+                alt(KeyCode::Left, Action::FocusLeft),
                 bind(KeyCode::Char('l'), Action::FocusRight),
                 bind(KeyCode::Right, Action::FocusRight),
+                alt(KeyCode::Char('l'), Action::FocusRight),
+                alt(KeyCode::Right, Action::FocusRight),
                 bind(KeyCode::Char('k'), Action::FocusUp),
                 bind(KeyCode::Up, Action::FocusUp),
+                alt(KeyCode::Char('k'), Action::FocusUp),
+                alt(KeyCode::Up, Action::FocusUp),
                 bind(KeyCode::Char('j'), Action::FocusDown),
                 bind(KeyCode::Down, Action::FocusDown),
+                alt(KeyCode::Char('j'), Action::FocusDown),
+                alt(KeyCode::Down, Action::FocusDown),
+                alt(KeyCode::Char('='), Action::ResizeGrow),
+                alt(KeyCode::Char('-'), Action::ResizeShrink),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
                 bind(KeyCode::Char('d'), Action::Detach),
@@ -369,52 +413,100 @@ impl Keys {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
     }
 
+    /// The modeless action bound to a key event. Only Alt-modified
+    /// chords are modeless; non-Alt chords remain prefix-only.
+    pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
+        self.bindings
+            .iter()
+            .find(|(chord, _)| chord.mods.contains(KeyModifiers::ALT) && chord.matches(key))
+            .map(|(_, a)| *a)
+    }
+
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
-    fn apply(&mut self, raw: &HashMap<String, String>) {
+    fn apply(&mut self, raw: &HashMap<String, Value>) {
+        if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
+            self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
+        }
         for (name, value) in raw {
-            let Some(chord) = parse_chord(value) else {
-                eprintln!("cmux-mux: ignoring unparseable key binding {name} = {value:?}");
+            if name == "alt_shortcuts" {
                 continue;
-            };
+            }
             if name == "prefix" {
+                let Some(value) = value.as_str() else {
+                    eprintln!("cmux-mux: ignoring non-string prefix binding {value:?}");
+                    continue;
+                };
+                let Some(chord) = parse_chord(value) else {
+                    eprintln!("cmux-mux: ignoring unparseable key binding prefix = {value:?}");
+                    continue;
+                };
                 self.prefix = chord;
                 continue;
             }
-            let all = [
-                Action::NewTab,
-                Action::NewBrowserTab,
-                Action::NextTab,
-                Action::PrevTab,
-                Action::SplitRight,
-                Action::SplitDown,
-                Action::CloseTab,
-                Action::RenameTab,
-                Action::RenameWorkspace,
-                Action::NextScreen,
-                Action::NewScreen,
-                Action::NextWorkspace,
-                Action::NewWorkspace,
-                Action::ToggleSidebar,
-                Action::FocusLeft,
-                Action::FocusRight,
-                Action::FocusUp,
-                Action::FocusDown,
-                Action::ScrollUp,
-                Action::ScrollDown,
-                Action::Detach,
-            ];
-            match all.iter().find(|a| {
+            match all_actions().iter().find(|a| {
                 a.config_key() == name || (**a == Action::RenameTab && name == "rename-pane")
             }) {
                 Some(action) => {
                     self.bindings.retain(|(_, a)| a != action);
-                    self.bindings.push((chord, *action));
+                    for raw_chord in key_values(value) {
+                        if raw_chord.eq_ignore_ascii_case("none") {
+                            continue;
+                        }
+                        let Some(chord) = parse_chord(raw_chord) else {
+                            eprintln!(
+                                "cmux-mux: ignoring unparseable key binding {name} = {raw_chord:?}"
+                            );
+                            continue;
+                        };
+                        self.bindings.push((chord, *action));
+                    }
                 }
                 None => eprintln!("cmux-mux: ignoring unknown key action {name:?}"),
             }
         }
     }
+}
+
+fn key_values(value: &Value) -> Vec<&str> {
+    match value {
+        Value::String(s) => vec![s.as_str()],
+        Value::Array(values) => values.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn all_actions() -> &'static [Action] {
+    &[
+        Action::NewTab,
+        Action::NewBrowserTab,
+        Action::NewPaneSmart,
+        Action::NextTab,
+        Action::PrevTab,
+        Action::SplitRight,
+        Action::SplitDown,
+        Action::CloseTab,
+        Action::ClosePane,
+        Action::RenameTab,
+        Action::RenameScreen,
+        Action::RenameWorkspace,
+        Action::CloseScreen,
+        Action::PrevScreen,
+        Action::NextScreen,
+        Action::NewScreen,
+        Action::NextWorkspace,
+        Action::NewWorkspace,
+        Action::ToggleSidebar,
+        Action::FocusLeft,
+        Action::FocusRight,
+        Action::FocusUp,
+        Action::FocusDown,
+        Action::ResizeGrow,
+        Action::ResizeShrink,
+        Action::ScrollUp,
+        Action::ScrollDown,
+        Action::Detach,
+    ]
 }
 
 /// Parse "c", "%", "ctrl+b", "alt+enter", "tab", "pageup", ...
@@ -428,6 +520,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
             "alt" | "option" => mods |= KeyModifiers::ALT,
             "shift" => mods |= KeyModifiers::SHIFT,
             "tab" => code = Some(KeyCode::Tab),
+            "backtab" => code = Some(KeyCode::BackTab),
             "enter" | "return" => code = Some(KeyCode::Enter),
             "esc" | "escape" => code = Some(KeyCode::Esc),
             "space" => code = Some(KeyCode::Char(' ')),
@@ -450,7 +543,12 @@ fn parse_chord(s: &str) -> Option<Chord> {
             }
         }
     }
-    Some(Chord { code: code?, mods })
+    let mut code = code?;
+    if code == KeyCode::Tab && mods.contains(KeyModifiers::SHIFT) {
+        code = KeyCode::BackTab;
+        mods.remove(KeyModifiers::SHIFT);
+    }
+    Some(Chord { code, mods })
 }
 
 /// Full resolved configuration.
@@ -519,6 +617,9 @@ pub fn load() -> Config {
     }
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
+    }
+    if let Some(w) = raw.sidebar.max_width {
+        config.sidebar.max_width = w;
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
@@ -667,6 +768,23 @@ mod tests {
     }
 
     #[test]
+    fn default_key_table_has_no_duplicate_chords_or_reserved_alt_words() {
+        let keys = Keys::default();
+        for (i, (left, _)) in keys.bindings.iter().enumerate() {
+            assert!(
+                !keys.bindings.iter().skip(i + 1).any(|(right, _)| left == right),
+                "duplicate default chord: {left:?}"
+            );
+        }
+        for c in ['b', 'f', 'd', '.'] {
+            assert_eq!(
+                keys.modeless_action_for(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)),
+                None
+            );
+        }
+    }
+
+    #[test]
     fn config_overrides_defaults() {
         let dir = std::env::temp_dir().join(format!("mux-config-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -681,9 +799,14 @@ mod tests {
                     "tab_bg": 44
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
-                "sidebar": {"width": 30},
+                "sidebar": {"width": 30, "max_width": 38},
                 "scrollbar": {"position": "border"},
-                "keys": {"rename-pane": "r"}
+                "keys": {
+                    "alt_shortcuts": false,
+                    "rename-pane": "r",
+                    "focus-left": ["left", "alt+h"],
+                    "next-tab": "none"
+                }
             }"##,
         )
         .unwrap();
@@ -698,10 +821,20 @@ mod tests {
         assert_eq!(config.tabs.min_width, 9);
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
+        assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::RenameTab)
+        );
+        assert_eq!(config.keys.action_for(&KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)), None);
+        assert_eq!(
+            config.keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)),
+            None
+        );
+        assert_eq!(
+            config.keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
+            Some(Action::FocusLeft)
         );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);

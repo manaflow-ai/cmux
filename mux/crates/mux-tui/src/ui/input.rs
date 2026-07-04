@@ -35,11 +35,12 @@ impl TextInput {
     }
 
     pub fn insert_str(&mut self, text: &str) -> bool {
-        if text.is_empty() {
+        let sanitized: String = text.chars().filter(|c| !c.is_control()).collect();
+        if sanitized.is_empty() {
             return false;
         }
-        self.buffer.insert_str(self.cursor, text);
-        self.cursor += text.len();
+        self.buffer.insert_str(self.cursor, &sanitized);
+        self.cursor += sanitized.len();
         true
     }
 
@@ -226,9 +227,6 @@ impl TextInput {
         self.buffer.replace_range(start..end, "");
         self.cursor = start;
         self.scroll = self.scroll.min(self.cursor);
-        if !self.buffer.is_char_boundary(self.scroll) {
-            self.scroll = self.prev_boundary(self.scroll);
-        }
     }
 
     fn word_left(&self, from: usize) -> usize {
@@ -400,6 +398,15 @@ mod tests {
         input.handle_key(&key(KeyCode::Char('y'), KeyModifiers::NONE));
         input.handle_key(&key(KeyCode::Char('-'), KeyModifiers::NONE));
         assert_eq!(input.as_str(), "my-tab");
+        assert_eq!(input.cursor, 3);
+    }
+
+    #[test]
+    fn paste_strips_control_characters() {
+        let mut input = text_input("ab");
+        input.cursor = 1;
+        assert!(input.insert_str("x\n\r\ty\u{0007}"));
+        assert_eq!(input.as_str(), "axyb");
         assert_eq!(input.cursor, 3);
     }
 

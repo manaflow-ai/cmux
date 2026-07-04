@@ -209,23 +209,25 @@ print("drag-select -> OSC52 clipboard copy ok")
 
 # Click the + in the top border for a new tab (tab "1" label is 3 cols
 # wide plus optional title; find via hits is not possible from outside,
-# so use prefix-c which shares the same action path).
-os.write(fd, b"\x02c")
+# so use prefix-t which shares the same action path).
+os.write(fd, b"\x02t")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes = screen0["panes"]
 assert len(panes) == 1, screen0
 assert len(panes[0]["tabs"]) == 2, screen0
 assert panes[0]["active_tab"] == 1, screen0
-print("prefix-c new tab in pane ok")
+print("prefix-t new tab in pane ok")
 
-# Prefix + %: split right (two panes).
-os.write(fd, b"\x02%")
+# Alt-n: smart split. In this 75x27 content geometry, width > 2*height,
+# so the visually longer axis is horizontal and the split is right.
+os.write(fd, b"\x1bn")
 drain(1.0)
 screen0 = active_screen(tree()[0])
 panes = screen0["panes"]
 assert len(panes) == 2, screen0
-print("prefix-%% split ok")
+assert screen0["layout"]["type"] == "split" and screen0["layout"]["dir"] == "right", screen0
+print("alt-n smart split ok")
 
 # Split via socket while TUI is attached.
 new = rpc({"id": 6, "cmd": "split", "pane": panes[0]["id"], "dir": "down"})
@@ -235,14 +237,14 @@ screen0 = active_screen(tree()[0])
 assert len(screen0["panes"]) == 3, screen0
 print("socket-driven split visible ok")
 
-# Prefix + S: new screen in the workspace; it becomes active with 1 pane.
-os.write(fd, b"\x02S")
+# Prefix + c: new screen in the workspace; it becomes active with 1 pane.
+os.write(fd, b"\x02c")
 drain(1.0)
 ws0 = tree()[0]
 assert len(ws0["screens"]) == 2, ws0
 assert ws0["screens"][1]["active"], ws0
 assert len(ws0["screens"][1]["panes"]) == 1, ws0
-print("prefix-S new screen ok")
+print("prefix-c new screen ok")
 
 # The status bar shows both screens; click screen 1's entry to switch
 # back. Status bar row is the last row (30). The bar starts after the

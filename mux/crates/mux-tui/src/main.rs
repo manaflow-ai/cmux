@@ -34,14 +34,19 @@ OPTIONS:
   -h, --help         Show this help.
 
 KEYS (prefix: Ctrl-b)
-  c  new tab in pane   B    new browser tab    n/p  next/prev tab
-  1-9  select tab
-  %  split right       \"  split down          x    close tab
-  ,  rename pane       $    rename workspace
-  Tab  next screen     S    new screen
-  h/j/k/l or arrows    move focus              d    quit (attach: detach)
-  w  next workspace    W    new workspace       s    toggle sidebar
-  Ctrl-b  send a literal Ctrl-b
+  c  new screen        n/p  next/prev screen  &    close screen
+  ,  rename screen
+  t  new tab           B    new browser tab   Tab/BackTab  next/prev tab
+  x  close tab         1-9  select tab
+  %  split right       \"  split down         X    close pane
+  h/j/k/l or arrows    move focus             d    quit (attach: detach)
+  $  rename workspace  w    next workspace    W    new workspace
+  s  toggle sidebar    Ctrl-b  send a literal Ctrl-b
+
+KEYS (no prefix, Alt layer; disable with keys.alt_shortcuts = false)
+  Alt-n  new pane (smart split)   Alt-h/j/k/l or Alt-arrows  move focus
+  Alt-[ / Alt-]  prev/next screen Alt-t  new tab
+  Alt-= / Alt--  grow/shrink the focused split
 
 MOUSE
   Right-click a pane for rename/new tab/split/close; right-click a
