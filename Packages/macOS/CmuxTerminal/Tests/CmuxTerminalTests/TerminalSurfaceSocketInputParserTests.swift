@@ -31,6 +31,7 @@ import CmuxTerminalCore
             "\u{1B}[?997;1n",
             "\u{1B}[?0u",
             "\u{1B}[?12;2$y",
+            "\u{1B}[4;1$y",
         ]
         let events = TerminalSurface.parsedSocketInputEvents(for: replies.joined())
 
