@@ -737,13 +737,13 @@
       "layoutItem1": "已固定的顶级行（工作区和分组）。",
       "layoutItem2": "未固定的顶级行（工作区和分组）。",
       "creatingTitle": "创建分组",
-      "creatingIntro": "可以通过两种方式创建分组：键盘快捷键或工作区右键菜单。两者都会在所选项上方插入一个新的锚点工作区，并将所选工作区移入该分组。分组创建后，你可以从分组标题处管理它并向其中添加工作区（参见下方的“管理分组”）。",
-      "keyboardTitle": "通过键盘（{shortcut}）",
-      "keyboardDesc": "在侧边栏中选中两个或更多工作区，然后按 {shortcut}。一个全新的锚点工作区会插入在选中项的上方，所有选中的工作区都会成为它的子项。分组会被自动命名为 Group 1、Group 2，依此类推——你随时可以通过标题栏右键菜单重命名它。",
+      "creatingIntro": "可以通过键盘快捷键或侧边栏上下文菜单创建组。空组会插入一个新的锚点工作区作为组标题。基于选择的组会把这个锚点插入到所选项上方，并将所选工作区移入组中。组创建后，你可以从组标题管理它并向其中添加工作区（见下方“管理组”）。",
+      "keyboardTitle": "通过键盘快捷键",
+      "keyboardDesc": "按 ⌃⌘G 创建新的空工作区组。在侧边栏中选择两个或更多工作区，然后按 {shortcut} 对所选项分组。两种方式都会创建一个新的锚点工作区，并自动将组命名为 Group 1、Group 2 等。你可以随时通过标题上下文菜单重命名。",
       "keyboardNote": "{shortcut} 与 React Grab 的默认快捷键冲突。分组处理程序只有在侧边栏中明确多选了至少两个工作区时才会占用该组合键，因此在单选以及浏览器或终端环境中 React Grab 仍会触发。如果你不希望两者共用一个按键，可在 设置 → 键盘 中重新绑定它。",
       "keyboardSingle": "单标签分组无法通过快捷键创建。请使用工作区右键菜单中的 New Group from Workspace 项来创建。",
       "contextMenuTitle": "通过工作区右键菜单",
-      "contextMenuDesc": "在侧边栏中右键单击任意工作区并选择 New Group from Workspace，或在选中多个工作区时选择 New Group from Selection。这与快捷键使用相同的自动命名行为。",
+      "contextMenuDesc": "右键点击侧边栏中的任意工作区，选择“新建空工作区组”、“从工作区新建组”，或者在选择多个工作区时选择“从所选项新建组”。侧边栏列表下方的空白区域也提供“新建空工作区组”。这些方式使用与快捷键相同的自动命名行为。",
       "managingTitle": "管理分组",
       "managingIntro": "分组创建后，可以通过其标题的右键菜单以及标题上的 + 按钮来管理分组并向其中添加工作区。这两者都不会创建新分组。",
       "headerMenuTitle": "通过分组标题栏右键菜单",
@@ -799,6 +799,8 @@
       "exampleConfig": "配置示例",
       "metaTitle": "配置",
       "schemaDescriptions": {
+        "paneBorderColor": "覆盖拆分工作区中的 cmux 窗格分隔线颜色。此设置影响 cmux 窗格边界，而不是 Ghostty 的内部分屏。",
+        "activePaneBorderColor": "在拆分工作区中围绕当前聚焦的 cmux 窗格绘制的可选边框颜色。",
         "automation": {
           "ampIntegration": "启用 cmux 与 Amp 的集成钩子。禁用时，捆绑插件将保持非活动状态，无需移除。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。",
@@ -820,6 +822,9 @@
           "scrollSpeed": "应用于终端滚轮和触控板滚动量的倍数。值越大滚动越快，值越小滚动越慢。",
           "showTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中显示测试版 TextBox 输入。",
           "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。"
         },
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
@@ -848,7 +853,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
+          "when": "每个操作可选的上下文谓词（VS Code 风格的 `when` 子句），按 cmux 操作 id 索引。每个值都是基于上下文键的布尔表达式，可用 !、&&、|| 和括号组合。布尔键：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。类型化键支持比较：字符串 sidebarMode（files、find、sessions、feed 或 dock）以及整数 paneCount 和 workspaceCount。比较运算符为 ==、!=、=~（正则表达式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的键按 false 处理。也接受布尔字面量 true 和 false；`key == false` 等同于 `!key`。只有当子句成立时，该操作的快捷键才会触发，也只会在这种情况下与其他快捷键冲突。示例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 让 Ctrl+1–9 在右侧边栏未聚焦时选择工作区；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作区有多个窗格时将绑定限定在查找侧边栏。",
           "showModifierHoldHints": "在按住 Cmd 或 Control 时显示快捷键提示标签。"
         }
       },
@@ -1069,7 +1074,8 @@
       "closeWorkspaceDesc": "关闭工作区。",
       "splitCommands": "分屏命令",
       "newSplitDesc": "创建新的分屏面板。方向：left、right、up、down。",
-      "listSurfacesDesc": "列出当前工作区中的所有 surface。",
+      "listPanelsDesc": "列出当前工作区中的所有 surface。",
+      "listPaneSurfacesDesc": "列出当前聚焦面板中的 surface。",
       "focusSurfaceDesc": "聚焦到指定 surface。",
       "inputCommands": "输入命令",
       "sendDesc": "向当前聚焦的终端发送文本输入。",
@@ -1591,7 +1597,8 @@
   "afterSignIn": {
     "title": "已登录 cmux",
     "body": "如果 cmux 没有自动打开，请使用下面的按钮。",
-    "button": "返回 cmux"
+    "button": "返回 cmux",
+    "switchAccountButton": "使用其他账号"
   },
   "landing": {
     "bestTerminal": {
@@ -1613,9 +1620,9 @@
       "kittyBuiltFor": "快速、可脚本化、功能丰富",
       "weztermBuiltFor": "带内置多路复用器的 GPU 终端",
       "tmuxBuiltFor": "在任意终端内做多路复用",
-      "cmuxBody": "基于 libghostty 构建的原生 macOS 终端，为三件事而生：多任务处理、组织和可编程性。垂直侧边栏将工作分组为工作区，每个工作区都显示其 git 分支、目录、端口以及 agent 输出的最新一行，让你同时运行许多任务而不会迷失。当 agent 需要关注时，面板会响铃。每个操作都可通过 CLI 和 Unix socket 脚本化，还有一个可编程驱动的内置浏览器。甚至有一个 iOS 伴侣应用，让你在手机上查看终端。如果你要同时处理多个任务或 AI 编程 agent，并希望它们井然有序、可自动化，又不想配置多路复用器，cmux 是最佳选择。",
+      "cmuxBody": "cmux 是一款基于 Ghostty 终端引擎 libghostty 构建的原生 macOS 终端。这意味着终端网格继承了 Ghostty 的优势：快速 GPU 渲染、出色的字体和颜色呈现、现代终端兼容性，以及你现有的 Ghostty 主题、字体、颜色和光标设置。cmux 添加的是 Ghostty 刻意不承担的那一层：垂直工作区、分屏、通知环、侧边栏里的 git/端口/代理上下文、可脚本化的 CLI 和 Unix socket、可编程浏览器，以及 iOS 伴侣应用。当你想要 Ghostty 级别的终端渲染，同时又要为大量任务或 AI 编程代理提供组织和自动化时，选择 cmux。",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "快速、GPU 加速的终端，其引擎 libghostty 驱动着 cmux。如果你想要一个渲染出色的简洁单终端窗口，而不需要工作区或自动化层，Ghostty 本身就很出色。",
+      "ghosttyBody": "Ghostty 是一款快速的原生终端，它的引擎 libghostty 驱动着 cmux。与较旧的 CPU 渲染终端和更重的 Electron 风格终端相比，Ghostty 的优势是低延迟 GPU 渲染、清晰的字体和颜色处理、强大的终端兼容性、简单的文件式配置，以及无需云账号。如果你只想要一个干净的终端窗口，并保留这些渲染优势，不需要工作区或自动化层，Ghostty 本身就很好。如果你想要同样的 Ghostty 渲染优势，再加上工作区、通知、脚本化和代理编排，请使用 cmux。",
       "iterm2Title": "iTerm2",
       "iterm2Body": "成熟、可无止境配置的 macOS 终端。深度的配置文件、触发器和 tmux 集成。如果你想要极致功能且不需要同时编排许多任务，它是稳妥的默认选择。",
       "warpTitle": "Warp",
