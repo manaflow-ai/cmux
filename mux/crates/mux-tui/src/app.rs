@@ -139,9 +139,10 @@ impl MenuAction {
     }
 }
 
-/// Right-click context menu overlay. Items get a one-cell padding column
-/// on each side (no extra rows above/below); the hover/selection
-/// highlight spans the full row including those padding cells.
+/// Right-click context menu overlay. The rect includes the border chrome;
+/// items get a one-cell padding column on each side inside that border
+/// (no extra rows above/below), and the hover/selection highlight spans
+/// the full inner row including those padding cells.
 pub struct ContextMenu {
     pub items: Vec<MenuAction>,
     pub selected: usize,
@@ -159,25 +160,30 @@ impl ContextMenu {
     fn at(x: u16, y: u16, items: Vec<MenuAction>) -> Self {
         let label_w = items.iter().map(|i| i.label().len()).max().unwrap_or(0) as u16;
         // One space of inner padding either side of the label, plus the
-        // one-cell padding column on each side.
-        let width = label_w + 2 + Self::PAD * 2;
-        let height = items.len() as u16;
+        // one-cell padding column on each side, plus the border.
+        let width = label_w + 2 + Self::PAD * 2 + 2;
+        let height = items.len() as u16 + 2;
         ContextMenu {
             items,
             selected: 0,
             right_press: (x, y),
             right_drag_moved: false,
-            rect: Rect { x, y, width, height },
+            rect: Rect { x: x.saturating_sub(1), y: y.saturating_sub(1), width, height },
         }
     }
 
-    /// The item row at a screen cell. Rows span the menu's full width,
-    /// side padding included.
+    /// The item row at a screen cell. Border cells are dead chrome and
+    /// never activate an item.
     pub fn item_at(&self, x: u16, y: u16) -> Option<usize> {
         if !self.rect.contains(x, y) {
             return None;
         }
-        let row = (y - self.rect.y) as usize;
+        let right = self.rect.x + self.rect.width.saturating_sub(1);
+        let bottom = self.rect.y + self.rect.height.saturating_sub(1);
+        if x == self.rect.x || y == self.rect.y || x == right || y == bottom {
+            return None;
+        }
+        let row = (y - self.rect.y - 1) as usize;
         (row < self.items.len()).then_some(row)
     }
 }
@@ -979,8 +985,11 @@ impl App {
             return prompt.ok.contains(x, y) || prompt.cancel.contains(x, y);
         }
         if let Some(menu) = &self.menu {
-            if menu.item_at(x, y).is_some() {
-                return true;
+            // Everything inside the menu rect is menu territory: only item
+            // rows are clickable; border cells never inherit clickability
+            // from hits underneath.
+            if menu.rect.contains(x, y) {
+                return menu.item_at(x, y).is_some();
             }
         }
         self.hit_at(x, y).is_some()
@@ -1066,7 +1075,7 @@ impl App {
         }
 
         // An open menu captures the click: activate or dismiss. Clicks on
-        // the padding border dismiss without activating.
+        // the border chrome keep it open without activating.
         if let Some(menu) = self.menu.take() {
             if let Some(item) = menu.item_at(x, y) {
                 self.activate_menu(menu.items[item])?;

@@ -272,11 +272,13 @@ print("sidebar click switches workspace ok")
 # Plain right-click inside the right-hand pane (col 81, row 6 SGR; clear
 # of the sidebar and borders): the menu opens at the press cell and must
 # stay open after release in place.
+output = b""
 os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename tab" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
+assert "┌" in text, text[-800:]
 assert "[ OK ]" not in text, text[-800:]
 os.write(fd, b"\x1b")  # close menu
 drain(0.4)
