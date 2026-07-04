@@ -17,20 +17,20 @@ extension TerminalController {
         branch: String,
         isDirty: Bool?
     ) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
             guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
-                tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
+                tabManager.clearSurfaceGitBranch(tabId: tab.id, surfaceId: scope.panelID)
                 return
             }
             tabManager.updateSurfaceGitBranch(
-                tabId: scope.workspaceID,
+                tabId: tab.id,
                 surfaceId: scope.panelID,
                 branch: branch,
                 isDirty: isDirty
@@ -56,15 +56,15 @@ extension TerminalController {
     }
 
     func controlSidebarScheduleScopedGitBranchClear(scope: ControlSidebarPanelScope) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
-            tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
+            tabManager.clearSurfaceGitBranch(tabId: tab.id, surfaceId: scope.panelID)
         }
     }
 
@@ -164,42 +164,40 @@ extension TerminalController {
     }
 
     func controlSidebarClearPorts(tabArg: String?, panelArg: String?) -> ControlSidebarPanelWriteResolution {
+        if panelArg != nil {
+            return controlSidebarResolvePanelWrite(
+                tabArg: tabArg,
+                panelArg: panelArg,
+                prune: true,
+                requireLiveSurface: true
+            ) { tab, surfaceId in
+                tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
+                tab.recomputeListeningPorts()
+            }
+        }
+
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return .tabNotFound
         }
 
         let validSurfaceIds = Set(tab.panels.keys)
         tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-
-        if let panelArg {
-            if panelArg.isEmpty {
-                return .missingPanelArg
-            }
-            guard let surfaceId = UUID(uuidString: panelArg) else {
-                return .invalidPanelArg(panelArg)
-            }
-            guard validSurfaceIds.contains(surfaceId) else {
-                return .panelNotFound(surfaceId)
-            }
-            tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
-        } else {
-            tab.surfaceListeningPorts.removeAll()
-        }
+        tab.surfaceListeningPorts.removeAll()
         tab.recomputeListeningPorts()
         return .done
     }
 
     func controlSidebarScheduleScopedDirectoryUpdate(scope: ControlSidebarPanelScope, directory: String, displayLabel: String?) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
             tabManager.updateSurfaceDirectory(
-                tabId: scope.workspaceID,
+                tabId: tab.id,
                 surfaceId: scope.panelID,
                 directory: directory,
                 displayLabel: displayLabel
@@ -213,13 +211,13 @@ extension TerminalController {
         directory: String,
         displayLabel: String?
     ) -> ControlSidebarPanelWriteResolution {
-        guard let tabManager else { return .tabNotFound }
         return controlSidebarResolvePanelWrite(
             tabArg: tabArg,
             panelArg: panelArg,
             prune: true,
             requireLiveSurface: true
         ) { tab, surfaceId in
+            guard let tabManager = controlSidebarTabManager(for: tab) else { return }
             tabManager.updateSurfaceDirectory(
                 tabId: tab.id,
                 surfaceId: surfaceId,
@@ -234,16 +232,17 @@ extension TerminalController {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        guard socketFastPathState.shouldPublishShellActivity(
-            workspaceId: scope.workspaceID,
-            panelId: scope.panelID,
-            state: state.rawValue
-        ) else {
-            return
-        }
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID) else { return }
-            tabManager.updateSurfaceShellActivity(tabId: scope.workspaceID, surfaceId: scope.panelID, state: state)
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope),
+                  self.socketFastPathState.shouldPublishShellActivity(
+                      workspaceId: tab.id,
+                      panelId: scope.panelID,
+                      state: state.rawValue
+                  ) else {
+                return
+            }
+            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: scope.panelID, state: state)
         }
     }
 
@@ -252,21 +251,21 @@ extension TerminalController {
             // Unreachable: the coordinator only forwards a value this app produced.
             return .tabNotFound
         }
-        guard let tabManager else { return .tabNotFound }
         return controlSidebarResolvePanelWrite(
             tabArg: tabArg,
             panelArg: panelArg,
             prune: true,
             requireLiveSurface: true
         ) { tab, surfaceId in
+            guard let tabManager = controlSidebarTabManager(for: tab) else { return }
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
     }
 
     func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let (tabManager, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
@@ -277,7 +276,7 @@ extension TerminalController {
                 tab.syncRemotePortScanTTYs()
                 _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelID)
             } else {
-                PortScanner.shared.registerTTY(workspaceId: scope.workspaceID, panelId: scope.panelID, ttyName: ttyName)
+                PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: scope.panelID, ttyName: ttyName)
             }
         }
     }
@@ -304,9 +303,9 @@ extension TerminalController {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
-                  let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self,
+                  let (_, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
@@ -315,7 +314,7 @@ extension TerminalController {
             if tab.isRemoteWorkspace {
                 tab.kickRemotePortScan(panelId: scope.panelID, reason: reason)
             } else {
-                PortScanner.shared.kick(workspaceId: scope.workspaceID, panelId: scope.panelID)
+                PortScanner.shared.kick(workspaceId: tab.id, panelId: scope.panelID)
             }
         }
     }

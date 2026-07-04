@@ -134,6 +134,48 @@ extension TerminalController {
         }
     }
 
+    func controlSidebarResolvePanelScopedReportTab(tabArg: String?, panelID: UUID?) -> Workspace? {
+        let preferredTab = controlSidebarResolveTabForReport(tabArg: tabArg)
+        guard let panelID,
+              let tabID = tabArg.flatMap(controlSidebarWorkspaceIDArg) else {
+            return preferredTab
+        }
+        if let preferredTab, preferredTab.panels[panelID] != nil {
+            return preferredTab
+        }
+        return controlSidebarResolvePanelScopedMutationTab(target: .workspace(tabID), panelID: panelID)
+    }
+
+    func controlSidebarResolveScopedPanel(
+        scope: ControlSidebarPanelScope
+    ) -> (tabManager: TabManager, tab: Workspace)? {
+        guard let tab = controlSidebarResolvePanelScopedMutationTab(
+            target: .workspace(scope.workspaceID),
+            panelID: scope.panelID
+        ) else {
+            return nil
+        }
+        let resolvedManager = controlSidebarTabManager(for: tab)
+        guard let tabManager = resolvedManager else { return nil }
+        return (tabManager, tab)
+    }
+
+    func controlSidebarTabManager(for tab: Workspace) -> TabManager? {
+        AppDelegate.shared?.tabManagerFor(tabId: tab.id) ?? {
+            guard let tabManager = self.tabManager,
+                  tabManager.tabs.contains(where: { $0.id == tab.id }) else {
+                return nil
+            }
+            return tabManager
+        }()
+    }
+
+    private func controlSidebarWorkspaceIDArg(_ raw: String) -> UUID? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return UUID(uuidString: trimmed)
+    }
+
     /// The enqueue halves of the deleted file-private
     /// `schedulePanelMetadataMutation(args:options:missingPanelUsage:mutation:)`
     /// (the parse-level head moved into the coordinator's
@@ -146,7 +188,7 @@ extension TerminalController {
         if let scope = target.scope {
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self,
-                      let tab = self.controlSidebarTabForMutation(id: scope.workspaceID) else {
+                      let (_, tab) = self.controlSidebarResolveScopedPanel(scope: scope) else {
                     return
                 }
                 let validSurfaceIds = Set(tab.panels.keys)
@@ -161,7 +203,10 @@ extension TerminalController {
         let surfaceIdFromOptions = target.panelID
         TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
             guard let self,
-                  let tab = self.controlSidebarResolveTabForReport(tabArg: tabArg) else {
+                  let tab = self.controlSidebarResolvePanelScopedReportTab(
+                      tabArg: tabArg,
+                      panelID: surfaceIdFromOptions
+                  ) else {
                 return
             }
             let validSurfaceIds = Set(tab.panels.keys)
@@ -185,7 +230,11 @@ extension TerminalController {
         requireLiveSurface: Bool,
         write: (Workspace, UUID) -> Void
     ) -> ControlSidebarPanelWriteResolution {
-        guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
+        let preferredTab = controlSidebarResolveTabForReport(tabArg: tabArg)
+        let fallbackPanelID = panelArg.flatMap(controlSidebarWorkspaceIDArg)
+        guard var tab = preferredTab ?? fallbackPanelID.flatMap({
+            controlSidebarResolvePanelScopedReportTab(tabArg: tabArg, panelID: $0)
+        }) else {
             return .tabNotFound
         }
 
@@ -210,9 +259,18 @@ extension TerminalController {
             surfaceId = focused
         }
 
+        if tab.panels[surfaceId] == nil,
+           let fallbackTab = controlSidebarResolvePanelScopedReportTab(tabArg: tabArg, panelID: surfaceId),
+           fallbackTab.id != tab.id {
+            tab = fallbackTab
+            if prune {
+                let fallbackSurfaceIds = Set(fallbackTab.panels.keys)
+                fallbackTab.pruneSurfaceMetadata(validSurfaceIds: fallbackSurfaceIds)
+            }
+        }
+
         if requireLiveSurface {
-            let validSurfaceIds = Set(tab.panels.keys)
-            guard validSurfaceIds.contains(surfaceId) else {
+            guard Set(tab.panels.keys).contains(surfaceId) else {
                 return .panelNotFound(surfaceId)
             }
         }
