@@ -22,6 +22,8 @@ export interface OptionChoice {
   value: string;
   label: string;
   description?: string;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 export interface SessionOption {
@@ -86,4 +88,6 @@ export interface ProviderDef {
   cmd?: string[];
   autoApproveArgs?: string[];
   installCommand?: string;
+  models?: { value: string; label: string; description?: string }[];
+  defaultModel?: string;
 }

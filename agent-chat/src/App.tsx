@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactElement, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { Popover } from "@base-ui-components/react/popover";
 import { Tooltip } from "@base-ui-components/react/tooltip";
 import { Command } from "cmdk";
@@ -77,7 +77,7 @@ function DrawnProviderIcon({ id }: { id: string }) {
   if (id === "pi") {
     return (
       <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
-        <text x="8" y="11.8" textAnchor="middle" fontSize="13" fontWeight="650" fill="currentColor">π</text>
+        <text x="8" y="11.8" textAnchor="middle" fontSize="13" fontWeight="400" fill="currentColor">π</text>
       </svg>
     );
   }
@@ -149,6 +149,9 @@ const ShieldIcon = () => (
 const EllipsisIcon = () => (
   <svg viewBox="0 0 16 16" width="15" height="15"><path d="M3.5 8h.1M8 8h.1M12.5 8h.1" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" /></svg>
 );
+const SearchIcon = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14"><path d="M7 12.2a5.2 5.2 0 1 1 0-10.4 5.2 5.2 0 0 1 0 10.4zM11 11l3 3" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" /></svg>
+);
 const CopyIcon = () => (
   <svg viewBox="0 0 16 16" width="14" height="14"><path d="M5.2 5.2h7.1v7.1H5.2zM3.7 10.8H3V3.7h7.1v.7" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" /></svg>
 );
@@ -177,7 +180,7 @@ function comboGlyph(combo: string): string {
     .replaceAll("+", "");
 }
 
-function HintTooltip({ label, action, children }: { label: string; action?: KeyAction; children: ReactElement }) {
+function HintTooltip({ label, action, children }: { label: string; action?: KeyAction; children: ReactElement<Record<string, unknown>> }) {
   const combo = comboForAction(action);
   return (
     <Tooltip.Root>
@@ -222,7 +225,7 @@ function CmdkMenu({
   groups: CmdkGroup[];
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  trigger?: ReactElement;
+  trigger?: ReactElement<Record<string, unknown>>;
   className?: string;
   inline?: boolean;
 }) {
@@ -230,20 +233,28 @@ function CmdkMenu({
   const content = (
     <Command
       className={`cmdk menu ${className}`}
+      data-agent-popup="true"
       loop
       onKeyDown={(e) => {
-        if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key.toLowerCase() === "n" || e.key.toLowerCase() === "p")) {
+        const action = menuActionForKey(e.nativeEvent);
+        if ((action === "menu-next" || action === "menu-prev") && e.ctrlKey) {
           e.preventDefault();
           e.currentTarget.dispatchEvent(new KeyboardEvent("keydown", {
-            key: e.key.toLowerCase() === "n" ? "ArrowDown" : "ArrowUp",
+            key: action === "menu-next" ? "ArrowDown" : "ArrowUp",
             bubbles: true,
           }));
-        } else if (e.key === "Escape") {
+        } else if (action === "menu-close") {
+          e.preventDefault();
           onOpenChange?.(false);
         }
       }}
     >
-      {count > 8 ? <Command.Input className="cmdk-input" placeholder="Search…" autoFocus /> : null}
+      {count > 8 ? (
+        <div className="cmdk-search">
+          <SearchIcon />
+          <Command.Input className="cmdk-input" placeholder="Search..." autoFocus />
+        </div>
+      ) : null}
       <Command.List className="cmdk-list">
         <Command.Empty className="cmdk-empty">No matches</Command.Empty>
         {groups.map((group) => (
@@ -287,7 +298,7 @@ function CmdkMenu({
       {trigger ? <Popover.Trigger render={trigger} /> : null}
       <Popover.Portal>
         <Popover.Positioner className="select-positioner" sideOffset={8} align="start">
-          <Popover.Popup>{content}</Popover.Popup>
+          <Popover.Popup data-agent-popup="true">{content}</Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>
@@ -305,7 +316,7 @@ function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: st
       </HintTooltip>
       <Popover.Portal>
         <Popover.Positioner sideOffset={8} align="start">
-          <Popover.Popup className="popover">
+          <Popover.Popup className="popover" data-agent-popup="true">
             <div className="popover-label">Working directory</div>
             <input
               className="cwd-edit"
@@ -468,7 +479,7 @@ function OverflowMenu({ options, onChange }: { options: SessionOption[]; onChang
           label: choice.label,
           description: choice.description,
           selected: choice.value === option.value,
-          disabled: option.disabled,
+          disabled: option.disabled || choice.disabled,
           onSelect: () => onChange(option.id, choice.value),
         })),
   }));
@@ -516,6 +527,80 @@ function modelOption(options: SessionOption[]): SessionOption | undefined {
   return options.find((o) => o.id === "model" && o.kind === "select");
 }
 
+function useAutofocus(open: boolean, ref: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    if (!open) return;
+    ref.current?.focus();
+    requestAnimationFrame(() => ref.current?.focus());
+  }, [open, ref]);
+}
+
+function usePickerTypeToSearch(open: boolean, ref: RefObject<HTMLInputElement | null>, setQuery: Dispatch<SetStateAction<string>>) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return;
+      if (e.target === ref.current) return;
+      e.preventDefault();
+      ref.current?.focus();
+      setQuery((q) => q + e.key);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [open, ref, setQuery]);
+}
+
+function useBoundedActiveIndex(open: boolean, key: string, count: number) {
+  const [active, setActive] = useState(0);
+  useEffect(() => {
+    setActive(0);
+  }, [key]);
+  useEffect(() => {
+    if (!open) return;
+    setActive((i) => Math.min(Math.max(i, 0), Math.max(0, count - 1)));
+  }, [count, open]);
+  return [active, setActive] as const;
+}
+
+interface PickerModelItem {
+  id: string;
+  provider: Provider;
+  value: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+  disabledReason?: string;
+  selected: boolean;
+  search: string;
+}
+
+function providerModelItems(p: Provider, currentProvider: string, options: SessionOption[]): PickerModelItem[] {
+  const model = modelOption(options);
+  const choices = model?.choices?.length ? model.choices : [];
+  if (!choices.length) {
+    return [{
+      id: `${p.id}:default`,
+      provider: p,
+      value: "",
+      label: "Default",
+      description: "Model loads at start",
+      selected: p.id === currentProvider && !model?.value,
+      search: `${p.label} default`,
+    }];
+  }
+  return choices.map((choice) => ({
+    id: `${p.id}:${choice.value}`,
+    provider: p,
+    value: choice.value,
+    label: choice.label,
+    description: choice.description,
+    disabled: choice.disabled,
+    disabledReason: choice.disabledReason,
+    selected: p.id === currentProvider && choice.value === model?.value,
+    search: `${p.label} ${choice.label} ${choice.value} ${choice.description ?? ""}`,
+  }));
+}
+
 function HarnessModelPicker({
   provider,
   providers,
@@ -538,54 +623,74 @@ function HarnessModelPicker({
   const currentProvider = providers.find((p) => p.id === provider) ?? { id: provider, label: provider };
   const currentModel = modelOption(options);
   const label = currentChoice(currentModel)?.label ?? String(currentModel?.value || currentProvider.label);
-  const groups: CmdkGroup[] = installed.map((p) => {
+  const [railProvider, setRailProvider] = useState(provider);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
+  useAutofocus(open, searchRef);
+  usePickerTypeToSearch(open, searchRef, setQuery);
+  const activeProvider = installed.find((p) => p.id === railProvider) ?? installed.find((p) => p.id === provider) ?? installed[0];
+  const providerItems = useMemo(() => new Map(installed.map((p) => {
     const opts = p.id === provider ? options : (allProviderOptions[p.id] ?? []);
-    const model = modelOption(opts);
-    const choices = model?.choices?.length ? model.choices : [];
-    const items = choices.length
-      ? choices.map((choice) => ({
-          id: `${p.id}:${choice.value}`,
-          label: choice.label,
-          description: choice.description,
-          icon: <ProviderIcon provider={p} />,
-          selected: p.id === provider && choice.value === model?.value,
-          value: `${p.label} ${choice.label} ${choice.value}`,
-          onSelect: () => onSelect(p.id, choice.value),
-        }))
-      : [{
-          id: `${p.id}:default`,
-          label: "Default",
-          description: "Model loads at start",
-          icon: <ProviderIcon provider={p} />,
-          selected: p.id === provider && !model?.value,
-          value: `${p.label} default`,
-          onSelect: () => onSelect(p.id, ""),
-        }];
-    return {
-      id: p.id,
-      label: p.label,
-      icon: <ProviderIcon provider={p} />,
-      items,
-    };
-  });
-  if (missing.length) {
-    groups.push({
-      id: "not-installed",
-      label: "Not installed",
-      items: missing.map((p) => ({
-        id: `missing:${p.id}`,
-        label: p.label,
-        description: p.installCommand,
-        icon: <ProviderIcon provider={p} />,
-        value: `${p.label} ${p.installCommand ?? ""}`,
-        onSelect: () => {
-          if (p.installCommand) navigator.clipboard?.writeText(p.installCommand).catch(() => {});
-        },
-      })),
-    });
-  }
+    return [p.id, providerModelItems(p, provider, opts)];
+  })), [allProviderOptions, installed, options, provider]);
+  const q = query.trim();
+  const listItems = useMemo(() => {
+    if (q) {
+      return Array.from(providerItems.values()).flat()
+        .map((item) => ({ item, score: fuzzyScore(item.search, q) }))
+        .filter((x) => Number.isFinite(x.score))
+        .sort((a, b) => a.score - b.score || a.item.label.localeCompare(b.item.label))
+        .map((x) => x.item);
+    }
+    return activeProvider ? providerItems.get(activeProvider.id) ?? [] : [];
+  }, [activeProvider, providerItems, q]);
+  const [activeIndex, setActiveIndex] = useBoundedActiveIndex(open, `${q}:${activeProvider?.id ?? ""}:${listItems.map((i) => i.id).join("|")}`, listItems.length);
+  const choose = useCallback((item: PickerModelItem) => {
+    if (item.disabled) return;
+    if (item.provider.id === provider && item.value === "") {
+      onOpenChange(false);
+      return;
+    }
+    onSelect(item.provider.id, item.value);
+    onOpenChange(false);
+  }, [onOpenChange, onSelect, provider]);
+  const keyNav = useCallback((e: React.KeyboardEvent) => {
+    const action = menuActionForKey(e.nativeEvent);
+    const inRail = e.target instanceof HTMLElement && Boolean(e.target.closest(".model-picker-rail"));
+    const plainArrow = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    if (e.key === "Tab" && !q && activeProvider) {
+      e.preventDefault();
+      if (inRail) searchRef.current?.focus();
+      else (railRef.current?.querySelector("[aria-selected='true']") as HTMLElement | null)?.focus();
+    } else if (inRail && plainArrow && (e.key === "ArrowRight" || e.key === "ArrowDown")) {
+      e.preventDefault();
+      const i = Math.max(0, installed.findIndex((p) => p.id === activeProvider?.id));
+      const nextProvider = installed[(i + 1) % installed.length];
+      if (nextProvider) setRailProvider(nextProvider.id);
+    } else if (inRail && plainArrow && (e.key === "ArrowLeft" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      const i = Math.max(0, installed.findIndex((p) => p.id === activeProvider?.id));
+      const nextProvider = installed[(i + installed.length - 1) % installed.length];
+      if (nextProvider) setRailProvider(nextProvider.id);
+    } else if (action === "menu-next") {
+      e.preventDefault();
+      setActiveIndex((i) => listItems.length ? (i + 1) % listItems.length : 0);
+    } else if (action === "menu-prev") {
+      e.preventDefault();
+      setActiveIndex((i) => listItems.length ? (i + listItems.length - 1) % listItems.length : 0);
+    } else if (action === "menu-accept") {
+      e.preventDefault();
+      const item = listItems[activeIndex];
+      if (item) choose(item);
+    } else if (action === "menu-close") {
+      e.preventDefault();
+      onOpenChange(false);
+    }
+  }, [activeIndex, activeProvider, choose, installed, listItems, onOpenChange, q, setActiveIndex]);
   const trigger = (
-    <button type="button" className="row-control provider-model-trigger select-trigger" aria-label="Switch harness or model">
+    <button ref={triggerRef} type="button" className="row-control provider-model-trigger select-trigger" aria-label="Switch harness or model">
       <ProviderIcon provider={currentProvider} />
       <span className="row-value">{label}</span>
       <span className="chev"><Chevron /></span>
@@ -594,13 +699,117 @@ function HarnessModelPicker({
   return (
     <HintTooltip label="Switch harness or model" action="open-model">
       <span>
-        <CmdkMenu
+        <Popover.Root
           open={open}
-          onOpenChange={onOpenChange}
-          trigger={trigger}
-          className="model-picker-menu"
-          groups={groups}
-        />
+          onOpenChange={(next) => {
+            if (next) {
+              setRailProvider(provider);
+              setQuery("");
+            }
+            onOpenChange(next);
+          }}
+        >
+          <Popover.Trigger render={trigger} />
+          <Popover.Portal>
+            <Popover.Positioner className="select-positioner" sideOffset={8} align="start">
+              <Popover.Popup
+                className="model-picker-menu"
+                data-agent-popup="true"
+                role="dialog"
+                aria-label="Switch harness or model"
+                initialFocus={searchRef}
+                finalFocus={triggerRef}
+                onKeyDown={keyNav}
+              >
+                <div className="model-picker-shell">
+                  {!q ? (
+                    <div className="model-picker-rail" role="tablist" aria-label="Harnesses" ref={railRef}>
+                      <div className="model-picker-rail-top">
+                        {installed.map((p) => (
+                          <HintTooltip key={p.id} label={p.label}>
+                            <button
+                              type="button"
+                              role="tab"
+                              className={"rail-btn" + (p.id === activeProvider?.id ? " active" : "")}
+                              aria-label={p.label}
+                              aria-selected={p.id === activeProvider?.id}
+                              onClick={() => setRailProvider(p.id)}
+                            >
+                              <ProviderIcon provider={p} />
+                            </button>
+                          </HintTooltip>
+                        ))}
+                      </div>
+                      {missing.length ? (
+                        <div className="model-picker-rail-bottom">
+                          {missing.map((p) => (
+                            <HintTooltip key={p.id} label={p.installCommand ? `Copy install command for ${p.label}` : `${p.label} not installed`}>
+                              <button
+                                type="button"
+                                className="rail-btn missing"
+                                aria-label={`${p.label} not installed`}
+                                onClick={() => {
+                                  if (p.installCommand) navigator.clipboard?.writeText(p.installCommand).catch(() => {});
+                                }}
+                              >
+                                <ProviderIcon provider={p} />
+                              </button>
+                            </HintTooltip>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="model-picker-main">
+                    <div className="model-picker-search">
+                      <SearchIcon />
+                      <input
+                        ref={searchRef}
+                        role="combobox"
+                        aria-label="Search models"
+                        aria-expanded="true"
+                        aria-controls="model-picker-list"
+                        aria-activedescendant={listItems[activeIndex]?.id}
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search models..."
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models">
+                      {listItems.length ? listItems.map((item, i) => (
+                        <button
+                          key={item.id}
+                          id={item.id}
+                          type="button"
+                          role="option"
+                          className={"model-row" + (i === activeIndex ? " active" : "") + (item.disabled ? " disabled" : "")}
+                          disabled={item.disabled}
+                          aria-selected={item.selected}
+                          aria-disabled={item.disabled ? "true" : undefined}
+                          title={item.disabled ? item.disabledReason : undefined}
+                          onMouseEnter={() => setActiveIndex(i)}
+                          onClick={() => choose(item)}
+                        >
+                          <ProviderIcon provider={item.provider} />
+                          <span className="model-row-main">
+                            <span className="model-row-name">{item.label}</span>
+                            <span className="model-row-subtitle">
+                              {item.disabled ? item.disabledReason ?? "Unavailable" : item.description ?? item.provider.label}
+                            </span>
+                          </span>
+                          {item.selected ? <span className="mi-check selected"><Check /></span> : null}
+                        </button>
+                      )) : (
+                        <div className="model-picker-empty">No models found</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
       </span>
     </HintTooltip>
   );
@@ -760,6 +969,10 @@ function isCtrlJ(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
   return e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "j";
 }
 
+function isCtrlK(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+  return e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k";
+}
+
 function insertNewlineAtCaret(text: string, setText: (v: string) => void, ref: RefObject<HTMLTextAreaElement | null>) {
   const el = ref.current;
   const start = el?.selectionStart ?? text.length;
@@ -827,7 +1040,7 @@ function useCommandMenu(
   }, [ctx, ref, setText, text]);
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open) return false;
-    const action = menuActionForKey(e.nativeEvent, ctrlJ);
+    const action = menuActionForKey(e.nativeEvent);
     if (action === "menu-next") {
       e.preventDefault();
       e.stopPropagation();
@@ -854,9 +1067,9 @@ function useCommandMenu(
       return true;
     }
     return false;
-  }, [close, ctrlJ, insert, items, open, selected]);
+  }, [close, insert, items, open, selected]);
   const menu = open ? (
-    <div className="command-menu">
+    <div className="command-menu" data-agent-popup="true">
       <CmdkMenu
         inline
         className="mention-menu"
@@ -935,10 +1148,11 @@ function useKeymap({
 }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const menuAction = menuActionForKey(e, ctrlJ);
-      if (popupOpen && menuAction && menuAction !== "menu-close" && actionForKey(e)) return;
+      const menuAction = menuActionForKey(e);
+      if (popupOpen && menuAction) return;
       const action = actionForKey(e);
       if (!action) return;
+      if (popupOpen && action !== "interrupt") return;
       if (action === "help" && e.key === "?" && inputRef.current && inputRef.current.value.trim()) return;
       if (action === "interrupt") {
         if (helpOpen) {
@@ -1011,7 +1225,7 @@ function withLocalValues(options: SessionOption[], local: Record<string, OptionV
 function optionAcceptsValue(option: SessionOption, value: OptionValue): boolean {
   if (option.kind === "toggle") return typeof value === "boolean";
   if (typeof value !== "string") return false;
-  return Boolean(option.choices?.some((c) => c.value === value));
+  return Boolean(option.choices?.some((c) => c.value === value && !c.disabled));
 }
 
 function sanitizeStartOptions(dirty: Record<string, OptionValue>, options: SessionOption[]): Record<string, OptionValue> {
@@ -1158,16 +1372,22 @@ function primaryTextarea(): HTMLTextAreaElement | null {
   return document.querySelector<HTMLTextAreaElement>("[data-primary-textarea='true']");
 }
 
+function anyAgentPopupOpen(): boolean {
+  return Boolean(document.querySelector("[data-agent-popup='true']"));
+}
+
 function useTypeToFocus() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isEditableTarget(e.target) || e.defaultPrevented) return;
+      if (anyAgentPopupOpen()) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key.length !== 1) return;
       primaryTextarea()?.focus();
     };
     const onPaste = (e: ClipboardEvent) => {
       if (isEditableTarget(e.target) || e.defaultPrevented) return;
+      if (anyAgentPopupOpen()) return;
       primaryTextarea()?.focus();
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -1176,6 +1396,25 @@ function useTypeToFocus() {
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("paste", onPaste, true);
     };
+  }, []);
+}
+
+function useOverlayScrollbars() {
+  useEffect(() => {
+    const timers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
+    const onScroll = (e: Event) => {
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (!target) return;
+      target.dataset.scrolling = "true";
+      const timer = timers.get(target);
+      if (timer) clearTimeout(timer);
+      timers.set(target, setTimeout(() => {
+        delete target.dataset.scrolling;
+        timers.delete(target);
+      }, 800));
+    };
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
   }, []);
 }
 
@@ -1302,6 +1541,7 @@ function Composer() {
             onKeyDown={(e) => {
               if (commandMenu.onKeyDown(e)) return;
               if (isCtrlJ(e)) { e.preventDefault(); insertNewlineAtCaret(prompt, setPrompt, taRef); return; }
+              if (isCtrlK(e)) { e.preventDefault(); return; }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
             }}
             onFocus={clearError}
@@ -1373,7 +1613,7 @@ function TurnActions({ stats, text, actions, onFork }: { stats: string; text: st
         <Popover.Trigger className="turn-action-btn" aria-label="Message actions"><EllipsisIcon /></Popover.Trigger>
         <Popover.Portal>
           <Popover.Positioner sideOffset={6} align="start">
-            <Popover.Popup className="turn-menu menu">
+            <Popover.Popup className="turn-menu menu" data-agent-popup="true">
               {stats ? <div className="turn-menu-stats">{stats}</div> : null}
               {actions.fork ? <button className="turn-menu-item" type="button" onClick={onFork}>Fork chat</button> : null}
             </Popover.Popup>
@@ -1502,6 +1742,7 @@ function Chat() {
               onKeyDown={(e) => {
                 if (commandMenu.onKeyDown(e)) return;
                 if (isCtrlJ(e)) { e.preventDefault(); insertNewlineAtCaret(text, setText, taRef); return; }
+                if (isCtrlK(e)) { e.preventDefault(); return; }
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
               }}
             />
@@ -1536,6 +1777,7 @@ function Chat() {
 export function App() {
   const s = useSession();
   useTypeToFocus();
+  useOverlayScrollbars();
   return (
     <Ctx.Provider value={s}>
       <main id="main">

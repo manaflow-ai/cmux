@@ -1,5 +1,6 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
+import { prettifyModelLabel } from "./model-label";
 
 // Codex: one shared `codex app-server` process (JSON-RPC over NDJSON stdio,
 // the same interface the codex IDE extension uses) hosts a thread per chat
@@ -508,7 +509,7 @@ function normalizeModel(m: any): ModelInfo {
     : FALLBACK_EFFORTS;
   return {
     value: String(m.model ?? m.id),
-    label: String(m.displayName ?? m.model ?? m.id),
+    label: prettifyModelLabel(String(m.displayName ?? m.model ?? m.id)),
     description: m.description ? String(m.description) : undefined,
     efforts,
     defaultEffort: String(m.defaultReasoningEffort ?? efforts[0]?.value ?? "medium"),

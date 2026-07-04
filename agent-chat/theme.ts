@@ -40,7 +40,7 @@ function fromShowConfig(): GhosttyTheme | null {
   for (const bin of GHOSTTY_BINS) {
     if (!existsSync(bin)) continue;
     try {
-      const res = Bun.spawnSync([bin, "+show-config"], { stdout: "pipe", stderr: "ignore" });
+      const res = Bun.spawnSync([bin, "+show-config"], { stdout: "pipe", stderr: "ignore", env: { ...process.env } });
       if (res.exitCode !== 0) continue;
       const kv = parseKVs(res.stdout.toString());
       const bg = normalizeColor(kv.get("background"));

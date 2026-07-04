@@ -35,6 +35,14 @@ const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
 const CATALOG_TTL_MS = 10 * 60_000;
 const FILES_TTL_MS = 30_000;
 const FILES_LIMIT = 5_000;
+const GEMINI_MODELS = [
+  { value: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
+  { value: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
+  { value: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview" },
+  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
+];
 
 const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
@@ -45,9 +53,11 @@ const PROVIDERS: ProviderDef[] = [
     id: "gemini",
     label: "Gemini",
     adapter: "acp",
-    cmd: ["gemini", "--acp", "--model", "gemini-3.1-pro-preview"],
+    cmd: ["gemini", "--acp"],
     autoApproveArgs: ["--yolo"],
     installCommand: "npm i -g @google/gemini-cli",
+    models: GEMINI_MODELS,
+    defaultModel: "gemini-3.1-pro-preview",
   },
 ];
 
@@ -247,7 +257,7 @@ function filterOptions(raw: Record<string, OptionValue>, catalog: SessionOption[
     const option = byId.get(id);
     if (!option) continue;
     if (option.kind === "toggle" && typeof value === "boolean") out[id] = value;
-    if (option.kind === "select" && typeof value === "string" && option.choices?.some((c) => c.value === value)) out[id] = value;
+    if (option.kind === "select" && typeof value === "string" && option.choices?.some((c) => c.value === value && !c.disabled)) out[id] = value;
   }
   return out;
 }
@@ -393,6 +403,7 @@ async function gitFiles(cwd: string): Promise<string[]> {
   const proc = Bun.spawn(["git", "-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard"], {
     stdout: "pipe",
     stderr: "pipe",
+    env: { ...process.env },
   });
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
   if (code !== 0) throw new Error("not a git repo");
@@ -404,7 +415,7 @@ async function walkFiles(root: string): Promise<string[]> {
   const skip = new Set([".git", "node_modules", ".hg", ".svn", ".cache", ".next", "dist", "build"]);
   async function visit(dir: string, depth: number) {
     if (out.length >= FILES_LIMIT || depth > 5) return;
-    let entries: Awaited<ReturnType<typeof readdir>>;
+    let entries: any[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {

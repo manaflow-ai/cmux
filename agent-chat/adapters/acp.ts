@@ -8,34 +8,23 @@ import type {
   SessionOption,
 } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
+import { prettifyModelLabel } from "./model-label";
 
 // Generic Agent Client Protocol (https://agentclientprotocol.com) client over
 // stdio NDJSON JSON-RPC. One adapter covers every ACP-speaking agent:
 // `opencode acp`, `gemini --experimental-acp`, `claude-code-acp`, goose, ...
 export function makeAcpAdapter(def: ProviderDef): Adapter {
+  const fallbackOptions = acpFallbackOptions(def);
   const adapter: Adapter = {
     capabilities: {
       triggers: ["/"],
-      options: [
-        { id: "model", label: "Model", kind: "select", value: "", disabled: true, description: "Loads at start" },
-        {
-          id: "mode",
-          label: "Mode",
-          kind: "select",
-          value: "build",
-          choices: [
-            { value: "build", label: "build" },
-            { value: "plan", label: "plan" },
-          ],
-        },
-        { id: "autoApprove", label: "Auto-approve", kind: "toggle", value: true, role: "approval" },
-      ],
+      options: fallbackOptions,
     },
     async send(sess, prompt) {
       sess.setStatus("running");
       try {
         const st = await ensureAcp(sess, def);
-        await applyInitialOptions(sess, st);
+        await applyInitialOptions(sess, st, def);
         const res = await st.request("session/prompt", {
           sessionId: st.acpSessionId,
           prompt: [{ type: "text", text: prompt }],
@@ -62,14 +51,14 @@ export function makeAcpAdapter(def: ProviderDef): Adapter {
     },
     async setOption(sess, id, value) {
       const st = await ensureAcp(sess, def);
-      await setAcpOption(sess, st, id, value);
+      await setAcpOption(sess, st, def, id, value);
     },
     async refreshOptions(sess) {
       const st = await ensureAcp(sess, def);
       emitAcpState(sess, st);
     },
     async listOptions(cwd) {
-      return withAcpLocalOptions(await fetchAcpOptions(def, cwd, adapter.capabilities?.options ?? []), true);
+      return withAcpLocalOptions(await fetchAcpOptions(def, cwd, fallbackOptions), true);
     },
     async listCommands(cwd) {
       return [{ trigger: "/", commands: await fetchAcpCommands(def, cwd) }];
@@ -84,10 +73,44 @@ interface AcpState {
   request(method: string, params: unknown): Promise<any>;
   notify(method: string, params: unknown): void;
   options: SessionOption[];
-  sources: Map<string, "config" | "mode" | "model">;
+  sources: Map<string, "config" | "mode" | "model" | "spawnModel">;
   autoApprove: boolean;
   commands: CommandEntry[];
   initialApplied: boolean;
+}
+
+function acpFallbackOptions(def: ProviderDef): SessionOption[] {
+  const model = def.models?.length
+    ? { id: "model", label: "Model", kind: "select" as const, value: def.defaultModel ?? def.models[0]!.value, choices: def.models }
+    : { id: "model", label: "Model", kind: "select" as const, value: "", disabled: true, description: "Loads at start" };
+  return [
+    model,
+    {
+      id: "mode",
+      label: "Mode",
+      kind: "select",
+      value: "build",
+      choices: [
+        { value: "build", label: "build" },
+        { value: "plan", label: "plan" },
+      ],
+    },
+    { id: "autoApprove", label: "Auto-approve", kind: "toggle", value: true, role: "approval" },
+  ];
+}
+
+function effectiveSpawnModel(def: ProviderDef, options: Record<string, OptionValue>): string {
+  return typeof options.model === "string" && def.models?.some((m) => m.value === options.model)
+    ? options.model
+    : def.defaultModel ?? def.models?.[0]?.value ?? "";
+}
+
+function commandForSession(def: ProviderDef, options: Record<string, OptionValue>): string[] {
+  const cmd = [...(def.cmd ?? [])];
+  if (def.models?.length) {
+    cmd.push("--model", effectiveSpawnModel(def, options));
+  }
+  return cmd;
 }
 
 async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
@@ -105,7 +128,8 @@ async function ensureAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> 
 }
 
 async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
-  const cmd = [...(def.cmd ?? [])];
+  const spawnModel = effectiveSpawnModel(def, sess.startOptions);
+  const cmd = commandForSession(def, sess.startOptions);
   const autoApprove = typeof sess.startOptions.autoApprove === "boolean" ? sess.startOptions.autoApprove : sess.autoApprove;
   if (autoApprove && def.autoApproveArgs) cmd.push(...def.autoApproveArgs);
   const proc = Bun.spawn(cmd, {
@@ -155,7 +179,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
       }
       return;
     }
-    if (msg.method) handleAgentMessage(sess, st, msg, writeMsg);
+    if (msg.method) handleAgentMessage(sess, st, def, msg, writeMsg);
   }, () => {
     for (const p of pending.values()) p.reject(new Error(`${def.id} acp process exited`));
     pending.clear();
@@ -172,7 +196,7 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
     });
     const created = await request("session/new", { cwd: sess.cwd, mcpServers: [] });
     st.acpSessionId = created.sessionId;
-    ingestAcpOptions(st, created);
+    ingestAcpOptions(st, created, def, spawnModel);
     sess.internal.acp = st;
     sess.emit({ kind: "meta", providerSessionId: created.sessionId });
     emitAcpState(sess, st);
@@ -183,15 +207,17 @@ async function startAcp(sess: SessionCtx, def: ProviderDef): Promise<AcpState> {
   }
 }
 
-async function applyInitialOptions(sess: SessionCtx, st: AcpState) {
+async function applyInitialOptions(sess: SessionCtx, st: AcpState, def: ProviderDef) {
   if (st.initialApplied) return;
   st.initialApplied = true;
   for (const [id, value] of Object.entries(sess.startOptions)) {
-    if (id === "autoApprove" || st.sources.has(id)) await setAcpOption(sess, st, id, value);
+    if (id === "autoApprove" || (st.sources.has(id) && !(id === "model" && st.sources.get(id) === "spawnModel"))) {
+      await setAcpOption(sess, st, def, id, value);
+    }
   }
 }
 
-async function setAcpOption(sess: SessionCtx, st: AcpState, id: string, value: OptionValue) {
+async function setAcpOption(sess: SessionCtx, st: AcpState, def: ProviderDef, id: string, value: OptionValue) {
   if (id === "autoApprove") {
     if (typeof value !== "boolean") throw new Error("autoApprove must be boolean");
     st.autoApprove = value;
@@ -219,11 +245,22 @@ async function setAcpOption(sess: SessionCtx, st: AcpState, id: string, value: O
     if (typeof value !== "string") throw new Error("model must be a string");
     await st.request("session/set_model", { sessionId: st.acpSessionId, modelId: value });
     updateLocalOption(st, id, value);
+  } else if (source === "spawnModel") {
+    if (typeof value !== "string") throw new Error("model must be a string");
+    sess.startOptions.model = value;
+    updateLocalOption(st, id, value);
+    emitAcpState(sess, st);
+    sess.emit({ kind: "status", text: "model changed, conversation restarted" });
+    const proc = st.proc;
+    if ((sess.internal.acp as AcpState | undefined) === st) sess.internal.acp = undefined;
+    proc.kill();
+    await ensureAcp(sess, def);
+    return;
   }
   emitAcpState(sess, st);
 }
 
-function ingestAcpOptions(st: AcpState, payload: any) {
+function ingestAcpOptions(st: AcpState, payload: any, def?: ProviderDef, spawnModel?: string) {
   const options = new Map(st.options.map((o) => [o.id, o] as const));
   const sources = new Map(st.sources);
   for (const opt of payload.configOptions ?? []) {
@@ -256,11 +293,22 @@ function ingestAcpOptions(st: AcpState, payload: any) {
       value: String(models.currentModelId ?? ""),
       choices: (models.availableModels ?? []).map((m: any) => ({
         value: String(m.modelId ?? m.id),
-        label: String(m.name ?? m.modelId ?? m.id),
+        label: prettifyModelLabel(String(m.name ?? m.modelId ?? m.id)),
         description: m.description ? String(m.description) : undefined,
       })),
     });
     sources.set("model", "model");
+  }
+  if (def?.models?.length && !sources.has("model")) {
+    const value = String(spawnModel || st.options.find((o) => o.id === "model")?.value || def.defaultModel || def.models[0]?.value || "");
+    options.set("model", {
+      id: "model",
+      label: "Model",
+      kind: "select",
+      value,
+      choices: def.models,
+    });
+    sources.set("model", "spawnModel");
   }
   st.options = [...options.values()];
   st.sources = sources;
@@ -319,7 +367,7 @@ function withAcpLocalOptions(options: SessionOption[], autoApprove: boolean): Se
 }
 
 // Notifications and reverse requests from the agent.
-function handleAgentMessage(sess: SessionCtx, st: AcpState, msg: any, writeMsg: (m: unknown) => void) {
+function handleAgentMessage(sess: SessionCtx, st: AcpState, def: ProviderDef, msg: any, writeMsg: (m: unknown) => void) {
   if (msg.method === "session/update") {
     const u = msg.params?.update;
     if (!u) return;
@@ -367,13 +415,13 @@ function handleAgentMessage(sess: SessionCtx, st: AcpState, msg: any, writeMsg: 
       case "config_option_update":
       case "config_options_update":
         if (u.configOptions) {
-          ingestAcpOptions(st, u);
+          ingestAcpOptions(st, u, def);
           emitAcpState(sess, st);
         }
         break;
     }
     if (u.configOptions || u.modes || u.models) {
-      ingestAcpOptions(st, u);
+      ingestAcpOptions(st, u, def);
       emitAcpState(sess, st);
     }
     return;
@@ -419,7 +467,7 @@ function contentText(content: unknown): string {
 
 async function fetchAcpCommands(def: ProviderDef, cwd: string): Promise<CommandEntry[]> {
   if (!def.cmd?.length) return [];
-  const proc = Bun.spawn([...def.cmd], {
+  const proc = Bun.spawn(commandForSession(def, {}), {
     cwd,
     stdin: "pipe",
     stdout: "pipe",
@@ -471,7 +519,7 @@ async function fetchAcpCommands(def: ProviderDef, cwd: string): Promise<CommandE
 
 async function fetchAcpOptions(def: ProviderDef, cwd: string, fallback: SessionOption[]): Promise<SessionOption[]> {
   if (!def.cmd?.length) return fallback;
-  const proc = Bun.spawn([...def.cmd], {
+  const proc = Bun.spawn(commandForSession(def, {}), {
     cwd,
     stdin: "pipe",
     stdout: "pipe",
@@ -508,10 +556,11 @@ async function fetchAcpOptions(def: ProviderDef, cwd: string, fallback: SessionO
             notify: () => {},
             options: [],
             sources: new Map(),
+            autoApprove: true,
             commands: [],
             initialApplied: false,
           };
-          ingestAcpOptions(st, msg.result ?? {});
+          ingestAcpOptions(st, msg.result ?? {}, def, effectiveSpawnModel(def, {}));
           resolve(st.options.length ? st.options : fallback);
         }
       }, () => {

@@ -12,12 +12,12 @@ interface SessionOption {
   id: string;
   kind: "select" | "toggle";
   value: OptionValue;
-  choices?: { value: string; label: string }[];
+  choices?: { value: string; label: string; disabled?: boolean }[];
   disabled?: boolean;
 }
 
 async function commandExists(name: string): Promise<boolean> {
-  const proc = Bun.spawn(["zsh", "-lc", `command -v ${name}`], { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["zsh", "-lc", `command -v ${name}`], { stdout: "pipe", stderr: "pipe", env: { ...process.env } });
   const code = await proc.exited;
   return code === 0;
 }
@@ -56,6 +56,7 @@ async function testClaudeCatalogCache(): Promise<string> {
     const model = (first.options as SessionOption[]).find((o) => o.id === "model");
     const choices = model?.choices ?? [];
     if (choices.length <= 1) throw new Error(`claude catalog: expected >1 model choice, got ${choices.length}`);
+    assertClaudeCatalog(choices);
     const before = events.length;
     const started = performance.now();
     send({ op: "list-options", provider: "claude", cwd: `${import.meta.dir}/../scratch` });
@@ -65,6 +66,21 @@ async function testClaudeCatalogCache(): Promise<string> {
     return `claude catalog: OK (${choices.length} models, cached ${elapsed.toFixed(1)}ms)`;
   } finally {
     ws.close();
+  }
+}
+
+function assertClaudeCatalog(choices: { value: string; label: string; disabled?: boolean }[]) {
+  const values = choices.map((c) => c.value);
+  const unique = new Set(values);
+  if (unique.size !== values.length) throw new Error(`claude catalog: duplicate model values ${values.join(",")}`);
+  const aliases = new Set(["opus", "sonnet", "haiku", "fable", "default"]);
+  for (const value of values) {
+    const base = value.replace(/\[1m\]$/i, "");
+    if (aliases.has(base)) throw new Error(`claude catalog: bare alias leaked: ${value}`);
+    if (/\[1m\]$/i.test(value) && values.includes(base)) throw new Error(`claude catalog: 1m duplicate leaked: ${value}`);
+  }
+  for (const gated of ["claude-fable-5", "claude-opus-4-8", "claude-opus-4-7"]) {
+    if (!values.includes(gated)) throw new Error(`claude catalog: missing gated model ${gated}`);
   }
 }
 

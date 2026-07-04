@@ -7,7 +7,7 @@ export type KeyAction =
   | "toggle-plan"
   | "interrupt"
   | "help";
-export type MenuKeyAction = "menu-next" | "menu-prev" | "menu-accept" | "menu-close" | "newline";
+export type MenuKeyAction = "menu-next" | "menu-prev" | "menu-accept" | "menu-close" | "newline" | "picker-rail-next" | "picker-rail-prev";
 
 export interface KeymapEntry {
   combo: string;
@@ -36,13 +36,15 @@ export const KEYMAP: KeymapEntry[] = [
 export const MENU_KEYMAP: MenuKeymapEntry[] = [
   { combo: "ArrowDown", description: "Next menu item", action: "menu-next" },
   { combo: "Ctrl+N", description: "Next menu item", action: "menu-next" },
+  { combo: "Ctrl+J", description: "Next menu item while a menu is open", action: "menu-next" },
   { combo: "ArrowUp", description: "Previous menu item", action: "menu-prev" },
   { combo: "Ctrl+P", description: "Previous menu item while a menu is open", action: "menu-prev" },
+  { combo: "Ctrl+K", description: "Previous menu item while a menu is open", action: "menu-prev" },
   { combo: "Enter", description: "Accept menu item", action: "menu-accept" },
-  { combo: "Tab", description: "Accept menu item", action: "menu-accept" },
+  { combo: "Tab", description: "Accept menu item or switch picker search/rail", action: "menu-accept" },
+  { combo: "ArrowRight", description: "Next harness in model picker rail", action: "picker-rail-next" },
+  { combo: "ArrowLeft", description: "Previous harness in model picker rail", action: "picker-rail-prev" },
   { combo: "Esc", description: "Close menu", action: "menu-close" },
-  { combo: "Ctrl+J", description: "Insert newline", action: "newline", ctrlJMode: "newline" },
-  { combo: "Ctrl+J", description: "Next menu item while a menu is open", action: "menu-next", ctrlJMode: "menu" },
 ];
 
 export function actionForKey(e: KeyboardEvent): KeyAction | null {
@@ -50,11 +52,9 @@ export function actionForKey(e: KeyboardEvent): KeyAction | null {
   return KEYMAP.find((entry) => comboMatches(entry.combo, e))?.action ?? null;
 }
 
-export function menuActionForKey(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "altKey">, ctrlJMode: "newline" | "menu"): MenuKeyAction | null {
+export function menuActionForKey(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "shiftKey" | "metaKey" | "altKey">): MenuKeyAction | null {
   if (e.metaKey || e.altKey) return null;
-  const entry = MENU_KEYMAP.find((item) =>
-    (!item.ctrlJMode || item.ctrlJMode === ctrlJMode) && comboMatches(item.combo, e),
-  );
+  const entry = MENU_KEYMAP.find((item) => comboMatches(item.combo, e));
   return entry?.action ?? null;
 }
 
@@ -70,6 +70,8 @@ function comboMatches(combo: string, e: Pick<KeyboardEvent, "key" | "ctrlKey" | 
   if (key === "Enter") return e.key === "Enter";
   if (key === "ArrowDown") return e.key === "ArrowDown";
   if (key === "ArrowUp") return e.key === "ArrowUp";
+  if (key === "ArrowRight") return e.key === "ArrowRight";
+  if (key === "ArrowLeft") return e.key === "ArrowLeft";
   if (key === "?") return e.key === "?";
   if (key === "/") return e.key === "/";
   return e.key.toLowerCase() === key.toLowerCase();

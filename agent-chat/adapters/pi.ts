@@ -1,5 +1,6 @@
 import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
+import { prettifyProviderModelLabel } from "./model-label";
 
 const THINKING_CHOICES: OptionChoice[] = ["minimal", "low", "medium", "high", "xhigh"]
   .map((value) => ({ value, label: value }));
@@ -331,7 +332,7 @@ function normalizeModels(models: any): OptionChoice[] {
   if (!Array.isArray(models)) return [];
   return models.map((m) => ({
     value: `${m.provider}/${m.id}`,
-    label: String(m.name ?? `${m.provider}/${m.id}`),
+    label: prettifyProviderModelLabel(String(m.provider), String(m.id), m.name ? String(m.name) : undefined),
     description: m.reasoning ? "supports thinking" : undefined,
   }));
 }
