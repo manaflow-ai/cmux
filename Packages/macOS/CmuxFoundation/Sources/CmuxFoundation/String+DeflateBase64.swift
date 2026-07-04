@@ -12,10 +12,10 @@ import Foundation
 /// of `argv`. That bloats `ps aux` output enough to break tools that scan the
 /// process table with a bounded buffer (see manaflow-ai/cmux#6738).
 ///
-/// `deflatedBase64` zlib-compresses the UTF-8 bytes (RFC 1950 zlib format,
-/// via `NSData`'s `.zlib` algorithm) and base64-encodes the result; a real shell script
-/// compresses 5–13×, so the inlined literal shrinks proportionally.
-/// `init?(deflatedBase64:)` reverses it with a bounded zlib inflater. The format
+/// `deflatedBase64` compresses the UTF-8 bytes via `NSData`'s `.zlib`
+/// algorithm and base64-encodes the result; a real shell script compresses
+/// 5–13×, so the inlined literal shrinks proportionally.
+/// `init?(deflatedBase64:)` reverses it with a bounded inflater. The format
 /// never has to interoperate with command-line `gzip`.
 extension String {
     /// This string zlib-compressed and base64-encoded, or `nil` for an empty string
@@ -63,11 +63,22 @@ extension String {
             }
         }
 
+        let decodedData = Data(output.prefix(decodedByteCount))
         guard decodedByteCount > 0,
               decodedByteCount <= maxDecodedByteCount,
-              let string = String(data: Data(output.prefix(decodedByteCount)), encoding: .utf8) else {
+              compressed.isCanonicalDeflatedForm(for: decodedData),
+              let string = String(data: decodedData, encoding: .utf8) else {
             return nil
         }
         self = string
+    }
+}
+
+private extension Data {
+    func isCanonicalDeflatedForm(for decodedData: Data) -> Bool {
+        guard let recompressed = try? (decodedData as NSData).compressed(using: .zlib) as Data else {
+            return false
+        }
+        return recompressed == self
     }
 }

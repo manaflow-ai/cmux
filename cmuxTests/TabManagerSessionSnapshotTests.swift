@@ -1,8 +1,8 @@
 import CmuxWorkspaces
-import Darwin
 import CmuxCore
 import CmuxFoundation
 import CmuxTerminal
+import Foundation
 import Testing
 import func XCTest.XCTAssertEqual
 import func XCTest.XCTAssertFalse
