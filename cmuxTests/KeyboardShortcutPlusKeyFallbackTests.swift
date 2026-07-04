@@ -91,6 +91,27 @@ import Testing
         )
     }
 
+    @Test func recordedCommandShortcutMatchesStoredKeyCodeBeforePrintableFallbackBlock() {
+        let recordedShortcut = StoredShortcut(
+            key: "n",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 45
+        )
+
+        #expect(
+            recordedShortcut.matches(
+                keyCode: 45, // US kVK_ANSI_N.
+                modifierFlags: [.command],
+                eventCharacter: "b",
+                layoutCharacterProvider: { _, _ in "b" }
+            ),
+            "A user-recorded physical keyCode shortcut should survive a different printable command glyph"
+        )
+    }
+
     @Test func controlShortcutStillFallsBackByPhysicalKeyCodeOnAlternateAsciiLayout() {
         let controlN = StoredShortcut(
             key: "n",

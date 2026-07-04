@@ -1743,6 +1743,10 @@ struct ShortcutStroke: Equatable, Hashable {
             return keyCode == 36 || keyCode == 76
         }
 
+        if let explicitKeyCode = self.keyCode, keyCode == explicitKeyCode {
+            return true
+        }
+
         if Self.shortcutCharacterMatches(
             eventCharacter: eventCharacter,
             shortcutKey: shortcutKey,
@@ -1783,10 +1787,6 @@ struct ShortcutStroke: Equatable, Hashable {
             applyShiftSymbolNormalization: false,
             eventKeyCode: keyCode
         ) {
-            return true
-        }
-
-        if let explicitKeyCode = self.keyCode, keyCode == explicitKeyCode {
             return true
         }
 
