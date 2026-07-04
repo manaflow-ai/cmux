@@ -133,6 +133,16 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+## First pass, then dogfood
+
+A task's first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL given to the user). Then hand off to the user for dogfood. Do not fix CI failures, merge conflicts, or review findings inline in the main conversation after that point.
+
+At handoff, launch one background `$autoreview` subagent with a bounded prompt (PR URL, worktree, base ref, allowed write scope, required verification), never a vague "make it green". That loop owns CI: it runs structured review plus PR feedback, and only when a check actually fails does it spawn a bounded repair subagent with that check's name and log context. Do not launch a separate parallel CI repair agent; two agents mutating one worktree race each other. One writer per worktree: if dogfood feedback needs main-agent edits while the loop runs, stop the loop first or give it its own sibling worktree. In Claude Code spawn the loop with the agent/task tool; in Codex use a background sub-task or bounded background `codex exec`.
+
+The loop may commit and push scoped fixes but never merges and never rebuilds the user's tagged build. The main agent inspects every pushed commit, rejects out-of-scope edits, and owns dogfood, approval, and merge. Merging app/runtime/UI changes still requires the user's explicit approval after dogfood; if a pushed fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested.
+
+Notify through `cmux notify` so the user can leave and return. At handoff the main agent sends `cmux notify --title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. CI + review in background. PR: <pr-url>"`. The loop sends its outcome when done or blocked, e.g. `--title "CI green: <branch>"`, `--title "Review clean: <branch>" --body "fixed <n> findings, pushed"`, or `--title "CI blocked: <branch>" --body "<check>: <one-line cause>, needs your decision"`. Titles carry the outcome and branch; bodies say what happened and the single next action. If there is no cmux socket, skip notify and rely on the chat handoff.
+
 ## Shared behavior policy
 
 - When a behavior is exposed through multiple entrypoints (keyboard shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action/model path and verify every entrypoint that should invoke it. Do not patch one surface while leaving the others with duplicated logic.
