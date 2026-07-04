@@ -7074,10 +7074,12 @@ struct CMUXCLI {
         }
         if action == "set_description" {
             let descriptionSource = descriptionSourceOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Plain CLI notes are user-owned; agent-launched CLI summaries clear on context reset.
+            let defaultDescriptionSource = Self.isCodingAgentEnvironment(ProcessInfo.processInfo.environment) ? "agent" : "user"
             if let descriptionSource, !descriptionSource.isEmpty {
                 params["description_source"] = descriptionSource
             } else {
-                params["description_source"] = "user"
+                params["description_source"] = defaultDescriptionSource
             }
         }
 
