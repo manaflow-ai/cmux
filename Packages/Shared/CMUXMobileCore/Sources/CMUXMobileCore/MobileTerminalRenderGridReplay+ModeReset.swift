@@ -10,17 +10,22 @@ extension MobileTerminalRenderGridReplay {
         // clears the stored ?3 value and returns without resizing, which is
         // the only safe way to reset the mode without fighting the remote
         // grid's viewport policy.
-        bytes.append(Data(
-            (
-                "\u{1B}[2l\u{1B}[4l\u{1B}[12h\u{1B}[20l"
-                + "\u{1B}[?1l\u{1B}[?4l\u{1B}[?5l\u{1B}[?6l\u{1B}[?7h\u{1B}[?8l\u{1B}[?9l"
-                + "\u{1B}[?40l\u{1B}[?3l\u{1B}[?45l\u{1B}[?66l\u{1B}>\u{1B}[?67l\u{1B}[?69l"
-                + "\u{1B}[?1000l\u{1B}[?1002l\u{1B}[?1003l\u{1B}[?1004l"
-                + "\u{1B}[?1005l\u{1B}[?1006l\u{1B}[?1007h\u{1B}[?1015l\u{1B}[?1016l"
-                + "\u{1B}[?1035h\u{1B}[?1036h\u{1B}[?1039l\u{1B}[?1045l\u{1B}[?2004l"
-                + "\u{1B}[?2027l\u{1B}[?2031l\u{1B}[?2048l"
-            ).utf8
-        ))
+        // Written as separate appends: a single `+`-chained string expression
+        // here exceeded the Swift type checker's time budget on the x86_64
+        // Release CI lane ("unable to type-check this expression in
+        // reasonable time"). The emitted bytes are identical.
+        let segments: [String] = [
+            "\u{1B}[2l\u{1B}[4l\u{1B}[12h\u{1B}[20l",
+            "\u{1B}[?1l\u{1B}[?4l\u{1B}[?5l\u{1B}[?6l\u{1B}[?7h\u{1B}[?8l\u{1B}[?9l",
+            "\u{1B}[?40l\u{1B}[?3l\u{1B}[?45l\u{1B}[?66l\u{1B}>\u{1B}[?67l\u{1B}[?69l",
+            "\u{1B}[?1000l\u{1B}[?1002l\u{1B}[?1003l\u{1B}[?1004l",
+            "\u{1B}[?1005l\u{1B}[?1006l\u{1B}[?1007h\u{1B}[?1015l\u{1B}[?1016l",
+            "\u{1B}[?1035h\u{1B}[?1036h\u{1B}[?1039l\u{1B}[?1045l\u{1B}[?2004l",
+            "\u{1B}[?2027l\u{1B}[?2031l\u{1B}[?2048l",
+        ]
+        for segment in segments {
+            bytes.append(Data(segment.utf8))
+        }
     }
 
     func appendSavedModeBankReset(to bytes: inout Data) {
