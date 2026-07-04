@@ -33,7 +33,8 @@ OPTIONS:
   -h, --help         Show this help.
 
 KEYS (prefix: Ctrl-b)
-  c  new tab in pane   n/p  next/prev tab      1-9  select tab
+  c  new tab in pane   B    new browser tab    n/p  next/prev tab
+  1-9  select tab
   %  split right       \"  split down          x    close tab
   ,  rename pane       $    rename workspace
   Tab  next screen     S    new screen
@@ -110,6 +111,13 @@ fn run_attach(args: Args) -> anyhow::Result<()> {
 
 fn run_server(args: Args) -> anyhow::Result<()> {
     let mut surface_options = SurfaceOptions::default();
+    let config = config::load();
+    surface_options.chrome_binary = config.browser.chrome_binary.clone();
+    surface_options.cdp_url = config.browser.cdp_url.clone();
+    surface_options.browser_discover = config.browser.discover;
+    surface_options.browser_discover_ports = config.browser.discover_ports.clone();
+    surface_options.browser_user_data_dir = config.browser.user_data_dir.clone();
+    surface_options.browser_ephemeral = config.browser.ephemeral;
     if let Some(term) = args.term {
         surface_options.term = term;
     }
@@ -126,6 +134,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     } else {
         app::run(Session::Local(mux.clone()), args.session)
     };
+    mux.shutdown();
     mux_core::server::cleanup(&socket_path);
     result
 }

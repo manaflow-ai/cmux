@@ -53,7 +53,7 @@ drain(1.0)
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident
-assert ident["data"]["protocol"] == 4, ident
+assert ident["data"]["protocol"] in (4, 5), ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
@@ -78,6 +78,19 @@ text = output.decode("utf-8", "replace")
 assert " 1 " in text, text[-500:]
 assert " + " in text, text[-500:]
 print("always-on tab bar with numbered tab ok")
+
+# Prefix-B opens the browser URL prompt; Esc cancels without requiring
+# Chrome to be installed or creating a tab.
+before_tabs = len(panes[0]["tabs"])
+os.write(fd, b"\x02B")
+drain(0.8)
+text = output.decode("utf-8", "replace")
+assert "New browser tab" in text and "https://" in text, text[-800:]
+os.write(fd, b"\x1b")
+drain(0.5)
+screen0 = active_screen(tree()[0])
+assert len(screen0["panes"][0]["tabs"]) == before_tabs, screen0
+print("prefix-B browser prompt opens and Esc cancels ok")
 
 # Type a command into the shell via the TUI's stdin path (real keystrokes).
 os.write(fd, b"printf 'smoke-marker-%s\\n' ok\r")

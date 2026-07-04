@@ -7,7 +7,7 @@
 //! where flashing notifications will hook in later.
 
 use ghostty_vt::{Cell as VtCell, RenderState, Scrollbar};
-use mux_core::Rect;
+use mux_core::{Rect, SurfaceKind};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
 
@@ -227,6 +227,10 @@ fn draw_content(
     }
     let surface = app.session.surface(area.surface)?;
     surface.take_dirty();
+    if surface.kind() == SurfaceKind::Browser {
+        draw_browser_content(app, frame, area, &surface);
+        return None;
+    }
 
     let rs = app
         .render_states
@@ -287,6 +291,60 @@ fn draw_content(
     None
 }
 
+fn draw_browser_content(
+    app: &mut App,
+    frame: &mut Frame,
+    area: &PaneArea,
+    surface: &crate::session::SurfaceHandle,
+) {
+    let rect = area.content;
+    let screen = frame.area();
+    let max_cols = rect.width.min(screen.width.saturating_sub(rect.x));
+    let max_rows = rect.height.min(screen.height.saturating_sub(rect.y));
+    let buf = frame.buffer_mut();
+    for row in 0..max_rows {
+        for col in 0..max_cols {
+            buf[(rect.x + col, rect.y + row)].set_symbol(" ").set_style(Style::default());
+        }
+    }
+
+    let message = if surface.browser_url().is_none() {
+        Some("browser panes are not supported over attach yet".to_string())
+    } else if !app.graphics_supported {
+        Some("terminal has no kitty graphics support".to_string())
+    } else if surface.browser_frame().is_none() {
+        let url = surface
+            .browser_url()
+            .or_else(|| {
+                app.tree
+                    .active_screen()
+                    .and_then(|screen| screen.pane(area.pane))
+                    .and_then(|pane| pane.tabs.get(pane.active_tab))
+                    .map(|tab| tab.title.clone())
+            })
+            .unwrap_or_else(|| "browser".to_string());
+        Some(format!("loading {}...", truncate(&url, 48)))
+    } else {
+        None
+    };
+
+    let Some(message) = message else { return };
+    if max_cols == 0 || max_rows == 0 {
+        return;
+    }
+    let text = truncate(&message, max_cols as usize);
+    let text_w = text.chars().count() as u16;
+    let x = rect.x + max_cols.saturating_sub(text_w) / 2;
+    let y = rect.y + max_rows / 2;
+    frame.buffer_mut().set_stringn(
+        x,
+        y,
+        &text,
+        max_cols as usize,
+        Style::default().fg(Color::Indexed(244)),
+    );
+}
+
 /// Scrollbar in the right border column. Visible whenever the surface
 /// has any scrollback (total > viewport); hidden only when no scrolling
 /// is possible at all. The thumb overlays the border line; the whole
@@ -297,7 +355,10 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
         return;
     }
     let Some(surface) = app.session.surface(area.surface) else { return };
-    let Some(sb) = surface.with_terminal(|t| t.scrollbar()) else { return };
+    if surface.kind() == SurfaceKind::Browser {
+        return;
+    }
+    let Some(sb) = surface.with_terminal(|t| t.scrollbar()).flatten() else { return };
     if sb.total <= sb.len {
         return; // nothing to scroll: no scrollbar
     }

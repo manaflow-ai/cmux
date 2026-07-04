@@ -42,7 +42,7 @@ fn surface_runs_command_and_screen_updates() {
     // ...and the ghostty-backed screen contains the marker.
     let text = wait_for(
         || {
-            let text = surface.with_terminal(|t| t.plain_text()).unwrap();
+            let text = surface.with_terminal(|t| t.plain_text()).unwrap().unwrap();
             text.contains("marker-42").then_some(text)
         },
         Duration::from_secs(10),
@@ -201,6 +201,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
         || {
             surface
                 .with_terminal(|t| t.plain_text())
+                .unwrap()
                 .unwrap()
                 .contains("before-attach")
                 .then_some(())

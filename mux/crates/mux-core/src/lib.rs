@@ -8,6 +8,7 @@
 //! [`MuxEvent`]s and read surface state; they never own terminal state
 //! themselves, which is what makes the backend attachable.
 
+mod browser;
 mod model;
 mod mux;
 mod surface;
@@ -18,7 +19,9 @@ pub mod server;
 pub use layout::{layout_screen, split_sides, LayoutResult, Rect};
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{Mux, MuxEvent};
-pub use surface::{AttachStream, Surface, SurfaceOptions};
+pub use surface::{
+    AttachStream, BrowserFrame, BrowserSource, Surface, SurfaceKind, SurfaceOptions,
+};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

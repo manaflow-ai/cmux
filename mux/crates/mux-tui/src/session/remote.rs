@@ -12,10 +12,12 @@ use std::time::Duration;
 
 use base64::Engine;
 use ghostty_vt::{Callbacks, Terminal};
-use mux_core::{MuxEvent, SurfaceId};
+use mux_core::{MuxEvent, SurfaceId, SurfaceKind};
 use serde_json::{json, Value};
 
 use super::tree::{parse_tree, TreeView};
+
+const SUPPORTED_PROTOCOL_VERSIONS: &[u64] = &[4, 5];
 
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
@@ -83,6 +85,12 @@ impl RemoteSession {
         let ident = session.request(json!({"cmd": "identify"}))?;
         if ident.get("app").and_then(|v| v.as_str()) != Some("cmux-mux") {
             anyhow::bail!("socket endpoint is not a cmux-mux session");
+        }
+        let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
+        if !SUPPORTED_PROTOCOL_VERSIONS.contains(&protocol) {
+            anyhow::bail!(
+                "unsupported cmux-mux protocol {protocol}; this client supports protocols 4 and 5"
+            );
         }
         session.request(json!({"cmd": "subscribe"}))?;
         Ok(session)
@@ -231,6 +239,10 @@ impl RemoteSession {
 
     pub fn drop_surface(&self, id: SurfaceId) {
         self.surfaces.lock().unwrap().remove(&id);
+    }
+
+    pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
+        self.tree.lock().unwrap().surface_kind(id)
     }
 
     pub fn tree(&self) -> anyhow::Result<TreeView> {

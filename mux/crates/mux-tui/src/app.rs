@@ -22,7 +22,8 @@ use crossterm::terminal::{
 use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
 use mux_core::{
-    layout_screen, split_sides, MuxEvent, PaneId, Rect, SplitDir, SurfaceId, WorkspaceId,
+    layout_screen, split_sides, MuxEvent, PaneId, Rect, SplitDir, SurfaceId, SurfaceKind,
+    WorkspaceId,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
@@ -30,6 +31,7 @@ use ratatui::Terminal as RatatuiTerminal;
 use crate::config::{Action, Config};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
+use crate::ui::graphics::{GraphicPlacement, GraphicsState};
 
 pub enum AppEvent {
     Mux(MuxEvent),
@@ -99,6 +101,7 @@ pub enum MenuAction {
     CloseScreen(mux_core::ScreenId),
     RenamePane(PaneId),
     NewTab(PaneId),
+    NewBrowserTab(PaneId),
     SplitRight(PaneId),
     SplitDown(PaneId),
     ClosePane(PaneId),
@@ -113,6 +116,7 @@ impl MenuAction {
             MenuAction::CloseScreen(_) => "Close screen",
             MenuAction::RenamePane(_) => "Rename pane",
             MenuAction::NewTab(_) => "New tab",
+            MenuAction::NewBrowserTab(_) => "New browser tab",
             MenuAction::SplitRight(_) => "Split right",
             MenuAction::SplitDown(_) => "Split down",
             MenuAction::ClosePane(_) => "Close pane",
@@ -161,6 +165,7 @@ pub enum PromptTarget {
     Workspace(WorkspaceId),
     Screen(mux_core::ScreenId),
     Pane(PaneId),
+    BrowserTab { pane: Option<PaneId> },
 }
 
 /// Centered rename dialog: a text input with OK/Cancel buttons. The
@@ -236,6 +241,8 @@ impl Selection {
 enum Drag {
     /// Text selection inside a pane's content rect.
     Select { content: Rect },
+    /// Browser mouse drag inside a pane's content rect.
+    Browser { surface: SurfaceId, content: Rect },
     /// Scrollbar thumb drag.
     Scrollbar { surface: SurfaceId, track: Rect },
 }
@@ -245,6 +252,8 @@ pub struct App {
     pub config: Config,
     pub tree: TreeView,
     pub render_states: HashMap<SurfaceId, RenderState>,
+    pub graphics: GraphicsState,
+    pub graphics_supported: bool,
     pub pane_areas: Vec<PaneArea>,
     pub prefix_armed: bool,
     pub session_label: String,
@@ -264,6 +273,8 @@ pub struct App {
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
     pub selection: Option<Selection>,
+    pub status_message: Option<String>,
+    pub cell_pixels: (u16, u16),
     /// Whether the terminal pointer is currently the hand shape (over a
     /// clickable element); tracked to avoid re-emitting OSC 22.
     pointer_shape: bool,
@@ -316,17 +327,6 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
     })?;
 
     // Crossterm input → app channel.
-    std::thread::Builder::new().name("input".into()).spawn({
-        let tx = tx.clone();
-        move || {
-            while let Ok(event) = crossterm::event::read() {
-                if tx.send(AppEvent::Input(event)).is_err() {
-                    break;
-                }
-            }
-        }
-    })?;
-
     enable_raw_mode()?;
     if let Err(e) = (|| -> anyhow::Result<()> {
         let mut stdout = std::io::stdout();
@@ -338,6 +338,23 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         let _ = restore_terminal();
         return Err(e);
     }
+
+    let cell_pixels = crate::ui::graphics::detect_cell_pixels(true);
+    session.set_cell_pixel_size(cell_pixels.0, cell_pixels.1);
+    let graphics_supported = crate::ui::graphics::probe_kitty_graphics();
+
+    // Crossterm input → app channel. Start this after startup terminal
+    // probes so DA / window-size responses are not consumed as key input.
+    std::thread::Builder::new().name("input".into()).spawn({
+        let tx = tx.clone();
+        move || {
+            while let Ok(event) = crossterm::event::read() {
+                if tx.send(AppEvent::Input(event)).is_err() {
+                    break;
+                }
+            }
+        }
+    })?;
     // Restore the host terminal even if we panic mid-frame.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -359,6 +376,8 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         config,
         tree: TreeView::default(),
         render_states: HashMap::new(),
+        graphics: GraphicsState::default(),
+        graphics_supported,
         pane_areas: Vec::new(),
         prefix_armed: false,
         session_label,
@@ -371,6 +390,8 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         menu: None,
         prompt: None,
         selection: None,
+        status_message: None,
+        cell_pixels,
         pointer_shape: false,
         drag: None,
         encoder,
@@ -405,6 +426,7 @@ impl App {
         let size = terminal.size()?;
         self.sync_layout((size.width, size.height));
         terminal.draw(|f| crate::ui::draw(self, f))?;
+        self.emit_graphics()?;
 
         while !self.quit {
             // Block for the first event, then drain whatever queued so a
@@ -431,9 +453,53 @@ impl App {
                 let size = terminal.size()?;
                 self.sync_layout((size.width, size.height));
                 terminal.draw(|f| crate::ui::draw(self, f))?;
+                self.emit_graphics()?;
             }
         }
         Ok(())
+    }
+
+    fn emit_graphics(&mut self) -> anyhow::Result<()> {
+        if !self.graphics_supported {
+            return Ok(());
+        }
+        let mut placements = Vec::new();
+        for area in &self.pane_areas {
+            let Some(surface) = self.session.surface(area.surface) else { continue };
+            if surface.kind() != SurfaceKind::Browser {
+                continue;
+            }
+            if self.browser_graphic_occluded(area.content) {
+                continue;
+            }
+            let Some(frame) = surface.browser_frame() else { continue };
+            placements.push(GraphicPlacement {
+                surface: area.surface,
+                rect: area.content,
+                seq: frame.seq,
+                data_b64: frame.data_b64,
+            });
+        }
+        let bytes = self.graphics.frame_bytes(&placements);
+        if !bytes.is_empty() {
+            let mut stdout = std::io::stdout();
+            stdout.write_all(&bytes)?;
+            stdout.flush()?;
+        }
+        Ok(())
+    }
+
+    fn browser_graphic_occluded(&self, rect: Rect) -> bool {
+        self.menu.as_ref().is_some_and(|menu| rects_intersect(rect, menu.rect))
+            || self.prompt.as_ref().is_some_and(|prompt| rects_intersect(rect, prompt.rect))
+    }
+
+    fn refresh_cell_pixels(&mut self, query_fallback: bool) {
+        let next = crate::ui::graphics::detect_cell_pixels(query_fallback);
+        if self.cell_pixels != next {
+            self.cell_pixels = next;
+            self.session.set_cell_pixel_size(next.0, next.1);
+        }
     }
 
     /// Refresh the tree snapshot, recompute the active screen's layout
@@ -528,7 +594,10 @@ impl App {
                 self.paste(&text);
                 Ok(false)
             }
-            AppEvent::Input(Event::Resize(_, _)) => Ok(true),
+            AppEvent::Input(Event::Resize(_, _)) => {
+                self.refresh_cell_pixels(false);
+                Ok(true)
+            }
             AppEvent::Input(_) => Ok(false),
         }
     }
@@ -579,6 +648,7 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return Ok(false);
         }
+        self.status_message = None;
         if self.prompt.is_some() {
             return self.handle_prompt_key(key);
         }
@@ -611,6 +681,15 @@ impl App {
             // Empty screen/pane names clear back to the default.
             PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
             PromptTarget::Pane(id) => self.session.rename_pane(id, prompt.buffer),
+            PromptTarget::BrowserTab { pane } => {
+                if !prompt.buffer.trim().is_empty() {
+                    if let Err(e) = self.create_browser_tab(pane, &prompt.buffer) {
+                        self.status_message = Some(e.to_string());
+                    } else {
+                        self.status_message = None;
+                    }
+                }
+            }
         }
     }
 
@@ -663,6 +742,7 @@ impl App {
                 let action = menu.items[menu.selected];
                 self.menu = None;
                 self.activate_menu(action)?;
+                self.status_message = None;
                 Ok(true)
             }
             _ => Ok(true), // swallow while a menu is open
@@ -695,6 +775,7 @@ impl App {
             Action::NewTab => {
                 self.session.new_tab(pane, None)?;
             }
+            Action::NewBrowserTab => self.open_browser_tab_prompt(pane),
             Action::NextTab => self.session.select_tab(pane, None, Some(1)),
             Action::PrevTab => self.session.select_tab(pane, None, Some(-1)),
             Action::SplitRight => {
@@ -735,6 +816,7 @@ impl App {
                 return Ok(false);
             }
         }
+        self.status_message = None;
         Ok(true)
     }
 
@@ -748,6 +830,36 @@ impl App {
         let Some(ws) = self.tree.active_workspace() else { return };
         self.prompt =
             Some(Prompt::new("Rename workspace", ws.name.clone(), PromptTarget::Workspace(ws.id)));
+    }
+
+    fn open_browser_tab_prompt(&mut self, pane: Option<PaneId>) {
+        self.prompt = Some(Prompt::new(
+            "New browser tab",
+            "https://".to_string(),
+            PromptTarget::BrowserTab { pane },
+        ));
+    }
+
+    fn browser_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
+        match pane {
+            Some(pane) => self
+                .pane_areas
+                .iter()
+                .find(|area| area.pane == pane)
+                .map(|area| (area.content.width.max(1), area.content.height.max(1))),
+            None => self
+                .active_pane()
+                .and_then(|pane| self.browser_tab_size_hint(Some(pane)))
+                .or_else(|| Self::size_of_rect(self.content_area)),
+        }
+    }
+
+    fn create_browser_tab(&mut self, pane: Option<PaneId>, input: &str) -> anyhow::Result<()> {
+        self.session.new_browser_tab(
+            input.trim().to_string(),
+            pane,
+            self.browser_tab_size_hint(pane),
+        )
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
@@ -778,6 +890,7 @@ impl App {
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::RenamePane(id) => self.open_rename_pane_prompt(Some(id)),
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
+            MenuAction::NewBrowserTab(id) => self.open_browser_tab_prompt(Some(id)),
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
             MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
             MenuAction::ClosePane(id) => self.session.close_pane(id),
@@ -798,7 +911,10 @@ impl App {
 
     fn scroll_active(&mut self, delta: isize) {
         if let Some(surface) = self.active_surface_handle() {
-            surface.with_terminal(|t| t.scroll_delta(delta));
+            if surface.kind() == SurfaceKind::Browser {
+                return;
+            }
+            let _ = surface.with_terminal(|t| t.scroll_delta(delta));
         }
         if let (Some(sel), Some(active)) = (self.selection, self.active_surface()) {
             if sel.surface == active {
@@ -808,23 +924,57 @@ impl App {
     }
 
     fn forward_key(&mut self, key: &KeyEvent) {
+        if self
+            .active_surface_handle()
+            .is_some_and(|surface| surface.kind() == SurfaceKind::Browser)
+        {
+            self.forward_browser_key(key);
+            return;
+        }
         let Some(input) = keys::key_input_from(key) else { return };
         let Some(surface) = self.active_surface_handle() else { return };
         self.encode_buf.clear();
-        let encoded = surface.with_terminal(|term| {
+        let Some(encoded) = surface.with_terminal(|term| {
             // New input snaps the viewport back to the live screen.
             term.scroll_to_bottom();
             self.encoder.sync_from_terminal(term);
             self.encoder.encode(&input, &mut self.encode_buf)
-        });
+        }) else {
+            return;
+        };
         if encoded.is_ok() && !self.encode_buf.is_empty() {
             surface.write_bytes(&self.encode_buf);
         }
     }
 
+    fn forward_browser_key(&mut self, key: &KeyEvent) {
+        let Some(surface) = self.active_surface_handle() else { return };
+        if let KeyCode::Char(c) = key.code {
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
+            {
+                let _ = surface.browser_insert_text(&c.to_string());
+                return;
+            }
+        }
+        let Some((key_name, code, vk, text)) = browser_key_mapping(key.code) else { return };
+        let modifiers = browser_modifiers(key.modifiers);
+        let _ = surface.browser_key_event("keyDown", key_name, code, vk, modifiers, text);
+        if key.kind == KeyEventKind::Press {
+            let _ = surface.browser_key_event("keyUp", key_name, code, vk, modifiers, None);
+        }
+    }
+
     fn paste(&mut self, text: &str) {
         let Some(surface) = self.active_surface_handle() else { return };
-        let bracketed = surface.with_terminal(|t| t.mode(2004, false));
+        if surface.kind() == SurfaceKind::Browser {
+            let _ = surface.browser_insert_text(text);
+            return;
+        }
+        let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
+            return;
+        };
         if bracketed {
             let mut bytes = Vec::with_capacity(text.len() + 12);
             bytes.extend_from_slice(b"\x1b[200~");
@@ -852,7 +1002,7 @@ impl App {
             MouseEventKind::Drag(MouseButton::Left) => {
                 self.handle_left_drag(mouse.column, mouse.row)
             }
-            MouseEventKind::Up(MouseButton::Left) => self.handle_left_up(),
+            MouseEventKind::Up(MouseButton::Left) => self.handle_left_up(mouse.column, mouse.row),
             MouseEventKind::Down(MouseButton::Right) => {
                 self.open_context_menu(mouse.column, mouse.row);
                 Ok(true)
@@ -971,12 +1121,18 @@ impl App {
         if let Some(area) = self.pane_area_at(x, y).copied() {
             self.session.focus_pane(area.pane);
             if area.content.contains(x, y) {
-                // Begin a text selection; it becomes visible once the
-                // mouse moves to a second cell.
-                let cell = (x - area.content.x, y - area.content.y);
-                self.selection =
-                    Some(Selection { surface: area.surface, anchor: cell, head: cell });
-                self.drag = Some(Drag::Select { content: area.content });
+                if self.surface_kind(area.surface) == SurfaceKind::Browser {
+                    self.send_browser_mouse(area.surface, area.content, x, y, "mousePressed")?;
+                    self.drag =
+                        Some(Drag::Browser { surface: area.surface, content: area.content });
+                } else {
+                    // Begin a text selection; it becomes visible once the
+                    // mouse moves to a second cell.
+                    let cell = (x - area.content.x, y - area.content.y);
+                    self.selection =
+                        Some(Selection { surface: area.surface, anchor: cell, head: cell });
+                    self.drag = Some(Drag::Select { content: area.content });
+                }
             }
             return Ok(true);
         }
@@ -994,6 +1150,13 @@ impl App {
                 }
                 Ok(true)
             }
+            Some(Drag::Browser { surface, content }) => {
+                let (surface, content) = (*surface, *content);
+                let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
+                let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
+                self.send_browser_mouse(surface, content, cx, cy, "mouseMoved")?;
+                Ok(true)
+            }
             Some(Drag::Scrollbar { surface, track }) => {
                 let (surface, track) = (*surface, *track);
                 self.scroll_to_track_pos(surface, track, y);
@@ -1003,7 +1166,14 @@ impl App {
         }
     }
 
-    fn handle_left_up(&mut self) -> anyhow::Result<bool> {
+    fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
+        if let Some(Drag::Browser { surface, content }) = self.drag {
+            self.drag = None;
+            let cx = x.clamp(content.x, content.x + content.width.saturating_sub(1));
+            let cy = y.clamp(content.y, content.y + content.height.saturating_sub(1));
+            self.send_browser_mouse(surface, content, cx, cy, "mouseReleased")?;
+            return Ok(true);
+        }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
         self.drag = None;
         if !was_select {
@@ -1027,7 +1197,9 @@ impl App {
     fn copy_selection(&mut self, sel: Selection) {
         let Some(surface) = self.session.surface(sel.surface) else { return };
         let (start, end) = sel.range();
-        let Some(text) = surface.with_terminal(|t| t.selection_text(start, end)) else { return };
+        let Some(text) = surface.with_terminal(|t| t.selection_text(start, end)).flatten() else {
+            return;
+        };
         if text.is_empty() {
             return;
         }
@@ -1047,7 +1219,7 @@ impl App {
     /// Map a click/drag on a scrollbar track to a viewport position.
     fn scroll_to_track_pos(&mut self, surface: SurfaceId, track: Rect, y: u16) {
         let Some(handle) = self.session.surface(surface) else { return };
-        handle.with_terminal(|t| {
+        let _ = handle.with_terminal(|t| {
             let Some(sb) = t.scrollbar() else { return };
             let denom = track.height.saturating_sub(1).max(1) as f64;
             let frac = (y.saturating_sub(track.y) as f64 / denom).clamp(0.0, 1.0);
@@ -1090,6 +1262,7 @@ impl App {
                 vec![
                     MenuAction::RenamePane(area.pane),
                     MenuAction::NewTab(area.pane),
+                    MenuAction::NewBrowserTab(area.pane),
                     MenuAction::SplitRight(area.pane),
                     MenuAction::SplitDown(area.pane),
                     MenuAction::ClosePane(area.pane),
@@ -1107,7 +1280,16 @@ impl App {
         }
         let (surface_id, _) = (area.surface, area.pane);
         let Some(surface) = self.session.surface(surface_id) else { return Ok(false) };
-        let sent_arrows = surface.with_terminal(|term| {
+        if surface.kind() == SurfaceKind::Browser {
+            if area.content.contains(x, y) {
+                let (px, py) = self.browser_point(area.content, x, y);
+                let delta = if down { 3.0 } else { -3.0 } * f64::from(self.cell_pixels.1);
+                let _ = surface.browser_wheel(px, py, delta);
+                return Ok(true);
+            }
+            return Ok(false);
+        }
+        let Some(sent_arrows) = surface.with_terminal(|term| {
             if term.active_screen() == Screen::Alternate && !term.mouse_tracking() {
                 term.scroll_to_bottom();
                 true
@@ -1115,7 +1297,9 @@ impl App {
                 term.scroll_delta(if down { 3 } else { -3 });
                 false
             }
-        });
+        }) else {
+            return Ok(false);
+        };
         if sent_arrows {
             // Alt-screen apps without mouse support get arrow keys
             // (the usual alternate-scroll behavior).
@@ -1127,5 +1311,74 @@ impl App {
             self.selection = None;
         }
         Ok(true)
+    }
+
+    fn surface_kind(&self, surface: SurfaceId) -> SurfaceKind {
+        self.session.surface(surface).map(|surface| surface.kind()).unwrap_or(SurfaceKind::Pty)
+    }
+
+    fn browser_point(&self, content: Rect, x: u16, y: u16) -> (f64, f64) {
+        let col = x.saturating_sub(content.x) as f64 + 0.5;
+        let row = y.saturating_sub(content.y) as f64 + 0.5;
+        (col * f64::from(self.cell_pixels.0), row * f64::from(self.cell_pixels.1))
+    }
+
+    fn send_browser_mouse(
+        &self,
+        surface_id: SurfaceId,
+        content: Rect,
+        x: u16,
+        y: u16,
+        event_type: &str,
+    ) -> anyhow::Result<()> {
+        let Some(surface) = self.session.surface(surface_id) else { return Ok(()) };
+        let (px, py) = self.browser_point(content, x, y);
+        surface.browser_mouse_event(event_type, px, py, Some("left"), Some(1))
+    }
+}
+
+fn browser_modifiers(modifiers: KeyModifiers) -> u32 {
+    let mut out = 0;
+    if modifiers.contains(KeyModifiers::ALT) {
+        out |= 1;
+    }
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        out |= 2;
+    }
+    if modifiers.contains(KeyModifiers::SUPER) {
+        out |= 4;
+    }
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        out |= 8;
+    }
+    out
+}
+
+fn rects_intersect(a: Rect, b: Rect) -> bool {
+    let ax2 = a.x.saturating_add(a.width);
+    let ay2 = a.y.saturating_add(a.height);
+    let bx2 = b.x.saturating_add(b.width);
+    let by2 = b.y.saturating_add(b.height);
+    a.x < bx2 && ax2 > b.x && a.y < by2 && ay2 > b.y
+}
+
+fn browser_key_mapping(
+    code: KeyCode,
+) -> Option<(&'static str, &'static str, u32, Option<&'static str>)> {
+    match code {
+        KeyCode::Enter => Some(("Enter", "Enter", 13, Some("\r"))),
+        KeyCode::Backspace => Some(("Backspace", "Backspace", 8, None)),
+        KeyCode::Tab | KeyCode::BackTab => Some(("Tab", "Tab", 9, None)),
+        KeyCode::Esc => Some(("Escape", "Escape", 27, None)),
+        KeyCode::Left => Some(("ArrowLeft", "ArrowLeft", 37, None)),
+        KeyCode::Up => Some(("ArrowUp", "ArrowUp", 38, None)),
+        KeyCode::Right => Some(("ArrowRight", "ArrowRight", 39, None)),
+        KeyCode::Down => Some(("ArrowDown", "ArrowDown", 40, None)),
+        KeyCode::Home => Some(("Home", "Home", 36, None)),
+        KeyCode::End => Some(("End", "End", 35, None)),
+        KeyCode::PageUp => Some(("PageUp", "PageUp", 33, None)),
+        KeyCode::PageDown => Some(("PageDown", "PageDown", 34, None)),
+        KeyCode::Delete => Some(("Delete", "Delete", 46, None)),
+        _ => None,
     }
 }

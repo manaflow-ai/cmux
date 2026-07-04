@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+use crate::browser::BrowserRuntime;
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
@@ -33,6 +34,8 @@ pub struct Mux {
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
     next_id: AtomicU64,
     surface_options: SurfaceOptions,
+    browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
+    cell_pixels: Mutex<(u16, u16)>,
     pub session: String,
 }
 
@@ -48,6 +51,8 @@ impl Mux {
             subscribers: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             surface_options,
+            browser_runtime: Mutex::new(None),
+            cell_pixels: Mutex::new((8, 16)),
             session: session.into(),
         })
     }
@@ -89,6 +94,32 @@ impl Mux {
         Ok(surface)
     }
 
+    fn spawn_browser_surface(
+        self: &Arc<Self>,
+        url: String,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let id = self.next_id();
+        let opts = self.surface_options.clone();
+        let size = size.unwrap_or((opts.cols, opts.rows));
+        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let runtime = self.browser_runtime()?;
+        let surface =
+            Surface::spawn_browser(id, url, runtime, Arc::downgrade(self), size, cell_pixels)?;
+        self.state.lock().unwrap().surfaces.insert(id, surface.clone());
+        Ok(surface)
+    }
+
+    fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
+        let mut runtime = self.browser_runtime.lock().unwrap();
+        if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {
+            return Ok(existing.clone());
+        }
+        let created = BrowserRuntime::connect(&self.surface_options)?;
+        *runtime = Some(created.clone());
+        Ok(created)
+    }
+
     /// A fresh single-tab pane wrapping `surface`.
     fn make_pane(&self, surface: SurfaceId) -> (PaneId, Pane) {
         let id = self.next_id();
@@ -109,6 +140,31 @@ impl Mux {
 
     pub fn surface_count(&self) -> usize {
         self.state.lock().unwrap().surfaces.len()
+    }
+
+    pub fn shutdown(&self) {
+        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        for surface in surfaces {
+            surface.kill();
+        }
+        if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
+            runtime.shutdown();
+        }
+    }
+
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+        let next = (width_px.max(1), height_px.max(1));
+        {
+            let mut cell = self.cell_pixels.lock().unwrap();
+            if *cell == next {
+                return;
+            }
+            *cell = next;
+        }
+        let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        for surface in surfaces {
+            surface.set_cell_pixel_size(next.0, next.1);
+        }
     }
 
     /// Create a workspace with one screen holding one pane with one tab.
@@ -142,6 +198,7 @@ impl Mux {
             state.active_workspace = state.workspaces.len() - 1;
         }
         self.emit(MuxEvent::TreeChanged);
+        self.reap_if_dead(&surface);
         Ok(surface)
     }
 
@@ -199,6 +256,7 @@ impl Mux {
             anyhow::bail!("workspace disappeared while creating screen");
         }
         self.emit(MuxEvent::TreeChanged);
+        self.reap_if_dead(&surface);
         Ok(surface)
     }
 
@@ -252,6 +310,80 @@ impl Mux {
             anyhow::bail!("pane disappeared while creating tab");
         }
         self.emit(MuxEvent::TreeChanged);
+        self.reap_if_dead(&surface);
+        Ok(surface)
+    }
+
+    /// Create a browser tab in a pane (default: the active pane). When
+    /// the session has no workspaces yet, a workspace is created around
+    /// the browser tab.
+    pub fn new_browser_tab(
+        self: &Arc<Self>,
+        url: String,
+        pane: Option<PaneId>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let target = {
+            let state = self.state.lock().unwrap();
+            match pane {
+                Some(id) => {
+                    if !state.panes.contains_key(&id) {
+                        anyhow::bail!("unknown pane {id}");
+                    }
+                    Some(id)
+                }
+                None => state.active_pane(),
+            }
+        };
+        let Some(target) = target else {
+            let surface = self.spawn_browser_surface(url, size)?;
+            let (pane_id, pane) = self.make_pane(surface.id);
+            let screen_id = self.next_id();
+            let ws_id = self.next_id();
+            {
+                let mut state = self.state.lock().unwrap();
+                let name = format!("{}", state.workspaces.len() + 1);
+                state.panes.insert(pane_id, pane);
+                state.workspaces.push(Workspace {
+                    id: ws_id,
+                    name,
+                    screens: vec![Screen {
+                        id: screen_id,
+                        name: None,
+                        root: Node::Leaf(pane_id),
+                        active_pane: pane_id,
+                    }],
+                    active_screen: 0,
+                });
+                state.active_workspace = state.workspaces.len() - 1;
+            }
+            self.emit(MuxEvent::TreeChanged);
+            self.reap_if_dead(&surface);
+            return Ok(surface);
+        };
+
+        let size = size.or_else(|| self.pane_size(target));
+        let surface = self.spawn_browser_surface(url, size)?;
+        let attached = {
+            let mut state = self.state.lock().unwrap();
+            match state.panes.get_mut(&target) {
+                Some(pane) => {
+                    pane.tabs.push(surface.id);
+                    pane.active_tab = pane.tabs.len() - 1;
+                    true
+                }
+                None => {
+                    state.surfaces.remove(&surface.id);
+                    false
+                }
+            }
+        };
+        if !attached {
+            surface.kill();
+            anyhow::bail!("pane disappeared while creating browser tab");
+        }
+        self.emit(MuxEvent::TreeChanged);
+        self.reap_if_dead(&surface);
         Ok(surface)
     }
 
@@ -318,6 +450,7 @@ impl Mux {
             anyhow::bail!("pane {target} not found");
         }
         self.emit(MuxEvent::TreeChanged);
+        self.reap_if_dead(&surface);
         Ok(surface)
     }
 
@@ -328,7 +461,8 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             (remove_surface(&mut state, target), state.workspaces.is_empty())
         };
-        if removed {
+        if let Some(surface) = removed {
+            surface.kill();
             self.emit(MuxEvent::TreeChanged);
         }
         if empty {
@@ -341,13 +475,18 @@ impl Mux {
     fn close_surfaces(&self, tabs: Vec<SurfaceId>) {
         let (removed, empty) = {
             let mut state = self.state.lock().unwrap();
-            let mut removed = false;
+            let mut removed = Vec::new();
             for surface in tabs {
-                removed |= remove_surface(&mut state, surface);
+                if let Some(surface) = remove_surface(&mut state, surface) {
+                    removed.push(surface);
+                }
             }
             (removed, state.workspaces.is_empty())
         };
-        if removed {
+        if !removed.is_empty() {
+            for surface in removed {
+                surface.kill();
+            }
             self.emit(MuxEvent::TreeChanged);
         }
         if empty {
@@ -453,6 +592,16 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
         renamed
+    }
+
+    /// Reap a surface whose child exited before its tree insert completed.
+    /// The exit handler sets the dead flag before calling `surface_exited`,
+    /// whose `close_surface` finds nothing to remove in that window; the
+    /// creator re-checks after the insert (a harmless no-op otherwise).
+    fn reap_if_dead(&self, surface: &Arc<Surface>) {
+        if surface.is_dead() {
+            self.close_surface(surface.id);
+        }
     }
 
     /// Called by a surface's reader thread when its child exits. The mux
@@ -562,16 +711,13 @@ fn screen_tabs(state: &State, screen: &Screen) -> Vec<SurfaceId> {
         .collect()
 }
 
-/// Remove one surface from the state: kill its child, detach it from its
+/// Remove one surface from the state: detach it from its
 /// pane, and collapse emptied panes/screens/workspaces. Returns whether
 /// anything was removed. Runs under the state lock.
-fn remove_surface(state: &mut State, target: SurfaceId) -> bool {
+fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> {
     let removed = state.surfaces.remove(&target);
-    if let Some(surface) = &removed {
-        surface.kill();
-    }
     let Some(pane_id) = state.pane_of(target) else {
-        return removed.is_some();
+        return removed;
     };
     let pane = state.panes.get_mut(&pane_id).expect("pane_of returned live id");
     let idx = pane.tabs.iter().position(|id| *id == target).expect("tab in pane");
@@ -580,12 +726,14 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> bool {
         if pane.active_tab >= idx && pane.active_tab > 0 {
             pane.active_tab -= 1;
         }
-        return true;
+        return removed;
     }
 
     // Last tab gone: the pane collapses out of its screen.
     state.panes.remove(&pane_id);
-    let Some((wi, si)) = state.screen_of(pane_id) else { return true };
+    let Some((wi, si)) = state.screen_of(pane_id) else {
+        return removed;
+    };
     let screen = &mut state.workspaces[wi].screens[si];
     match std::mem::replace(&mut screen.root, Node::Leaf(0)).remove_leaf(pane_id) {
         Some(root) => {
@@ -595,7 +743,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> bool {
                 screen.root.pane_ids(&mut ids);
                 screen.active_pane = ids[0];
             }
-            return true;
+            return removed;
         }
         None => {
             // Screen emptied: drop it from the workspace.
@@ -603,7 +751,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> bool {
             ws.screens.remove(si);
             ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
             if !ws.screens.is_empty() {
-                return true;
+                return removed;
             }
         }
     }
@@ -614,7 +762,7 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> bool {
     state.active_workspace = active_id
         .and_then(|id| state.workspaces.iter().position(|w| w.id == id))
         .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-    true
+    removed
 }
 
 #[cfg(test)]

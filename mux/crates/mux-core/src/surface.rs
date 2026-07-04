@@ -1,7 +1,12 @@
-//! Surface runtime: one PTY child plus its ghostty VT state. A surface
-//! is one tab inside a pane.
+//! Surface runtime: one tab inside a pane.
+//!
+//! A surface is either a PTY backed by libghostty-vt state or a local CDP
+//! browser surface. PTY-only methods stay available for existing callers;
+//! browser-aware frontends should branch on [`SurfaceKind`] before using
+//! VT operations.
 
 use std::io::{Read, Write};
+use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -9,6 +14,9 @@ use ghostty_vt::{Callbacks, RenderState, Terminal};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 use crate::{Mux, MuxEvent, SurfaceId};
+
+pub use crate::browser::{BrowserFrame, BrowserSource};
+use crate::browser::{BrowserRuntime, BrowserSurface};
 
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
@@ -24,6 +32,18 @@ pub struct SurfaceOptions {
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_MUX_SOCKET).
     pub extra_env: Vec<(String, String)>,
+    /// Optional Chrome/Chromium binary for browser surfaces.
+    pub chrome_binary: Option<String>,
+    /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
+    pub cdp_url: Option<String>,
+    /// Whether browser panes should probe local debuggable Chrome ports.
+    pub browser_discover: bool,
+    /// Local ports to probe for /json/version when discovery is enabled.
+    pub browser_discover_ports: Vec<u16>,
+    /// Optional Chrome user data directory for launched browser runtime.
+    pub browser_user_data_dir: Option<String>,
+    /// Use a temporary launched Chrome profile and delete it on shutdown.
+    pub browser_ephemeral: bool,
 }
 
 impl Default for SurfaceOptions {
@@ -36,13 +56,19 @@ impl Default for SurfaceOptions {
             rows: 24,
             scrollback: 10_000,
             extra_env: Vec::new(),
+            chrome_binary: None,
+            cdp_url: None,
+            browser_discover: true,
+            browser_discover_ports: vec![9222],
+            browser_user_data_dir: None,
+            browser_ephemeral: false,
         }
     }
 }
 
-/// Everything an attaching frontend needs to adopt a surface: its size,
-/// a VT replay of the current state, and a live stream of every pty byte
-/// applied after the replay snapshot.
+/// Everything an attaching frontend needs to adopt a PTY surface: its
+/// size, a VT replay of the current state, and a live stream of every pty
+/// byte applied after the replay snapshot.
 pub struct AttachStream {
     pub cols: u16,
     pub rows: u16,
@@ -50,13 +76,49 @@ pub struct AttachStream {
     pub stream: std::sync::mpsc::Receiver<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceKind {
+    Pty,
+    Browser,
+}
+
+impl SurfaceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SurfaceKind::Pty => "pty",
+            SurfaceKind::Browser => "browser",
+        }
+    }
+}
+
+pub struct SurfaceMeta {
+    pub id: SurfaceId,
+}
+
+/// A pane tab runtime.
+pub enum Surface {
+    Pty(PtySurface),
+    Browser(BrowserSurface),
+}
+
+impl Deref for Surface {
+    type Target = SurfaceMeta;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Surface::Pty(surface) => &surface.meta,
+            Surface::Browser(surface) => &surface.meta,
+        }
+    }
+}
+
 /// A single terminal surface: PTY child plus ghostty VT state.
 ///
 /// The terminal is behind a mutex; the pty reader thread holds it only
 /// while feeding bytes, renderers hold it only while snapshotting into a
 /// [`RenderState`].
-pub struct Surface {
-    pub id: SurfaceId,
+pub struct PtySurface {
+    pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
@@ -78,7 +140,7 @@ pub struct Surface {
 
 impl std::fmt::Debug for Surface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Surface").field("id", &self.id).finish()
+        f.debug_struct("Surface").field("id", &self.id).field("kind", &self.kind()).finish()
     }
 }
 
@@ -144,8 +206,8 @@ impl Surface {
         };
 
         let term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
-        let surface = Arc::new(Surface {
-            id,
+        let surface = Arc::new(Surface::Pty(PtySurface {
+            meta: SurfaceMeta { id },
             term: Mutex::new(term),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
@@ -156,9 +218,9 @@ impl Surface {
             pwd: Mutex::new(None),
             size: Mutex::new((opts.cols, opts.rows)),
             taps: Mutex::new(Vec::new()),
-        });
+        }));
 
-        // PTY reader: pty bytes → terminal state → SurfaceOutput events.
+        // PTY reader: pty bytes -> terminal state -> SurfaceOutput events.
         std::thread::Builder::new().name(format!("surface-{id}-reader")).spawn({
             let surface = surface.clone();
             let mux = mux.clone();
@@ -169,37 +231,40 @@ impl Surface {
                         Ok(0) | Err(_) => break,
                         Ok(n) => n,
                     };
+                    let pty = surface.as_pty().expect("surface reader got non-pty surface");
                     {
-                        let mut term = surface.term.lock().unwrap();
+                        let mut term = pty.term.lock().unwrap();
                         term.vt_write(&buf[..n]);
                         {
-                            let mut taps = surface.taps.lock().unwrap();
+                            let mut taps = pty.taps.lock().unwrap();
                             if !taps.is_empty() {
                                 taps.retain(|tap| tap.send(buf[..n].to_vec()).is_ok());
                             }
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
-                            *surface.title.lock().unwrap() = title;
+                            *pty.title.lock().unwrap() = title;
                             if let Some(mux) = mux.upgrade() {
                                 mux.emit(MuxEvent::TitleChanged(surface.id));
                             }
                         }
                         if let Some(pwd) = term.pwd() {
-                            *surface.pwd.lock().unwrap() = Some(pwd);
+                            *pty.pwd.lock().unwrap() = Some(pwd);
                         }
                     }
                     let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                     if !responses.is_empty() {
                         let _ = surface.write_bytes(&responses);
                     }
-                    if !surface.dirty.swap(true, Ordering::AcqRel) {
+                    if !pty.dirty.swap(true, Ordering::AcqRel) {
                         if let Some(mux) = mux.upgrade() {
                             mux.emit(MuxEvent::SurfaceOutput(surface.id));
                         }
                     }
                 }
-                surface.dead.store(true, Ordering::Release);
+                if let Some(pty) = surface.as_pty() {
+                    pty.dead.store(true, Ordering::Release);
+                }
                 if let Some(mux) = mux.upgrade() {
                     mux.surface_exited(surface.id);
                 }
@@ -214,26 +279,214 @@ impl Surface {
         Ok(surface)
     }
 
-    /// Write input bytes to the child.
+    pub(crate) fn spawn_browser(
+        id: SurfaceId,
+        url: String,
+        runtime: Arc<BrowserRuntime>,
+        mux: Weak<Mux>,
+        size: (u16, u16),
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        crate::browser::spawn(id, url, runtime, mux, size, cell_pixels)
+    }
+
+    fn as_pty(&self) -> Option<&PtySurface> {
+        match self {
+            Surface::Pty(surface) => Some(surface),
+            Surface::Browser(_) => None,
+        }
+    }
+
+    fn as_browser(&self) -> Option<&BrowserSurface> {
+        match self {
+            Surface::Pty(_) => None,
+            Surface::Browser(surface) => Some(surface),
+        }
+    }
+
+    pub fn kind(&self) -> SurfaceKind {
+        match self {
+            Surface::Pty(_) => SurfaceKind::Pty,
+            Surface::Browser(_) => SurfaceKind::Browser,
+        }
+    }
+
+    /// Write input bytes to the PTY child.
     pub fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
-        let mut writer = self.writer.lock().unwrap();
+        let Some(pty) = self.as_pty() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "browser surface does not accept PTY bytes",
+            ));
+        };
+        let mut writer = pty.writer.lock().unwrap();
         writer.write_all(bytes)?;
         writer.flush()
     }
 
     /// Run `f` with exclusive access to the terminal state.
-    pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> R {
-        f(&mut self.term.lock().unwrap())
+    ///
+    /// Browser-aware code should call [`Surface::kind`] first. This
+    /// method is kept for existing PTY call sites.
+    pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
+        let pty = self.as_pty()?;
+        Some(f(&mut pty.term.lock().unwrap()))
+    }
+
+    pub fn try_with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> anyhow::Result<R> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        Ok(f(&mut pty.term.lock().unwrap()))
     }
 
     /// Snapshot the terminal into `rs` (holds the terminal lock only for
     /// the duration of the update).
     pub fn snapshot(&self, rs: &mut RenderState) -> ghostty_vt::Result<()> {
-        rs.update(&mut self.term.lock().unwrap())
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        rs.update(&mut pty.term.lock().unwrap())
     }
 
-    /// Resize both the PTY and the terminal state.
+    /// Resize this surface. PTYs receive cell dimensions; browsers also
+    /// use the last configured cell pixel size for CDP device metrics.
     pub fn resize(&self, cols: u16, rows: u16) {
+        match self {
+            Surface::Pty(pty) => pty.resize(cols, rows),
+            Surface::Browser(browser) => browser.resize(cols, rows),
+        }
+    }
+
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+        if let Some(browser) = self.as_browser() {
+            browser.set_cell_pixel_size(width_px, height_px);
+        }
+    }
+
+    pub fn size(&self) -> (u16, u16) {
+        match self {
+            Surface::Pty(pty) => *pty.size.lock().unwrap(),
+            Surface::Browser(browser) => browser.size(),
+        }
+    }
+
+    pub fn title(&self) -> String {
+        match self {
+            Surface::Pty(pty) => pty.title.lock().unwrap().clone(),
+            Surface::Browser(browser) => browser.title(),
+        }
+    }
+
+    pub fn pwd(&self) -> Option<String> {
+        self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
+    }
+
+    pub fn is_dead(&self) -> bool {
+        match self {
+            Surface::Pty(pty) => pty.dead.load(Ordering::Acquire),
+            Surface::Browser(browser) => browser.is_dead(),
+        }
+    }
+
+    /// Clear the coalesced output flag; returns whether output was pending.
+    pub fn take_dirty(&self) -> bool {
+        match self {
+            Surface::Pty(pty) => pty.dirty.swap(false, Ordering::AcqRel),
+            Surface::Browser(browser) => browser.take_dirty(),
+        }
+    }
+
+    /// Attach to a PTY surface: a VT replay plus a live byte stream.
+    pub fn attach_stream(&self) -> ghostty_vt::Result<AttachStream> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        let mut term = pty.term.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Snapshot and tap registration under the same terminal lock:
+        // the reader thread cannot apply bytes between the two.
+        let replay = term.vt_replay()?;
+        let (cols, rows) = (term.cols(), term.rows());
+        pty.taps.lock().unwrap().push(tx);
+        Ok(AttachStream { cols, rows, replay, stream: rx })
+    }
+
+    pub fn kill(&self) {
+        match self {
+            Surface::Pty(pty) => {
+                let _ = pty.killer.lock().unwrap().kill();
+            }
+            Surface::Browser(browser) => browser.kill(),
+        }
+    }
+
+    pub fn browser_frame(&self) -> Option<BrowserFrame> {
+        self.as_browser().and_then(BrowserSurface::latest_frame)
+    }
+
+    pub fn browser_url(&self) -> Option<String> {
+        self.as_browser().map(BrowserSurface::url)
+    }
+
+    pub fn browser_source(&self) -> Option<BrowserSource> {
+        self.as_browser().map(BrowserSurface::source)
+    }
+
+    pub fn browser_insert_text(&self, text: &str) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.insert_text(text)
+    }
+
+    pub fn browser_key_event(
+        &self,
+        event_type: &str,
+        key: &str,
+        code: &str,
+        windows_virtual_key_code: u32,
+        modifiers: u32,
+        text: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.key_event(event_type, key, code, windows_virtual_key_code, modifiers, text)
+    }
+
+    pub fn browser_mouse_event(
+        &self,
+        event_type: &str,
+        x: f64,
+        y: f64,
+        button: Option<&str>,
+        click_count: Option<u32>,
+    ) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.mouse_event(event_type, x, y, button, click_count)
+    }
+
+    pub fn browser_wheel(&self, x: f64, y: f64, delta_y: f64) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.wheel(x, y, delta_y)
+    }
+
+    pub fn browser_navigate(&self, url: &str) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.navigate(url)
+    }
+}
+
+impl PtySurface {
+    /// Resize both the PTY and the terminal state.
+    fn resize(&self, cols: u16, rows: u16) {
         let (cols, rows) = (cols.max(1), rows.max(1));
         {
             let mut size = self.size.lock().unwrap();
@@ -250,46 +503,5 @@ impl Surface {
         });
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = self.term.lock().unwrap().resize(cols, rows, 8, 16);
-    }
-
-    pub fn size(&self) -> (u16, u16) {
-        *self.size.lock().unwrap()
-    }
-
-    pub fn title(&self) -> String {
-        self.title.lock().unwrap().clone()
-    }
-
-    pub fn pwd(&self) -> Option<String> {
-        self.pwd.lock().unwrap().clone()
-    }
-
-    pub fn is_dead(&self) -> bool {
-        self.dead.load(Ordering::Acquire)
-    }
-
-    /// Clear the coalesced output flag; returns whether output was pending.
-    pub fn take_dirty(&self) -> bool {
-        self.dirty.swap(false, Ordering::AcqRel)
-    }
-
-    /// Attach to this surface: a VT replay of the current terminal state
-    /// plus a live stream of every pty byte applied after the snapshot.
-    /// Replaying the first into a fresh terminal of the same size and then
-    /// feeding the stream reproduces the surface exactly — this is how an
-    /// external frontend (e.g. a real Ghostty surface) adopts it.
-    pub fn attach_stream(&self) -> ghostty_vt::Result<AttachStream> {
-        let mut term = self.term.lock().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
-        // Snapshot and tap registration under the same terminal lock:
-        // the reader thread cannot apply bytes between the two.
-        let replay = term.vt_replay()?;
-        let (cols, rows) = (term.cols(), term.rows());
-        self.taps.lock().unwrap().push(tx);
-        Ok(AttachStream { cols, rows, replay, stream: rx })
-    }
-
-    pub fn kill(&self) {
-        let _ = self.killer.lock().unwrap().kill();
     }
 }

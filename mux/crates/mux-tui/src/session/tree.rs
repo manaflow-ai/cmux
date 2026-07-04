@@ -1,7 +1,7 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
-use mux_core::{Node, PaneId, ScreenId, SplitDir, State, SurfaceId, WorkspaceId};
+use mux_core::{Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind, WorkspaceId};
 use serde_json::Value;
 
 #[derive(Clone, Default)]
@@ -42,6 +42,7 @@ pub struct PaneView {
 pub struct TabView {
     pub surface: SurfaceId,
     pub title: String,
+    pub kind: SurfaceKind,
 }
 
 impl TreeView {
@@ -66,6 +67,17 @@ impl TreeView {
     pub fn active_surface(&self) -> Option<SurfaceId> {
         let screen = self.active_screen()?;
         screen.pane(screen.active_pane)?.active_surface()
+    }
+
+    pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
+        self.workspaces
+            .iter()
+            .flat_map(|ws| ws.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .find(|tab| tab.surface == id)
+            .map(|tab| tab.kind)
+            .unwrap_or(SurfaceKind::Pty)
     }
 }
 
@@ -122,6 +134,7 @@ pub fn tree_from_state(state: &State) -> TreeView {
                 .map(|sid| TabView {
                     surface: *sid,
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
+                    kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
                 })
                 .collect(),
         })
@@ -193,6 +206,10 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or_default()
                                 .to_string(),
+                            kind: match tab.get("kind").and_then(|v| v.as_str()) {
+                                Some("browser") => SurfaceKind::Browser,
+                                _ => SurfaceKind::Pty,
+                            },
                         })
                     })
                     .collect()

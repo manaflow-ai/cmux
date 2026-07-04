@@ -30,9 +30,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
-use crate::{Mux, MuxEvent, Node, PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
+use crate::{Mux, MuxEvent, Node, PaneId, ScreenId, SplitDir, SurfaceId, SurfaceKind, WorkspaceId};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// Default socket path for a session: `$TMPDIR/cmux-mux-<uid>/<session>.sock`.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -76,6 +76,15 @@ enum Command {
         cwd: Option<String>,
         /// Expected content size in cells (spawn-at-size avoids shell
         /// redraw artifacts).
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
+    },
+    NewBrowserTab {
+        url: String,
+        #[serde(default)]
+        pane: Option<PaneId>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -291,6 +300,8 @@ fn pane_json(state: &State, id: PaneId) -> Value {
             let surface = state.surfaces.get(sid);
             json!({
                 "surface": sid,
+                "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
+                "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
                 "title": surface.map(|s| s.title()).unwrap_or_default(),
                 "size": surface.map(|s| {
                     let (c, r) = s.size();
@@ -334,6 +345,14 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id).ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
+fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
+    if surface.kind() == SurfaceKind::Pty {
+        Ok(())
+    } else {
+        anyhow::bail!("browser surface does not support PTY/VT socket commands")
+    }
+}
+
 fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::Result<Value> {
     match cmd {
         Command::Identify => Ok(json!({
@@ -346,6 +365,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         Command::ListWorkspaces => Ok(mux.with_state(workspaces_json)),
         Command::Send { surface, text, bytes } => {
             let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
             if let Some(text) = text {
                 surface.write_bytes(text.as_bytes())?;
             }
@@ -357,13 +377,16 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::ReadScreen { surface } => {
             let surface = get_surface(mux, surface)?;
-            let text = surface.with_terminal(|t| t.plain_text())?;
+            require_pty(&surface)?;
+            let text = surface.try_with_terminal(|t| t.plain_text())??;
             Ok(json!({ "text": text }))
         }
         Command::VtState { surface } => {
             let surface = get_surface(mux, surface)?;
-            let (cols, rows, replay) = surface
-                .with_terminal(|t| t.vt_replay().map(|replay| (t.cols(), t.rows(), replay)))?;
+            require_pty(&surface)?;
+            let (cols, rows, replay) = surface.try_with_terminal(|t| {
+                t.vt_replay().map(|replay| (t.cols(), t.rows(), replay))
+            })??;
             Ok(json!({
                 "cols": cols,
                 "rows": rows,
@@ -372,6 +395,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::NewTab { pane, cwd, cols, rows } => {
             let surface = mux.new_tab(pane, cwd, cols.zip(rows))?;
+            Ok(json!({ "surface": surface.id }))
+        }
+        Command::NewBrowserTab { url, pane, cols, rows } => {
+            let surface = mux.new_browser_tab(url, pane, cols.zip(rows))?;
             Ok(json!({ "surface": surface.id }))
         }
         Command::NewWorkspace { name, cols, rows } => {
@@ -458,7 +485,8 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::ScrollSurface { surface, delta } => {
             let surface = get_surface(mux, surface)?;
-            surface.with_terminal(|t| t.scroll_delta(delta));
+            require_pty(&surface)?;
+            surface.try_with_terminal(|t| t.scroll_delta(delta))?;
             Ok(json!({}))
         }
         Command::Subscribe => {
@@ -489,6 +517,9 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
         }
         Command::AttachSurface { surface: surface_id } => {
             let surface = get_surface(mux, surface_id)?;
+            if surface.kind() == SurfaceKind::Browser {
+                anyhow::bail!("browser panes are not supported over attach yet");
+            }
             let attach = surface.attach_stream()?;
             writer.send(&json!({
                 "event": "vt-state",

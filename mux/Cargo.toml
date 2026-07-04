@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
+    "crates/mux-cdp",
     "crates/mux-core",
     "crates/mux-tui",
 ]
@@ -16,6 +17,7 @@ publish = false
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 mux-core = { path = "crates/mux-core" }
+mux-cdp = { path = "crates/mux-cdp" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -25,6 +27,7 @@ ratatui = "0.29"
 unicode-width = "0.2"
 base64 = "0.22"
 libc = "0.2"
+tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 
 [profile.release]
 lto = "thin"

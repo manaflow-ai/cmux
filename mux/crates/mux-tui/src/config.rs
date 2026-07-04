@@ -19,6 +19,14 @@
 //!   },
 //!   "sidebar": {
 //!     "width": 22
+//!   },
+//!   "browser": {
+//!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+//!     "cdp_url": "http://127.0.0.1:9222",
+//!     "discover": true,
+//!     "discover_ports": [9222],
+//!     "user_data_dir": "/Users/me/Library/Application Support/cmux-mux/chrome-profile",
+//!     "ephemeral": false
 //!   }
 //! }
 //! ```
@@ -45,6 +53,8 @@ struct RawConfig {
     tabs: RawTabs,
     #[serde(default)]
     sidebar: RawSidebar,
+    #[serde(default)]
+    browser: RawBrowser,
     /// Key bindings: `"prefix"` plus one entry per action, e.g.
     /// `{"prefix": "ctrl+b", "new-tab": "c", "split-right": "%"}`.
     #[serde(default)]
@@ -74,6 +84,17 @@ struct RawTabs {
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
     width: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawBrowser {
+    chrome_binary: Option<String>,
+    cdp_url: Option<String>,
+    discover: Option<bool>,
+    discover_ports: Option<Vec<u16>>,
+    user_data_dir: Option<String>,
+    ephemeral: Option<bool>,
 }
 
 /// A color in the config file: "#rrggbb", "#rgb", or an xterm-256 index.
@@ -155,10 +176,34 @@ impl Default for Sidebar {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Browser {
+    pub chrome_binary: Option<String>,
+    pub cdp_url: Option<String>,
+    pub discover: bool,
+    pub discover_ports: Vec<u16>,
+    pub user_data_dir: Option<String>,
+    pub ephemeral: bool,
+}
+
+impl Default for Browser {
+    fn default() -> Self {
+        Browser {
+            chrome_binary: None,
+            cdp_url: None,
+            discover: true,
+            discover_ports: vec![9222],
+            user_data_dir: None,
+            ephemeral: false,
+        }
+    }
+}
+
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
     NewTab,
+    NewBrowserTab,
     NextTab,
     PrevTab,
     SplitRight,
@@ -184,6 +229,7 @@ impl Action {
     fn config_key(&self) -> &'static str {
         match self {
             Action::NewTab => "new-tab",
+            Action::NewBrowserTab => "new_browser_tab",
             Action::NextTab => "next-tab",
             Action::PrevTab => "prev-tab",
             Action::SplitRight => "split-right",
@@ -242,6 +288,7 @@ impl Default for Keys {
             prefix: Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL },
             bindings: vec![
                 bind(KeyCode::Char('c'), Action::NewTab),
+                bind(KeyCode::Char('B'), Action::NewBrowserTab),
                 bind(KeyCode::Char('n'), Action::NextTab),
                 bind(KeyCode::Char('p'), Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
@@ -290,6 +337,7 @@ impl Keys {
             }
             let all = [
                 Action::NewTab,
+                Action::NewBrowserTab,
                 Action::NextTab,
                 Action::PrevTab,
                 Action::SplitRight,
@@ -363,6 +411,7 @@ pub struct Config {
     pub theme: Theme,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub browser: Browser,
     pub keys: Keys,
 }
 
@@ -409,6 +458,18 @@ pub fn load() -> Config {
     }
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
+    }
+    config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
+    config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
+    if let Some(discover) = raw.browser.discover {
+        config.browser.discover = discover;
+    }
+    if let Some(ports) = raw.browser.discover_ports {
+        config.browser.discover_ports = ports;
+    }
+    config.browser.user_data_dir = raw.browser.user_data_dir.filter(|s| !s.trim().is_empty());
+    if let Some(ephemeral) = raw.browser.ephemeral {
+        config.browser.ephemeral = ephemeral;
     }
     config.keys.apply(&raw.keys);
     config
