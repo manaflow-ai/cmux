@@ -133,6 +133,24 @@ extension SidebarWorkspaceReorderDropResolver {
         return result
     }
 
+    func groupIsInSubtree(
+        _ groupId: UUID,
+        rootGroupId: UUID,
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+    ) -> Bool {
+        var currentGroupId: UUID? = groupId
+        var visited: Set<UUID> = []
+        while let current = currentGroupId,
+              let group = groupsById[current],
+              visited.insert(current).inserted {
+            if current == rootGroupId {
+                return true
+            }
+            currentGroupId = group.parentGroupId
+        }
+        return false
+    }
+
     private func workspaceRowOccupiesPinnedParentSlot(
         _ workspace: SidebarWorkspaceReorderWorkspaceSnapshot,
         explicitGroupId: UUID,
