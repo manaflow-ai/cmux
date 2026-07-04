@@ -3027,8 +3027,7 @@ struct ContentView: View {
         // resync each tick. Without this the Dock's surfaces miss the
         // interactive-resize flush path and the width drag renders laggily
         // compared to a native Bonsplit divider drag.
-        view = AnyView(view.onChange(of: fileExplorerWidth) { _ in
-            guard rightSidebarVisible else { return }
+        view = AnyView(view.onChange(of: rightSidebarWidth) { _ in
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
@@ -3209,41 +3208,61 @@ struct ContentView: View {
         let pinnedIds = handoffPinnedIds
             .union(tabManager.mountedBackgroundWorkspaceLoadIds)
             .union(tabManager.debugPinnedWorkspaceLoadIds)
+        var activeWorkspaceIds = Set(currentTabs.map(\.id))
+        var renderingSyncWorkspaces = currentTabs
+        // Close clears ownership before removing from tabs; a selected workspace
+        // still owned by this manager is live even if a transient order snapshot omits it.
+        if let effectiveSelectedId,
+           !activeWorkspaceIds.contains(effectiveSelectedId),
+           let selectedWorkspace = tabManager.tabs.first(where: { $0.id == effectiveSelectedId }),
+           selectedWorkspace.owningTabManager === tabManager {
+            activeWorkspaceIds.insert(effectiveSelectedId)
+            renderingSyncWorkspaces.append(selectedWorkspace)
+        }
+        let livePinnedIds = pinnedIds.intersection(activeWorkspaceIds)
+        let liveHandoffPinnedIds = handoffPinnedIds.intersection(activeWorkspaceIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
-        let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
+        let shouldKeepHandoffPair = isCycleHot && !liveHandoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
             ? WorkspaceMountPlan.maxMountedWorkspacesDuringCycle
             : WorkspaceMountPlan.maxMountedWorkspaces
-        let selectedCount = effectiveSelectedId == nil ? 0 : 1
-        let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
+        let selectedCount = effectiveSelectedId.map { activeWorkspaceIds.contains($0) ? 1 : 0 } ?? 0
+        let maxMounted = max(baseMaxMounted, selectedCount + livePinnedIds.count)
         let previousMountedIds = mountedWorkspaceIds
         mountedWorkspaceIds = WorkspaceMountPlan(
             current: mountedWorkspaceIds,
             selected: effectiveSelectedId,
-            pinnedIds: pinnedIds,
+            pinnedIds: livePinnedIds,
             orderedTabIds: orderedTabIds,
+            activeWorkspaceIds: activeWorkspaceIds,
             isCycleHot: isCycleHot,
             maxMounted: maxMounted
         ).mountedWorkspaceIds
-        let removedIds = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
+        let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
         let portalRenderingChanges = WorkspacePortalRenderingPlan(
             previousStatesByWorkspaceId: lastReconciledPortalRenderingStatesByWorkspaceId,
-            mountedWorkspaceIds: Set(mountedWorkspaceIds), orderedWorkspaceIds: orderedTabIds
+            mountedWorkspaceIds: mountedWorkspaceIdSet,
+            orderedWorkspaceIds: renderingSyncWorkspaces.map(\.id)
         ).applying(to: &lastReconciledPortalRenderingStatesByWorkspaceId)
-        let workspacesById = Dictionary(currentTabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let workspacesById = Dictionary(
+            renderingSyncWorkspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         for change in portalRenderingChanges {
             workspacesById[change.workspaceId]?.setPortalRenderingEnabled(change.isEnabled, reason: "workspaceMount")
         }
 #if DEBUG
         if mountedWorkspaceIds != previousMountedIds {
-            let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
+            let previousMountedIdSet = Set(previousMountedIds)
+            let added = mountedWorkspaceIds.filter { !previousMountedIdSet.contains($0) }
+            let removed = previousMountedIds.filter { !mountedWorkspaceIdSet.contains($0) }
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
                     "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
                     "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
                     "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
-                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removedIds))"
+                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
                 )
             } else {
                 cmuxDebugLog(
