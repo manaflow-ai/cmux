@@ -457,35 +457,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// writing the previous user's state under ids the next account may reuse. Not
     /// observed: it gates async hand-backs, not view state.
     @ObservationIgnored private var signInGeneration = 0
-    @ObservationIgnored private var createdTerminalSelectionID: MobileTerminalPreview.ID?
+    @ObservationIgnored private var createdTerminalSelection: CreatedTerminalSelection?
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
         }
     }
-    /// The terminal whose surface and composer draft are currently shown.
     public var selectedTerminalID: MobileTerminalPreview.ID? {
         willSet {
-            // Save the outgoing draft under the old key before the new id lands.
             guard newValue != selectedTerminalID else { return }
             draftedOutgoingTerminalID = selectedTerminalID
             draftedOutgoingText = terminalInputText
         }
         didSet {
             guard selectedTerminalID != oldValue else { return }
-            if selectedTerminalID != createdTerminalSelectionID {
-                createdTerminalSelectionID = nil
+            if selectedTerminalID != createdTerminalSelection?.terminalID {
+                createdTerminalSelection = nil
             }
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
             draftedOutgoingText = ""
-            // Hand focus to the incoming composer only when the user was already composing.
             if composerFieldIsFocused, isComposerPresented {
                 requestComposerFieldFocus()
             } else {
-                // Any switch that does not arm a new handshake invalidates a
-                // stale unconsumed one, so a plain switch back to a terminal
-                // can never pop the keyboard off an old request.
+                // Plain switches invalidate stale composer-focus handshakes.
                 composerFocusRequestPending = false
                 composerFocusRequestTerminalID = nil
             }
@@ -4129,7 +4124,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 list[index].terminals.append(terminal)
             }
         }
-        createdTerminalSelectionID = terminal.id
+        createdTerminalSelection = CreatedTerminalSelection(workspaceID: workspace.id, terminalID: terminal.id)
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
     }
@@ -5654,11 +5649,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             selectedTerminalID = nil
             return
         }
-        if let selectedTerminalID, selectedTerminalID == createdTerminalSelectionID {
-            let selectedTerminal = selectedWorkspace.terminals.first { $0.id == selectedTerminalID }
-            guard let selectedTerminal else { return }
-            guard selectedTerminal.isReady else { return }
-            createdTerminalSelectionID = nil
+        if let created = createdTerminalSelection, selectedTerminalID == created.terminalID {
+            if selectedWorkspace.id == created.workspaceID {
+                let selectedTerminal = selectedWorkspace.terminals.first { $0.id == created.terminalID }
+                guard let selectedTerminal else { return }
+                guard selectedTerminal.isReady else { return }
+            }
+            createdTerminalSelection = nil
         }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
@@ -5864,7 +5861,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                    || (selectedRow.rpcWorkspaceID == requestedWorkspaceID
                        && selectedRow.macDeviceID == requestedMacDeviceID) {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
-                createdTerminalSelectionID = createdTerminalID
+                createdTerminalSelection = CreatedTerminalSelection(workspaceID: selectedRow.id, terminalID: createdTerminalID)
                 selectedTerminalID = createdTerminalID
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
             }
