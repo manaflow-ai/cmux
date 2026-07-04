@@ -152,38 +152,22 @@ struct SidebarWorkspaceChecklistSection: View {
                     ? String(localized: "sidebar.checklist.collapseTooltip", defaultValue: "Hide checklist items")
                     : String(localized: "sidebar.checklist.expandTooltip", defaultValue: "Show checklist items"))
         )
-        .background(checklistPopoverAnchor)
+        .modifier(ChecklistSummaryPopoverModifier(
+            isPresented: presentsPopover
+                ? Binding(get: { isPopoverPresented }, set: { onPopoverPresentedChange($0) })
+                : .constant(false),
+            model: SidebarWorkspaceChecklistPopoverModel(
+                workspaceTitle: workspaceTitle,
+                items: items,
+                completedCount: completedCount,
+                totalCount: totalCount,
+                addFieldActivationToken: addFieldActivationToken
+            ),
+            actions: actions,
+            onConsumeAddFieldActivation: onConsumeAddFieldActivation,
+            onPopoverPresentedChange: onPopoverPresentedChange
+        ))
         .accessibilityIdentifier("SidebarChecklistSummaryLine")
-    }
-
-    /// The NSPopover host anchoring the checklist popover to the summary
-    /// line (popover presentation only).
-    @ViewBuilder
-    private var checklistPopoverAnchor: some View {
-        if presentsPopover {
-            SidebarWorkspaceTodoPopoverHost(
-                isPresented: Binding(
-                    get: { isPopoverPresented },
-                    set: { onPopoverPresentedChange($0) }
-                ),
-                model: SidebarWorkspaceChecklistPopoverModel(
-                    workspaceTitle: workspaceTitle,
-                    items: items,
-                    completedCount: completedCount,
-                    totalCount: totalCount,
-                    addFieldActivationToken: addFieldActivationToken
-                ),
-                minWidth: 320,
-                maxHeight: 480
-            ) { model, close in
-                SidebarWorkspaceChecklistPopover(
-                    model: model,
-                    actions: actions,
-                    onConsumeAddFieldActivation: onConsumeAddFieldActivation,
-                    onClose: close
-                )
-            }
-        }
     }
 
     // MARK: Expanded list
@@ -375,5 +359,30 @@ struct SidebarWorkspaceChecklistSection: View {
         editingItemId = nil
         editingText = ""
         editFieldFocused = false
+    }
+}
+
+/// Attaches the checklist popover to the summary line with SwiftUI's native
+/// `.popover` (not the NSPopover host): an embedded NSViewRepresentable inside
+/// a `.onHover`-tracked sidebar row suppresses the row's hover tracking, which
+/// hid the hover-close "x". The add field takes first responder via
+/// `@FocusState` set on appear inside `SidebarWorkspaceChecklistPopover`.
+private struct ChecklistSummaryPopoverModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let model: SidebarWorkspaceChecklistPopoverModel
+    let actions: SidebarWorkspaceChecklistActions
+    let onConsumeAddFieldActivation: () -> Void
+    let onPopoverPresentedChange: @MainActor (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content.popover(isPresented: $isPresented, arrowEdge: .trailing) {
+            SidebarWorkspaceChecklistPopover(
+                model: model,
+                actions: actions,
+                onConsumeAddFieldActivation: onConsumeAddFieldActivation,
+                onClose: { onPopoverPresentedChange(false) }
+            )
+            .frame(width: 320)
+        }
     }
 }

@@ -279,26 +279,27 @@ struct SidebarWorkspaceTaskStatusGlyphControl: View {
             .contentShape(Rectangle().inset(by: -3))
         }
         .buttonStyle(.plain)
-        .background(
-            SidebarWorkspaceTodoPopoverHost(
-                isPresented: Binding(
-                    get: { isPopoverPresented },
-                    set: { onPopoverPresentedChange($0) }
-                ),
+        // SwiftUI's native popover (not the NSPopover host) because the
+        // status popover has no TextField that needs first responder, and an
+        // embedded NSViewRepresentable inside a `.onHover`-tracked sidebar row
+        // suppresses the row's hover tracking (hover-close "x" never appears).
+        .popover(
+            isPresented: Binding(
+                get: { isPopoverPresented },
+                set: { onPopoverPresentedChange($0) }
+            ),
+            arrowEdge: .trailing
+        ) {
+            SidebarWorkspaceStatusPopover(
                 model: SidebarWorkspaceStatusPopoverModel(
                     inferred: inferred,
                     activeOverride: hasOverride ? status : nil
                 ),
-                minWidth: 200,
-                maxHeight: 400
-            ) { model, close in
-                SidebarWorkspaceStatusPopover(
-                    model: model,
-                    onSelectLane: onSelectLane,
-                    onClose: close
-                )
-            }
-        )
+                onSelectLane: onSelectLane,
+                onClose: { onPopoverPresentedChange(false) }
+            )
+            .frame(minWidth: 200)
+        }
         .accessibilityIdentifier("SidebarWorkspaceTaskStatusGlyphControl")
     }
 }
