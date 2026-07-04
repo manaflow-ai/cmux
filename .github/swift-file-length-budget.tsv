@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34499	CLI/cmux.swift
+34585	CLI/cmux.swift
 17954	Sources/AppDelegate.swift
 16427	Sources/ContentView.swift
 14270	Sources/TerminalController.swift
@@ -24,8 +24,8 @@
 4483	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4283	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 4121	Sources/BrowserWindowPortal.swift
+3964	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
@@ -87,6 +87,7 @@
 1110	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
+1069	cmuxTests/SSHStartupSignalLifecycleTests.swift
 1044	cmuxTests/WorkspaceGroupTests.swift
 1033	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalViewportResyncTests.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
@@ -114,7 +115,6 @@
 864	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 847	cmuxTests/AgentSessionAutoResumeSettingsTests.swift
-845	cmuxTests/SSHStartupSignalLifecycleTests.swift
 841	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalOutputDeliveryQueueTests.swift
 834	Sources/MainWindowFocusController.swift
 830	Sources/TaskManagerTypes.swift
