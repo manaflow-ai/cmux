@@ -52,7 +52,7 @@ extension UpdateController {
     /// CDN intermittently 504s individual objects; Sparkle itself never retries, #5632).
     /// Non-transient failures and exhausted retries fall back to the next scheduled check.
     func scheduleBackgroundRetryIfTransient(_ error: any Error) {
-        guard UpdateStateModel.isTransientNetworkError(error) else { return }
+        guard isTransientUpdateNetworkError(error) else { return }
         guard backgroundRetryCount < backgroundRetryLimit else {
             log.append("background update retry limit reached; waiting for next scheduled check")
             return
