@@ -2827,13 +2827,33 @@ struct CMUXCLI {
 
     private static func isCodingAgentEnvironment(_ environment: [String: String]) -> Bool {
         if let kind = normalizedEnvValue(environment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased() {
+            // Keep aligned with TaskManagerAgentDefinition.launchKinds.
             let agentKinds: Set<String> = [
+                "agy",
+                "amp",
+                "antigravity",
                 "claude",
+                "claude-teams",
+                "claudeteams",
+                "codebuddy",
+                "copilot",
                 "codex",
+                "codexteams",
+                "cursor",
+                "factory",
+                "gemini",
+                "grok",
+                "hermes-agent",
+                "kiro",
+                "omp",
                 "opencode",
                 "omo",
                 "omx",
                 "omc",
+                "pi",
+                "qoder",
+                "rovo",
+                "rovodev",
             ]
             if agentKinds.contains(kind) {
                 return true
@@ -6844,9 +6864,10 @@ struct CMUXCLI {
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
         let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
-        let (windowOpt, rem5) = parseOption(rem4, name: "--window")
+        let (descriptionSourceOpt, rem5) = parseOption(rem4, name: "--description-source")
+        let (windowOpt, rem6) = parseOption(rem5, name: "--window")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -6909,6 +6930,16 @@ struct CMUXCLI {
         }
         if let description, !description.isEmpty {
             params["description"] = description
+        }
+        if action == "set_description" {
+            let descriptionSource = descriptionSourceOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Plain CLI notes are user-owned; agent-launched CLI summaries clear on context reset.
+            let defaultDescriptionSource = Self.isCodingAgentEnvironment(ProcessInfo.processInfo.environment) ? "agent" : "user"
+            if let descriptionSource, !descriptionSource.isEmpty {
+                params["description_source"] = descriptionSource
+            } else {
+                params["description_source"] = defaultDescriptionSource
+            }
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -14571,6 +14602,8 @@ struct CMUXCLI {
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
+              --description-source <user|agent>
+                                           Provenance for set-description (default: auto)
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -34326,7 +34359,7 @@ export default CMUXSessionRestore;
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>] [--description-source <user|agent>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]

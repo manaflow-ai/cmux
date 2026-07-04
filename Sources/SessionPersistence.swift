@@ -1829,6 +1829,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// absent provenance as user-set (the conservative choice for auto-naming).
     var customTitleSource: Workspace.CustomTitleSource? = nil
     var customDescription: String?
+    /// Provenance of `customDescription`. Optional with a `nil` default so
+    /// snapshots persisted before provenance existed decode unchanged; restore
+    /// treats absent provenance as user-set (so resets never wipe user notes).
+    var customDescriptionSource: Workspace.CustomDescriptionSource? = nil
     var customColor: String?
     var isPinned: Bool
     var groupId: UUID? = nil

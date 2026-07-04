@@ -122,6 +122,7 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: effectiveCustomTitleSource,
             customDescription: customDescription,
+            customDescriptionSource: effectiveCustomDescriptionSource,
             customColor: customColor,
             isPinned: isPinned,
             groupId: groupId,
@@ -211,7 +212,7 @@ extension Workspace {
 
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle, source: snapshot.customTitleSource ?? .user)
-        setCustomDescription(snapshot.customDescription)
+        setCustomDescription(snapshot.customDescription, source: snapshot.customDescriptionSource ?? .user)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         groupId = snapshot.groupId
@@ -2253,6 +2254,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// cannot prove it owns.
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
+    /// Provenance of `customDescription`: `.user` for hand-typed notes (the
+    /// Edit Workspace Description UI, workspace creation, CLI notes), `.agent`
+    /// for explicit agent-authored summaries. `nil` when no description is set. A present
+    /// description with absent provenance is treated as `.user` so a context
+    /// reset never wipes a note it cannot prove an agent owns.
+    var customDescriptionSource: CustomDescriptionSource?
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
@@ -3145,6 +3152,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
+        self.customDescriptionSource = nil
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -4476,6 +4484,8 @@ final class Workspace: Identifiable, ObservableObject {
         case auto
     }
 
+    typealias CustomDescriptionSource = WorkspaceCustomDescriptionSource
+
     var hasCustomTitle: Bool {
         let trimmed = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !trimmed.isEmpty
@@ -4490,6 +4500,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     var hasCustomDescription: Bool {
         Self.normalizedCustomDescription(customDescription) != nil
+    }
+
+    /// The provenance of the current custom description, normalizing legacy
+    /// state: `nil` when no description is set; `.user` when a description
+    /// exists but provenance was never recorded (pre-provenance snapshots,
+    /// descriptions assigned directly without the setter).
+    var effectiveCustomDescriptionSource: CustomDescriptionSource? {
+        hasCustomDescription ? (customDescriptionSource ?? .user) : nil
     }
 
     func applyProcessTitle(_ title: String) {
@@ -4557,7 +4575,9 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
-    func setCustomDescription(_ description: String?) {
+    /// Sets, replaces, or clears (empty/nil `description`) the workspace custom
+    /// description, recording its provenance. Clearing also clears the source.
+    func setCustomDescription(_ description: String?, source: CustomDescriptionSource = .user) {
         let normalizedDescription = Self.normalizedCustomDescription(description)
 #if DEBUG
         let inputNewlines = description?.reduce(into: 0) { count, character in
@@ -4577,6 +4597,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         customDescription = normalizedDescription
+        customDescriptionSource = normalizedDescription == nil ? nil : source
     }
 
     // MARK: - Directory Updates
@@ -5129,6 +5150,14 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
+        // An agent's `set-description` summary is sidebar context like the
+        // progress / PR / branch state cleared above, so wipe it on reset
+        // (issue #6753). User-authored notes — and legacy descriptions with no
+        // provenance, which normalize to `.user` — are intentionally left
+        // intact; they survive resets, branch changes, and restarts.
+        if effectiveCustomDescriptionSource == .agent {
+            setCustomDescription(nil)
+        }
         resetBrowserPanelsForContextChange(reason: reason)
     }
 

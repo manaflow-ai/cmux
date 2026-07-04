@@ -4103,7 +4103,23 @@ class TerminalController {
                     result = .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
                     return
                 }
-                tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw)
+                let sourceRaw = (
+                    v2String(params, "description_source")
+                        ?? v2String(params, "descriptionSource")
+                )?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let source: Workspace.CustomDescriptionSource
+                switch sourceRaw {
+                case "user", nil: source = .user
+                case "agent": source = .agent
+                default:
+                    result = .err(
+                        code: "invalid_params",
+                        message: "description_source must be one of: user, agent",
+                        data: ["description_source": sourceRaw ?? ""]
+                    )
+                    return
+                }
+                tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw, source: source)
                 finish(["description": v2OrNull(workspace.customDescription)])
 
             case "clear_description":
