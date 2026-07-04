@@ -16,14 +16,30 @@ function usePhrases() {
   ];
 }
 
+// Demo mode (screenshots/marketing only): with `?demo` in the URL, the tagline
+// is pinned to "multitasking" with no typing animation and no blinking cursor.
+// Off by default; production behavior is unchanged when the flag is absent.
+// Read once via a lazy initializer (no effect): in normal use the flag is absent
+// so server and client agree; it only differs when explicitly taking screenshots.
+function useDemoMode() {
+  const [demo] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).has("demo"),
+  );
+  return demo;
+}
+
 export function TypingTagline() {
   const phrases = usePhrases();
+  const demoMode = useDemoMode();
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [charIndex, setCharIndex] = useState(0);
   const [deleting, setDeleting] = useState(false);
   const dev = useDevValues();
 
   useEffect(() => {
+    if (demoMode) return;
     const phrase = phrases[phraseIndex];
 
     if (!deleting && charIndex === phrase.length) {
@@ -45,7 +61,11 @@ export function TypingTagline() {
     }, speed);
 
     return () => clearTimeout(timeout);
-  }, [charIndex, deleting, phraseIndex]);
+  }, [charIndex, deleting, phraseIndex, demoMode]);
+
+  if (demoMode) {
+    return <span>{phrases[1]}</span>;
+  }
 
   const phrase = phrases[phraseIndex];
   const displayed = phrase.slice(0, charIndex);

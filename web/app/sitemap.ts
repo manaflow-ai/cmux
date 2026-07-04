@@ -6,6 +6,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const paths = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
+    { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/blog", lastModified: "2026-06-02", changeFrequency: "weekly" as const, priority: 0.8 },
     { path: "/blog/cmux-history", lastModified: "2026-06-02", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/blog/cmux-finder", lastModified: "2026-05-22", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -46,12 +47,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/wall-of-love", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.5 },
     { path: "/nightly", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 0.6 },
     { path: "/assets", lastModified: "2026-06-03", changeFrequency: "monthly" as const, priority: 0.5 },
+    // SEO landing/guide pages: localized, not in the main nav.
+    { path: "/guides", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/best-terminal-for-mac", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.7 },
+    { path: "/built-on-ghostty", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/claude-code-terminal", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/codex-cli", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
+    { path: "/opencode", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/privacy-policy", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
   // Legal pages are English-only (not translated), so they only get one entry.
+  // The SEO landing pages are localized, so they go through the per-locale loop.
   const englishOnly = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
 
   const entries: MetadataRoute.Sitemap = [];

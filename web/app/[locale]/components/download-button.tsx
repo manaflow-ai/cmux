@@ -8,6 +8,12 @@ import {
   DOWNLOAD_CONFIRMATION_PATH,
   DOWNLOAD_URL,
 } from "../../lib/download";
+import {
+  ctaButtonBase,
+  ctaButtonDefaultSize,
+  ctaButtonSmallSize,
+  ctaButtonStyle,
+} from "./cta-styles";
 
 export function DownloadButton({
   size = "default",
@@ -26,10 +32,10 @@ export function DownloadButton({
   // straight at the asset there so it still works as a retry; everywhere else
   // it navigates same-tab to the confirmation page (no popup, no new tab).
   const onConfirmationPage = pathname === DOWNLOAD_CONFIRMATION_PATH;
-  const className_ = `inline-flex items-center whitespace-nowrap rounded-full font-medium bg-foreground hover:opacity-85 transition-opacity ${
-    isSmall ? "gap-2 px-4 py-1.5 text-xs" : "gap-2.5 px-5 py-2.5 text-[15px]"
+  const className_ = `${ctaButtonBase} ${
+    isSmall ? ctaButtonSmallSize : ctaButtonDefaultSize
   } ${className ?? ""}`;
-  const style = { color: "var(--background)", textDecoration: "none" } as const;
+  const style = ctaButtonStyle;
   const onClick = () =>
     posthog.capture("cmuxterm_download_clicked", { location });
   // The Apple mark artwork has an 814:1000 aspect ratio. Derive the box width

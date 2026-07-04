@@ -31,6 +31,7 @@ const englishOnlyPages = [
 
 export const agentReadablePages = [
   { path: "/", title: "Home" },
+  { path: "/ios", title: "cmux iOS" },
   { path: "/blog", title: "Blog" },
   { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
@@ -90,6 +91,12 @@ export const agentReadablePages = [
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
   { path: "/assets", title: "Brand Assets" },
+  { path: "/guides", title: "Guides" },
+  { path: "/best-terminal-for-mac", title: "Best terminal for Mac" },
+  { path: "/built-on-ghostty", title: "Built on Ghostty" },
+  { path: "/claude-code-terminal", title: "Terminal for Claude Code" },
+  { path: "/codex-cli", title: "Terminal for Codex CLI" },
+  { path: "/opencode", title: "Terminal for OpenCode" },
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },

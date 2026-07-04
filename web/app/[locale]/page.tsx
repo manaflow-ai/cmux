@@ -1,7 +1,6 @@
 import { useTranslations, useLocale } from "next-intl";
-import { FadeImage } from "./components/fade-image";
+import { HeroScreenshot } from "./components/hero-screenshot";
 import Balancer from "react-wrap-balancer";
-import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
@@ -28,8 +27,34 @@ function HomeContent() {
   const linkClass =
     "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
 
+  // FAQPage structured data, built from the same FAQ copy rendered below so the
+  // Q&As are eligible for Google rich results and AI answer engines.
+  const faqKeys = [
+    "Ghostty", "Platform", "Ios", "Agents", "Orchestration", "Remote",
+    "Notifications", "Scriptable", "Browser", "Skills", "Shortcuts",
+    "Customize", "Sessions", "Tmux", "Free", "Support", "Feature",
+  ];
+  const stripTags = (s: string) => s.replace(/<\/?[a-zA-Z]+>/g, "");
+  const faqJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqKeys.map((k) => ({
+      "@type": "Question",
+      name: stripTags(t.raw(`faq${k}Q`) as string),
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: stripTags(t.raw(`faq${k}A`) as string),
+      },
+    })),
+  };
+  const faqJsonLdScript = JSON.stringify(faqJsonLd).replace(/</g, "\\u003c");
+
   return (
     <div className="min-h-screen">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: faqJsonLdScript }}
+      />
       <SiteHeader hideLogo />
 
       <main className="w-full max-w-2xl mx-auto px-6 py-16 sm:py-24">
@@ -101,6 +126,7 @@ function HomeContent() {
               [
                 ["verticalTabs", "verticalTabsDesc"],
                 ["notificationRings", "notificationRingsDesc"],
+                ["ios", "iosDesc"],
                 ["inAppBrowser", "inAppBrowserDesc"],
                 ["splitPanes", "splitPanesDesc"],
                 ["scriptable", "scriptableDesc"],
@@ -113,7 +139,13 @@ function HomeContent() {
                 <span className="text-muted shrink-0">-</span>
                 <span>
                   <strong className="font-medium">
-                    {t(`feature.${title}`)}
+                    {title === "ios" ? (
+                      <Link href="/ios" className={linkClass}>
+                        {t(`feature.${title}`)}
+                      </Link>
+                    ) : (
+                      t(`feature.${title}`)
+                    )}
                   </strong>
                   <span className="text-muted">{t(`feature.${desc}`)}</span>
                 </span>
@@ -139,20 +171,29 @@ function HomeContent() {
                 </span>
               </span>
             </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">
+                  <a
+                    href="https://github.com/manaflow-ai/cmux#founders-edition"
+                    className={linkClass}
+                  >
+                    {t("feature.ios")}
+                  </a>
+                </strong>
+                <span className="text-muted">{t("feature.iosDesc")}</span>
+              </span>
+            </li>
           </ul>
         </section>
 
         {/* Screenshot */}
         <div
           data-dev="screenshot"
-          className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
         >
-          <FadeImage
-            src={landingImage}
-            alt="cmux terminal app screenshot"
-            priority
-            className="w-full rounded-xl"
-          />
+          <HeroScreenshot />
         </div>
 
         {/* FAQ */}
