@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
-import { DOWNLOAD_URL } from "../lib/download";
+import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
   CurrentPlanBadge,
   DisabledButton,
@@ -21,9 +21,10 @@ import {
 } from "../components/pricing-shared";
 
 const CHECKOUT_URL = "/api/billing/checkout";
-const TEAM_CTA_URL = DOWNLOAD_URL;
+const TEAM_CTA_URL = DOWNLOAD_CONFIRMATION_HREF;
 const SALES_EMAIL = "founders@manaflow.com";
 const pricing = enMessages.pricing;
+const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,9 @@ export default async function AppPricingPage({
             {snapshot.planId === FREE_PLAN_ID ? (
               <DisabledButton>Current plan</DisabledButton>
             ) : (
-              <PrimaryLink href={DOWNLOAD_URL}>{pricing.free.cta}</PrimaryLink>
+              <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
+                {pricing.free.cta}
+              </PrimaryLink>
             )}
             <p className="mt-5 text-sm font-medium text-muted">
               {pricing.free.featuresLead}
@@ -92,9 +95,7 @@ export default async function AppPricingPage({
             {snapshot.isPro ? (
               <DisabledButton>Current plan</DisabledButton>
             ) : (
-              <PrimaryLink href={CHECKOUT_URL}>
-                {snapshot.authenticated ? pricing.pro.cta : "Sign in to upgrade"}
-              </PrimaryLink>
+              <PrimaryLink href={CHECKOUT_URL}>{pricing.pro.cta}</PrimaryLink>
             )}
             <p className="mt-5 text-sm font-medium">
               {pricing.pro.featuresLead}
@@ -186,14 +187,14 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
     return { authenticated: false, planId: FREE_PLAN_ID, isPro: false, email: null };
   }
 
-  const user = await getStackServerApp().getUser({ or: "return-null" });
+  const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
     return { authenticated: false, planId: FREE_PLAN_ID, isPro: false, email: null };
   }
 
   const status = await resolveProPlanStatus(user);
   return {
-    authenticated: true,
+    authenticated: !user.isAnonymous,
     planId: status.planId,
     isPro: status.isPro,
     email: user.primaryEmail,

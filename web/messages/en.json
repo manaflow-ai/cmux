@@ -116,7 +116,7 @@
     "team": {
       "name": "Team",
       "price": "$35",
-      "cta": "Start a team",
+      "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
         "Unified billing: one invoice for the whole team",

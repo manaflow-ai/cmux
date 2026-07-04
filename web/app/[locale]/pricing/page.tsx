@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
-import { DOWNLOAD_URL } from "../../lib/download";
+import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { buildAlternates } from "../../../i18n/seo";
 import {
   FeatureList,
@@ -29,7 +29,7 @@ const PRO_CHECKOUT_URL = "/api/billing/checkout";
 // Team is per-seat ($35/user/month). Install is still the entry point, so the
 // Team CTA points at the download today; swap for the team checkout URL once
 // the billing flow is public.
-const TEAM_CTA_URL = DOWNLOAD_URL;
+const TEAM_CTA_URL = DOWNLOAD_CONFIRMATION_HREF;
 const SALES_EMAIL = "founders@manaflow.com";
 
 export async function generateMetadata({
@@ -88,7 +88,7 @@ export default function PricingPage() {
             price={t("free.price")}
             period={t("perMonth")}
           >
-            <PrimaryLink href={DOWNLOAD_URL}>{t("free.cta")}</PrimaryLink>
+            <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>{t("free.cta")}</PrimaryLink>
             <p className="mt-5 text-sm font-medium text-muted">
               {t("free.featuresLead")}
             </p>
@@ -101,7 +101,7 @@ export default function PricingPage() {
             price={t("pro.price")}
             period={t("perMonth")}
           >
-            <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_URL}>
+            <ProCtaLink checkoutHref={PRO_CHECKOUT_URL} fallbackHref={DOWNLOAD_CONFIRMATION_HREF}>
               {t("pro.cta")}
             </ProCtaLink>
             <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>

@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 const VERIFY_ATTEMPTS = 4;
 const VERIFY_SPACING_MS = 1500;
+const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
 // Stack's hosted purchase page returns here after payment. Stripe confirms
 // asynchronously, so the subscription can lag the redirect by a moment —
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (!stackServerApp) {
     return NextResponse.redirect(new URL("/pricing", request.url));
   }
-  const user = await stackServerApp.getUser({ or: "return-null" });
+  const user = await stackServerApp.getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
     return NextResponse.redirect(new URL("/pricing", request.url));
   }

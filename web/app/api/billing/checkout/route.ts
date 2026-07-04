@@ -8,22 +8,18 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const CHECKOUT_PATH = "/api/billing/checkout";
-
-// One-click upgrade entrypoint. Signed-out visitors round-trip through Stack
-// sign-in and land back here (after_auth_return_to), so a single click on the
-// site always ends on the hosted purchase page.
+// One-click upgrade entrypoint. Signed-out visitors become anonymous Stack
+// users first, then go straight to the hosted purchase page. Stack keeps the
+// product grant attached to that anonymous user until the buyer completes
+// account setup with an email.
 export async function GET(request: NextRequest) {
   if (!stackServerApp) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
-  const user = await stackServerApp.getUser({ or: "return-null" });
-  if (!user) {
-    const signIn = new URL("/handler/sign-in", request.url);
-    signIn.searchParams.set("after_auth_return_to", CHECKOUT_PATH);
-    return NextResponse.redirect(signIn);
-  }
+  const user =
+    (await stackServerApp.getUser({ or: "return-null" })) ??
+    (await stackServerApp.getUser({ or: "anonymous" }));
 
   if (await hasActiveProSubscription(user)) {
     await syncProPlanMetadata(user, true);

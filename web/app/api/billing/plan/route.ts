@@ -5,6 +5,8 @@ import { FREE_PLAN_ID, resolveProPlanStatus } from "../../../../services/billing
 
 export const dynamic = "force-dynamic";
 
+const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
+
 export async function GET(request: NextRequest) {
   if (!isStackConfigured()) {
     return jsonResponse({
@@ -26,6 +28,7 @@ export async function GET(request: NextRequest) {
         },
       })
     : await stackServerApp.getUser({
+        or: ANONYMOUS_IF_EXISTS,
         tokenStore: request as unknown as { headers: { get(name: string): string | null } },
       });
 
@@ -41,7 +44,7 @@ export async function GET(request: NextRequest) {
 
   const status = await resolveProPlanStatus(user);
   return jsonResponse({
-    authenticated: true,
+    authenticated: !user.isAnonymous,
     billingAvailable: true,
     planId: status.planId,
     isPro: status.isPro,

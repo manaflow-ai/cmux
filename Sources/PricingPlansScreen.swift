@@ -83,7 +83,7 @@ private final class NativePricingWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = String(localized: "pricing.native.window.title", defaultValue: "cmux Pro")
+        window.title = String(localized: "pricing.native.window.title", defaultValue: "cmux Upgrade")
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.minSize = NSSize(width: 760, height: 520)
@@ -330,7 +330,7 @@ private struct NativePricingPlansView: View {
                 price: String(localized: "pricing.native.team.price", defaultValue: "$35"),
                 period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
                 isCurrent: false,
-                actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Start a team"),
+                actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
                 action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
@@ -367,9 +367,9 @@ private struct NativePricingPlansView: View {
             return String(localized: "pricing.native.currentPlan", defaultValue: "Current plan")
         }
         if snapshot.authenticated {
-            return String(localized: "pricing.native.upgrade", defaultValue: "Upgrade to Pro")
+            return String(localized: "pricing.native.upgrade", defaultValue: "Get Pro")
         }
-        return String(localized: "pricing.native.signInToUpgrade", defaultValue: "Sign in to upgrade")
+        return String(localized: "pricing.native.signInToUpgrade", defaultValue: "Get Pro")
     }
 
 }
