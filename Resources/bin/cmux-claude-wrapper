@@ -861,6 +861,12 @@ cmux_computer_use_resolve_node() {
     printf '%s' "$node_real"
 }
 
+cmux_computer_use_swift_provider_available() {
+    local xcrun_bin=/usr/bin/xcrun
+    [[ -x "$xcrun_bin" ]] || return 1
+    "$xcrun_bin" --find swift >/dev/null 2>&1
+}
+
 cmux_computer_use_mcp_config() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
     local arg
@@ -875,6 +881,7 @@ cmux_computer_use_mcp_config() {
     done
     local node_binary
     node_binary="$(cmux_computer_use_resolve_node)" || return 1
+    cmux_computer_use_swift_provider_available || return 1
     local self_dir candidate
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
     for candidate in \

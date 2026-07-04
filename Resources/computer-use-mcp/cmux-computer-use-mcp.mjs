@@ -99,6 +99,8 @@ const MESSAGE_CATALOG = {
     clicked: "clicked",
     coordinateSnapshotRequired: (app) =>
       `no visible screenshot snapshot for "${app}" in the current session; run computer_state or computer_screenshot first — coordinates are snapshot-specific`,
+    coordinateOutOfBounds: (app) =>
+      `coordinates for "${app}" must be finite screenshot pixels inside the latest captured image`,
     desktopScreenshotApproval:
       "Allow cmux computer use to capture the entire desktop (all apps and screens)?",
     desktopScreenshotNotApproved:
@@ -171,6 +173,8 @@ const MESSAGE_CATALOG = {
     clicked: "クリックしました",
     coordinateSnapshotRequired: (app) =>
       `このセッションには「${app}」の表示済みスクリーンショットスナップショットがありません。座標はスナップショット固有です。先に computer_state または computer_screenshot を実行してください`,
+    coordinateOutOfBounds: (app) =>
+      `「${app}」の座標は、最新キャプチャ画像内の有限なスクリーンショットピクセルで指定してください`,
     desktopScreenshotApproval:
       "cmux computer use にデスクトップ全体（すべてのアプリと画面）のキャプチャを許可しますか？",
     desktopScreenshotNotApproved:
@@ -659,14 +663,19 @@ if op == "state" {
     }
 
     visit(root, path: [], depth: 0)
-    jsonOut([
+    var response: [String: Any] = [
         "ok": true,
         "tree": lines.joined(separator: "\\n"),
         "elements": elements,
         "root": rootKind,
-        "windowIndex": windowIndex as Any,
-        "window": windowInfoFor(pid: app.processIdentifier) as Any,
-    ])
+    ]
+    if let windowIndex {
+        response["windowIndex"] = windowIndex
+    }
+    if let window = windowInfoFor(pid: app.processIdentifier) {
+        response["window"] = window
+    }
+    jsonOut(response)
 }
 
 guard AXIsProcessTrusted() else {
@@ -838,9 +847,37 @@ function screenPointFromSnapshot(snapshot, x, y) {
   const bounds = snapshot?.window?.bounds;
   const image = snapshot?.image;
   if (!bounds || !image?.width || !image?.height) return null;
+  const pixelX = Number(x);
+  const pixelY = Number(y);
+  const imageWidth = Number(image.width);
+  const imageHeight = Number(image.height);
+  const boundX = Number(bounds.x ?? 0);
+  const boundY = Number(bounds.y ?? 0);
+  const boundWidth = Number(bounds.width ?? 0);
+  const boundHeight = Number(bounds.height ?? 0);
+  if (
+    !Number.isFinite(pixelX) ||
+    !Number.isFinite(pixelY) ||
+    !Number.isFinite(imageWidth) ||
+    !Number.isFinite(imageHeight) ||
+    !Number.isFinite(boundX) ||
+    !Number.isFinite(boundY) ||
+    !Number.isFinite(boundWidth) ||
+    !Number.isFinite(boundHeight) ||
+    imageWidth <= 0 ||
+    imageHeight <= 0 ||
+    boundWidth <= 0 ||
+    boundHeight <= 0 ||
+    pixelX < 0 ||
+    pixelY < 0 ||
+    pixelX > imageWidth ||
+    pixelY > imageHeight
+  ) {
+    return null;
+  }
   return {
-    x: Number(bounds.x ?? 0) + (Number(x) / image.width) * Number(bounds.width ?? 0),
-    y: Number(bounds.y ?? 0) + (Number(y) / image.height) * Number(bounds.height ?? 0),
+    x: boundX + (pixelX / imageWidth) * boundWidth,
+    y: boundY + (pixelY / imageHeight) * boundHeight,
   };
 }
 
@@ -955,7 +992,7 @@ async function callInputTool(tool, args) {
         action.op = "click_element";
       } else {
         const point = screenPointFromSnapshot(snapshot, args.x, args.y);
-        if (!point) return err(localizedMessage("coordinateSnapshotRequired", app));
+        if (!point) return err(localizedMessage("coordinateOutOfBounds", app));
         action.op = "click_point";
         action.x = point.x;
         action.y = point.y;
@@ -978,7 +1015,7 @@ async function callInputTool(tool, args) {
     case "drag": {
       const from = screenPointFromSnapshot(snapshot, args.from_x, args.from_y);
       const to = screenPointFromSnapshot(snapshot, args.to_x, args.to_y);
-      if (!from || !to) return err(localizedMessage("coordinateSnapshotRequired", app));
+      if (!from || !to) return err(localizedMessage("coordinateOutOfBounds", app));
       action.op = "drag";
       action.fromX = from.x;
       action.fromY = from.y;

@@ -141,6 +141,18 @@ async function runQueueBoundSmoke() {
   return results;
 }
 
+async function runCoordinateBoundsSmoke() {
+  const results = await runCalls({
+    withElicitation: true,
+    calls: [
+      { tool: "computer_state", args: { app: "TestApp" } },
+      { tool: "computer_click", args: { app: "TestApp", x: -1, y: 0 } },
+    ],
+    expectMessage: "Allow cmux computer use to inspect and control",
+  });
+  return { state: results[0], click: results[1] };
+}
+
 async function runRawCancellationSmoke({ queued }) {
   const child = spawn(process.execPath, [serverPath], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -347,6 +359,19 @@ const [raceState, raceFirst, raceSecond] = await runConcurrentElementRace();
 console.log(`concurrent element race -> state=${raceState.isError} first=${raceFirst.isError} second=${raceSecond.isError}`);
 if (raceState.isError || raceFirst.isError || !raceSecond.isError || !raceSecond.text.includes("computer_state")) {
   console.error("FAIL: queued element action should consume the snapshot before the second action");
+  process.exit(1);
+}
+
+const coordinateBounds = await runCoordinateBoundsSmoke();
+console.log(
+  `coordinate bounds -> state=${coordinateBounds.state.isError} click=${coordinateBounds.click.isError} text=${coordinateBounds.click.text}`
+);
+if (
+  coordinateBounds.state.isError ||
+  !coordinateBounds.click.isError ||
+  !coordinateBounds.click.text.includes("coordinates")
+) {
+  console.error("FAIL: coordinate actions outside the latest screenshot should be rejected");
   process.exit(1);
 }
 
