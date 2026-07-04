@@ -5,6 +5,7 @@ import { buildAlternates } from "../../../../i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { Callout } from "../../components/callout";
 import { DocsHeading } from "../../components/docs-heading";
+import { LINK_CLASS as linkClass } from "@/app/lib/link";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -16,8 +17,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-const linkClass =
-  "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
 
 export default function IosPage() {
   const t = useTranslations("docs.ios");
