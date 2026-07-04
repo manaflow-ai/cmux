@@ -11,6 +11,10 @@ enum AppshotCapturer {
     private static let maxAccessibilityNodes = 6000
     /// Maximum characters of extracted text retained.
     private static let maxAccessibilityChars = 40000
+    /// Maximum characters retained from a non-ranged control label/value.
+    private static let maxInlineAccessibilityStringChars = 2048
+    /// Maximum characters expected in an AX role string.
+    private static let maxAccessibilityRoleChars = 64
     /// Wall-clock budget for the whole Accessibility walk, so slow AX IPC (or a
     /// hostile app) can't keep the capture — and `isCapturing` — pending.
     private static let maxAccessibilityDuration: TimeInterval = 2.0
@@ -32,6 +36,27 @@ enum AppshotCapturer {
     /// the cache is bounded — older captures are evicted rather than left to
     /// pile up until the OS happens to clear the temp directory. ~12 appshots.
     private static let maxRetainedArtifacts = 24
+    /// Roles whose ordinary AX string attributes are control labels/values rather
+    /// than document bodies. Document-like roles stay on ranged value reads only.
+    private static let inlineStringRoles: Set<String> = [
+        "AXButton",
+        "AXCell",
+        "AXCheckBox",
+        "AXComboBox",
+        "AXGroup",
+        "AXHeading",
+        "AXImage",
+        "AXLink",
+        "AXMenuButton",
+        "AXMenuItem",
+        "AXPopUpButton",
+        "AXRadioButton",
+        "AXRow",
+        "AXSlider",
+        "AXStaticText",
+        "AXTextField",
+        "AXValueIndicator",
+    ]
 
     static func capture(frontPID: pid_t, appName: String, scale: CGFloat) async -> AppshotCapture? {
         guard frontPID > 0, let window = frontmostWindow(ownerPID: frontPID) else { return nil }
@@ -257,15 +282,21 @@ enum AppshotCapturer {
         guard nodesVisited < maxAccessibilityNodes, charCount < maxAccessibilityChars, Date() < deadline else { return }
         nodesVisited += 1
 
-        for attribute in [kAXValueAttribute] {
+        let allowsInlineStringFallback = hasInlineStringRole(element)
+        for attribute in [kAXValueAttribute, kAXTitleAttribute, kAXDescriptionAttribute] {
             // Re-check the deadline before each AX read, not just once per node,
             // so a node's several IPC calls can't overshoot the budget together.
             guard charCount < maxAccessibilityChars, Date() < deadline else { return }
-            // Fetch at most the remaining budget through a ranged AX read so a
-            // whole-document value is never materialized in full on this hotkey
-            // path. Title/description attributes have no ranged AX API and are
-            // intentionally skipped for this untrusted global-hotkey path.
-            guard let bounded = boundedString(element, attribute, limit: maxAccessibilityChars - charCount) else { continue }
+            // Prefer ranged value reads for document-like content. For ordinary
+            // control/label roles that do not expose ranged strings, fall back to
+            // small AX string attributes so static text, buttons, rows, and cells
+            // still contribute useful appshot text.
+            guard let bounded = boundedString(
+                element,
+                attribute,
+                limit: maxAccessibilityChars - charCount,
+                allowsInlineFallback: allowsInlineStringFallback
+            ) else { continue }
             let trimmed = bounded.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.count > 1, seen.insert(trimmed).inserted else { continue }
             pieces.append(trimmed)
@@ -283,16 +314,46 @@ enum AppshotCapturer {
         }
     }
 
-    /// Reads a string attribute only when AX exposes a ranged read for it, so a
-    /// large or hostile attribute is never materialized in full on this hotkey
-    /// path.
-    private static func boundedString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
+    /// Reads a string attribute through a ranged value read, with a role-limited
+    /// small-string fallback for ordinary controls and labels.
+    private static func boundedString(
+        _ element: AXUIElement,
+        _ attribute: String,
+        limit: Int,
+        allowsInlineFallback: Bool
+    ) -> String? {
         guard limit > 0 else { return nil }
-        guard attribute == kAXValueAttribute,
-              let ranged = copyRangedString(element, location: 0, length: limit) else { return nil }
-        // A provider that ignores the requested length could return more than
-        // `limit`; clamp so the bounded-read guarantee holds after bridging.
-        return ranged.count > limit ? String(ranged.prefix(limit)) : ranged
+        if attribute == kAXValueAttribute,
+           let ranged = copyRangedString(element, location: 0, length: limit) {
+            // A provider that ignores the requested length could return more than
+            // `limit`; clamp so the bounded-read guarantee holds after bridging.
+            return ranged.count > limit ? String(ranged.prefix(limit)) : ranged
+        }
+        guard allowsInlineFallback else { return nil }
+        return copyInlineString(element, attribute, limit: min(limit, maxInlineAccessibilityStringChars))
+    }
+
+    private static func hasInlineStringRole(_ element: AXUIElement) -> Bool {
+        guard let role = copyInlineString(element, kAXRoleAttribute, limit: maxAccessibilityRoleChars) else {
+            return false
+        }
+        return inlineStringRoles.contains(role)
+    }
+
+    /// Copies an ordinary AX string for role-limited controls. This path is not
+    /// used for document-like roles because AX has no counted API for title or
+    /// description strings.
+    private static func copyInlineString(_ element: AXUIElement, _ attribute: String, limit: Int) -> String? {
+        guard limit > 0 else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+              let value, CFGetTypeID(value) == CFStringGetTypeID() else { return nil }
+        let cfString = value as! CFString
+        guard CFStringGetLength(cfString) > limit else { return cfString as String }
+        guard let clamped = CFStringCreateWithSubstring(nil, cfString, CFRange(location: 0, length: limit)) else {
+            return nil
+        }
+        return clamped as String
     }
 
     /// Fetches up to `max` children of `element` via the counted AX array API,
