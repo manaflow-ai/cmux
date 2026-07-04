@@ -62,6 +62,7 @@ public struct AppSection: View {
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
+    @State private var findRestoresLastSearch: DefaultsValueModel<Bool>
 
     @State private var languageAtAppear: AppLanguage?
     @State private var telemetryAtAppear: Bool?
@@ -112,6 +113,7 @@ public struct AppSection: View {
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
         _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
+        _findRestoresLastSearch = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.findRestoresLastSearch))
     }
 
     private static let columnWidth: CGFloat = 196
@@ -134,7 +136,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces, findRestoresLastSearch])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -757,6 +759,21 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("CommandPaletteSearchAllSurfacesToggle")
+            }
+            SettingsCardDivider()
+
+            // Find Restores Last Search
+            SettingsCardRow(
+                configurationReview: .json("app.findRestoresLastSearch"),
+                String(localized: "settings.app.findRestoresLastSearch", defaultValue: "Find Restores Last Search"),
+                subtitle: findRestoresLastSearch.current
+                    ? String(localized: "settings.app.findRestoresLastSearch.subtitleOn", defaultValue: "Find reopens with the previous search text selected.")
+                    : String(localized: "settings.app.findRestoresLastSearch.subtitleOff", defaultValue: "Find always opens with an empty search field.")
+            ) {
+                Toggle("", isOn: Binding(get: { findRestoresLastSearch.current }, set: { findRestoresLastSearch.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("FindRestoresLastSearchToggle")
             }
         }
     }
