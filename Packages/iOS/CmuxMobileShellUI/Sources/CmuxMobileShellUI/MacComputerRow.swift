@@ -8,7 +8,20 @@ import SwiftUI
 /// the Mac's name, a primary line for the PHONE'S connection state + workspace
 /// count, and a diagnostic line for presence + route. The trailing dot reflects
 /// the phone's connection (green = the phone is talking to this Mac now).
+///
+/// The `.reconnect` style reuses the same row on the disconnected screen, where
+/// no phone connection exists: the row becomes a tap-to-reconnect button, the
+/// primary line and dot switch to presence (green = the Mac is online and worth
+/// tapping), and the workspace count is dropped (it is stale while disconnected).
 struct MacComputerRow: View {
+    /// How the row behaves and which status it leads with.
+    enum Style {
+        /// Computers screen: navigation to the detail view, phone-connection dot.
+        case computers
+        /// Disconnected screen: tap reconnects, presence dot.
+        case reconnect
+    }
+
     let computer: MacComputerSnapshot
     /// Request confirmation before removing this computer. When `nil`, the
     /// destructive affordances are hidden.
@@ -26,22 +39,17 @@ struct MacComputerRow: View {
     var isConfirmingTrust: Binding<Bool> = .constant(false)
     /// Performs the confirmed re-trust.
     var confirmTrust: ((String) -> Void)? = nil
+    var style: Style = .computers
+    /// Reconnect action for `.reconnect` rows; tapping the row calls this with
+    /// the device id instead of navigating.
+    var connect: ((String) -> Void)? = nil
+    /// Whether a connect attempt for this row is in flight (spinner replaces the
+    /// status dot). Re-entry is guarded by the owning list, not by disabling the
+    /// button, so the row does not flash a dimmed state.
+    var isConnecting: Bool = false
 
     var body: some View {
-        Group {
-            if computer.identityMismatch, let requestTrust {
-                Button {
-                    requestTrust(computer.deviceId)
-                } label: {
-                    rowLabel
-                }
-                .buttonStyle(.plain)
-            } else {
-                NavigationLink(value: computer.deviceId) {
-                    rowLabel
-                }
-            }
-        }
+        rowContainer
         .contextMenu { removeMenuButton }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             removeSwipeButton
@@ -87,6 +95,35 @@ struct MacComputerRow: View {
             }
         } message: {
             Text(trustMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var rowContainer: some View {
+        // A changed iroh identity makes the row a re-trust prompt in both
+        // styles: dialing is pointless (the pin gate refuses tokens), so the
+        // only useful tap is the explicit trust decision.
+        if computer.identityMismatch, let requestTrust {
+            Button {
+                requestTrust(computer.deviceId)
+            } label: {
+                rowLabel
+            }
+            .buttonStyle(.plain)
+        } else {
+            switch style {
+            case .computers:
+                NavigationLink(value: computer.deviceId) {
+                    rowLabel
+                }
+            case .reconnect:
+                Button {
+                    connect?(computer.deviceId)
+                } label: {
+                    rowLabel
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -203,6 +240,7 @@ struct MacComputerRow: View {
     /// The connection dot: green only when the PHONE is actually connected to this
     /// Mac. Orange while reconnecting, grey when the phone is not connected (even
     /// if presence says the Mac is online — that's the route/tailscale signal).
+    /// `.reconnect` rows show a spinner while their connect attempt is in flight.
     @ViewBuilder
     private var badge: some View {
         if computer.identityMismatch {
@@ -217,12 +255,17 @@ struct MacComputerRow: View {
             }
             .foregroundStyle(.orange)
             .accessibilityIdentifier("MobileComputerIdentityChanged-\(computer.deviceId)")
+        } else if isConnecting {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel(
+                    L10n.string("mobile.deviceTree.reconnecting", defaultValue: "Reconnecting…"))
         } else {
             Image(systemName: "circle.fill")
                 .font(.caption2)
                 .foregroundStyle(dotColor)
-                .accessibilityLabel(connectionPhrase)
-                .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(isConnected ? "connected" : "disconnected")")
+                .accessibilityLabel(primaryStatusPhrase)
+                .accessibilityIdentifier("MobileComputerStatus-\(computer.deviceId)-\(statusIdentifierSuffix)")
         }
     }
 
@@ -270,14 +313,32 @@ struct MacComputerRow: View {
     }
 
     private var dotColor: Color {
-        switch computer.connectionStatus {
-        case .connected: return .green
-        case .reconnecting: return .orange
-        case .unavailable, nil: return .secondary.opacity(0.5)
+        switch style {
+        case .computers:
+            switch computer.connectionStatus {
+            case .connected: return .green
+            case .reconnecting: return .orange
+            case .unavailable, nil: return .secondary.opacity(0.5)
+            }
+        case .reconnect:
+            // Disconnected screen: the phone talks to no Mac, so the phone
+            // connection is uniformly grey and carries no signal. Presence is
+            // the signal that matters — green marks the Macs worth tapping.
+            return computer.presence == .online ? .green : .secondary.opacity(0.5)
         }
     }
 
     private var isConnected: Bool { computer.connectionStatus == .connected }
+
+    /// The dot's automation suffix, derived from the same signal as its color so
+    /// UI tests and debugging never disagree with the visible state: phone
+    /// connection on the Computers screen, presence on the reconnect list.
+    private var statusIdentifierSuffix: String {
+        switch style {
+        case .computers: return isConnected ? "connected" : "disconnected"
+        case .reconnect: return computer.presence == .online ? "online" : "offline"
+        }
+    }
 
     private var avatarGradient: LinearGradient {
         MachineAvatarColors.gradient(
@@ -295,10 +356,40 @@ struct MacComputerRow: View {
         }
     }
 
-    /// Primary line: the phone's connection to this Mac + workspace count.
+    /// Primary line. `.computers`: the phone's connection to this Mac + workspace
+    /// count. `.reconnect`: presence ("Online" / "Last seen …") — the phone is
+    /// connected to nothing and the cached workspace count is stale, so neither
+    /// carries information there.
     private var connectionLine: String {
-        let count = L10n.terminalCountWorkspaces(computer.workspaceCount)
-        return "\(connectionPhrase) · \(count)"
+        switch style {
+        case .computers:
+            let count = L10n.terminalCountWorkspaces(computer.workspaceCount)
+            return "\(connectionPhrase) · \(count)"
+        case .reconnect:
+            return reconnectStatusPhrase
+        }
+    }
+
+    /// What the status dot means, for accessibility: the phone connection on the
+    /// Computers screen, presence on the disconnected screen.
+    private var primaryStatusPhrase: String {
+        switch style {
+        case .computers: return connectionPhrase
+        case .reconnect: return reconnectStatusPhrase
+        }
+    }
+
+    /// Presence with a last-seen fallback from the paired store, so a
+    /// `.reconnect` row always shows something more useful than "unknown".
+    private var reconnectStatusPhrase: String {
+        switch computer.presence {
+        case .online:
+            return L10n.string("mobile.deviceTree.online", defaultValue: "Online")
+        case .offline(let lastSeenAt):
+            return lastSeenLine(max(lastSeenAt, computer.lastSeenAt))
+        case nil:
+            return lastSeenLine(computer.lastSeenAt)
+        }
     }
 
     private var connectionPhrase: String {
@@ -322,13 +413,23 @@ struct MacComputerRow: View {
     /// seen) still shows, and the full presence state is always in the detail sheet.
     private var diagnosticLine: String {
         let route = computer.routeDescription ?? L10n.string("mobile.computers.noRoute", defaultValue: "no route")
-        if isConnected, computer.presence == nil {
-            return route
+        var line: String
+        // `.reconnect` rows lead with presence on the primary line, so repeating
+        // it here would be noise — the diagnostic line is just the route.
+        if style == .reconnect || (isConnected && computer.presence == nil) {
+            line = route
+        } else {
+            line = String(
+                format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
+                presencePhrase, route
+            )
         }
-        return String(
-            format: L10n.string("mobile.computers.diagnosticFormat", defaultValue: "Presence: %@ · %@"),
-            presencePhrase, route
-        )
+        // A stale same-named record (usually an old dev-build pairing) says so,
+        // so several identically named rows stop looking interchangeable.
+        if computer.isOlderDuplicate {
+            line = "\(L10n.string("mobile.computers.olderPairing", defaultValue: "Older pairing")) · \(line)"
+        }
+        return line
     }
 
     private var presencePhrase: String {

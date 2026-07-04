@@ -32,6 +32,13 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     let workspaceCount: Int
     /// Stored paired-Mac ids represented by this visible row.
     let aliasIDs: [String]
+    /// Whether a fresher row with the same computer name exists and this row is
+    /// not online: almost always a stale pairing record from an older dev-build
+    /// device id (pre-shared-device-id, cmux PR
+    /// https://github.com/manaflow-ai/cmux/pull/6772), kept so the user can
+    /// still reconnect or remove it. Labeled so several identically named
+    /// entries stop looking interchangeable.
+    var isOlderDuplicate: Bool = false
 
     var id: String { deviceId }
 }

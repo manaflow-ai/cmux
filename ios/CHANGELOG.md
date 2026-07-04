@@ -46,6 +46,7 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 
 ### Internal
 
+- Disconnected "Your Computers" screen rebuilt: coalesced one-row-per-Mac list (no more duplicate dev-build pills), online/last-seen status, tap to reconnect with spinner and failure alert, swipe to remove.
 - Composer: iMessage-style terminal composer, open by default, inline send, drafts saved per terminal (#5876).
 - View as Text sheet for copy-pasting raw terminal output (#5875).
 - Pairing QR is now minimal and full-width (routes-only payload, Copy IP/Port, no expiry); scans faster (#5872, #5727).
@@ -54,10 +55,13 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 - Workspace list: groups, unread dots, last-activity previews, shared Unread filter (#5726).
 - Watchdog fix: render-grid liveness probes before teardown, fixing a false-fire replay loop (#5869).
 - iroh mobile transport is enabled on release iOS builds with EndpointId pinning. What to test: pair a new cmuxRelay Mac over iroh on a release build, then rotate/reset the Mac identity and confirm the phone shows the re-trust prompt instead of connecting silently.
-- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on.
+- Terminal fills its full height again after closing the keyboard: viewport reports are now serialized and stale echoes dropped, so a late keyboard-up reply can no longer pin the grid small and leave permanent empty space above a TUI (opencode top-gap bug).
+- Terminal stretches to fill the phone when the Mac window is the row constraint: the rendered font auto-fits to the granted grid (never below your chosen size), and reports keep advertising base-font capacity so the grid recovers when the Mac window grows.
+- Dogfood focus: hit the composer (send + drafts), View as Text, pair a Mac via the new QR, lock the phone and confirm a forwarded notification taps through to the right workspace, sign out with airplane mode on. Also open a full-screen TUI, open/close the keyboard rapidly a few times, and confirm no dead band stays above the content.
 
 ### External
 
+- The reconnect screen now shows each of your computers once, with online status and last-seen time. Tap to reconnect, swipe to remove.
 - New terminal composer: type and send like a message, with drafts saved per terminal.
 - View as Text: copy raw terminal output from a clean sheet.
 - Faster, simpler Mac pairing QR, with Copy IP/Port if scanning is awkward.
