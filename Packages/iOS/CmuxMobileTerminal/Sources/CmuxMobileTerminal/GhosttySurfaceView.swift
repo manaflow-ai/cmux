@@ -2530,22 +2530,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Enqueues Ghostty's `scroll_to_bottom` binding action on the serial
     /// surface queue. `ghostty_surface_binding_action` takes the same internal
-    /// surface lock as `process_output`/`render_now`. Callers run on the MAIN
-    /// thread, so calling it inline would contend that lock against the
-    /// off-main renderer/IO during a render storm and wedge main on
-    /// libghostty's futex. Dispatch it on the serial surface queue like the
-    /// absolute `set_font_size` push (see `applyPendingFontSizeIfNeeded`);
-    /// enqueuing after any pending `process_output` also preserves ordering.
-    /// The return is discarded.
+    /// surface lock as `process_output`/`render_now`; inline on MAIN it would
+    /// contend that lock against the off-main renderer/IO during a render
+    /// storm and wedge main on libghostty's futex (same dispatch pattern as
+    /// `applyPendingFontSizeIfNeeded`). Coalesced: one pending snap is enough
+    /// because it runs after everything already queued, so key-repeat during a
+    /// stall never fans out into one lock-taking queue item per event.
     func enqueueScrollToBottom() {
-        guard let surface else { return }
+        guard let surface, !scrollToBottomInFlight else { return }
+        scrollToBottomInFlight = true
         let action = "scroll_to_bottom"
-        outputQueue.async {
+        outputQueue.async { [weak self] in
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
+            DispatchQueue.main.async {
+                self?.scrollToBottomInFlight = false
+            }
         }
     }
+
+    /// True while a `scroll_to_bottom` binding action is queued or running on
+    /// the serial surface queue. Cleared on the reset path alongside the queue
+    /// regeneration so a wedged surface cannot permanently disable the snap.
+    private var scrollToBottomInFlight = false
 
     static func forwardDaemonOutputBytes(_ data: Data) -> Data {
         // The daemon owns terminal byte semantics. iOS must feed Ghostty the
@@ -2914,6 +2922,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceGeneration &+= 1
         outputQueueGeneration &+= 1
         outputQueue = GhosttySurfaceWorkQueue(generation: outputQueueGeneration)
+        scrollToBottomInFlight = false
         bridge = GhosttySurfaceBridge()
         bridge.attach(to: self)
 
@@ -2996,12 +3005,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// in `scrollInitialOutputToBottomIfNeeded`).
     private func handleUserProducedInput() {
         resetCursorBlink()
-        // A flick that is still decelerating would fight the snap: coalesced
-        // deltas already in `pendingScrollLines` flush on the next display-link
-        // frame (after the snap below), and UIScrollView momentum keeps
-        // producing more. Drop the pending deltas and freeze the scroll
-        // mechanics at the current offset (the standard kill-deceleration
-        // idiom) so typed input deterministically lands at the bottom.
+        // A flick still decelerating would fight the snap: deltas already in
+        // `pendingScrollLines` flush on the display-link frame AFTER the snap
+        // below, and UIScrollView momentum keeps producing more. Drop the
+        // pending deltas and freeze the scroll mechanics at the current offset
+        // (kill-deceleration idiom) so typed input lands at the bottom.
         pendingScrollLines = 0
         scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
         enqueueScrollToBottom()
