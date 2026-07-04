@@ -8,6 +8,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPullRequestsKey = "sidebarShowPullRequest"
     static let watchGitStatusKey = "sidebarWatchGitStatus"
     static let showSSHKey = "sidebarShowSSH"
+    static let showSSHHostsKey = "sidebarShowSSHHosts"
     static let showPortsKey = "sidebarShowPorts"
     static let showLogKey = "sidebarShowLog"
     static let showProgressKey = "sidebarShowProgress"
@@ -17,6 +18,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPullRequests = true
     static let watchGitStatus = true
     static let showSSH = true
+    static let showSSHHosts = true
     static let showPorts = true
     static let showLog = true
     static let showProgress = true
@@ -246,6 +248,7 @@ enum SidebarSettingsFileMapping {
             defaultsKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey
         ),
         .init(jsonKey: "showSSH", defaultsKey: SidebarWorkspaceDetailDefaults.showSSHKey),
+        .init(jsonKey: "showSSHHosts", defaultsKey: SidebarWorkspaceDetailDefaults.showSSHHostsKey),
         .init(jsonKey: "showPorts", defaultsKey: SidebarWorkspaceDetailDefaults.showPortsKey),
         .init(jsonKey: "showLog", defaultsKey: SidebarWorkspaceDetailDefaults.showLogKey),
         .init(
@@ -408,6 +411,7 @@ extension CmuxSettingsFileStore {
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.showSSH",
+        "sidebar.showSSHHosts",
         "sidebar.showPorts",
         "sidebar.showLog",
         "sidebar.showProgress",

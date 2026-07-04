@@ -1,0 +1,62 @@
+import AppKit
+import CmuxFoundation
+import Observation
+
+/// Backing model for the sidebar's SSH Hosts section: the concrete host
+/// aliases scanned from `~/.ssh/config` (following `Include` directives) plus
+/// the section's collapse state.
+///
+/// The alias list refreshes from real signals only — model creation (sidebar
+/// mount) and app activation (returning to cmux after editing the config
+/// elsewhere) — never from a timer. Scanning runs off the main actor; the
+/// published list updates only when the result actually changes, so idle
+/// activations don't invalidate the sidebar.
+@MainActor
+@Observable
+final class SSHHostsSidebarModel {
+    private(set) var hostAliases: [String] = []
+    var isCollapsed = false
+
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var appActivationTask: Task<Void, Never>?
+
+    init() {
+        refresh()
+        appActivationTask = Task { [weak self] in
+            let activations = NotificationCenter.default.notifications(
+                named: NSApplication.didBecomeActiveNotification
+            )
+            for await _ in activations {
+                self?.refresh()
+            }
+        }
+    }
+
+    deinit {
+        appActivationTask?.cancel()
+        refreshTask?.cancel()
+    }
+
+    /// Rescans the SSH config. Coalesces: a refresh requested while one is
+    /// already in flight is dropped (the scan is fast and re-triggered by the
+    /// next real signal).
+    func refresh() {
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            let aliases = await Self.scanHostAliases()
+            guard let self else { return }
+            self.refreshTask = nil
+            if self.hostAliases != aliases {
+                self.hostAliases = aliases
+            }
+        }
+    }
+
+    /// Scans `~/.ssh/config` off the main actor and returns the aliases
+    /// sorted for display.
+    private nonisolated static func scanHostAliases() async -> [String] {
+        let scanner = SSHConfigHostAliasScanner(homeDirectory: NSHomeDirectory())
+        return scanner.hostAliases(inConfigAtPath: scanner.defaultUserConfigPath)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+}

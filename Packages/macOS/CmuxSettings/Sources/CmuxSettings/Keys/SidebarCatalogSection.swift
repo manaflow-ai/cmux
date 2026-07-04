@@ -92,6 +92,15 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowSSH"
     )
 
+    /// Visibility of the SSH Hosts section (hosts parsed from `~/.ssh/config`)
+    /// in the workspace sidebar. Independent of `hideAllDetails`, which only
+    /// governs per-workspace-row details.
+    public let showSSHHosts = DefaultsKey<Bool>(
+        id: "sidebar.showSSHHosts",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowSSHHosts"
+    )
+
     public let showPorts = DefaultsKey<Bool>(
         id: "sidebar.showPorts",
         defaultValue: true,

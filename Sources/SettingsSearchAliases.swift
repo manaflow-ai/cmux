@@ -118,6 +118,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:open-pr-links": localized("settings.search.alias.setting.app.open-pr-links", defaultValue: "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded"),
         "sidebarAppearance:open-port-links": localized("settings.search.alias.setting.app.open-port-links", defaultValue: "sidebar.openPortLinksInCmuxBrowser ports localhost links browser default external embedded"),
         "sidebarAppearance:show-ssh": localized("settings.search.alias.setting.app.show-ssh", defaultValue: "sidebar.showSSH remote host target ssh server"),
+        "sidebarAppearance:show-ssh-hosts": localized("settings.search.alias.setting.app.show-ssh-hosts", defaultValue: "sidebar.showSSHHosts ssh config hosts aliases remote servers section connect"),
         "sidebarAppearance:show-ports": localized("settings.search.alias.setting.app.show-ports", defaultValue: "sidebar.showPorts localhost port listener dev server url"),
         "sidebarAppearance:show-log": localized("settings.search.alias.setting.app.show-log", defaultValue: "sidebar.showLog log status latest message imperative"),
         "sidebarAppearance:show-progress": localized("settings.search.alias.setting.app.show-progress", defaultValue: "sidebar.showProgress progress bar percent status set_progress"),
