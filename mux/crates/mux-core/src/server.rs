@@ -6,8 +6,8 @@
 //! turn the connection full-duplex:
 //!
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
-//!   surface-output, surface-exited, title-changed, bell) interleaved
-//!   with responses.
+//!   surface-output, surface-resized, surface-exited, title-changed,
+//!   bell) interleaved with responses.
 //! - `attach-surface` — the server sends `{"event":"vt-state"}` with a
 //!   base64 VT replay of the surface's current state, then a live
 //!   `{"event":"output"}` stream of every subsequent pty byte. Replaying
@@ -533,8 +533,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             Ok(json!({}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
-            let surface = get_surface(mux, surface)?;
-            surface.resize(cols, rows);
+            mux.resize_surface(surface, cols, rows)?;
             Ok(json!({}))
         }
         Command::FocusPane { pane } => {
@@ -569,6 +568,14 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
                     let value = match &event {
                         MuxEvent::SurfaceOutput(id) => {
                             json!({"event": "surface-output", "surface": id})
+                        }
+                        MuxEvent::SurfaceResized { surface, cols, rows } => {
+                            json!({
+                                "event": "surface-resized",
+                                "surface": surface,
+                                "cols": cols,
+                                "rows": rows,
+                            })
                         }
                         MuxEvent::SurfaceExited(id) => {
                             json!({"event": "surface-exited", "surface": id})

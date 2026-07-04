@@ -16,6 +16,12 @@ use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 pub enum MuxEvent {
     /// New output arrived in a surface (coalesced; cleared when rendered).
     SurfaceOutput(SurfaceId),
+    /// A surface's PTY and terminal grid changed size.
+    SurfaceResized {
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+    },
     /// A surface's child exited. The mux has already reaped it from the
     /// tree (a tree-changed follows) by the time this arrives.
     SurfaceExited(SurfaceId),
@@ -180,6 +186,20 @@ impl Mux {
             surface.set_default_colors(colors);
             self.emit(MuxEvent::SurfaceOutput(surface.id));
         }
+    }
+
+    /// Resize a surface and broadcast the final clamped size when it
+    /// actually changes.
+    pub fn resize_surface(&self, id: SurfaceId, cols: u16, rows: u16) -> anyhow::Result<bool> {
+        let Some(surface) = self.surface(id) else {
+            anyhow::bail!("unknown surface {id}");
+        };
+        if !surface.resize(cols, rows) {
+            return Ok(false);
+        }
+        let (cols, rows) = surface.size();
+        self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+        Ok(true)
     }
 
     /// Create a workspace with one screen holding one pane with one tab.

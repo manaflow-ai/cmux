@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use ghostty_vt::RenderState;
@@ -20,6 +21,28 @@ fn shell_opts(script: &str) -> SurfaceOptions {
     SurfaceOptions {
         command: Some(vec!["/bin/sh".to_string(), "-c".to_string(), script.to_string()]),
         ..Default::default()
+    }
+}
+
+fn unique_session(prefix: &str) -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    format!("{prefix}-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+fn read_json_line(reader: &mut BufReader<UnixStream>) -> Option<serde_json::Value> {
+    let mut line = String::new();
+    match reader.read_line(&mut line) {
+        Ok(0) => None,
+        Ok(_) => serde_json::from_str(&line).ok(),
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ) =>
+        {
+            None
+        }
+        Err(e) => panic!("socket read failed: {e}"),
     }
 }
 
@@ -54,6 +77,23 @@ fn surface_runs_command_and_screen_updates() {
 }
 
 #[test]
+fn surface_resize_reports_whether_the_size_changed() {
+    let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 30"));
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    assert!(!surface.resize(80, 24));
+    assert_eq!(surface.size(), (80, 24));
+    assert!(surface.resize(100, 40));
+    assert_eq!(surface.size(), (100, 40));
+    assert!(!surface.resize(100, 40));
+    assert!(surface.resize(0, 0));
+    assert_eq!(surface.size(), (1, 1));
+    assert!(!surface.resize(0, 0));
+
+    mux.close_surface(surface.id);
+}
+
+#[test]
 fn surface_exit_reaps_tree_and_emits_event() {
     let opts =
         SurfaceOptions { command: Some(vec!["/usr/bin/true".to_string()]), ..Default::default() };
@@ -81,10 +121,8 @@ fn surface_exit_reaps_tree_and_emits_event() {
 
 #[test]
 fn control_socket_round_trip() {
-    let mux = Mux::new(
-        format!("test-sock-{}", std::process::id()),
-        shell_opts("printf 'socket-check\\n'; sleep 30"),
-    );
+    let mux =
+        Mux::new(unique_session("test-sock"), shell_opts("printf 'socket-check\\n'; sleep 30"));
     let surface = mux.new_workspace(None, None).unwrap();
 
     let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
@@ -249,6 +287,82 @@ fn control_socket_set_default_colors_merges_fields() {
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], false, "bad color unexpectedly accepted: {line}");
 
+    mux_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_broadcasts_surface_resized_once_per_changed_size() {
+    let mux = Mux::new(unique_session("test-resize-event"), shell_opts("sleep 30"));
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    let sock_path = mux_core::server::serve(mux.clone(), None).unwrap();
+    let subscribe_stream = UnixStream::connect(&sock_path).unwrap();
+    subscribe_stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut subscribe_writer = subscribe_stream.try_clone().unwrap();
+    let mut subscribe_reader = BufReader::new(subscribe_stream);
+
+    let command_stream = UnixStream::connect(&sock_path).unwrap();
+    let mut command_writer = command_stream.try_clone().unwrap();
+    let mut command_reader = BufReader::new(command_stream);
+
+    writeln!(subscribe_writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
+    let response = wait_for(|| read_json_line(&mut subscribe_reader), Duration::from_secs(5))
+        .expect("subscribe response");
+    assert_eq!(response["ok"], true, "subscribe failed: {response}");
+
+    writeln!(
+        command_writer,
+        r#"{{"id":2,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
+        surface.id
+    )
+    .unwrap();
+    let mut line = String::new();
+    command_reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "resize failed: {line}");
+
+    let event = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut subscribe_reader) {
+                if value.get("event").and_then(|v| v.as_str()) == Some("surface-resized") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("no surface-resized event");
+    assert_eq!(event["surface"], surface.id);
+    assert_eq!(event["cols"], 103);
+    assert_eq!(event["rows"], 29);
+    assert_eq!(surface.size(), (103, 29));
+
+    line.clear();
+    writeln!(
+        command_writer,
+        r#"{{"id":3,"cmd":"resize-surface","surface":{},"cols":103,"rows":29}}"#,
+        surface.id
+    )
+    .unwrap();
+    command_reader.read_line(&mut line).unwrap();
+    let response: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "repeated resize failed: {line}");
+
+    let repeated = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut subscribe_reader) {
+                if value.get("event").and_then(|v| v.as_str()) == Some("surface-resized") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_millis(300),
+    );
+    assert!(repeated.is_none(), "same-size resize emitted another event: {repeated:?}");
+
+    mux.close_surface(surface.id);
     mux_core::server::cleanup(&sock_path);
 }
 

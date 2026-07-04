@@ -361,10 +361,14 @@ impl BrowserSurface {
         self.runtime.close_surface(&self.target_id, &self.session_id);
     }
 
-    pub fn resize(&self, cols: u16, rows: u16) {
+    /// Returns whether the cell grid size actually changed (pixel-only
+    /// changes do not count; the CDP work happens either way).
+    pub fn resize(&self, cols: u16, rows: u16) -> bool {
+        let changed = *self.size.lock().unwrap() != (cols.max(1), rows.max(1));
         if let Err(e) = self.try_resize(cols, rows) {
             eprintln!("cmux-mux: browser resize failed for surface {}: {e}", self.meta.id);
         }
+        changed
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {

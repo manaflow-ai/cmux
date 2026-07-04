@@ -378,7 +378,8 @@ impl Surface {
 
     /// Resize this surface. PTYs receive cell dimensions; browsers also
     /// use the last configured cell pixel size for CDP device metrics.
-    pub fn resize(&self, cols: u16, rows: u16) {
+    /// Returns whether the final clamped size actually changed.
+    pub fn resize(&self, cols: u16, rows: u16) -> bool {
         match self {
             Surface::Pty(pty) => pty.resize(cols, rows),
             Surface::Browser(browser) => browser.resize(cols, rows),
@@ -512,13 +513,14 @@ impl Surface {
 }
 
 impl PtySurface {
-    /// Resize both the PTY and the terminal state.
-    fn resize(&self, cols: u16, rows: u16) {
+    /// Resize both the PTY and the terminal state. Returns whether the
+    /// final clamped size actually changed.
+    fn resize(&self, cols: u16, rows: u16) -> bool {
         let (cols, rows) = (cols.max(1), rows.max(1));
         {
             let mut size = self.size.lock().unwrap();
             if *size == (cols, rows) {
-                return;
+                return false;
             }
             *size = (cols, rows);
         }
@@ -530,5 +532,6 @@ impl PtySurface {
         });
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = self.term.lock().unwrap().resize(cols, rows, 8, 16);
+        true
     }
 }
