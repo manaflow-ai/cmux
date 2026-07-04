@@ -2255,7 +2255,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// cannot prove it owns.
     @Published var customTitleSource: CustomTitleSource?
     @Published var customDescription: String?
-    @Published var customTags: [String] = []
+    var customTags: [String] = []
     @Published var isPinned: Bool = false
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
@@ -4644,58 +4644,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    /// Lazily splits editing text into raw tag tokens on `,`/`\n`, matching the
-    /// unicode-scalar semantics of `components(separatedBy: CharacterSet(...))`
-    /// while (a) yielding tokens on demand so a consumer can stop early and
-    /// (b) capping each token at `maxTokenScanLength` scalars. A token longer
-    /// than the cap is still scanned to its delimiter (single pass, O(1) extra
-    /// memory) but only its bounded prefix is materialized, so an unbounded
-    /// field can't allocate proportional to its full length. Empty tokens
-    /// between consecutive delimiters are preserved (the normalizer drops them).
-    ///
-    /// A `maxTotalScanLength` budget caps the scalars scanned across *all*
-    /// tokens: the per-token cap and the consumer's accepted-tag cap don't bound
-    /// input dominated by empty or duplicate tokens (they reach neither cap), so
-    /// this budget is what stops a bare-comma / repeated-token flood from walking
-    /// the whole paste. Once the budget is spent the iterator ends, dropping any
-    /// remaining tail — acceptable because it only triggers on pastes far larger
-    /// than any well-formed tag list.
-    private struct EditingTagTokenSequence: Sequence {
-        let text: String
-        let maxTokenScanLength: Int
-        let maxTotalScanLength: Int
-
-        func makeIterator() -> AnyIterator<String> {
-            let scalars = text.unicodeScalars
-            var index = scalars.startIndex
-            let end = scalars.endIndex
-            var scanned = 0
-            return AnyIterator {
-                // Exhausted once every scalar is consumed OR the total-scan
-                // budget is spent. A token returned at a delimiter that is the
-                // final scalar leaves `index == end`, so the trailing empty
-                // segment is intentionally not emitted (the normalizer would
-                // drop it anyway).
-                guard index < end, scanned < maxTotalScanLength else { return nil }
-                var token = String.UnicodeScalarView()
-                var appended = 0
-                while index < end, scanned < maxTotalScanLength {
-                    let scalar = scalars[index]
-                    index = scalars.index(after: index)
-                    scanned += 1
-                    if scalar == "," || scalar == "\n" {
-                        return String(token)
-                    }
-                    if appended < maxTokenScanLength {
-                        token.append(scalar)
-                        appended += 1
-                    }
-                }
-                return String(token)
-            }
-        }
-    }
-
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
     ///
     /// `.auto` writes are rejected when a user-set title exists, and `.auto`
@@ -4742,7 +4690,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setCustomTags(_ tags: [String]) {
-        customTags = Self.normalizedCustomTags(tags)
+        let normalizedTags = Self.normalizedCustomTags(tags)
+        guard customTags != normalizedTags else { return }
+        customTags = normalizedTags
+        NotificationCenter.default.post(name: .workspaceCustomTagsDidChange, object: self)
     }
 
     func setCustomTags(fromEditingText text: String) {

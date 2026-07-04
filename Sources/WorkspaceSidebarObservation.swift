@@ -78,10 +78,15 @@ extension Workspace {
         let workspaceFields = Publishers.CombineLatest4(
             $title,
             $customDescription,
-            $customTags,
-            $isPinned
+            $isPinned,
+            $customColor
         )
-        .combineLatest($customColor)
+        let customTagsDidChange = NotificationCenter.default.publisher(
+            for: .workspaceCustomTagsDidChange,
+            object: self
+        )
+        .map { _ in () }
+        .prepend(())
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -89,14 +94,16 @@ extension Workspace {
         )
 
         return workspaceFields
+            .combineLatest(customTagsDidChange)
             .combineLatest(conversationFields)
-            .map { workspaceFields, conversationFields in
+            .map { [weak self] workspaceAndTagChange, conversationFields in
+                let workspaceFields = workspaceAndTagChange.0
                 SidebarImmediateObservationState(
-                    title: workspaceFields.0.0,
-                    customDescription: workspaceFields.0.1,
-                    customTags: workspaceFields.0.2,
-                    isPinned: workspaceFields.0.3,
-                    customColor: workspaceFields.1,
+                    title: workspaceFields.0,
+                    customDescription: workspaceFields.1,
+                    customTags: self?.customTags ?? [],
+                    isPinned: workspaceFields.2,
+                    customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2

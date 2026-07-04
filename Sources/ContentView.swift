@@ -9988,10 +9988,7 @@ struct VerticalTabsSidebar: View {
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     @State private var selectedWorkspaceTagFilter: String?
     @State private var workspaceTagProjection = WorkspaceTagProjection.empty
-    @State private var workspaceTagsObservationWorkspaceIds: [UUID] = []
-    @State private var workspaceTagsObservationPublishersBuilt = false
-    @State private var workspaceTagsObservationPublisher: AnyPublisher<Void, Never> =
-        Empty<Void, Never>().eraseToAnyPublisher()
+    @State private var workspaceTagsRevision: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
     // re-subscribed `.onReceive` to a fresh publisher every render, replaying
@@ -10390,55 +10387,6 @@ struct VerticalTabsSidebar: View {
         var workspaceIds: [UUID] { tabIds }
     }
 
-    private struct WorkspaceTagProjection: Equatable {
-        static let empty = WorkspaceTagProjection(availableTags: [], workspaceIdsByTagKey: [:])
-
-        let availableTags: [String]
-        let workspaceIdsByTagKey: [String: Set<UUID>]
-
-        func workspaceIds(matching tag: String) -> Set<UUID> {
-            workspaceIdsByTagKey[Self.key(for: tag)] ?? []
-        }
-
-        static func key(for tag: String) -> String {
-            Workspace.customTagFoldingKey(tag)
-        }
-    }
-
-    private static func workspaceTagProjection(in workspaces: [Workspace]) -> WorkspaceTagProjection {
-        var seenKeys = Set<String>()
-        var availableTags: [String] = []
-        var workspaceIdsByTagKey: [String: Set<UUID>] = [:]
-
-        for workspace in workspaces {
-            for tag in Workspace.normalizedCustomTags(workspace.customTags) {
-                let key = WorkspaceTagProjection.key(for: tag)
-                if seenKeys.insert(key).inserted {
-                    availableTags.append(tag)
-                }
-                workspaceIdsByTagKey[key, default: []].insert(workspace.id)
-            }
-        }
-
-        return WorkspaceTagProjection(
-            availableTags: availableTags.sorted {
-                $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-            },
-            workspaceIdsByTagKey: workspaceIdsByTagKey
-        )
-    }
-
-    private static func visibleWorkspaces(
-        in workspaces: [Workspace],
-        matching tag: String?,
-        projection: WorkspaceTagProjection
-    ) -> [Workspace] {
-        guard let tag else { return workspaces }
-        let visibleWorkspaceIds = projection.workspaceIds(matching: tag)
-        guard !visibleWorkspaceIds.isEmpty else { return [] }
-        return workspaces.filter { visibleWorkspaceIds.contains($0.id) }
-    }
-
     var body: some View {
 #if DEBUG
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
@@ -10451,7 +10399,7 @@ struct VerticalTabsSidebar: View {
         )
         let activeWorkspaceTagFilter = usesDefaultWorkspaceSidebar ? selectedWorkspaceTagFilter : nil
         let tagProjection = workspaceTagProjection
-        let visibleTabs = Self.visibleWorkspaces(
+        let visibleTabs = WorkspaceTagProjection.visibleWorkspaces(
             in: tabs,
             matching: activeWorkspaceTagFilter,
             projection: tagProjection
@@ -10797,18 +10745,23 @@ struct VerticalTabsSidebar: View {
                     }
                 }
                 .onAppear {
-                    refreshWorkspaceTagsObservationPublisher(tabs: tabManager.tabs)
                     refreshWorkspaceTagsList(tabs: tabManager.tabs)
                 }
                 .onChange(of: renderContext.allWorkspaceIds) { _, _ in
-                    refreshWorkspaceTagsObservationPublisher(tabs: tabManager.tabs)
                     refreshWorkspaceTagsList(tabs: tabManager.tabs)
                 }
-                .onReceive(workspaceTagsObservationPublisher) { _ in
-                    refreshWorkspaceTagsList(tabs: tabManager.tabs)
-                }
-                .onDisappear {
-                    clearWorkspaceTagsObservationPublisher()
+                .task(id: renderContext.allWorkspaceIds) { @MainActor in
+                    let observedWorkspaceIds = Set(renderContext.allWorkspaceIds)
+                    for await notification in NotificationCenter.default.notifications(
+                        named: .workspaceCustomTagsDidChange
+                    ) {
+                        if Task.isCancelled { break }
+                        guard let workspace = notification.object as? Workspace,
+                              observedWorkspaceIds.contains(workspace.id)
+                        else { continue }
+                        workspaceTagsRevision &+= 1
+                        refreshWorkspaceTagsList(tabs: tabManager.tabs)
+                    }
                 }
             }
         }
@@ -10825,42 +10778,9 @@ struct VerticalTabsSidebar: View {
     }
 
     private func refreshWorkspaceTagsList(tabs: [Workspace]) {
-        let nextProjection = Self.workspaceTagProjection(in: tabs)
+        let nextProjection = WorkspaceTagProjection.make(in: tabs)
         guard workspaceTagProjection != nextProjection else { return }
         workspaceTagProjection = nextProjection
-    }
-
-    private func clearWorkspaceTagsObservationPublisher() {
-        workspaceTagsObservationWorkspaceIds = []
-        workspaceTagsObservationPublishersBuilt = false
-        workspaceTagProjection = .empty
-        workspaceTagsObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
-    }
-
-    private func refreshWorkspaceTagsObservationPublisher(tabs: [Workspace]) {
-        let workspaceIds = tabs.map(\.id)
-        guard !workspaceTagsObservationPublishersBuilt ||
-              workspaceIds != workspaceTagsObservationWorkspaceIds
-        else { return }
-
-        workspaceTagsObservationPublishersBuilt = true
-        workspaceTagsObservationWorkspaceIds = workspaceIds
-
-        guard !tabs.isEmpty else {
-            workspaceTagsObservationPublisher = Empty<Void, Never>().eraseToAnyPublisher()
-            return
-        }
-
-        workspaceTagsObservationPublisher = Publishers.MergeMany(
-            tabs.map {
-                $0.$customTags
-                    .dropFirst()
-                    .map { _ in () }
-                    .eraseToAnyPublisher()
-            }
-        )
-        .receive(on: RunLoop.main)
-        .eraseToAnyPublisher()
     }
 
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
