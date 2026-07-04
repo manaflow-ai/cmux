@@ -35,10 +35,17 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
             lines += foregroundAuthLines(foregroundAuth)
         }
         let requireExistingFlag = requireExisting ? " --require-existing" : ""
-        let commandB64Flag = normalized(remoteCommand).map {
-            " --command-b64 \(shellQuote(Data($0.utf8).base64EncodedString()))"
+        // Carry the remote bootstrap compressed (zlib+base64) so a restored
+        // session's attach command does not inline ≈280 KB of base64 into argv
+        // and bloat `ps aux` (manaflow-ai/cmux#6738). Fall back to plain base64 if
+        // compression somehow fails so the command is always well-formed.
+        let commandFlag = normalized(remoteCommand).map { command -> String in
+            if let compressed = command.deflatedBase64 {
+                return " --command-zb64 \(shellQuote(compressed))"
+            }
+            return " --command-b64 \(shellQuote(Data(command.utf8).base64EncodedString()))"
         } ?? ""
-        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandB64Flag)"
+        let attachCommand = "\"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"\(commandFlag)"
         lines += retryingAttachLines(command: attachCommand)
         return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
     }
