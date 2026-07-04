@@ -3,14 +3,24 @@ import Foundation
 
 final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     private var dataPath = ""
+    private var socketPath = ""
     private var browserHistorySeedJSON: String?
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
-        dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(UUID().uuidString).json"
+        let token = UUID().uuidString
+        dataPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(token).json"
+        socketPath = "/tmp/cmux-ui-test-omnibar-suggestions-\(token).sock"
         browserHistorySeedJSON = nil
         try? FileManager.default.removeItem(atPath: dataPath)
+        try? FileManager.default.removeItem(atPath: socketPath)
+        try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
+        addTeardownBlock { [dataPath, socketPath] in
+            try? FileManager.default.removeItem(atPath: dataPath)
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
+        }
 
         // Terminate any lingering app from a prior test so its debounced
         // history-save doesn't overwrite the seeded browser_history.json.
@@ -116,17 +126,19 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         // Keep suggestions deterministic.
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         launchAndEnsureForeground(app)
+        XCTAssertTrue(
+            waitForGotoSplitSetup(timeout: 10.0),
+            "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
+        )
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         XCTAssertTrue(
-            focusOmnibarWithCmdL(app: app, omnibar: omnibar, timeout: 4.0),
-            "Expected Cmd+L to place keyboard focus in omnibar before typing"
+            typeQueryAndWaitForSuggestions(app: app, omnibar: omnibar, query: "exam", timeout: 8.0, attempts: 5),
+            "Expected omnibar suggestions to appear for 'exam'"
         )
 
         // Focus omnibar and navigate to example.com via autocompletion (row 0).
-        omnibar.typeText("exam")
-
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
 
@@ -541,19 +553,30 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         seedBrowserHistoryForTest()
 
         let app = XCUIApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        configureSocketLaunch(app)
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         launchAndEnsureForeground(app)
-
-        app.typeKey("l", modifierFlags: [.command])
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), socketReadinessFailureMessage())
+        XCTAssertTrue(
+            waitForGotoSplitSetup(timeout: 10.0),
+            "Expected goto_split setup data before typing. data=\(String(describing: loadGotoSplitData()))"
+        )
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        omnibar.typeText("exam")
+        XCTAssertTrue(
+            typeQueryAndWaitForSuggestions(app: app, omnibar: omnibar, query: "exam", timeout: 8.0, attempts: 5),
+            "Expected omnibar suggestions to appear for 'exam'"
+        )
 
-        let valueAfterTyping = (omnibar.value as? String) ?? ""
+        let valueAfterTyping = waitForInlineCompletion(
+            in: omnibar,
+            typedPrefix: "exam",
+            expectedSubstring: "example.com",
+            timeout: 6.0
+        ) ?? ((omnibar.value as? String) ?? "")
         XCTAssertTrue(
             valueAfterTyping.contains("example.com"),
             "Expected inline completion to display a URL for typed prefix. value=\(valueAfterTyping)"
@@ -563,15 +586,23 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             "Expected inline completion display to avoid injecting an https:// prefix unless typed."
         )
 
-        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-
-        let valueAfterDeleteAndEscape = (omnibar.value as? String) ?? ""
+        let backspaceResponse = socketCommand("simulate_shortcut backspace")
         XCTAssertEqual(
-            valueAfterDeleteAndEscape,
-            "exa",
-            "Expected Backspace with inline suffix selected to remove one typed prefix character."
+            backspaceResponse,
+            "OK",
+            "Expected socket shortcut simulation to send Backspace through AppKit. response=\(String(describing: backspaceResponse)) \(socketDebugState())"
         )
+
+        var valueAfterDelete = ""
+        let revealedTypedPrefix = waitForCondition(timeout: 3.0) {
+            valueAfterDelete = (omnibar.value as? String) ?? ""
+            return valueAfterDelete == "exa"
+        }
+        XCTAssertTrue(
+            revealedTypedPrefix,
+            "Expected Backspace with inline suffix selected to remove one typed prefix character. value=\(valueAfterDelete)"
+        )
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
     }
 
     func testCmdASelectAllDoesNotClearInlineCompletion() {
@@ -616,22 +647,53 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         if let browserHistorySeedJSON {
             app.launchEnvironment["CMUX_UI_TEST_BROWSER_HISTORY_JSON"] = browserHistorySeedJSON
         }
-        app.launch()
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: timeout),
-            "Expected app to launch in foreground. state=\(app.state.rawValue)"
-        )
-    }
-
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
         }
+
+        guard app.state == .runningForeground || app.state == .runningBackground else {
+            XCTFail("App failed to start. state=\(app.state.rawValue)")
+            return
+        }
+
         if app.state == .runningBackground {
             app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
+            XCTAssertTrue(
+                waitForCondition(timeout: timeout) {
+                    app.state == .runningForeground
+                },
+                "Expected app to become foreground before sending global key events. state=\(app.state.rawValue)"
+            )
         }
-        return false
+    }
+
+    private func configureSocketLaunch(_ app: XCUIApplication) {
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        waitForControlSocketReady(socketPath: socketPath, pingTimeout: timeout) {
+            self.socketCommand("ping") == "PONG"
+        }
+    }
+
+    private func socketReadinessFailureMessage() -> String {
+        "Expected control socket at \(socketPath)."
+    }
+
+    private func socketDebugState() -> String {
+        "socketPath=\(socketPath) exists=\(FileManager.default.fileExists(atPath: socketPath))"
+    }
+
+    private func socketCommand(_ command: String) -> String? {
+        controlSocketCommandViaNetcat(command, socketPath: socketPath, responseTimeout: 3.0)
     }
 
     private struct SeedEntry {
@@ -712,6 +774,23 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         return rawValue.localizedCaseInsensitiveContains("selected")
     }
 
+    private func waitForGotoSplitSetup(timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadGotoSplitData() else { return false }
+            return data["browserPanelId"]?.isEmpty == false &&
+                data["webViewFocused"] == "true"
+        }
+    }
+
+    private func loadGotoSplitData() -> [String: String]? {
+        guard !dataPath.isEmpty,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
+    }
+
     private func typeQueryAndWaitForSuggestions(
         app: XCUIApplication,
         omnibar: XCUIElement,
@@ -727,11 +806,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             }
             app.typeKey("l", modifierFlags: [.command])
             guard omnibar.waitForExistence(timeout: 6.0) else { continue }
-            omnibar.click()
+            clickOmnibarForTyping(app: app, omnibar: omnibar)
             app.typeKey("a", modifierFlags: [.command])
             app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-            omnibar.click()
-            omnibar.typeText(query)
+            clickOmnibarForTyping(app: app, omnibar: omnibar)
+            app.typeText(query)
             if suggestions.waitForExistence(timeout: timeout) {
                 return true
             }
@@ -741,28 +820,32 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         return suggestions.exists
     }
 
-    private func focusOmnibarWithCmdL(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
-        let attempts = max(1, Int(ceil(timeout)))
-        for _ in 0..<attempts {
-            app.typeKey("l", modifierFlags: [.command])
-            guard omnibar.waitForExistence(timeout: 1.0) else { continue }
-
-            let before = (omnibar.value as? String) ?? ""
-            omnibar.typeText("z")
-
-            if waitForCondition(timeout: 0.5, predicate: {
-                let value = (omnibar.value as? String) ?? ""
-                return value != before
-            }) {
-                app.typeKey("a", modifierFlags: [.command])
-                app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
-                return true
-            }
-
-            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    private func clickOmnibarForTyping(app: XCUIApplication, omnibar: XCUIElement) {
+        let pill = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarPill").firstMatch
+        if pill.waitForExistence(timeout: 1.0), pill.isHittable {
+            pill.click()
+            return
         }
-        return false
+        omnibar.click()
+    }
+
+    private func waitForInlineCompletion(
+        in omnibar: XCUIElement,
+        typedPrefix: String,
+        expectedSubstring: String,
+        timeout: TimeInterval
+    ) -> String? {
+        let normalizedPrefix = typedPrefix.lowercased()
+        let normalizedSubstring = expectedSubstring.lowercased()
+        var observedValue = ""
+        let matched = waitForCondition(timeout: timeout) {
+            observedValue = (omnibar.value as? String) ?? ""
+            let normalized = observedValue.lowercased()
+            return normalized.hasPrefix(normalizedPrefix) &&
+                normalized.contains(normalizedSubstring) &&
+                observedValue.utf16.count > typedPrefix.utf16.count
+        }
+        return matched ? observedValue : nil
     }
 
     private func containsExampleDomain(_ value: String) -> Bool {

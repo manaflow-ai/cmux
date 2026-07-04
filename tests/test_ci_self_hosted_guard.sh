@@ -2,8 +2,8 @@
 # Regression test for https://github.com/manaflow-ai/cmux/issues/385.
 # Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
 # through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
-# GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/ci-runners.md.
+# GitHub-hosted runner. GUI jobs use MACOS_RUNNER_DISPLAY. Flip cloud
+# providers by editing those repo variables; see docs/ci-runners.md.
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -48,6 +48,24 @@ check_display_runner_identity_guard() {
   fi
 
   echo "PASS: $job in $(basename "$file") validates display runner identity"
+}
+
+check_ui_regressions_display_runner_fail_closed() {
+  if ! awk '
+    /^  ui-regressions:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /runs-on:/ && /startsWith\(vars\.MACOS_RUNNER_DISPLAY, '\''depot-'\''\)/ && /depot-macos-latest/ { saw_runs_on=1 }
+    in_job && /REQUESTED_RUNNER:/ && /startsWith\(vars\.MACOS_RUNNER_DISPLAY, '\''depot-'\''\)/ && /depot-macos-latest/ { saw_requested=1 }
+    in_job && /case "\$REQUESTED_RUNNER" in/ { saw_case=1 }
+    in_job && /depot-\*\)/ { saw_depot_case=1 }
+    in_job && /ui-regressions requires a display-capable Depot runner/ { saw_non_depot_error=1 }
+    END { exit !(saw_runs_on && saw_requested && saw_case && saw_depot_case && saw_non_depot_error) }
+  ' "$CI_FILE"; then
+    echo "FAIL: ui-regressions must fail closed to a display-capable Depot runner when MACOS_RUNNER_DISPLAY is unset or non-Depot"
+    exit 1
+  fi
+
+  echo "PASS: ui-regressions fails closed to a display-capable Depot runner"
 }
 
 check_release_build_runner_disk_capacity() {
@@ -124,7 +142,7 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
+  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
     exit 1
   fi
@@ -801,7 +819,7 @@ check_macos_runner "$CI_FILE" "release-build"
 check_macos_runner "$CI_FILE" "ui-regressions"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_display_runner_identity_guard "$CI_FILE" "ui-regressions"
+check_ui_regressions_display_runner_fail_closed
 check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
