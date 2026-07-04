@@ -6134,59 +6134,58 @@ extension TabManager {
         return tab.panels[panelId] as? FindablePanel
     }
 
-    /// The focused non-terminal find target. A focused browser panel takes precedence over a
-    /// generic findable panel. Resolving it here (instead of re-deriving the browser-vs-findable
-    /// branch in every routing helper) keeps the precedence in one place, so a newly added find
-    /// action can't silently skip the browser case.
-    private enum ResolvedFindTarget {
-        case browser(BrowserPanel)
-        case findable(FindablePanel)
-    }
-
-    private var resolvedFindTarget: ResolvedFindTarget? {
-        if let browserPanel = focusedBrowserPanel { return .browser(browserPanel) }
-        if let findablePanel = focusedFindablePanel { return .findable(findablePanel) }
-        return nil
+    /// Dispatches to the focused non-terminal find target with browser precedence.
+    @discardableResult
+    private func routeFocusedFindTarget(
+        browser: (BrowserPanel) -> Bool,
+        findable: (FindablePanel) -> Bool
+    ) -> Bool {
+        if let browserPanel = focusedBrowserPanel { return browser(browserPanel) }
+        if let findablePanel = focusedFindablePanel { return findable(findablePanel) }
+        return false
     }
 
     /// Opens find in the focused browser or findable panel.
     @discardableResult
     func startFindInFocusedNonTerminalPanel() -> Bool {
-        switch resolvedFindTarget {
-        case .browser(let browserPanel):
+        routeFocusedFindTarget { browserPanel in
             browserPanel.startFind()
             return browserPanel.searchState != nil
-        case .findable(let findablePanel):
+        } findable: { findablePanel in
             return findablePanel.startFind()
-        case nil:
-            return false
         }
     }
 
     /// Navigates to the next find result in the focused browser or findable panel.
     func findNextInFocusedNonTerminalPanel() {
-        switch resolvedFindTarget {
-        case .browser(let browserPanel): browserPanel.findNext()
-        case .findable(let findablePanel): findablePanel.findNext()
-        case nil: break
+        routeFocusedFindTarget { browserPanel in
+            browserPanel.findNext()
+            return true
+        } findable: { findablePanel in
+            findablePanel.findNext()
+            return true
         }
     }
 
     /// Navigates to the previous find result in the focused browser or findable panel.
     func findPreviousInFocusedNonTerminalPanel() {
-        switch resolvedFindTarget {
-        case .browser(let browserPanel): browserPanel.findPrevious()
-        case .findable(let findablePanel): findablePanel.findPrevious()
-        case nil: break
+        routeFocusedFindTarget { browserPanel in
+            browserPanel.findPrevious()
+            return true
+        } findable: { findablePanel in
+            findablePanel.findPrevious()
+            return true
         }
     }
 
     /// Hides find UI in the focused browser or findable panel.
     func hideFindInFocusedNonTerminalPanel() {
-        switch resolvedFindTarget {
-        case .browser(let browserPanel): browserPanel.hideFind()
-        case .findable(let findablePanel): findablePanel.hideFind()
-        case nil: break
+        routeFocusedFindTarget { browserPanel in
+            browserPanel.hideFind()
+            return true
+        } findable: { findablePanel in
+            findablePanel.hideFind()
+            return true
         }
     }
 }
