@@ -72,7 +72,8 @@ struct VoiceModeView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(L10n.string("mobile.settings.done", defaultValue: "Done")) {
-                        stopListening()
+                        // `onDisappear` hard-cancels the session; no graceful
+                        // stop here, so dismissal can never leave work behind.
                         dismiss()
                     }
                     .accessibilityIdentifier("MobileVoiceModeDone")
@@ -85,7 +86,13 @@ struct VoiceModeView: View {
                 MobileHostPickerView(store: store)
             }
             .onDisappear {
-                stopListening()
+                // Leaving the screen is a hard cancel, not a graceful stop: a
+                // graceful finish waits on the recognizer's final result, so a
+                // stalled recognizer would keep the unstructured update task and
+                // the ASR/CoreML session retained past the view lifetime.
+                // Dropping the unfinalized tail on navigation matches composer
+                // dictation's navigation semantics.
+                clearListeningSession(cancelSession: true, cancelUpdateTask: true)
             }
         }
         .accessibilityIdentifier("MobileVoiceModeView")

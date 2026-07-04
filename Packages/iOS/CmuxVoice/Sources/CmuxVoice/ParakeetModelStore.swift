@@ -5,6 +5,9 @@ import OSLog
 
 private let parakeetModelStoreLog = Logger(subsystem: "dev.cmux.ios", category: "parakeet-model-store")
 
+/// Prefix for renamed-aside model directories awaiting background removal.
+private let parakeetPendingDeletePrefix = ".pending-delete-"
+
 /// Owns the Parakeet CoreML model location and download lifecycle.
 @MainActor
 @Observable
@@ -44,6 +47,7 @@ public final class ParakeetModelStore {
             .appendingPathComponent("cmux-voice-models", isDirectory: true)
             .appendingPathComponent(Self.modelDirectoryName, isDirectory: true)
         self.state = installedDetector(modelDirectory) ? .installed : .idle
+        sweepPendingDeletes(in: modelDirectory.deletingLastPathComponent(), fileManager: fileManager)
     }
 
     /// Whether the model currently exists on disk.
@@ -114,12 +118,46 @@ public final class ParakeetModelStore {
     }
 
     /// Deletes the local model directory and returns to idle.
+    ///
+    /// The store is `@MainActor` and the compiled model tree is ~480 MB, so a
+    /// synchronous `removeItem` here would block the settings UI. Instead the
+    /// directory is atomically renamed aside (an O(1) same-volume rename, so
+    /// `isInstalled` flips immediately and a failure still throws), and the
+    /// actual byte removal runs on a detached utility task. Orphaned rename
+    /// targets from a mid-delete crash are swept by `sweepPendingDeletes()`.
     public func deleteModel() throws {
         cancelDownload()
         if fileManager.fileExists(atPath: modelDirectory.path) {
-            try fileManager.removeItem(at: modelDirectory)
+            let pendingDelete = modelDirectory.deletingLastPathComponent()
+                .appendingPathComponent("\(parakeetPendingDeletePrefix)\(UUID().uuidString)", isDirectory: true)
+            try fileManager.moveItem(at: modelDirectory, to: pendingDelete)
+            // FileManager is documented thread-safe for path operations; the
+            // annotation only bridges its missing Sendable conformance.
+            nonisolated(unsafe) let backgroundFileManager = fileManager
+            Task.detached(priority: .utility) {
+                try? backgroundFileManager.removeItem(at: pendingDelete)
+            }
         }
         state = .idle
+    }
+
+
+    /// Removes leftover pending-delete directories (from a launch that died
+    /// between the rename and the background removal). Runs off the main actor.
+    private nonisolated func sweepPendingDeletes(in baseDirectory: URL, fileManager: FileManager) {
+        // FileManager is documented thread-safe for path operations; the
+        // annotation only bridges its missing Sendable conformance.
+        nonisolated(unsafe) let fileManager = fileManager
+        Task.detached(priority: .utility) {
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: baseDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsSubdirectoryDescendants]
+            ) else { return }
+            for entry in entries where entry.lastPathComponent.hasPrefix(parakeetPendingDeletePrefix) {
+                try? fileManager.removeItem(at: entry)
+            }
+        }
     }
 
     /// Returns whether FluidAudio can find the required Parakeet v3 files.
