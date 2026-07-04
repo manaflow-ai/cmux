@@ -317,6 +317,15 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     }
 
     func clearWorkspaceGitMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspaceGitProbeTracking(for: key)
+        guard let host, host.workspaceExists(key.workspaceId) else {
+            return
+        }
+        host.clearPanelGitBranch(workspaceId: key.workspaceId, panelId: key.panelId)
+        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func clearWorkspaceGitProbeTracking(for key: WorkspaceGitProbeKey) {
         clearWorkspaceGitProbe(key)
         workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
         updateWorkspaceGitMetadataFallbackTimer()
@@ -324,11 +333,6 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             workspaceId: key.workspaceId,
             panelId: key.panelId
         )
-        guard let host, host.workspaceExists(key.workspaceId) else {
-            return
-        }
-        host.clearPanelGitBranch(workspaceId: key.workspaceId, panelId: key.panelId)
-        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
     }
 
     public func clearWorkspaceGitProbes(workspaceId: UUID) {

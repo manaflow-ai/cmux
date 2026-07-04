@@ -63,10 +63,15 @@ extension SidebarGitMetadataService {
         if previousDirectory != nextDirectory || (clearMetadataBeforeRefresh && !hadTrustedRemoteDirectory) {
             let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
             if clearMetadataBeforeRefresh {
-                clearWorkspaceGitMetadata(for: probeKey)
                 if host.isRemoteWorkspace(workspaceId) == true {
+                    clearWorkspaceGitProbeTracking(for: probeKey)
+                    if hadTrustedRemoteDirectory, previousDirectory != nextDirectory {
+                        host.clearPanelGitBranch(workspaceId: workspaceId, panelId: panelId)
+                        host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
+                    }
                     return
                 }
+                clearWorkspaceGitMetadata(for: probeKey)
             }
             guard sidebarGitMetadataWatchEnabled else {
                 if !clearMetadataBeforeRefresh {

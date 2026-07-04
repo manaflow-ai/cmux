@@ -116,6 +116,94 @@ import CmuxGit
         #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
     }
 
+    @Test func remotePwdPreservesMetadataReportedBeforeFirstTrustedDirectory() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: nil)
+        host.workspaces[0].state.isRemote = true
+        let clock = ManualGitPollClock()
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "local-main")),
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+        let badge = SidebarPullRequestBadge(
+            number: 7277,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/7277")!,
+            status: .open,
+            branch: "remote-main"
+        )
+
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "remote-main",
+            isDirty: false
+        )
+        host.updatePanelPullRequest(workspaceId: workspaceId, panelId: panelId, badge: badge)
+        service.updateRemoteSurfaceDirectory(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: "/srv/project",
+            displayLabel: nil
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == SidebarPanelGitBranch(
+            branch: "remote-main",
+            isDirty: false
+        ))
+        #expect(host.workspaces[0].state.panels[panelId]?.badge == badge)
+        #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+        #expect(!host.events.contains(.clearGitBranch(workspaceId, panelId)))
+        #expect(!host.events.contains(.clearPullRequestBadge(workspaceId, panelId)))
+    }
+
+    @Test func trustedRemoteDirectoryChangeClearsStaleMetadataWithoutLocalProbe() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/srv/old")
+        host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.hasTrustedRemoteDirectory = true
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "old-main",
+            isDirty: true
+        )
+        let badge = SidebarPullRequestBadge(
+            number: 7000,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/7000")!,
+            status: .open,
+            branch: "old-main"
+        )
+        host.workspaces[0].state.panels[panelId]?.badge = badge
+        let clock = ManualGitPollClock()
+        let pullRequestProbing = RecordingPullRequestProbing()
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "local-main")),
+            clock: clock,
+            pullRequestProbing: pullRequestProbing
+        )
+
+        service.updateRemoteSurfaceDirectory(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: "/srv/new",
+            displayLabel: nil
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.branch == nil)
+        #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
+        #expect(host.events.contains(.clearGitBranch(workspaceId, panelId)))
+        #expect(host.events.contains(.clearPullRequestBadge(workspaceId, panelId)))
+        service.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+        #expect(await clock.recordedDurations.isEmpty)
+        #expect(pullRequestProbing.scheduledRefreshes.isEmpty)
+    }
+
     /// A repository probe projects the branch (with dirty flag) onto the
     /// panel and, with PR polling enabled, schedules a PR refresh.
     @Test func repositorySnapshotProjectsBranchAndSchedulesPullRequestRefresh() async throws {
