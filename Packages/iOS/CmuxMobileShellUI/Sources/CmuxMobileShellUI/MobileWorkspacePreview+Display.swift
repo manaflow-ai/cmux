@@ -33,10 +33,15 @@ extension MobileWorkspacePreview {
         terminals.count > 1 ? "rectangle.stack.fill" : "terminal.fill"
     }
 
-    /// The avatar icon to render: the owning Mac's custom icon (SF Symbol or
-    /// emoji) if set, else the default terminal-count symbol.
+    /// The avatar icon to render, in precedence order: the per-workspace avatar
+    /// override (a bundled logo, SF Symbol, or emoji), then the owning Mac's
+    /// custom icon, then the default terminal-count symbol.
     var avatarIcon: MacAvatarIcon {
-        MacAvatarIcon.resolve(custom: machineCustomIcon, defaultSymbol: avatarSymbolName)
+        MacAvatarIcon.resolve(
+            workspaceAvatar: avatar,
+            machineCustomIcon: machineCustomIcon,
+            defaultSymbol: avatarSymbolName
+        )
     }
 
     var avatarGradient: LinearGradient {

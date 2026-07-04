@@ -183,6 +183,11 @@ final class MobileWorkspaceListObserver {
                 // tab set, `workspaceGroups`, the panel set, or the title, so
                 // without this the phone never learns the membership changed.
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
+                // The per-workspace avatar override is iOS-facing (it changes the
+                // Workspaces-list row icon) and can change without touching the
+                // panel set, title, or group, so without this the phone never
+                // learns the avatar changed.
+                workspace.$avatar.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
@@ -260,6 +265,9 @@ final class MobileWorkspaceListObserver {
             hasher.combine(workspace.id)
             hasher.combine(workspace.title)
             hasher.combine(workspace.isPinned)
+            // Per-workspace avatar override is iOS-facing (the row icon); a pure
+            // avatar change need not touch title/pin/group, so hash it here.
+            hasher.combine(workspace.avatar)
             // Group membership is iOS-facing (the phone nests members under the
             // group header), and a pure move-into/out-of-group need not change the
             // panel set or title, so hash it here.

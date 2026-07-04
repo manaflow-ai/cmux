@@ -14362,6 +14362,30 @@ struct TabItemView: View, Equatable {
             }
         }
 
+        Menu(String(localized: "contextMenu.workspaceAvatar", defaultValue: "Workspace Avatar")) {
+            if tab.avatar != nil {
+                Button {
+                    applyWorkspaceAvatar(nil, targetIds: targetIds)
+                } label: {
+                    Label(String(localized: "contextMenu.clearAvatar", defaultValue: "Clear Avatar"), systemImage: "xmark.circle")
+                }
+
+                Divider()
+            }
+
+            ForEach(WorkspaceAvatarCatalog.logos) { logo in
+                Button {
+                    applyWorkspaceAvatar(logo.avatarValue, targetIds: targetIds)
+                } label: {
+                    Label {
+                        Text(logo.displayName)
+                    } icon: {
+                        Image(systemName: logo.menuSymbol)
+                    }
+                }
+            }
+        }
+
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Divider()
 
@@ -15173,6 +15197,10 @@ struct TabItemView: View, Equatable {
 
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
         tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
+    }
+
+    private func applyWorkspaceAvatar(_ avatar: String?, targetIds: [UUID]) {
+        tabManager.applyWorkspaceAvatar(avatar, toWorkspaceIds: targetIds)
     }
 
     private func promptCustomColor(targetIds: [UUID]) {

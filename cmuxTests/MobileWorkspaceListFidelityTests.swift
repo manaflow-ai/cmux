@@ -231,6 +231,61 @@ struct MobileWorkspaceListFidelityTests {
         #expect(lastActivity <= now + 60)
     }
 
+    /// A per-workspace avatar override rides the workspace payload as `avatar`
+    /// so the phone can render a per-workspace image (agent logo). Unset it is
+    /// null; set it carries the opaque `"logo:<id>"` string the phone decodes.
+    @Test func workspaceAvatarFlowsIntoPayload() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        let cleared = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: false,
+            requestedTerminalID: nil
+        )
+        #expect(cleared["avatar"] is NSNull, "no override means a null avatar")
+
+        manager.applyWorkspaceAvatar("logo:claude", toWorkspaceIds: [workspace.id])
+        #expect(workspace.avatar == "logo:claude")
+
+        let set = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: false,
+            requestedTerminalID: nil
+        )
+        #expect(set["avatar"] as? String == "logo:claude")
+
+        // Clearing normalizes back to nil (a null payload value).
+        manager.applyWorkspaceAvatar(nil, toWorkspaceIds: [workspace.id])
+        #expect(workspace.avatar == nil)
+    }
+
+    /// The per-workspace avatar override round-trips through the session snapshot
+    /// so a chosen agent logo survives an app restart, and a manifest written
+    /// before this field existed (no `avatar` key) decodes to no override rather
+    /// than throwing (additive, backward-compatible).
+    @Test func workspaceAvatarRoundTripsThroughSnapshot() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        manager.applyWorkspaceAvatar("logo:codex", toWorkspaceIds: [workspace.id])
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.avatar == "logo:codex")
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: encoded)
+        #expect(decoded.avatar == "logo:codex")
+
+        // Simulate a legacy manifest by stripping the avatar key before decode.
+        var object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        object.removeValue(forKey: "avatar")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let legacy = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
+        #expect(legacy.avatar == nil)
+    }
+
     /// The payload's `has_unread` mirrors the Mac sidebar's workspace unread
     /// badge, and flipping it must also change the observer's per-workspace
     /// signature so the phone is told to refresh (an unread toggle changes

@@ -161,6 +161,7 @@ struct MacComputerDetailView: View {
                 switch icon {
                 case .symbol(let name): Image(systemName: name).font(.body)
                 case .emoji(let emoji): Text(emoji).font(.body)
+                case .image(let identifier): WorkspaceAgentLogoImage(identifier: identifier, size: 28)
                 }
             }
             .frame(width: 36, height: 36)

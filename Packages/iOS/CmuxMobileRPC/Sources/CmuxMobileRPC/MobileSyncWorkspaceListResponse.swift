@@ -41,6 +41,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// A per-workspace avatar override the Mac set (opaque string: a bundled
+        /// logo id as `"logo:<id>"`, an SF Symbol name, or an emoji). `nil` when
+        /// the workspace has no override or the Mac is old enough not to emit
+        /// `avatar` (the synthesized decoder decodes the optional as absent →
+        /// `nil`, so the field is purely additive).
+        public let avatar: String?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,6 +61,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case avatar
         }
     }
 

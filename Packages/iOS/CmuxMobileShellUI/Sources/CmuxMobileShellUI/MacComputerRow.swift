@@ -103,6 +103,8 @@ struct MacComputerRow: View {
                         .accessibilityHidden(true)
                 case .emoji(let emoji):
                     Text(emoji).font(.system(size: 20)).accessibilityHidden(true)
+                case .image(let identifier):
+                    WorkspaceAgentLogoImage(identifier: identifier, size: 40)
                 }
             }
             VStack(alignment: .leading, spacing: 2) {

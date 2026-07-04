@@ -112,6 +112,10 @@ struct WorkspaceAvatar: View {
                 Text(emoji)
                     .font(.system(size: CGFloat(size) * 0.5))
                     .accessibilityHidden(true)
+            case .image(let identifier):
+                // Fills the whole circle (covers the gradient) with the bundled
+                // agent logo, matching the symbol/emoji size and clipping.
+                WorkspaceAgentLogoImage(identifier: identifier, size: size)
             }
         }
         .offset(x: -CGFloat(leftShift))

@@ -1717,6 +1717,26 @@ class TabManager: ObservableObject {
         }
     }
 
+    func setWorkspaceAvatar(tabId: UUID, avatar: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setAvatar(avatar)
+    }
+
+    /// Set (or clear with `nil`) the per-workspace avatar override on one or more
+    /// workspaces. Mirrors `applyWorkspaceColor`.
+    func applyWorkspaceAvatar(_ avatar: String?, toWorkspaceIds workspaceIds: [UUID]) {
+        guard !workspaceIds.isEmpty else { return }
+        if workspaceIds.count == 1, let workspaceId = workspaceIds.first {
+            setWorkspaceAvatar(tabId: workspaceId, avatar: avatar)
+            return
+        }
+
+        let targetIds = Set(workspaceIds)
+        for tab in tabs where targetIds.contains(tab.id) {
+            tab.setAvatar(avatar)
+        }
+    }
+
     func applyWorkspacePaletteColor(named name: String, toWorkspaceIds workspaceIds: [UUID]) {
         guard let color = WorkspaceTabColorSettings.currentColorHex(named: name) else { return }
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
