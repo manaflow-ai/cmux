@@ -49,6 +49,9 @@ export default function DownloadButtonDebug() {
   const set = (size: Size, key: keyof Pad, v: number) =>
     setPad((p) => ({ ...p, [size]: { ...p[size], [key]: v } }));
 
+  const resetSize = (size: Size) =>
+    setPad((p) => ({ ...p, [size]: { ...INITIAL[size] } }));
+
   const classesFor = (size: Size) => {
     const p = pad[size];
     return {
@@ -135,8 +138,16 @@ export default function DownloadButtonDebug() {
       <div className="grid gap-8 md:grid-cols-2">
         {(["default", "sm"] as const).map((size) => (
           <div key={size} className="rounded-xl border border-border p-4">
-            <div className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
-              {size}
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-semibold uppercase tracking-wide text-muted">
+                {size}
+              </span>
+              <button
+                onClick={() => resetSize(size)}
+                className="rounded-md border border-border px-2 py-0.5 text-xs text-muted hover:text-foreground"
+              >
+                reset {size}
+              </button>
             </div>
 
             <div
