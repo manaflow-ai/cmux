@@ -42,6 +42,7 @@ struct GhosttyMouseShapeCursorTests {
     @Test
     func crosshairShapeMapsToCrosshair() {
         #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_CROSSHAIR) == NSCursor.crosshair)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_CELL) == NSCursor.crosshair)
     }
 
     @Test
@@ -53,6 +54,7 @@ struct GhosttyMouseShapeCursorTests {
     func grabShapesMapToHandCursors() {
         #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_GRAB) == NSCursor.openHand)
         #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_GRABBING) == NSCursor.closedHand)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_MOVE) == NSCursor.closedHand)
     }
 
     @Test
@@ -64,6 +66,12 @@ struct GhosttyMouseShapeCursorTests {
     @Test
     func contextMenuShapeMapsToContextualMenu() {
         #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU) == NSCursor.contextualMenu)
+    }
+
+    @Test
+    func dragOperationShapesMapToDragCursors() {
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_COPY) == NSCursor.dragCopy)
+        #expect(GhosttyNSView.cursor(for: GHOSTTY_MOUSE_SHAPE_ALIAS) == NSCursor.dragLink)
     }
 
     @Test

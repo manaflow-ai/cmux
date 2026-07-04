@@ -2820,8 +2820,8 @@ class GhosttyApp {
             return false
         case GHOSTTY_ACTION_MOUSE_SHAPE:
             let shape = action.action.mouse_shape
-            DispatchQueue.main.async {
-                surfaceView.updateGhosttyMouseShape(shape)
+            Task { @MainActor [surfaceView, shape] in
+                surfaceView.applyGhosttyMouseShape(shape)
             }
             return true
         case GHOSTTY_ACTION_SCROLLBAR:
@@ -3221,16 +3221,6 @@ class GhosttyApp {
                 }
                 return true
             }
-        case GHOSTTY_ACTION_MOUSE_SHAPE:
-            // libghostty tells us which OS cursor to show over the surface (e.g.
-            // the text I-beam over selectable text, or the arrow when a program
-            // enables mouse reporting). Without this the viewport keeps whatever
-            // cursor the parent portal set, so text never shows the I-beam.
-            let shape = action.action.mouse_shape
-            Task { @MainActor [surfaceView, shape] in
-                surfaceView.applyGhosttyMouseShape(shape)
-            }
-            return true
         default:
             return false
         }
@@ -3439,7 +3429,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return { retention.release() }
     }
 
-    private static func ghosttyMouseCursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
+    static func cursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
         switch shape {
         case GHOSTTY_MOUSE_SHAPE_DEFAULT:
             return .arrow
@@ -3481,10 +3471,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    fileprivate func updateGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
+    func applyGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
         guard ghosttyMouseShape != shape else { return }
         ghosttyMouseShape = shape
-        window?.invalidateCursorRects(for: self)
+        refreshTerminalCursor()
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -3587,17 +3577,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false {
         didSet {
             guard wordPathHoverActive != oldValue else { return }
-            refreshTerminalCursor()
-        }
-    }
-    /// The mouse-cursor shape libghostty most recently requested for this
-    /// surface via `GHOSTTY_ACTION_MOUSE_SHAPE`. Defaults to the text I-beam so
-    /// the terminal viewport shows the text-selection affordance before the
-    /// first action arrives (libghostty only emits the action when the shape
-    /// changes, so the initial "text" shape is otherwise never delivered).
-    private var ghosttyMouseShapeCursor: NSCursor = .iBeam {
-        didSet {
-            guard ghosttyMouseShapeCursor != oldValue else { return }
             refreshTerminalCursor()
         }
     }
@@ -3882,7 +3861,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Reset any OSC 22 mouse shape carried over from the previous
             // surface; the newly-bound surface re-emits its own shape via
             // GHOSTTY_ACTION_MOUSE_SHAPE if it has one.
-            updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
+            applyGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -4009,7 +3988,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        addCursorRect(bounds, cursor: Self.ghosttyMouseCursor(for: ghosttyMouseShape))
+        addCursorRect(bounds, cursor: effectiveTerminalCursor)
     }
 
     override var isOpaque: Bool { false }
@@ -7561,71 +7540,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Mouse cursor shape
 
     /// The cursor the terminal viewport should display. The libghostty-requested
-    /// shape (`ghosttyMouseShapeCursor`) is the default, but the Cmd-hover
+    /// shape (`ghosttyMouseShape`) is the default, but the Cmd-hover
     /// word-path affordance overrides it with a pointing hand while a hovered
     /// filename is resolvable.
     var effectiveTerminalCursor: NSCursor {
-        wordPathHoverActive ? .pointingHand : ghosttyMouseShapeCursor
-    }
-
-    // AppKit owns cursor display via cursor rects: it sets `effectiveTerminalCursor`
-    // when the pointer enters this rect and restores the parent cursor on exit.
-    // This is the same mechanism standalone Ghostty's SurfaceView uses, and it
-    // is what makes the OS pointer become an I-beam over selectable terminal text.
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        addCursorRect(bounds, cursor: effectiveTerminalCursor)
+        wordPathHoverActive ? .pointingHand : Self.cursor(for: ghosttyMouseShape)
     }
 
     /// Re-establish the viewport cursor rect so AppKit re-applies the current
     /// `effectiveTerminalCursor` at the pointer's location.
     private func refreshTerminalCursor() {
         window?.invalidateCursorRects(for: self)
-    }
-
-    /// Apply a mouse-cursor shape requested by libghostty via
-    /// `GHOSTTY_ACTION_MOUSE_SHAPE` (e.g. the text I-beam over selectable text,
-    /// the arrow when a program enables mouse reporting, or a pointing hand over
-    /// links).
-    func applyGhosttyMouseShape(_ shape: ghostty_action_mouse_shape_e) {
-        ghosttyMouseShapeCursor = Self.cursor(for: shape)
-    }
-
-    /// Map a libghostty mouse shape to the closest AppKit cursor. Unknown or
-    /// unsupported shapes fall back to the arrow, matching standalone Ghostty.
-    static func cursor(for shape: ghostty_action_mouse_shape_e) -> NSCursor {
-        switch shape {
-        case GHOSTTY_MOUSE_SHAPE_TEXT:
-            return .iBeam
-        case GHOSTTY_MOUSE_SHAPE_DEFAULT:
-            return .arrow
-        case GHOSTTY_MOUSE_SHAPE_POINTER:
-            return .pointingHand
-        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
-            return .crosshair
-        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
-            return .iBeamCursorForVerticalLayout
-        case GHOSTTY_MOUSE_SHAPE_GRAB:
-            return .openHand
-        case GHOSTTY_MOUSE_SHAPE_GRABBING:
-            return .closedHand
-        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED, GHOSTTY_MOUSE_SHAPE_NO_DROP:
-            return .operationNotAllowed
-        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
-            return .contextualMenu
-        case GHOSTTY_MOUSE_SHAPE_COL_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_E_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_W_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_EW_RESIZE:
-            return .resizeLeftRight
-        case GHOSTTY_MOUSE_SHAPE_ROW_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_N_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_S_RESIZE,
-             GHOSTTY_MOUSE_SHAPE_NS_RESIZE:
-            return .resizeUpDown
-        default:
-            return .arrow
-        }
     }
 
     private func windowDidChangeScreen(_ notification: Notification) {
