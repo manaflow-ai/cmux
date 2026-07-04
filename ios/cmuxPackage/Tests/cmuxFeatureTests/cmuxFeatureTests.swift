@@ -1064,7 +1064,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func unsupportedAttachTicketClearsPreviousRemoteClient() async throws {
+@Test func unsupportedAttachTicketPreservesPreviousRemoteClient() async throws {
     let supportedRoute = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let supportedTicket = try CmxAttachTicket(
         workspaceID: "live-workspace",
@@ -1090,6 +1090,7 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectPairingURL(try attachURL(for: supportedTicket).absoluteString)
     #expect(store.phase == .workspaces)
+    let originalClient = try #require(store.remoteClient)
 
     let unsupportedRoute = try CmxAttachRoute(
         id: "iroh",
@@ -1106,15 +1107,12 @@ final class TerminalOutputCollector {
     )
     await store.connectPairingURL(try attachURL(for: unsupportedTicket).absoluteString)
 
-    #expect(store.connectionState == .disconnected)
+    #expect(store.connectionState == .connected)
+    #expect(store.remoteClient === originalClient)
     #expect(store.connectionError == "This pairing code is not supported.")
-
-    store.terminalInputText = "echo should-not-hit-old-host"
-    await store.submitTerminalInput()
 
     let requests = try await responses.sentRequests()
     #expect(requests.contains { $0.method == "workspace.list" })
-    #expect(!requests.contains { $0.method == "terminal.input" })
 }
 
 @MainActor

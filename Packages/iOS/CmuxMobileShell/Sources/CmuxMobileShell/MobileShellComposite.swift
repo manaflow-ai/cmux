@@ -1568,12 +1568,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preservesActiveConnection = hasActiveMacConnection
         guard let normalizedHost = MobileShellRouteAuthPolicy().normalizedManualRouteHost(host) else {
             connectionError = L10n.string("mobile.addDevice.invalidHost", defaultValue: "Enter a host or IP address, without spaces or URL paths.")
             connectionErrorGuidance = nil
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_host"),
@@ -1585,9 +1584,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard (1...65535).contains(port) else {
             connectionError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             connectionErrorGuidance = nil
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
             analytics.capture("ios_pairing_failed", [
                 "method": .string("manual"),
                 "reason": .string("invalid_port"),
@@ -1614,12 +1611,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
-        activeRoute = directRoute
+        if !preservesActiveConnection {
+            activeRoute = directRoute
+        }
         let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
-        guard await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: manualRoutes) == .proceed else { return }
+        guard await failPairingIfOffline(
+            attemptID: attemptID,
+            phase: "preflight",
+            routes: manualRoutes,
+            preservesActiveConnection: preservesActiveConnection
+        ) == .proceed else { return }
         do {
             let manualHostTrusted = await manualHostStackAuthTrusted(for: directRoute)
             let ticket = try await manualHostTicket(
@@ -1642,7 +1646,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ifStillCurrent: ifStillCurrent
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
-            if connectionState == .connected {
+            if noThrowFailure == nil, connectionState == .connected {
                 recordPairingSucceeded()
             } else {
                 // `connect()` returned without connecting and already set a
@@ -1651,9 +1655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return }
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
@@ -1663,11 +1665,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return
             }
-            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute ?? directRoute)
+            let category = MobilePairingFailureCategory.classify(error: error, route: directRoute ?? activeRoute)
             applyPairingFailure(category, phase: "connect")
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
         }
     }
 
@@ -3068,6 +3068,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> MobilePairingURLConnectionResult {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         _ = beginPairingValidationAttempt()
+        let preservesActiveConnection = hasActiveMacConnection
         connectionAttemptGeneration = UUID()
         if connectionState != .connected {
             clearActiveConnectionContext()
@@ -3164,7 +3165,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // token is used), so an expired legacy code scanned offline must say
         // "offline", not crawl the route loop's stacked timeouts.
         if !candidateRoutes.isEmpty {
-            switch await failPairingIfOffline(attemptID: attemptID, phase: "preflight", routes: candidateRoutes) {
+            switch await failPairingIfOffline(
+                attemptID: attemptID,
+                phase: "preflight",
+                routes: candidateRoutes,
+                preservesActiveConnection: preservesActiveConnection
+            ) {
             case .failedOffline: return .failed
             case .superseded: return .superseded
             case .proceed: break
@@ -3181,7 +3187,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             )
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            if connectionState == .connected && activeTicket != nil {
+            if noThrowFailure == nil, connectionState == .connected && activeTicket != nil {
                 recordPairingSucceeded()
                 return .connected
             }
@@ -3191,9 +3197,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         } catch is CancellationError {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
             return .failed
         } catch is ManualHostTrustApprovalQueued {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
@@ -3207,9 +3211,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
             let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
             applyPairingFailure(category, phase: "connect")
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
             return .failed
         }
     }
@@ -4923,9 +4925,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
             connectionErrorGuidance = MobilePairingFailureCategory.noSupportedRoute.guidance
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
+            clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
             return .noSupportedRoute
         }
         // No connect-time expiry gate: a pairing QR never expires (new QRs
@@ -5597,7 +5597,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func failPairingIfOffline(
         attemptID: UUID,
         phase: String,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        preservesActiveConnection: Bool = false
     ) async -> PairingPreflightOutcome {
         if routes.contains(where: MobileShellRouteAuthPolicy().routeIsLoopback) { return .proceed }
         guard await reachability.isOnline == false else { return .proceed }
@@ -5605,10 +5606,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("pairing preflight: device offline, short-circuiting")
         diagnosticLog?.record(DiagnosticEvent(.pairUnreachable))
         applyPairingFailure(.offline, phase: phase)
+        clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
+        return .failedOffline
+    }
+
+    private func clearFailedPairingConnection(preservingActiveConnection: Bool) {
+        guard !preservingActiveConnection else { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
         clearRemoteConnectionContext()
-        return .failedOffline
     }
 
     private func clearCreateWorkspaceTask(id: UUID) {
