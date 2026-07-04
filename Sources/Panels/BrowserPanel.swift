@@ -3053,9 +3053,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
-    private let minPageZoom: CGFloat = 0.25
-    private let maxPageZoom: CGFloat = 5.0
+    private let minPageZoom: CGFloat = BrowserPageZoomPreference.minimumZoom
+    private let maxPageZoom: CGFloat = BrowserPageZoomPreference.maximumZoom
     private let pageZoomStep: CGFloat = 0.1
+    private let pageZoomPreference: BrowserPageZoomPreference
     private var insecureHTTPBypassHostOnce: String?
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
@@ -3938,6 +3939,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
             BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
+            BrowserPageZoomPreference.storageKey: Double(BrowserPageZoomPreference.defaultZoom),
         ])
 
         let resolvedThemeMode = BrowserThemeSettings.mode(defaults: defaults)
@@ -3974,6 +3976,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if currentVerticalPadding != resolvedVerticalPadding {
             defaults.set(resolvedVerticalPadding, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
         }
+
+        let pageZoomPreference = BrowserPageZoomPreference(defaults: defaults)
+        _ = pageZoomPreference.normalizeStoredZoom()
     }
 
     init(
@@ -3989,7 +3994,8 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        pageZoomDefaults: UserDefaults = .standard
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -4013,10 +4019,13 @@ final class BrowserPanel: Panel, ObservableObject {
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
+        let pageZoomPreference = BrowserPageZoomPreference(defaults: pageZoomDefaults)
+        self.pageZoomPreference = pageZoomPreference
         let webView = Self.makeWebView(
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         )
+        webView.pageZoom = pageZoomPreference.currentZoom()
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         hiddenWebViewDiscardManager.delegate = self
@@ -4728,6 +4737,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        _ = setPageZoomFactor(CGFloat(snapshot.pageZoom), persistPreference: false)
+
         // Diff viewer surfaces re-register their token from the on-disk manifest
         // and navigate via the app-owned custom scheme, so they restore even
         // though the local HTTP server that originally served them is gone.
@@ -7257,9 +7268,8 @@ extension BrowserPanel {
     }
 
     @discardableResult
-    func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
-        return applyPageZoom(clamped)
+    func setPageZoomFactor(_ pageZoom: CGFloat, persistPreference: Bool = true) -> Bool {
+        applyPageZoom(pageZoom, persistPreference: persistPreference)
     }
 
     /// Take a snapshot of the web view
@@ -8232,13 +8242,16 @@ extension BrowserPanel {
 
 private extension BrowserPanel {
     @discardableResult
-    func applyPageZoom(_ candidate: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, candidate))
-        if abs(webView.pageZoom - clamped) < 0.0001 {
-            return false
+    func applyPageZoom(_ candidate: CGFloat, persistPreference: Bool = true) -> Bool {
+        let clamped = pageZoomPreference.clampedZoom(candidate)
+        let didChange = abs(webView.pageZoom - clamped) >= 0.0001
+        if didChange {
+            webView.pageZoom = clamped
+            if persistPreference {
+                pageZoomPreference.save(clamped)
+            }
         }
-        webView.pageZoom = clamped
-        return true
+        return didChange
     }
 
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {

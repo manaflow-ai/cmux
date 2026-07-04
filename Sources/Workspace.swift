@@ -1656,11 +1656,6 @@ extension Workspace {
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
-            let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
-            if pageZoom.isFinite {
-                _ = browserPanel.setPageZoomFactor(pageZoom)
-            }
-
             browserPanel.restoreSessionSnapshot(browserSnapshot)
             syncBrowserAudioMuteStateForPanel(panelId, browserPanel: browserPanel)
 

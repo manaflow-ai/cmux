@@ -109,6 +109,7 @@ def main() -> int:
             for focused_selector in (
                 "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
+                "-only-testing:cmuxTests/BrowserPageZoomPreferenceTests",
             ):
                 if focused_selector in shard_selectors:
                     print(f"FAIL: focused gate selector should not be folded into shard: {focused_selector}")
