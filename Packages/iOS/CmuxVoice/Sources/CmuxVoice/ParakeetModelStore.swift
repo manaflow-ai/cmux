@@ -47,7 +47,7 @@ public final class ParakeetModelStore {
             .appendingPathComponent("cmux-voice-models", isDirectory: true)
             .appendingPathComponent(Self.modelDirectoryName, isDirectory: true)
         self.state = installedDetector(modelDirectory) ? .installed : .idle
-        sweepPendingDeletes(in: modelDirectory.deletingLastPathComponent(), fileManager: fileManager)
+        sweepPendingDeletes(in: modelDirectory.deletingLastPathComponent())
     }
 
     /// Whether the model currently exists on disk.
@@ -131,11 +131,12 @@ public final class ParakeetModelStore {
             let pendingDelete = modelDirectory.deletingLastPathComponent()
                 .appendingPathComponent("\(parakeetPendingDeletePrefix)\(UUID().uuidString)", isDirectory: true)
             try fileManager.moveItem(at: modelDirectory, to: pendingDelete)
-            // FileManager is documented thread-safe for path operations; the
-            // annotation only bridges its missing Sendable conformance.
-            nonisolated(unsafe) let backgroundFileManager = fileManager
+            // The byte removal deliberately uses FileManager.default instead of
+            // capturing the injected instance: FileManager is not Sendable, and
+            // remote/CI toolchains reject any capture in this sending closure.
+            // Both operate on the same real filesystem path.
             Task.detached(priority: .utility) {
-                try? backgroundFileManager.removeItem(at: pendingDelete)
+                try? FileManager.default.removeItem(at: pendingDelete)
             }
         }
         state = .idle
@@ -144,18 +145,18 @@ public final class ParakeetModelStore {
 
     /// Removes leftover pending-delete directories (from a launch that died
     /// between the rename and the background removal). Runs off the main actor.
-    private nonisolated func sweepPendingDeletes(in baseDirectory: URL, fileManager: FileManager) {
-        // FileManager is documented thread-safe for path operations; the
-        // annotation only bridges its missing Sendable conformance.
-        nonisolated(unsafe) let fileManager = fileManager
+    private nonisolated func sweepPendingDeletes(in baseDirectory: URL) {
+        // Uses FileManager.default instead of the injected instance: FileManager
+        // is not Sendable, and remote/CI toolchains reject any capture in this
+        // sending closure. Both operate on the same real filesystem path.
         Task.detached(priority: .utility) {
-            guard let entries = try? fileManager.contentsOfDirectory(
+            guard let entries = try? FileManager.default.contentsOfDirectory(
                 at: baseDirectory,
                 includingPropertiesForKeys: nil,
                 options: [.skipsSubdirectoryDescendants]
             ) else { return }
             for entry in entries where entry.lastPathComponent.hasPrefix(parakeetPendingDeletePrefix) {
-                try? fileManager.removeItem(at: entry)
+                try? FileManager.default.removeItem(at: entry)
             }
         }
     }

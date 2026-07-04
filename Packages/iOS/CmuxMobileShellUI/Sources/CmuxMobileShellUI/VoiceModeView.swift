@@ -268,6 +268,11 @@ struct VoiceModeView: View {
         case .final(let text):
             partialTranscript = ""
             finalTranscripts.append(text)
+            // Bound the on-screen history so a long-lived session cannot grow
+            // the array (and its re-rendered list) without limit.
+            if finalTranscripts.count > 50 {
+                finalTranscripts.removeFirst(finalTranscripts.count - 50)
+            }
             sendFinal(text)
         case .failed(let message):
             errorMessage = message

@@ -8575,13 +8575,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voice audio is transcribed on this iPhone."
+            "value": "Parakeet transcription always runs on this iPhone. The Apple engine prefers on-device recognition; when your language does not support it, Apple's servers may process the audio."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "音声はこのiPhone上で文字起こしされます。"
+            "value": "Parakeetの文字起こしは常にこのiPhone上で実行されます。Appleエンジンはオンデバイス認識を優先しますが、言語が対応していない場合はAppleのサーバーで音声が処理されることがあります。"
           }
         }
       }

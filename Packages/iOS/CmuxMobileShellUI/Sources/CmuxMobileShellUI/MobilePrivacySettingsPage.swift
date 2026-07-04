@@ -6,7 +6,7 @@ struct MobilePrivacySettingsPage: View {
     var body: some View {
         Form {
             Section {
-                Text(L10n.string("mobile.settings.privacy.voice", defaultValue: "Voice audio is transcribed on this iPhone."))
+                Text(L10n.string("mobile.settings.privacy.voice", defaultValue: "Parakeet transcription always runs on this iPhone. The Apple engine prefers on-device recognition; when your language does not support it, Apple's servers may process the audio."))
                 Text(L10n.string("mobile.settings.privacy.terminal", defaultValue: "Terminal data flows only between your devices through your cmux account connection."))
                 Text(L10n.string("mobile.settings.privacy.notifications", defaultValue: "Push notifications may include agent or terminal activity summaries."))
                 Link(destination: URL(string: "https://cmux.com/privacy-policy")!) {
