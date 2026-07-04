@@ -4,6 +4,11 @@ import SwiftUI
 /// A compact per-pane control bar shown above each mirrored tmux pane.
 @MainActor
 struct RemoteTmuxPaneHeader: View {
+    /// The header's fixed height in points — the per-pane chrome constant the
+    /// sizing geometry folds (the bottom divider is an overlay INSIDE this
+    /// frame, so it adds no height).
+    static let totalHeightPt: CGFloat = 24
+
     let isActive: Bool
     let appearance: PanelAppearance
     let onFocus: () -> Void

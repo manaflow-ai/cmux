@@ -22,6 +22,13 @@ final class RemoteTmuxSessionMirror {
     /// Updates the tracked session name after a `rename-session`.
     func setSessionName(_ name: String) { sessionName = name }
 
+    /// Sizing introspection for every mirrored multi-pane window (see
+    /// ``RemoteTmuxWindowMirror/sizingSnapshot()``), ordered by window id.
+    func sizingSnapshots() -> [RemoteTmuxWindowMirror.SizingSnapshot] {
+        windowMirrorByWindowId.keys.sorted()
+            .compactMap { windowMirrorByWindowId[$0]?.sizingSnapshot() }
+    }
+
     /// Re-titles the mirror's sidebar workspace to track a remote session rename
     /// (the reverse of the cmux→tmux `rename-session` push). Uses TabManager's
     /// title path so selected-window chrome refreshes, while suppressing the
@@ -222,13 +229,14 @@ final class RemoteTmuxSessionMirror {
                     onInput: { [weak connection] data in
                         Task { @MainActor in connection?.sendKeys(paneId: firstPaneId, data: data) }
                     },
-                    // Size the remote tmux client to the rendered grid so a single-
+                    // Size THIS tmux window to the rendered grid so a single-
                     // pane window (the common case — where a claude / claude agents
                     // TUI runs) doesn't stay at ssh's default 80×24 and render
-                    // mangled. The multi-pane path handles this via the window
-                    // mirror's own geometry.
+                    // mangled. Per-window, so it never fights the multi-pane
+                    // mirrors' sizes. Acyclic: a display pane's grid follows its
+                    // tab's local pixels only — tmux's layout never shapes its frame.
                     onResize: { [weak connection] columns, rows in
-                        connection?.setClientSize(columns: columns, rows: rows)
+                        connection?.setWindowSize(windowId: windowId, columns: columns, rows: rows)
                     }
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
@@ -298,23 +306,26 @@ final class RemoteTmuxSessionMirror {
         }
     }
 
-    /// One initial-sizing attempt. Returns `true` when there is nothing (more) to
-    /// do: the size was pushed from the first single-pane surface with an
-    /// on-screen grid, or no single-pane window remains to size (multi-pane
-    /// windows are skipped — their mirror view owns client sizing).
+    /// One initial-sizing attempt. Returns `true` when there is nothing (more)
+    /// to do: every single-pane window with an on-screen grid was pushed (sizes
+    /// are PER WINDOW — each window needs its own), or none remain to size
+    /// (multi-pane windows are skipped — their mirror view owns sizing).
     private func pushInitialClientSize() -> Bool {
         guard let workspace else { return true }
-        let singlePanePanelIds = panelIdByWindow
-            .filter { windowMirrorByWindowId[$0.key] == nil }
-            .values
-        guard !singlePanePanelIds.isEmpty else { return true }
-        for panelId in singlePanePanelIds {
+        let singlePane = panelIdByWindow.filter { windowMirrorByWindowId[$0.key] == nil }
+        guard !singlePane.isEmpty else { return true }
+        var pushedAny = false
+        var pendingAny = false
+        for (windowId, panelId) in singlePane {
             guard let panel = workspace.panels[panelId] as? TerminalPanel,
-                  let grid = panel.surface.renderedGridCells() else { continue }
-            connection.setClientSize(columns: grid.columns, rows: grid.rows)
-            return true
+                  let grid = panel.surface.renderedGridCells() else {
+                pendingAny = true
+                continue
+            }
+            connection.setWindowSize(windowId: windowId, columns: grid.columns, rows: grid.rows)
+            pushedAny = true
         }
-        return false
+        return pushedAny && !pendingAny
     }
 
     /// Creates the in-tab multi-pane renderer the first time a window has more
@@ -328,7 +339,7 @@ final class RemoteTmuxSessionMirror {
         in workspace: Workspace
     ) {
         if let mirror = windowMirrorByWindowId[windowId] {
-            mirror.reconcile(layout: window.layout)
+            mirror.apply(window: window)
             return
         }
         guard window.paneIDsInOrder.count > 1 else { return }

@@ -8,6 +8,22 @@ import Foundation
 /// every operation against the host (discovery commands, the `tmux -CC`
 /// control client, and one-shot mutations) over a single SSH ControlMaster
 /// socket derived from the destination, so authentication happens once.
+/// The ssh binary every remote-tmux spawn uses. DEBUG builds honor
+/// `CMUX_REMOTE_TMUX_SSH_FOR_TESTING` so end-to-end tests can substitute a
+/// shim that strips the ssh framing and execs the remote command locally —
+/// the full mirror stack then runs hermetically (no sshd, no network).
+enum RemoteTmuxSSHBinary {
+    static var path: String {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_REMOTE_TMUX_SSH_FOR_TESTING"],
+           !override.isEmpty {
+            return override
+        }
+        #endif
+        return "/usr/bin/ssh"
+    }
+}
+
 struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// The SSH destination: a `~/.ssh/config` alias or `user@host`.
     let destination: String
@@ -255,7 +271,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///   end-of-options guard precedes the destination so a dash-prefixed
     ///   destination can never be parsed as an ssh option.
     func interactiveAuthInvocation(
-        sshExecutablePath: String = "/usr/bin/ssh",
+        sshExecutablePath: String = RemoteTmuxSSHBinary.path,
         controlPersistSeconds: Int = 180
     ) -> [String] {
         [sshExecutablePath]

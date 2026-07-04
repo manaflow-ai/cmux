@@ -1150,6 +1150,12 @@ final class RemoteTmuxController {
         )]
     }
 
+    /// Returns the live session mirror for a host+session, if that session is
+    /// currently mirrored as a workspace.
+    func sessionMirror(host: RemoteTmuxHost, sessionName: String) -> RemoteTmuxSessionMirror? {
+        sessionMirrors[Self.connectionKey(host: host, sessionName: sessionName)]
+    }
+
     /// Detaches a control client and removes its mirror workspace while leaving
     /// the remote session alive (#7364). Internal callers that already removed the
     /// mirror keep the low-level stop-only path, preserving their kill semantics.

@@ -125,6 +125,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.state",
         "remote.tmux.mirror",
         "remote.tmux.window",
+        "remote.tmux.pane_grids",
+        // DEBUG-only lab drivers for the sizing UI tests; the app dispatch
+        // only registers them under #if DEBUG. Listing them here (harmless in
+        // release — nothing dispatches them) keeps them on the socket worker
+        // so the tmux spawn / main-actor hop never blocks the reader.
+        "remote.tmux.test_exec",
+        "remote.tmux.test_set_frame",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",

@@ -437,6 +437,39 @@ extension TerminalSurface {
         )
     }
 
+    /// Raw sizing sample for calibration diagnostics: `ghostty_surface_size`'s
+    /// device-pixel fields UNCONVERTED, plus the attached view's bounds in
+    /// points and its window's backing scale. Callers separate view layout,
+    /// scale, padding, and cell quantization themselves — pre-mixed units are
+    /// how sizing bugs hide (call sites have treated the raw pixel cell size
+    /// as points in one place and as pixels in another).
+    @MainActor
+    public func rawSizingSample() -> TerminalSurfaceRawSizingSample? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "rawSizingSample") else { return nil }
+        let size = ghostty_surface_size(surface)
+        return TerminalSurfaceRawSizingSample(
+            columns: Int(size.columns),
+            rows: Int(size.rows),
+            cellWidthPx: Int(size.cell_width_px),
+            cellHeightPx: Int(size.cell_height_px),
+            surfaceWidthPx: Int(size.width_px),
+            surfaceHeightPx: Int(size.height_px),
+            viewBoundsPt: attachedView?.bounds.size,
+            backingScale: attachedView?.window?.backingScaleFactor
+        )
+    }
+
+    /// Which of ``renderedGridCells()``'s nil conditions currently hold —
+    /// lets sizing diagnostics name the mechanism (view detached from its
+    /// window vs surface not live vs no real grid) instead of a bare nil.
+    @MainActor
+    public func renderedGridDiagnostics() -> (viewInWindow: Bool, surfaceLive: Bool) {
+        (
+            viewInWindow: attachedView?.window != nil,
+            surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
+        )
+    }
+
     /// The on-screen rendered grid, or nil while the runtime surface is not
     /// live, is not in a window, or has no real grid yet.
     @MainActor
@@ -468,5 +501,35 @@ extension TerminalSurface {
             drawRight: drawRightBorder,
             drawBottom: drawBottomBorder
         )
+    }
+}
+
+/// One raw sizing sample from a live surface (see
+/// ``TerminalSurface/rawSizingSample()``). Top-level and `Sendable` so
+/// diagnostics handlers can carry it off the main actor.
+public struct TerminalSurfaceRawSizingSample: Sendable {
+    public let columns: Int
+    public let rows: Int
+    public let cellWidthPx: Int
+    public let cellHeightPx: Int
+    public let surfaceWidthPx: Int
+    public let surfaceHeightPx: Int
+    public let viewBoundsPt: CGSize?
+    public let backingScale: CGFloat?
+
+    public init(
+        columns: Int, rows: Int,
+        cellWidthPx: Int, cellHeightPx: Int,
+        surfaceWidthPx: Int, surfaceHeightPx: Int,
+        viewBoundsPt: CGSize?, backingScale: CGFloat?
+    ) {
+        self.columns = columns
+        self.rows = rows
+        self.cellWidthPx = cellWidthPx
+        self.cellHeightPx = cellHeightPx
+        self.surfaceWidthPx = surfaceWidthPx
+        self.surfaceHeightPx = surfaceHeightPx
+        self.viewBoundsPt = viewBoundsPt
+        self.backingScale = backingScale
     }
 }
