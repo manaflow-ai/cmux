@@ -162,8 +162,8 @@ public enum IssueSpawnSurfaceType: String, Codable, Equatable, Sendable {
     case browser
 }
 
-/// Builds workspace spawn plans for Issue Inbox rows.
-public enum IssueSpawnPlanBuilder {
+/// Spawn plan construction for Issue Inbox rows.
+extension IssueSpawnPlan {
     /// Builds a workspace spawn plan.
     ///
     /// - Parameters:

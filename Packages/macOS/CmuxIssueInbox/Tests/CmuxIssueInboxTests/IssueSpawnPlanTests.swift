@@ -6,7 +6,7 @@ import Testing
 struct IssueSpawnPlanTests {
     @Test
     func fullSpawnConfigBuildsAgentBrowserAndDevServerLayout() throws {
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: githubItem(),
             sourceConfig: IssueInboxSourceConfig(
                 type: .github,
@@ -57,7 +57,7 @@ struct IssueSpawnPlanTests {
 
     @Test
     func webOnlySpawnConfigUsesBrowserRightPane() throws {
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: githubItem(),
             sourceConfig: source(spawn: IssueInboxSpawnConfig(webURL: "http://localhost:5173")),
             workingDirectory: "/repo",
@@ -77,7 +77,7 @@ struct IssueSpawnPlanTests {
 
     @Test
     func devServerOnlySpawnConfigUsesTerminalRightPane() throws {
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: githubItem(),
             sourceConfig: source(spawn: IssueInboxSpawnConfig(devServerCommand: "bun dev")),
             workingDirectory: "/repo",
@@ -95,7 +95,7 @@ struct IssueSpawnPlanTests {
 
     @Test
     func noSpawnConfigWithAgentUsesSingleTerminalCommand() {
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: githubItem(),
             sourceConfig: source(spawn: nil),
             workingDirectory: "/repo",
@@ -108,7 +108,7 @@ struct IssueSpawnPlanTests {
 
     @Test
     func noSpawnConfigWithNoAgentUsesCurrentSingleTerminalBehavior() {
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: githubItem(),
             sourceConfig: source(spawn: nil),
             workingDirectory: "/repo",
@@ -122,7 +122,7 @@ struct IssueSpawnPlanTests {
     @Test
     func agentCommandShellEscapesSingleQuotes() {
         let item = githubItem(title: "Fix Bob's workspace")
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: item,
             sourceConfig: source(spawn: nil),
             workingDirectory: "/repo",
@@ -135,7 +135,7 @@ struct IssueSpawnPlanTests {
     @Test
     func agentCommandTemplateUsesShellEscapedPlaceholders() {
         let item = githubItem(title: "Fix Bob's workspace")
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: item,
             sourceConfig: source(spawn: IssueInboxSpawnConfig(
                 defaultAgent: .codex,
@@ -150,7 +150,7 @@ struct IssueSpawnPlanTests {
 
     @Test
     func planLayoutRoundTripsThroughJSON() throws {
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: githubItem(),
             sourceConfig: source(spawn: IssueInboxSpawnConfig(
                 devServerCommand: "bun dev",

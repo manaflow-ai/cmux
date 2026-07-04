@@ -136,7 +136,7 @@ extension TerminalController {
                 data: ["issue_id": issueID]
             )
         }
-        let plan = IssueSpawnPlanBuilder.build(
+        let plan = IssueSpawnPlan.build(
             item: item,
             sourceConfig: issueInboxStore.sourceConfig(for: item),
             workingDirectory: workingDirectory,
