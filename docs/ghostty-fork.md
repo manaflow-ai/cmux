@@ -12,8 +12,85 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `05c3e2908`, which adds
-the Darwin-only `ghostty_surface_set_renderer_realized` C API (a
+Current cmux pinned fork head: `cc31d54ee`, a merge of upstream
+`ghostty-org/ghostty` `main` (`d560c645`, 2026-07-03, ~271 first-parent
+commits) onto the previous pin `541e5e89d`. Published via
+manaflow-ai/ghostty#93.
+
+### Upstream TLDR (`541e5e89d..d560c645`)
+
+- Terminal: click/drag selection extracted into a `SelectionGesture` API with a
+  new `selection_changed` notification (`GHOSTTY_ACTION_SELECTION_CHANGED`
+  enum value added, additively); `click_events=2` support; OSC 7/9/1337
+  `pwd_changed` callback; glyph-protocol glossary; configurable default cursor
+  style/blink in libghostty-vt; prompt preservation on resize by default.
+- Correctness: fixes for `Surface.setSelection` use-after-free, resize/scrollback
+  wrap-count overflow, `resizeCols` cursor saturation, and utf-8 grapheme length
+  overflow.
+- macOS/platform: tab-bar appearance sync, macOS 27 beta tab-frame fix,
+  notification retain-cycle fix, kitty-graphics generation stamps; plus routine
+  i18n/colorscheme/dependency churn.
+
+### Conflict notes (`src/Surface.zig`, resolved in the merge)
+
+1. `mouseButtonCallback` link-click handling. Upstream refactored the
+   left-release block to hold the renderer lock for the whole block and to pass
+   a cached `release_pos` plus a `selection_gesture.left_click_dragged` guard.
+   Resolution keeps the fork's latched ctrl/super link-click semantics
+   (`link_click_active` / `link_press_over_link` / `armed_off_link`,
+   manaflow-ai/cmux#5128), drops the fork's now-double-locking
+   `renderer_state.mutex.lock()` (it would deadlock against the lock taken at
+   the top of the block), reuses upstream's `release_pos`, and AND-s in
+   upstream's `!left_click_dragged` guard.
+2. Selection tests. Upstream removed the `mouseSelection` helper in favor of the
+   new `SelectionGesture` API, so the fork's `testMouseSelection`-based
+   `"Surface: selection logic"` / `"Surface: rectangle selection logic"` tests
+   referenced deleted code. Those two tests were dropped; the fork-only
+   `"Surface: mouseLinkRefreshAllowedState honors ctrl/super under mouse
+   reporting"` test was kept (its target fn still exists).
+
+Verified: `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh` built
+GhosttyKit cleanly from the merge; cmux's ghostty C ABI surface (51 called
+`ghostty_*` functions) is unchanged in `include/ghostty.h` across the range
+(only the additive `GHOSTTY_ACTION_SELECTION_CHANGED` enum value); tagged cmux
+reload `gtyup`. Prebuilt archive:
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cc31d54eef285de2f73b17a2aeafc24904722131-crashsubdir-cmux-crash-v1
+
+### Previous pin
+
+Previous cmux pinned fork head: `541e5e89d`, which merges the render-grid span
+preservation head `1b454eb99` from manaflow-ai/ghostty#89 with the
+Arabic/Hebrew RTL shaping head `7a5179843` from manaflow-ai/ghostty#88.
+
+The render-grid change keeps wide or grapheme-backed cells in their own
+`cmux.render-grid.v1` spans so mobile replay receives the producer's exact
+start column and `cell_width` instead of inferring per-grapheme columns from an
+aggregate same-style span.
+
+The RTL series is based on ghostty-org/ghostty#11079 and adds the `itijah` bidi
+resolver, extends the shared `uucode` tables with bidi fields, resolves visual
+shaping runs per row, sets RTL shaping direction for CoreText/HarfBuzz, and
+anchors Arabic combining marks/tashkeel to the correct base cluster. The
+cmux-only follow-up commit adapts the new shaper tests to this pinned fork's
+`vtStream().nextSlice` void-returning API. The RTL series was validated locally
+with:
+
+```bash
+cd ghostty
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=arabic
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=hebrew
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=bidi
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=RTL
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=mixed
+zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Dtest-filter=Bengali
+```
+
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-541e5e89db0448d5cd85a7b348d8f6a64618c900-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+The previous cmux pinned fork head was `1b454eb99`, which retained the
+Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives
 `displayUnrealized()`/`displayRealized()`) on top of `5697db81`. cmux uses it to
 release an occluded terminal's GPU renderer resources (Metal swap chain /
@@ -27,6 +104,12 @@ the copy-mode read branches `issue-6170-surface-read-screen-text-main` and
 https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
 archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-49cb510f759aa109a5b1d30329583195155e58a4-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`. The `1b454eb99` render-grid
+head's corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-1b454eb999d6f4aea28a18ca0e1500c0477383ef-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`. The `7a5179843` RTL shaping
+head's corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7a51798436fa2cfcfcc9a2ed1e109ba69bdb68f9-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The prior head was refreshed from upstream `main` on May 1, 2026.
@@ -49,6 +132,21 @@ It also supports Ctrl-N and Ctrl-P in the cmux theme picker.
 The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-34cbf180d8917b802d61d9929cfb493594f2ab52-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### 0) Render-grid span column preservation for mobile replay
+
+- Commit: `79b5bb6ee` (render-grid: split nontrivial cells into own spans)
+- PR: https://github.com/manaflow-ai/ghostty/pull/89
+- Files:
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Forces wide cells and cells with attached grapheme data to close the active
+    render-grid span before and after emission.
+  - Preserves exact producer columns for mixed-width same-style text, so iOS
+    replay no longer has to reconstruct per-grapheme widths from one aggregate
+    `cell_width`.
+  - Conflict note: this sits in the render-grid JSON encoder's row/cell loop,
+    near the span coalescing logic and `appendRenderGridCellText`.
 
 ### 1) macOS display link restart on display changes
 

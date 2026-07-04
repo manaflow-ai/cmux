@@ -16,6 +16,7 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CLI_PATH=""
+NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
 # read the last-socket-path markers (https://github.com/manaflow-ai/cmux/issues/5146).
 # Resolve the real account home via getpwuid (the same syscall
@@ -154,6 +155,28 @@ select_cmux_shim_target() {
   return 1
 }
 
+publish_reload_cli_path() {
+  local cli_path="$1"
+  if [[ ! -x "$cli_path" ]]; then
+    return 0
+  fi
+  if [[ "$NO_GLOBAL_CLI_LINKS" == "1" ]]; then
+    return 0
+  fi
+
+  (umask 077; printf '%s\n' "$cli_path" > /tmp/cmux-last-cli-path) || true
+  ln -sfn "$cli_path" /tmp/cmux-cli || true
+
+  # Stable shim that always follows the last reload-selected dev CLI.
+  DEV_CLI_SHIM="$HOME/.local/bin/cmux-dev"
+  write_dev_cli_shim "$DEV_CLI_SHIM" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+
+  CMUX_SHIM_TARGET="$(select_cmux_shim_target || true)"
+  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+    write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+  fi
+}
+
 write_last_socket_path() {
   local socket_path="$1"
   local marker_name="dev-last-socket-path"
@@ -233,6 +256,8 @@ Options:
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
+  --no-global-cli-links  Do not update /tmp/cmux-cli, /tmp/cmux-last-cli-path,
+                         or PATH cmux-dev shims. Useful for isolated dogfood.
   --swift-frontend-workaround
                          Work around Swift arm64 frontend spins for this reload
                          only by disabling batch mode, debug symbol emission,
@@ -479,6 +504,10 @@ while [[ $# -gt 0 ]]; do
       DERIVED_SET=1
       shift 2
       ;;
+    --no-global-cli-links)
+      NO_GLOBAL_CLI_LINKS=1
+      shift
+      ;;
     --swift-disable-global-isel)
       SWIFT_FRONTEND_WORKAROUND=1
       shift
@@ -599,12 +628,16 @@ reload_finalize() {
     echo "CLI path:"
     echo "  $CLI_PATH"
     echo "CLI helpers:"
-    echo "  /tmp/cmux-cli ..."
-    echo "  $HOME/.local/bin/cmux-dev ..."
-    if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
-      echo "  $CMUX_SHIM_TARGET ..."
+    if [[ "$NO_GLOBAL_CLI_LINKS" == "1" ]]; then
+      echo "  preserved existing global cmux CLI links (--no-global-cli-links)"
+    else
+      echo "  /tmp/cmux-cli ..."
+      echo "  $HOME/.local/bin/cmux-dev ..."
+      if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+        echo "  $CMUX_SHIM_TARGET ..."
+      fi
+      echo "If your shell still resolves the old cmux, run: rehash"
     fi
-    echo "If your shell still resolves the old cmux, run: rehash"
   fi
   if [[ "${SWIFT_FRONTEND_WORKAROUND_EFFECTIVE:-0}" -eq 1 ]]; then
     echo
@@ -949,19 +982,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
 fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
-if [[ -x "$CLI_PATH" ]]; then
-  (umask 077; printf '%s\n' "$CLI_PATH" > /tmp/cmux-last-cli-path) || true
-  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
-
-  # Stable shim that always follows the last reload-selected dev CLI.
-  DEV_CLI_SHIM="$HOME/.local/bin/cmux-dev"
-  write_dev_cli_shim "$DEV_CLI_SHIM" "/Applications/cmux.app/Contents/Resources/bin/cmux"
-
-  CMUX_SHIM_TARGET="$(select_cmux_shim_target || true)"
-  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
-    write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
-  fi
-fi
+publish_reload_cli_path "$CLI_PATH"
 
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
@@ -1003,10 +1024,7 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [[ -x "$CLI_PATH" ]]; then
-  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
-  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
-fi
+publish_reload_cli_path "$CLI_PATH"
 
 # Tag mode: always terminate the existing same-tag instance after a successful build,
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise

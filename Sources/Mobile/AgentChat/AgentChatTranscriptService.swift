@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxTerminal
 import Foundation
 
 /// Mac-side facade for the agent chat surface: tracks sessions from hook
@@ -12,12 +13,17 @@ final class AgentChatTranscriptService {
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
-    private let coding = ChatWireCoding()
     private var tailers: [String: AgentChatTranscriptTailer] = [:]
+    private let hasEventSubscribers: @MainActor () -> Bool
+    private let emitEventPayload: @MainActor ([String: Any]) -> Void
+    private let now: () -> Date
+    /// Drives the live agent-prose streaming preview.
+    private var proseStreamer: AgentChatProseStreamer!
     /// Sessions whose transcript could not be resolved; skipped until an
     /// explicit history request retries, so per-hook-event resolution
     /// failures don't rescan the filesystem during tool storms.
     private var failedResolutions: Set<String> = []
+    private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
     /// Creates the service with a hook-store-backed registry.
     ///
@@ -33,13 +39,41 @@ final class AgentChatTranscriptService {
     ///   - resolver: Transcript path resolver.
     init(
         registry: AgentChatSessionRegistry,
-        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver()
+        resolver: AgentChatTranscriptResolver = AgentChatTranscriptResolver(),
+        hasEventSubscribers: @escaping @MainActor () -> Bool = {
+            MobileHostService.hasEventSubscribers(topic: AgentChatTranscriptService.eventTopic)
+        },
+        emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
+            MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
+        },
+        now: @escaping () -> Date = { Date() }
     ) {
         self.registry = registry
         self.resolver = resolver
+        self.hasEventSubscribers = hasEventSubscribers
+        self.emitEventPayload = emitEventPayload
+        self.now = now
         registry.onRecordChanged = { [weak self] record, previous in
             self?.handleRecordChange(record, previous: previous)
         }
+        registry.onRecordRemoved = { [weak self] record in
+            self?.handleRecordRemoval(record)
+        }
+        self.proseStreamer = AgentChatProseStreamer(
+            emit: { [weak self] frame in self?.emit(frame: frame) },
+            snapshot: { surfaceID in Self.screenRows(surfaceID: surfaceID) },
+            hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
+        )
+    }
+
+    /// Rendered screen rows (top to bottom) for a surface, the source the prose
+    /// streamer scrapes. Mirrors the render-grid observer's surface lookup.
+    @MainActor
+    private static func screenRows(surfaceID: UUID) -> [String]? {
+        guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) else {
+            return nil
+        }
+        return surface.mobileRenderGridFrame(stateSeq: 0, full: true)?.rows
     }
 
     /// A `(session, surface)` resume re-bind cmux authored during session
@@ -90,9 +124,9 @@ final class AgentChatTranscriptService {
         }
     }
 
-    /// Seeds the session registry from the on-disk hook stores. Call once
-    /// at app startup. Sessions are tracked only via the reliable hook-event
-    /// path thereafter; cmux does not detect agents that never fire a hook.
+    /// Seeds the session registry from the on-disk hook stores. Call once at
+    /// app startup. Hook events stay authoritative for state and transcripts;
+    /// observe-floor scans later add live agent presence even before hooks fire.
     func start() {
         Self.liveInstance = self
         // Apply resume re-binds buffered before the service was wired. The seed
@@ -136,6 +170,23 @@ final class AgentChatTranscriptService {
            MobileHostService.hasEventSubscribers(topic: Self.eventTopic) {
             ensureTailer(for: record)
         }
+        // Drive the live prose-streaming preview off the turn lifecycle: a
+        // prompt starts the in-flight turn, Stop ends it.
+        switch event.hookEventName {
+        case .userPromptSubmit:
+            if record.state != .ended,
+               let surfaceID = record.surfaceID.flatMap(UUID.init(uuidString:)) {
+                proseStreamer.turnStarted(
+                    sessionID: record.sessionID,
+                    surfaceID: surfaceID,
+                    agentKind: record.agentKind
+                )
+            }
+        case .stop, .sessionEnd:
+            proseStreamer.turnEnded(sessionID: record.sessionID)
+        default:
+            break
+        }
     }
 
     /// Lists chat-capable sessions.
@@ -157,10 +208,17 @@ final class AgentChatTranscriptService {
 
     /// Observe-floor detection: discover live codex/claude sessions from the
     /// process table (no hooks required) and fold them into the registry.
-    /// Throttled; intended to run on the iOS list pull so a fresh detection
-    /// appears the moment the GUI asks for the list.
+    /// Awaitable for tests/debug paths that need the updated registry before
+    /// proceeding.
     func observeAgentProcesses() async {
         await registry.observeAgentProcesses()
+    }
+
+    /// Waits briefly for one coalesced observe-floor scan before a list pull.
+    /// Returns false when the scan is still running at the deadline; the caller
+    /// can return the current registry snapshot and let the scan push deltas.
+    func observeAgentProcessesForListing(surfaceIDs: Set<UUID>?, waitUpTo timeout: Duration) async -> Bool {
+        await registry.observeAgentProcessesForListing(surfaceIDs: surfaceIDs, waitUpTo: timeout)
     }
 
     /// The registry record for a session (send path needs the terminal
@@ -170,6 +228,25 @@ final class AgentChatTranscriptService {
     /// - Returns: The record, or `nil` when unknown.
     func sessionRecord(sessionID: String) -> AgentChatSessionRecord? {
         registry.record(sessionID: sessionID)
+    }
+
+    /// Whether an ended session can still serve history without expensive
+    /// fallback scans. Live sessions stay visible before their JSONL exists;
+    /// ended sessions with missing JSONL only open to an unrecoverable error.
+    func hasBoundedReadableTranscript(_ record: AgentChatSessionRecord) -> Bool {
+        resolver.boundedTranscriptPath(for: record) != nil
+    }
+
+    /// Whether an ended session should remain visible in the list. Claude can be
+    /// checked cheaply from cwd/recorded path; Codex fallback scans its sessions
+    /// tree, so Codex rows stay listable and resolve fallback history on open.
+    func shouldListEndedSession(_ record: AgentChatSessionRecord) -> Bool {
+        switch record.agentKind {
+        case .codex:
+            return true
+        case .claude, .other:
+            return endedListability.shouldList(record, resolver: resolver, now: now())
+        }
     }
 
     /// Re-adopts one session's terminal bindings from the hook store; see
@@ -315,6 +392,11 @@ final class AgentChatTranscriptService {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
         if !batch.appended.isEmpty {
+            // The authoritative prose for the turn just landed: settle the live
+            // preview so the committed message takes over with no duplicate.
+            if Self.batchContainsAgentProse(batch.appended) {
+                proseStreamer.authoritativeProseArrived(sessionID: sessionID)
+            }
             emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(batch.appended)))
         }
         if !batch.updated.isEmpty {
@@ -322,6 +404,16 @@ final class AgentChatTranscriptService {
         }
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
+        }
+    }
+
+    /// Whether a batch carries any committed agent prose, the signal that the
+    /// streaming preview for the turn should settle.
+    private static func batchContainsAgentProse(_ messages: [ChatMessage]) -> Bool {
+        messages.contains { message in
+            guard message.role == .agent else { return false }
+            if case .prose = message.kind { return true }
+            return false
         }
     }
 
@@ -344,9 +436,20 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        let endedRecordIsListable: Bool
+        if record.state == .ended {
+            endedRecordIsListable = record.agentKind == .codex
+                || endedListability.update(record, previous: previous, resolver: resolver, now: now())
+        } else {
+            endedListability.remove(sessionID: record.sessionID)
+            endedRecordIsListable = true
+        }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
         if stateChanged, record.state == .ended {
+            // The transcript can no longer grow; stop any live preview loop so
+            // an agent that exits without a Stop hook doesn't leak the poll task.
+            proseStreamer.turnEnded(sessionID: record.sessionID)
             if let tailer = tailers.removeValue(forKey: record.sessionID) {
                 // The transcript can no longer grow; release the file watcher
                 // and cache instead of holding them until app quit. Evicting
@@ -355,9 +458,13 @@ final class AgentChatTranscriptService {
                 Task { await tailer.stop() }
             }
         }
-        guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
+        guard hasEventSubscribers() else { return }
         if transcriptBecameAvailable, record.state != .ended {
             ensureTailer(for: record)
+        }
+        if record.state == .ended, !endedRecordIsListable {
+            emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
+            return
         }
         if stateChanged {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .stateChanged(record.state)))
@@ -370,27 +477,19 @@ final class AgentChatTranscriptService {
         }
     }
 
-    private static func descriptorChangedMeaningfully(
-        previous: AgentChatSessionRecord?,
-        current: AgentChatSessionRecord
-    ) -> Bool {
-        guard var normalizedPrevious = previous else { return true }
-        normalizedPrevious.lastActivityAt = current.lastActivityAt
-        return normalizedPrevious.descriptor != current.descriptor
+    private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        proseStreamer.turnEnded(sessionID: record.sessionID)
+        if let tailer = tailers.removeValue(forKey: record.sessionID) {
+            Task { await tailer.stop() }
+        }
+        failedResolutions.remove(record.sessionID)
+        endedListability.remove(sessionID: record.sessionID)
+        guard hasEventSubscribers() else { return }
+        emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
     }
 
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
-        MobileHostService.emitEvent(topic: Self.eventTopic, payload: payload)
-    }
-
-    /// Encodes a wire value into the `[String: Any]` payload shape the
-    /// event fan-out expects.
-    func wirePayload<T: Encodable>(_ value: T) -> [String: Any]? {
-        guard let data = try? coding.encode(value),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        return object
+        emitEventPayload(payload)
     }
 }
