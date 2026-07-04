@@ -92,6 +92,8 @@ async function anonymousRateLimitResponse(request: Request): Promise<Response | 
 
   const rateLimitId = env.CMUX_ANALYTICS_RATE_LIMIT_ID;
   if (!rateLimitId) {
+    if (process.env.VERCEL_ENV !== "production") return null;
+
     console.error("analytics.events.rate_limit_not_configured");
     return jsonResponse({ error: "rate_limit_unavailable" }, 503);
   }

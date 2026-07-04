@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 const envKeys = [
   "SKIP_ENV_VALIDATION",
   "VERCEL",
+  "VERCEL_ENV",
   "CMUX_ANALYTICS_RATE_LIMIT_ID",
 ] as const;
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]])) as Record<
@@ -12,6 +13,7 @@ const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[ke
 
 process.env.SKIP_ENV_VALIDATION = "1";
 process.env.VERCEL = "1";
+process.env.VERCEL_ENV = "production";
 process.env.CMUX_ANALYTICS_RATE_LIMIT_ID = "cmux-analytics-test";
 
 const getUser = mock(async () => {
@@ -67,6 +69,7 @@ afterEach(() => {
 beforeEach(() => {
   process.env.SKIP_ENV_VALIDATION = "1";
   process.env.VERCEL = "1";
+  process.env.VERCEL_ENV = "production";
   process.env.CMUX_ANALYTICS_RATE_LIMIT_ID = "cmux-analytics-test";
   getUser.mockClear();
   checkRateLimit.mockClear();
@@ -210,6 +213,19 @@ describe("analytics events route", () => {
     } finally {
       console.error = originalConsoleError;
     }
+  });
+
+  test("allows preview deployments to omit the analytics limiter id", async () => {
+    process.env.VERCEL_ENV = "preview";
+    delete process.env.CMUX_ANALYTICS_RATE_LIMIT_ID;
+
+    const response = await analyticsRoute.POST(validAnalyticsRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, forwarded: 1 });
+    expect(checkRateLimit).not.toHaveBeenCalled();
+    expect(getUser).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test("forwards allowed anonymous batches after the Vercel limiter passes", async () => {
