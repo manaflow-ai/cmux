@@ -8,16 +8,41 @@ import Foundation
 final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
     private var liveSessionIDBySurfaceID: [String: String] = [:]
+    private var liveClaudeSessionIDsBySurfaceID: [String: Set<String>] = [:]
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
     /// brand-new record), so the owner derives state/descriptor deltas in
     /// one place instead of hand-maintained flags.
     var onRecordChanged: ((AgentChatSessionRecord, _ previous: AgentChatSessionRecord?) -> Void)?
-
+    var onRecordRemoved: ((AgentChatSessionRecord) -> Void)?
     /// Per-session timestamp of the last hook-store file consult, bounding
     /// main-actor disk reads during tool storms.
     private var hookStoreConsultedAt: [String: Date] = [:]
+
+    /// Per-session monotonic revision counter. Every stored record carries the
+    /// current value so clients reconcile best-effort pushes against
+    /// authoritative pulls: apply a push only when its version exceeds the last
+    /// applied, replace wholesale on a snapshot pull. A counter (not a hash)
+    /// guarantees strict monotonicity even when a change reverts a field.
+    private var versionBySessionID: [String: Int] = [:]
+
+    /// Stamps the next monotonic version onto a record before it is stored.
+    /// All write paths route through this so no externally visible change ever
+    /// ships with a stale or unchanged version.
+    private func stampVersion(_ record: inout AgentChatSessionRecord) {
+        let next = (versionBySessionID[record.sessionID] ?? 0) + 1
+        versionBySessionID[record.sessionID] = next
+        record.version = next
+    }
+
+    /// Per-session process-exit watchers, keyed by session id, each tagged with
+    /// the pid it watches. A `DispatchSourceProcess` (`.exit`) fires exactly
+    /// when the agent process dies (crash, kill, closed terminal), so the
+    /// session flips to `.ended` deterministically without a `SessionEnd` hook
+    /// and without polling `kill(pid,0)` on every read. `DispatchSource` is an
+    /// event source, not a timer, and is cancellable.
+    private var exitWatchers: [String: (pid: Int, source: DispatchSourceProcess)] = [:]
 
     /// Creates a registry.
     ///
@@ -32,24 +57,165 @@ final class AgentChatSessionRegistry {
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
     /// - Returns: Matching records.
     func sessions(workspaceID: String?) -> [AgentChatSessionRecord] {
-        sweepDeadProcesses()
         return records.values
             .filter { workspaceID == nil || $0.workspaceID == workspaceID }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
-    /// Marks sessions whose agent process died without a SessionEnd hook
-    /// (crash, kill, closed terminal) as ended, so a missing Stop hook
-    /// cannot wedge a session in "working" forever.
-    private func sweepDeadProcesses() {
-        for (sessionID, record) in records {
-            guard record.state != .ended, let pid = record.pid else { continue }
-            // ESRCH means the process is gone; EPERM means it exists but is
-            // not signalable, which still counts as alive.
-            if kill(pid_t(pid), 0) != 0, errno == ESRCH {
-                update(sessionID: sessionID) { $0.state = .ended }
+    /// Reconciles the session's exit watcher with its current pid. Called from
+    /// every record-store path, so a watcher exists exactly while a session has
+    /// a live pid and is cancelled when the pid changes, clears, or the session
+    /// ends. Idempotent: a no-op when already watching the right pid.
+    ///
+    /// A process that is already gone at registration (the app was off while it
+    /// died) would never produce an `.exit` event, so that case ends the
+    /// session on a fresh main-actor turn rather than registering a watcher.
+    private func syncProcessExitWatch(for record: AgentChatSessionRecord) {
+        let sessionID = record.sessionID
+        if let existing = exitWatchers[sessionID], existing.pid == record.pid {
+            return
+        }
+        exitWatchers[sessionID]?.source.cancel()
+        exitWatchers[sessionID] = nil
+        guard record.state != .ended, let pid = record.pid else { return }
+        // ESRCH means the process is already gone; EPERM means it exists but is
+        // not signalable, which still counts as alive.
+        if kill(pid_t(pid), 0) != 0, errno == ESRCH {
+            Task { @MainActor [weak self] in self?.handleProcessExit(sessionID: sessionID, pid: pid) }
+            return
+        }
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid_t(pid),
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in self?.handleProcessExit(sessionID: sessionID, pid: pid) }
+        }
+        exitWatchers[sessionID] = (pid: pid, source: source)
+        source.resume()
+    }
+
+    var observeInFlight: AgentChatObservationInFlight?
+    var observeLastStartedAt: Date?
+    static let observeThrottleInterval: TimeInterval = 2
+
+    /// Folds detections in: create a record for any session not already known
+    /// (state `.idle`, from cmux's own observation), and backfill a missing
+    /// binding (surface / workspace / transcript / pid) on an existing one.
+    /// Observation only ADDS presence and bindings; it never downgrades
+    /// hook-derived state.
+    func applyObservedSessions(_ observed: [ObservedAgentSession]) {
+        let now = Date()
+        for session in observed {
+            let canonicalSessionID = canonicalClaudeSessionID(incomingSessionID: session.sessionID, source: session.agentKind.sourceName, surfaceID: session.surfaceID)
+            let targetSessionID = observedClaudeSessionID(canonicalSessionID: canonicalSessionID, observed: session)
+            let observedHasRealHookStoreIdentity = session.agentKind == .claude
+                && !Self.isPendingClaudeSessionID(session.sessionID)
+            #if DEBUG
+            cmuxDebugLog(
+                "agentChat.detect session=\(targetSessionID.prefix(8)) kind=\(session.agentKind.sourceName) "
+                + "surface=\(session.surfaceID.prefix(8)) pid=\(session.pid) "
+                + "transcript=\(session.transcriptPath != nil ? "fd" : "argv-only") "
+                + "\(records[targetSessionID] == nil ? "new" : "bind-existing")"
+            )
+            #endif
+            if records[targetSessionID] == nil {
+                var record = AgentChatSessionRecord(
+                    sessionID: targetSessionID,
+                    agentKind: session.agentKind,
+                    workspaceID: session.workspaceID,
+                    surfaceID: session.surfaceID,
+                    workingDirectory: session.workingDirectory,
+                    transcriptPath: session.transcriptPath,
+                    state: .idle,
+                    lastActivityAt: now,
+                    title: nil,
+                    pid: session.pid
+                )
+                if observedHasRealHookStoreIdentity {
+                    record.rememberHookStoreSessionID(session.sessionID)
+                }
+                stampLifecycleTransition(previous: nil, current: &record, at: session.sampledAt)
+                stampVersion(&record)
+                records[targetSessionID] = record
+                syncProcessExitWatch(for: record)
+                updateLiveSessionIndex(previous: nil, current: record)
+                onRecordChanged?(record, nil)
+            } else {
+                guard let current = records[targetSessionID] else { continue }
+                if reviveEndedObservedSessionIfNeeded(current: current, observed: session, now: now) {
+                    continue
+                }
+                let needsBackfill = current.surfaceID == nil
+                    || (current.workspaceID == nil && session.workspaceID != nil)
+                    || (current.workingDirectory == nil && session.workingDirectory != nil)
+                    || (current.transcriptPath == nil && session.transcriptPath != nil)
+                    || current.pid == nil
+                    || (
+                        observedHasRealHookStoreIdentity
+                            && targetSessionID != session.sessionID
+                            && current.hookStoreSessionID != session.sessionID
+                    )
+                guard needsBackfill else { continue }
+                update(sessionID: targetSessionID) { rec in
+                    if observedHasRealHookStoreIdentity, targetSessionID != session.sessionID {
+                        rec.rememberHookStoreSessionID(session.sessionID)
+                    }
+                    if rec.surfaceID == nil { rec.surfaceID = session.surfaceID }
+                    if rec.workspaceID == nil { rec.workspaceID = session.workspaceID }
+                    if rec.workingDirectory == nil { rec.workingDirectory = session.workingDirectory }
+                    if rec.transcriptPath == nil { rec.transcriptPath = session.transcriptPath }
+                    if rec.pid == nil { rec.pid = session.pid }
+                }
             }
         }
+    }
+
+    /// The watched agent process exited. Before ending the session, verify
+    /// against the surface's process tree off-main: the dead pid may be a
+    /// launcher/intermediate (subrouter, `node` shim) while the real agent still
+    /// runs, in which case re-bind to the live agent pid instead of ending.
+    /// Ignores a stale fire (the session may have resumed under a new pid;
+    /// `claude --resume`). `ended` is retained (the GUI stays shown, the input
+    /// bar disables); only the watcher is torn down.
+    private func handleProcessExit(sessionID: String, pid: Int) {
+        guard let record = records[sessionID], record.pid == pid, record.state != .ended else {
+            return
+        }
+        guard let surfaceID = record.surfaceID else {
+            update(sessionID: sessionID) { $0.state = .ended }
+            return
+        }
+        let kind = record.agentKind
+        let expectedSessionIDs = Set([record.sessionID, record.hookStoreLookupSessionID])
+        Task.detached { [weak self] in
+            let livePID = Self.liveAgentPID(
+                surfaceID: surfaceID,
+                kind: kind,
+                matchingSessionIDs: expectedSessionIDs,
+                allowUnidentifiedFallback: Self.allowsUnidentifiedClaudeLivenessFallback(for: record)
+            )
+            await MainActor.run { [weak self] in
+                guard let self,
+                      let current = self.records[sessionID],
+                      current.pid == pid,
+                      current.state != .ended else { return }
+                if let livePID, livePID != pid {
+                    // Real agent still alive under the surface: re-bind to it
+                    // (this re-arms the exit watcher on the real agent pid).
+                    self.update(sessionID: sessionID) { $0.pid = livePID }
+                } else {
+                    self.update(sessionID: sessionID) { $0.state = .ended }
+                }
+            }
+        }
+    }
+
+    nonisolated static func allowsUnidentifiedClaudeLivenessFallback(for record: AgentChatSessionRecord) -> Bool {
+        record.agentKind == .claude
+            && isPendingClaudeSessionID(record.sessionID)
+            && record.hookStoreSessionID == nil
     }
 
     /// One session's record.
@@ -73,20 +239,16 @@ final class AgentChatSessionRegistry {
                 return nil
             }
             if let pid = record.pid, processIsDead(pid) {
-                update(sessionID: sessionID) { $0.state = .ended }
-                continue
+                // The recorded pid is dead, but it may be a launcher while the
+                // real agent still runs under the surface (subrouter / shim).
+                // Defer to the tree-aware check (re-bind or end off-main); keep
+                // showing the session for now so a live agent is never hidden.
+                handleProcessExit(sessionID: sessionID, pid: pid)
+                return record
             }
             return record
         }
         return nil
-    }
-
-    /// Every session id the registry already tracks. Title-detected adoption
-    /// passes this to the transcript resolver so a second hook-bypassed claude
-    /// in the same directory resolves to a *different* (unclaimed) transcript
-    /// instead of colliding on the newest file.
-    func claimedSessionIDs() -> Set<String> {
-        Set(records.keys)
     }
 
     /// Re-reads the hook store for one session and adopts its bindings,
@@ -97,11 +259,15 @@ final class AgentChatSessionRegistry {
     /// - Parameter sessionID: The session to refresh.
     /// - Returns: The refreshed record, or `nil` when unknown.
     @discardableResult
-    func refreshBindingsFromHookStore(sessionID: String) -> AgentChatSessionRecord? {
+    func refreshBindingsFromHookStore(sessionID: String) async -> AgentChatSessionRecord? {
         guard let record = records[sessionID] else { return nil }
-        guard let entry = hookStore.entry(agentSource: record.agentKind.sourceName, sessionID: sessionID) else {
-            return record
-        }
+        let store = hookStore
+        let source = record.agentKind.sourceName, lookupSessionID = record.hookStoreLookupSessionID
+        // Whole-file JSON read+parse off the main actor.
+        let entry = await Task.detached(priority: .utility) {
+            store.entry(agentSource: source, sessionID: lookupSessionID)
+        }.value
+        guard let entry else { return records[sessionID] }
         update(sessionID: sessionID) { $0.adoptBindings(from: entry, includingPID: false) }
         return records[sessionID]
     }
@@ -119,10 +285,29 @@ final class AgentChatSessionRegistry {
         guard let previous = records[sessionID] else { return }
         var record = previous
         mutate(&record)
+        stampLifecycleTransition(previous: previous, current: &record, at: Date())
+        stampVersion(&record)
         records[sessionID] = record
+        #if DEBUG
+        if previous.state != record.state {
+            cmuxDebugLog(
+                "agentChat.state session=\(sessionID.prefix(8)) "
+                + "\(Self.stateLabel(previous.state))->\(Self.stateLabel(record.state)) v\(record.version)"
+            )
+        }
+        #endif
+        syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
     }
+
+    #if DEBUG
+    /// Compact state label for the debug trace (`idle`/`working`/`needsInput`/
+    /// `ended`), stripping any associated value.
+    private static func stateLabel(_ state: ChatAgentState) -> String {
+        String(describing: state).split(separator: "(").first.map(String.init) ?? "?"
+    }
+    #endif
 
     /// A transcript tail can observe a completed assistant turn even when
     /// the agent hook stream never emits Stop (Claude weekly-limit replies
@@ -140,18 +325,41 @@ final class AgentChatSessionRegistry {
     }
 
     /// Seeds the registry from the on-disk hook stores so sessions started
-    /// before app launch are listable immediately. Dead processes register
-    /// as ended.
+    /// before app launch are listable. The whole-file JSON read+parse runs off
+    /// the main actor; only the (cheap) record application touches main state.
+    /// Dead processes register as ended.
     ///
     /// - Parameter agentSources: The agent store files to read.
-    func seedFromHookStores(agentSources: [String] = ["claude", "codex"]) {
-        for source in agentSources {
+    func seedFromHookStores(agentSources: [String] = ["claude", "codex"]) async {
+        let store = hookStore
+        let parsed: [(source: String, entries: [AgentChatHookSessionStore.Entry])] =
+            await Task.detached(priority: .utility) {
+                agentSources.map { (source: $0, entries: store.entries(agentSource: $0)) }
+            }.value
+        for (source, entries) in parsed {
             let kind = ChatAgentKind(source: source)
-            for entry in hookStore.entries(agentSource: source) {
-                guard records[entry.sessionID] == nil else { continue }
+            for entry in entries {
+                let sessionID = canonicalClaudeSessionID(
+                    incomingSessionID: entry.sessionID,
+                    source: source,
+                    surfaceID: entry.surfaceID,
+                    context: .hookStoreSeed(entry)
+                )
+                if let current = records[sessionID] {
+                    var candidate = current
+                    candidate.adoptMissingBindings(from: entry, includingPID: false)
+                    guard candidate.surfaceID != current.surfaceID
+                        || candidate.workspaceID != current.workspaceID
+                        || candidate.transcriptPath != current.transcriptPath
+                        || candidate.workingDirectory != current.workingDirectory || candidate.hookStoreSessionID != current.hookStoreSessionID else { continue }
+                    update(sessionID: sessionID) { record in
+                        record.adoptMissingBindings(from: entry, includingPID: false)
+                    }
+                    continue
+                }
                 let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
-                let record = AgentChatSessionRecord(
-                    sessionID: entry.sessionID,
+                var record = AgentChatSessionRecord(
+                    sessionID: sessionID,
                     agentKind: kind,
                     workspaceID: entry.workspaceID,
                     surfaceID: entry.surfaceID,
@@ -162,56 +370,15 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
-                records[entry.sessionID] = record
+                record.rememberHookStoreSessionID(entry.sessionID)
+                stampLifecycleTransition(previous: nil, current: &record, at: entry.updatedAt ?? Date())
+                stampVersion(&record)
+                records[sessionID] = record
+                syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
+                onRecordChanged?(record, nil)
             }
         }
-    }
-
-    /// Registers a coding-agent session cmux detected by terminal title or
-    /// launch metadata rather than by an agent hook (e.g. an agent launched
-    /// through a shell wrapper that bypasses cmux's hook injection). Without
-    /// a hook we never learned the agent's session id, so the caller resolves
-    /// the transcript by working directory and passes its filename stem as
-    /// the id.
-    ///
-    /// No-op (returns the existing record) when a session with that id is
-    /// already known, or when any live session is already bound to the same
-    /// surface — a hook-registered record is authoritative and must not be
-    /// shadowed. A brand-new record fires `onRecordChanged` with `nil`, so it
-    /// pushes to listening clients exactly like a hook-created session.
-    ///
-    /// - Returns: The adopted or pre-existing record.
-    @discardableResult
-    func adoptDetectedSession(
-        sessionID: String,
-        agentKind: ChatAgentKind,
-        workspaceID: String,
-        surfaceID: String,
-        workingDirectory: String?,
-        transcriptPath: String?,
-        at timestamp: Date
-    ) -> AgentChatSessionRecord {
-        if let existing = records[sessionID] { return existing }
-        if let bound = liveSession(surfaceID: surfaceID) {
-            return bound
-        }
-        let record = AgentChatSessionRecord(
-            sessionID: sessionID,
-            agentKind: agentKind,
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            workingDirectory: workingDirectory,
-            transcriptPath: transcriptPath,
-            state: .idle,
-            lastActivityAt: timestamp,
-            title: nil,
-            pid: nil
-        )
-        records[sessionID] = record
-        updateLiveSessionIndex(previous: nil, current: record)
-        onRecordChanged?(record, nil)
-        return record
     }
 
     /// Ingests one hook event: creates or refreshes the session record and
@@ -221,8 +388,23 @@ final class AgentChatSessionRegistry {
     /// - Returns: The up-to-date record.
     @discardableResult
     func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
-        let sessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        let hookSessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        let sessionID = canonicalClaudeSessionID(
+            incomingSessionID: hookSessionID,
+            source: event.source,
+            surfaceID: event.surfaceId,
+            context: .liveEvidence
+        )
         let kind = ChatAgentKind(source: event.source)
+        #if DEBUG
+        cmuxDebugLog(
+            "agentChat.hook session=\(sessionID.prefix(8)) event=\(event.hookEventName.rawValue) "
+            + "source=\(event.source) tool=\(event.toolName ?? "-") "
+            + "toolInput=\(event.toolInputJSON != nil ? "yes" : "no") "
+            + "surface=\((event.surfaceId ?? "nil").prefix(8)) "
+            + "transcript=\(event.transcriptPath != nil ? "yes" : "no")"
+        )
+        #endif
         var record = records[sessionID] ?? AgentChatSessionRecord(
             sessionID: sessionID,
             agentKind: kind,
@@ -235,6 +417,7 @@ final class AgentChatSessionRegistry {
             title: nil,
             pid: nil
         )
+        record.rememberHookStoreSessionID(hookSessionID)
         if event.hookEventName == .sessionStart {
             // A resumed session (claude --resume reuses session ids) runs
             // under a NEW process; the old pid would make the liveness
@@ -246,44 +429,261 @@ final class AgentChatSessionRegistry {
             record.pid = event.ppid
             hookStoreConsultedAt[sessionID] = event.receivedAt
         }
-        // The hook store is a whole-file JSON read on the main actor;
-        // consult it at most every 30s per session while fields are still
-        // missing (pid can legitimately stay absent), not on every
-        // pre/postToolUse during a tool storm. Consult BEFORE applying the
-        // event's own fields: the store lags the event by one write, so
-        // the live event must win any disagreement.
+        // The hook store is a whole-file JSON read+parse; never do it on the
+        // main actor. Consult it at most every 30s per session while bindings
+        // are still missing (pid can legitimately stay absent), not on every
+        // pre/postToolUse during a tool storm. The read is deferred off-main
+        // (see backfillBindingsFromStore) and applied later, filling only
+        // still-nil fields — so the live event below always wins a disagreement
+        // (the store lags the event by one write).
         let needsHookStore = record.surfaceID == nil || record.transcriptPath == nil || record.pid == nil
         let lastConsult = hookStoreConsultedAt[sessionID]
-        if needsHookStore,
-           lastConsult.map({ event.receivedAt.timeIntervalSince($0) > 30 }) ?? true {
+        let shouldConsultStore = needsHookStore
+            && (lastConsult.map { event.receivedAt.timeIntervalSince($0) > 30 } ?? true)
+        if shouldConsultStore {
             hookStoreConsultedAt[sessionID] = event.receivedAt
-            if let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
-                // Adopt the store pid only when the record has none: the
-                // record's pid comes from the event's own ppid and is
-                // fresher than a store entry that may predate a resume.
-                record.adoptBindings(from: entry, includingPID: record.pid == nil)
-            }
         }
         if let workspaceID = event.workspaceId, !workspaceID.isEmpty {
             record.workspaceID = workspaceID
         }
+        if let surfaceID = event.surfaceId, !surfaceID.isEmpty {
+            record.surfaceID = surfaceID
+        }
         if let cwd = event.cwd, !cwd.isEmpty {
             record.workingDirectory = cwd
+        }
+        if let transcriptPath = event.transcriptPath, !transcriptPath.isEmpty {
+            record.transcriptPath = transcriptPath
         }
         record.lastActivityAt = event.receivedAt
 
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
+        stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
+        stampVersion(&record)
         records[sessionID] = record
+        syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
+        if shouldConsultStore {
+            backfillBindingsFromStore(
+                sessionID: sessionID,
+                lookupSessionID: hookSessionID,
+                agentSource: event.source
+            )
+        }
         return record
+    }
+
+    private func canonicalClaudeSessionID(
+        incomingSessionID: String,
+        source: String,
+        surfaceID: String?,
+        context: ClaudeSessionCanonicalizationContext = .liveEvidence
+    ) -> String {
+        guard source == "claude",
+              let surfaceID else {
+            return incomingSessionID
+        }
+        if Self.isPendingClaudeSessionID(incomingSessionID) {
+            return liveClaudeSessionID(surfaceID: surfaceID, pending: false, excluding: incomingSessionID)
+                ?? incomingSessionID
+        }
+        if records[incomingSessionID] != nil {
+            if case .liveEvidence = context {
+                removeLivePendingClaudeAliases(surfaceID: surfaceID, excluding: incomingSessionID)
+            }
+            return incomingSessionID
+        }
+        let pendingID: String?
+        switch context {
+        case .liveEvidence:
+            pendingID = liveClaudeSessionID(surfaceID: surfaceID, pending: true, excluding: incomingSessionID)
+        case .hookStoreSeed(let entry):
+            pendingID = currentPendingClaudeAlias(
+                surfaceID: surfaceID,
+                incomingSessionID: incomingSessionID,
+                hookStoreEntry: entry
+            )
+        }
+        if let pendingID {
+            return pendingID
+        }
+        return incomingSessionID
+    }
+
+    private func currentPendingClaudeAlias(
+        surfaceID: String,
+        incomingSessionID: String,
+        hookStoreEntry entry: AgentChatHookSessionStore.Entry
+    ) -> String? {
+        liveClaudeRecords(surfaceID: surfaceID, pending: true, excluding: incomingSessionID)
+            .filter { record in
+                record.hookStoreSessionID == entry.sessionID
+                    || (entry.pid != nil && record.pid == entry.pid)
+            }
+            .max(by: { $0.lastActivityAt < $1.lastActivityAt })?
+            .sessionID
+    }
+
+    private func liveClaudeSessionID(
+        surfaceID: String,
+        pending: Bool,
+        excluding excludedSessionID: String?
+    ) -> String? {
+        liveClaudeRecords(surfaceID: surfaceID, pending: pending, excluding: excludedSessionID)
+            .max(by: { $0.lastActivityAt < $1.lastActivityAt })?
+            .sessionID
+    }
+
+    private func removeLivePendingClaudeAliases(surfaceID: String, excluding excludedSessionID: String?) {
+        let aliases = liveClaudeRecords(surfaceID: surfaceID, pending: true, excluding: excludedSessionID)
+            .map(\.sessionID)
+        guard !aliases.isEmpty else { return }
+        for alias in aliases {
+            guard var record = records.removeValue(forKey: alias) else { continue }
+            stampVersion(&record)
+            exitWatchers[alias]?.source.cancel()
+            exitWatchers[alias] = nil
+            hookStoreConsultedAt.removeValue(forKey: alias)
+            updateLiveSessionIndex(previous: record, current: nil)
+            onRecordRemoved?(record)
+        }
+        if let indexed = liveSessionIDBySurfaceID[surfaceID],
+           aliases.contains(indexed) {
+            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
+            rebuildLiveSessionIndex(surfaceID: surfaceID)
+        }
+    }
+
+    private func liveClaudeRecords(
+        surfaceID: String,
+        pending: Bool,
+        excluding excludedSessionID: String?
+    ) -> [AgentChatSessionRecord] {
+        guard let sessionIDs = liveClaudeSessionIDsBySurfaceID[surfaceID] else { return [] }
+        return sessionIDs.compactMap { sessionID in
+            guard sessionID != excludedSessionID,
+                  let record = records[sessionID],
+                  record.agentKind == .claude,
+                  record.surfaceID == surfaceID,
+                  record.state != .ended,
+                  Self.isPendingClaudeSessionID(record.sessionID) == pending else {
+                return nil
+            }
+            return record
+        }
+    }
+
+    /// Records, from cmux's own authority, that it is resuming `rawSessionID`
+    /// onto `surfaceID`. Resume is ALWAYS cmux-initiated, and some agents (codex)
+    /// fire NO SessionStart hook on resume, so the hook-driven path would keep the
+    /// stale pre-relaunch record: its pid is already dead, the exit watcher flips
+    /// it to `.ended`, and the GUI shows it read-only with no composer (and can't
+    /// recover, since you can't submit a prompt from a hidden composer). cmux
+    /// holds the `(session, surface)` pair at resume time, so it writes that fact
+    /// directly instead of waiting for a hook the agent will never send.
+    ///
+    /// Clearing the pid is essential: re-stamping the record while it still
+    /// carries the DEAD pre-relaunch pid would re-arm the exit watcher on that pid
+    /// and immediately re-end the session. With pid cleared, no watcher arms and
+    /// the session is shown live/editable; the live pid backfills later from the
+    /// agent's own hooks (when it has them), which is the safe direction.
+    func noteResumeInitiated(
+        sessionID rawSessionID: String,
+        source: String,
+        surfaceID: String?,
+        workspaceID: String?,
+        workingDirectory: String?
+    ) {
+        let sessionID = Self.normalizedSessionID(rawSessionID, source: source)
+        let now = Date()
+        #if DEBUG
+        cmuxDebugLog(
+            "agentChat.resumeInitiated session=\(sessionID.prefix(8)) source=\(source) "
+            + "surface=\((surfaceID ?? "nil").prefix(8)) existed=\(records[sessionID] != nil)"
+        )
+        #endif
+        let normalizedSurface = surfaceID.flatMap { $0.isEmpty ? nil : $0 }
+        let normalizedWorkspace = workspaceID.flatMap { $0.isEmpty ? nil : $0 }
+        let normalizedCwd = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
+        if records[sessionID] != nil {
+            update(sessionID: sessionID) { record in
+                if let normalizedSurface { record.surfaceID = normalizedSurface }
+                if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
+                if let normalizedCwd { record.workingDirectory = normalizedCwd }
+                record.pid = nil
+                record.state = .idle
+                record.lastActivityAt = now
+            }
+            return
+        }
+        // The seed has not created this record yet (or it was pruned). Create it
+        // live so the GUI shows the resumed session immediately; the transcript
+        // path resolves on demand from the session id.
+        var record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: ChatAgentKind(source: source),
+            workspaceID: normalizedWorkspace,
+            surfaceID: normalizedSurface,
+            workingDirectory: normalizedCwd,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: now,
+            title: nil,
+            pid: nil
+        )
+        stampLifecycleTransition(previous: nil, current: &record, at: now)
+        stampVersion(&record)
+        records[sessionID] = record
+        syncProcessExitWatch(for: record)
+        updateLiveSessionIndex(previous: nil, current: record)
+        onRecordChanged?(record, nil)
+    }
+
+    /// Reads one session's hook-store entry OFF the main actor and applies any
+    /// still-missing bindings on the main actor. The hot path (`noteHookEvent`)
+    /// returns immediately; bindings land a moment later via `update`, which
+    /// re-tails and pushes if the transcript path just became known. Filling
+    /// only nil fields keeps the live event authoritative over the lagging
+    /// store.
+    private func backfillBindingsFromStore(
+        sessionID: String,
+        lookupSessionID: String,
+        agentSource: String
+    ) {
+        let store = hookStore
+        Task { [weak self] in
+            let entry = await Task.detached(priority: .utility) {
+                store.entry(agentSource: agentSource, sessionID: lookupSessionID)
+            }.value
+            guard let self, let entry else { return }
+            self.applyStoreBackfill(sessionID: sessionID, entry: entry)
+        }
+    }
+
+    /// Applies a hook-store entry's non-nil bindings to a record, but only when
+    /// it actually changes something — so a backfill that learns nothing new
+    /// does not bump the version or emit a no-op descriptor push.
+    private func applyStoreBackfill(sessionID: String, entry: AgentChatHookSessionStore.Entry) {
+        guard let current = records[sessionID] else { return }
+        var candidate = current
+        candidate.adoptMissingBindings(from: entry, includingPID: current.pid == nil)
+        guard candidate.surfaceID != current.surfaceID
+            || candidate.workspaceID != current.workspaceID
+            || candidate.transcriptPath != current.transcriptPath
+            || candidate.workingDirectory != current.workingDirectory
+            || candidate.pid != current.pid || candidate.hookStoreSessionID != current.hookStoreSessionID else { return }
+        update(sessionID: sessionID) { record in
+            record.adoptMissingBindings(from: entry, includingPID: record.pid == nil)
+        }
     }
 
     private func updateLiveSessionIndex(
         previous: AgentChatSessionRecord?,
-        current: AgentChatSessionRecord
+        current: AgentChatSessionRecord?
     ) {
+        updateLiveClaudeSessionIndex(previous: previous, current: current)
         let previousSurfaceID = Self.liveSurfaceID(previous)
         let currentSurfaceID = Self.liveSurfaceID(current)
         if let previousSurfaceID,
@@ -292,7 +692,7 @@ final class AgentChatSessionRegistry {
             liveSessionIDBySurfaceID.removeValue(forKey: previousSurfaceID)
             rebuildLiveSessionIndex(surfaceID: previousSurfaceID)
         }
-        guard let currentSurfaceID else { return }
+        guard let current, let currentSurfaceID else { return }
         guard let indexedSessionID = liveSessionIDBySurfaceID[currentSurfaceID],
               let indexed = records[indexedSessionID],
               indexed.surfaceID == currentSurfaceID,
@@ -303,6 +703,22 @@ final class AgentChatSessionRegistry {
         if indexed.sessionID == current.sessionID || current.lastActivityAt >= indexed.lastActivityAt {
             liveSessionIDBySurfaceID[currentSurfaceID] = current.sessionID
         }
+    }
+
+    private func updateLiveClaudeSessionIndex(
+        previous: AgentChatSessionRecord?,
+        current: AgentChatSessionRecord?
+    ) {
+        let previousSurfaceID = Self.liveClaudeSurfaceID(previous)
+        let currentSurfaceID = Self.liveClaudeSurfaceID(current)
+        if let previousSurfaceID, previousSurfaceID != currentSurfaceID {
+            liveClaudeSessionIDsBySurfaceID[previousSurfaceID]?.remove(previous?.sessionID ?? "")
+            if liveClaudeSessionIDsBySurfaceID[previousSurfaceID]?.isEmpty == true {
+                liveClaudeSessionIDsBySurfaceID.removeValue(forKey: previousSurfaceID)
+            }
+        }
+        guard let current, let currentSurfaceID else { return }
+        liveClaudeSessionIDsBySurfaceID[currentSurfaceID, default: []].insert(current.sessionID)
     }
 
     private func rebuildLiveSessionIndex(surfaceID: String?) {
@@ -323,45 +739,15 @@ final class AgentChatSessionRegistry {
         return record.surfaceID
     }
 
+    private static func liveClaudeSurfaceID(_ record: AgentChatSessionRecord?) -> String? {
+        guard let record, record.agentKind == .claude, record.state != .ended else {
+            return nil
+        }
+        return record.surfaceID
+    }
+
     private func processIsDead(_ pid: Int) -> Bool {
         kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
 
-    /// Strips an agent-name prefix from prefixed workstream ids
-    /// (`claude-<uuid>`); raw hook ids pass through.
-    private static func normalizedSessionID(_ id: String, source: String) -> String {
-        let prefix = "\(source)-"
-        if id.hasPrefix(prefix) {
-            return String(id.dropFirst(prefix.count))
-        }
-        return id
-    }
-
-    private static func nextState(
-        previous: ChatAgentState,
-        event: WorkstreamEvent
-    ) -> ChatAgentState {
-        switch event.hookEventName {
-        case .sessionStart:
-            return .idle
-        case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
-            if case .working = previous { return previous }
-            return .working(since: event.receivedAt)
-        case .preCompact, .postCompact:
-            // Compaction is lifecycle telemetry. It can occur while a session
-            // is idle, so it must not create a synthetic working state.
-            return previous
-        case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
-            if case .needsInput = previous { return previous }
-            return .needsInput(since: event.receivedAt)
-        case .stop:
-            return .idle
-        case .subagentStart, .subagentStop:
-            // Task subagent lifecycle says nothing about the parent
-            // session's activity; keep the current state.
-            return previous
-        case .sessionEnd:
-            return .ended
-        }
-    }
 }

@@ -498,9 +498,9 @@ working-directory = ~/code`}</CodeBlock>
       <ul>
         <li>
           <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
-          <code>terminalFocus</code>, <code>commandPaletteVisible</code>,{" "}
-          <code>terminalFindVisible</code>, <code>workspaceCanvasLayout</code> &mdash;{" "}
-          {t("shortcutsWhenBooleanKeys")}
+          <code>filePreviewTextEditorFocus</code>, <code>terminalFocus</code>,{" "}
+          <code>commandPaletteVisible</code>, <code>terminalFindVisible</code>,{" "}
+          <code>workspaceCanvasLayout</code> &mdash; {t("shortcutsWhenBooleanKeys")}
         </li>
         <li>
           <code>sidebarMode</code> (<code>files</code>, <code>find</code>, <code>sessions</code>,{" "}

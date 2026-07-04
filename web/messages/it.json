@@ -737,13 +737,13 @@
       "layoutItem1": "Righe di primo livello fissate (workspace e gruppi).",
       "layoutItem2": "Righe di primo livello non fissate (workspace e gruppi).",
       "creatingTitle": "Creare un gruppo",
-      "creatingIntro": "Un gruppo si crea in uno di due modi: con una scorciatoia da tastiera o dal menu contestuale di un workspace. Entrambi inseriscono un nuovo workspace di ancoraggio sopra la selezione e spostano i workspace selezionati nel gruppo. Una volta creato il gruppo, lo gestisci e vi aggiungi workspace dall’intestazione del gruppo (vedi Gestire un gruppo più avanti).",
-      "keyboardTitle": "Dalla tastiera ({shortcut})",
-      "keyboardDesc": "Seleziona due o più workspace nella barra laterale, poi premi {shortcut}. Un nuovo workspace di ancoraggio viene inserito sopra la selezione e tutti i workspace selezionati diventano figli. Il gruppo viene nominato automaticamente Group 1, Group 2, e così via — rinominalo in qualsiasi momento tramite il menu contestuale dell'intestazione.",
+      "creatingIntro": "Un gruppo viene creato da una scorciatoia da tastiera o da un menu contestuale della barra laterale. I gruppi vuoti inseriscono una nuova area di lavoro ancora come intestazione del gruppo. I gruppi basati sulla selezione inseriscono quell’ancora sopra la selezione e spostano le aree di lavoro selezionate nel gruppo. Una volta creato il gruppo, puoi gestirlo e aggiungervi aree di lavoro dall’intestazione del gruppo (vedi Gestire un gruppo sotto).",
+      "keyboardTitle": "Dalle scorciatoie da tastiera",
+      "keyboardDesc": "Premi ⌃⌘G per creare un nuovo gruppo di aree di lavoro vuoto. Seleziona due o più aree di lavoro nella barra laterale, poi premi {shortcut} per raggruppare la selezione. Entrambi i percorsi creano una nuova area di lavoro ancora e assegnano automaticamente al gruppo nomi come Group 1, Group 2 e così via. Puoi rinominarlo in qualsiasi momento dal menu contestuale dell’intestazione.",
       "keyboardNote": "{shortcut} entra in conflitto con la combinazione predefinita di React Grab. Il gestore del gruppo consuma la combinazione solo quando c'è una multi-selezione esplicita di almeno due workspace nella barra laterale, quindi React Grab si attiva comunque in selezione singola e nei contesti del browser o del terminale. Riassegnalo in Impostazioni → Tastiera se preferisci che i due non condividano un tasto.",
       "keyboardSingle": "I gruppi a scheda singola non vengono creati dalla scorciatoia. A tale scopo, usa la voce Nuovo gruppo da quest’area di lavoro nel menu contestuale dell'area di lavoro.",
       "contextMenuTitle": "Da un menu contestuale del workspace",
-      "contextMenuDesc": "Fai clic con il tasto destro su qualsiasi area di lavoro nella barra laterale e scegli Nuovo gruppo da quest’area di lavoro, oppure Nuovo gruppo dalla selezione quando sono selezionate più aree di lavoro. Questo usa lo stesso comportamento di denominazione automatica della scorciatoia.",
+      "contextMenuDesc": "Fai clic destro su qualsiasi area di lavoro nella barra laterale e scegli Nuovo gruppo di aree di lavoro vuoto, Nuovo gruppo dall’area di lavoro o Nuovo gruppo dalla selezione quando sono selezionate più aree di lavoro. Anche l’area vuota sotto l’elenco della barra laterale offre Nuovo gruppo di aree di lavoro vuoto. Questi percorsi usano lo stesso comportamento di denominazione automatica delle scorciatoie.",
       "managingTitle": "Gestire un gruppo",
       "managingIntro": "Una volta creato il gruppo, il menu contestuale della sua intestazione e il pulsante + sull’intestazione ti permettono di gestire il gruppo e aggiungervi workspace. Nessuno dei due crea un nuovo gruppo.",
       "headerMenuTitle": "Dal menu contestuale dell'intestazione del gruppo",
@@ -799,6 +799,8 @@
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
+        "paneBorderColor": "Sovrascrive il colore del divisore dei riquadri cmux negli spazi di lavoro divisi. Influisce sui bordi dei riquadri cmux, non sulle divisioni interne di Ghostty.",
+        "activePaneBorderColor": "Colore del bordo opzionale disegnato attorno al riquadro cmux focalizzato negli spazi di lavoro divisi.",
         "automation": {
           "ampIntegration": "Abilita gli hook di integrazione cmux per Amp. Se disabilitato, il plugin in bundle rimane inattivo senza dover essere rimosso.",
           "suppressSubagentNotifications": "Nasconde le notifiche visibili di completamento e le modifiche di stato degli agenti figli Codex o Claude annidati, mantenendo i loro eventi nella telemetria Feed.",
@@ -819,6 +821,9 @@
           "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
           "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
+        },
+        "notifications": {
+          "suppressOnlyFocusedSurface": "Quando è attivo, un banner di notifica viene ritirato automaticamente solo quando la sua superficie è esattamente la superficie con il focus. Un banner mostrato per una superficie senza focus nel workspace attualmente visibile resta visibile finché non porti il focus su quella superficie (o ci fai clic/la chiudi), invece di essere ritirato quando il workspace diventa visibile. Disattivato mantiene il vecchio ritiro basato sulla visibilità del workspace."
         },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
@@ -847,7 +852,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
+          "when": "Predicati di contesto opzionali per azione (clausole `when` in stile VS Code), indicizzati per id azione cmux. Ogni valore è un'espressione booleana sulle chiavi di contesto, combinata con !, &&, || e parentesi. Chiavi booleane: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Le chiavi tipizzate supportano i confronti: la stringa sidebarMode (files, find, sessions, feed o dock) e gli interi paneCount e workspaceCount. Gli operatori di confronto sono ==, !=, =~ (espressione regolare), <, <=, >, >= e `in [a, b]`; una chiave sconosciuta o assente vale false. Sono accettati anche i letterali booleani true e false; `key == false` equivale a `!key`. La scorciatoia dell'azione si attiva (ed entra in conflitto con altre scorciatoie) solo quando la clausola è vera. Esempi: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleziona gli spazi di lavoro con Ctrl+1–9 ovunque tranne quando la barra laterale destra ha il focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita un'associazione alla barra laterale Trova quando lo spazio di lavoro ha più riquadri.",
           "showModifierHoldHints": "Mostra i chip dei suggerimenti delle scorciatoie mentre tieni premuto Cmd o Control."
         },
         "workspaceProfiles": {
@@ -1074,7 +1079,8 @@
       "closeWorkspaceDesc": "Chiudi un workspace.",
       "splitCommands": "Comandi di divisione",
       "newSplitDesc": "Crea un nuovo pannello diviso. Direzioni: left, right, up, down.",
-      "listSurfacesDesc": "Elenca tutte le superfici nel workspace attuale.",
+      "listPanelsDesc": "Elenca tutte le superfici nel workspace attuale.",
+      "listPaneSurfacesDesc": "Elenca le superfici nel pannello attivo.",
       "focusSurfaceDesc": "Metti a fuoco una superficie specifica.",
       "inputCommands": "Comandi di input",
       "sendDesc": "Invia testo al terminale attivo.",
@@ -1596,7 +1602,8 @@
   "afterSignIn": {
     "title": "Accesso a cmux effettuato",
     "body": "Se cmux non si è aperto automaticamente, usa il pulsante qui sotto.",
-    "button": "Torna a cmux"
+    "button": "Torna a cmux",
+    "switchAccountButton": "Usa un altro account"
   },
   "landing": {
     "bestTerminal": {
@@ -1618,9 +1625,9 @@
       "kittyBuiltFor": "Veloce, programmabile, ricco di funzioni",
       "weztermBuiltFor": "Terminale GPU con multiplexer integrato",
       "tmuxBuiltFor": "Multiplexing dentro qualsiasi terminale",
-      "cmuxBody": "Un terminale macOS nativo costruito su libghostty, progettato per tre cose: multitasking, organizzazione e programmabilità. La barra laterale verticale raggruppa il lavoro in spazi di lavoro, ciascuno con il suo branch git, la directory, le porte e l'ultima riga di output dell'agente, così puoi eseguire molte cose contemporaneamente senza perderti. I pannelli suonano quando un agente richiede attenzione. Ogni azione è programmabile tramite una CLI e un socket Unix, e c'è un browser integrato che puoi controllare a livello di codice. C'è perfino un'app companion per iOS per controllare i tuoi terminali dal telefono. Ideale se gestisci più attività o agenti di programmazione IA e vuoi tenerli organizzati e automatizzabili senza configurare un multiplexer.",
+      "cmuxBody": "cmux è un terminale macOS nativo costruito sul motore terminale di Ghostty, libghostty. Questo significa che la griglia del terminale eredita i punti di forza di Ghostty: rendering GPU veloce, ottima resa di font e colori, compatibilità moderna con i terminali e i tuoi temi, font, colori e impostazioni del cursore Ghostty esistenti. cmux aggiunge il livello che Ghostty non prova a essere: workspace verticali, pannelli divisi, anelli di notifica, contesto git/porte/agenti nella barra laterale, una CLI e un socket Unix scriptabili, un browser programmabile e un’app companion per iOS. Scegli cmux quando vuoi rendering terminale di qualità Ghostty più organizzazione e automazione per molte attività o agenti di coding AI.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Il terminale veloce e accelerato dalla GPU il cui motore, libghostty, alimenta cmux. Se vuoi una singola finestra di terminale pulita con un rendering eccellente e senza il livello di spazi di lavoro o automazione, Ghostty è eccellente da solo.",
+      "ghosttyBody": "Ghostty è il terminale nativo veloce il cui motore, libghostty, alimenta cmux. Rispetto ai terminali più vecchi renderizzati dalla CPU e ai terminali più pesanti in stile Electron, i punti di forza di Ghostty sono rendering GPU a bassa latenza, gestione nitida di font e colori, forte compatibilità terminale, configurazione semplice basata su file e nessun requisito di account cloud. Se vuoi una singola finestra terminale pulita con questi vantaggi di rendering e senza layer di workspace o automazione, Ghostty è eccellente da solo. Se vuoi gli stessi vantaggi di rendering di Ghostty più workspace, notifiche, scripting e orchestrazione di agenti, usa cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Il terminale macOS maturo e infinitamente configurabile. Profili approfonditi, trigger e integrazione tmux. La scelta sicura se vuoi il massimo delle funzionalità e non stai orchestrando molte attività contemporaneamente.",
       "warpTitle": "Warp",
