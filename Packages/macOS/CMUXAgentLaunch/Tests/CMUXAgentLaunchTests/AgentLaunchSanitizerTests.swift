@@ -104,6 +104,132 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Keeps Claude flags after multi-value development channels")
+    func keepsClaudeFlagsAfterMultiValueDevelopmentChannels() {
+        // `--dangerously-load-development-channels` accepts multiple
+        // `server:<name>` values (variadic in Claude Code). A captured
+        // cold-launch argv that passes more than one value must not truncate
+        // the resume command: every later flag the claude policy allowlists
+        // (`--debug-file`, `--agents`, `--agent`) and bare passthrough flags
+        // (`--dangerously-skip-permissions`) must survive the rebuild.
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "claude",
+                    "--mcp-config", "/Users/me/Code/.mcp.json",
+                    "--dangerously-load-development-channels",
+                    "server:slack-bus", "server:runtime-bus", "server:peer-bus",
+                    "--debug-file", "/tmp/cc-debug.log",
+                    "--agents", #"{"build-orchestrator":{}}"#,
+                    "--dangerously-skip-permissions",
+                    "--agent", "build-orchestrator",
+                ],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == [
+                "claude",
+                "--mcp-config", "/Users/me/Code/.mcp.json",
+                "--dangerously-load-development-channels",
+                "server:slack-bus", "server:runtime-bus", "server:peer-bus",
+                "--debug-file", "/tmp/cc-debug.log",
+                "--agents", #"{"build-orchestrator":{}}"#,
+                "--dangerously-skip-permissions",
+                "--agent", "build-orchestrator",
+            ]
+        )
+        // A single value followed by another flag must consume only that value
+        // and still preserve the following option (no over-greedy capture).
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "claude",
+                args: [
+                    "--dangerously-load-development-channels", "server:slack-bus",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels", "server:slack-bus",
+                "--model", "sonnet",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "claude",
+                args: [
+                    "--dangerously-load-development-channels=server:slack-bus",
+                    "server:runtime-bus",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels=server:slack-bus",
+                "server:runtime-bus",
+                "--model", "sonnet",
+            ]
+        )
+        // Variadic consumption is constrained to the `server:` grammar: a
+        // trailing positional (a startup prompt) is NOT a channel value, so it
+        // ends the run and is dropped as the prompt boundary. This preserves the
+        // sanitizer's no-prompt-replay invariant — the channel values survive
+        // but the prompt (and anything after it) is not replayed on resume.
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "claude",
+                args: [
+                    "--dangerously-load-development-channels", "server:bus",
+                    "initial prompt should not replay",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels", "server:bus",
+            ]
+        )
+    }
+
+    @Test("Keeps CodeBuddy flags after multi-value development channels")
+    func keepsCodeBuddyFlagsAfterMultiValueDevelopmentChannels() {
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "codebuddy",
+                args: [
+                    "--dangerously-load-development-channels",
+                    "server:slack-bus", "server:runtime-bus",
+                    "--agents", #"{"build-orchestrator":{}}"#,
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels",
+                "server:slack-bus", "server:runtime-bus",
+                "--agents", #"{"build-orchestrator":{}}"#,
+                "--model", "sonnet",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "codebuddy",
+                args: [
+                    "--dangerously-load-development-channels", "server:bus",
+                    "initial prompt should not replay",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels", "server:bus",
+            ]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "codebuddy",
+                args: [
+                    "--dangerously-load-development-channels=server:slack-bus",
+                    "server:runtime-bus",
+                    "--model", "sonnet",
+                ]
+            ) == [
+                "--dangerously-load-development-channels=server:slack-bus",
+                "server:runtime-bus",
+                "--model", "sonnet",
+            ]
+        )
+    }
+
     @Test("Drops OpenCode startup files before preserving cwd")
     func dropsOpenCodeStartupFilesBeforePreservingCwd() {
         #expect(

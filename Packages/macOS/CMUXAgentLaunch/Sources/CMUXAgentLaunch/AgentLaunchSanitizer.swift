@@ -20,6 +20,12 @@ public enum AgentLaunchSanitizer {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []; var optionalValueChoices: [String: Set<String>] = [:]; var greedyOptionalValueOptions: Set<String> = []
         var variadicOptions: Set<String> = []
+        /// Per-option grammar for variadic value consumption. When an option in
+        /// `variadicOptions` has an entry here, only following tokens that start
+        /// with one of these prefixes are consumed as values; the first
+        /// non-matching token ends the run. Options without an entry consume any
+        /// non-option token (the default variadic behavior).
+        var variadicValuePrefixes: [String: Set<String>] = [:]
         var nonRestorableCommands: Set<String>
         var droppedOptions: Set<String>
         var droppedOptionPrefixes: [String] = []
@@ -477,7 +483,19 @@ public enum AgentLaunchSanitizer {
         stopVariadicAtPositionals: Set<String> = []
     ) -> Int {
         let arg = args[index]
-        if arg.contains("=") {
+        if let equals = arg.firstIndex(of: "=") {
+            let option = String(arg[..<equals])
+            if policy.variadicOptions.contains(option),
+               let requiredPrefixes = policy.variadicValuePrefixes[option] {
+                var end = index + 1
+                while end < args.count,
+                      !args[end].hasPrefix("-"),
+                      !stopVariadicAtPositionals.contains(args[end]),
+                      requiredPrefixes.contains(where: { args[end].hasPrefix($0) }) {
+                    end += 1
+                }
+                return end - index
+            }
             return 1
         }
         if policy.optionalValueOptions.contains(arg) {
@@ -492,10 +510,17 @@ public enum AgentLaunchSanitizer {
         }
         guard policy.valueOptions.contains(arg), index + 1 < args.count else { return 1 }
         if policy.variadicOptions.contains(arg) {
+            // Consume value tokens up to the next option token. When the option
+            // constrains its value grammar (variadicValuePrefixes), only tokens
+            // matching a required prefix are consumed, so a following positional
+            // (e.g. a startup prompt) ends the run instead of being swallowed as
+            // a value. Options without a constraint accept any non-option token.
+            let requiredPrefixes = policy.variadicValuePrefixes[arg]
             var end = index + 1
             while end < args.count,
                   !args[end].hasPrefix("-"),
-                  !stopVariadicAtPositionals.contains(args[end]) {
+                  !stopVariadicAtPositionals.contains(args[end]),
+                  requiredPrefixes?.contains(where: { args[end].hasPrefix($0) }) ?? true {
                 end += 1
             }
             return max(1, end - index)

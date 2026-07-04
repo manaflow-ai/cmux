@@ -153,9 +153,13 @@ extension AgentLaunchSanitizer {
         variadicOptions: [
             "--add-dir",
             "--allowedTools",
+            "--dangerously-load-development-channels",
             "--disallowedTools",
             "--mcp-config",
             "--plugin-dir"
+        ],
+        variadicValuePrefixes: [
+            "--dangerously-load-development-channels": ["server:"]
         ],
         nonRestorableCommands: [
             "attach",
