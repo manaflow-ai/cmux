@@ -16,6 +16,31 @@ import CmuxInbox
         #expect(result.items.first?.isActionable == true)
     }
 
+    @Test func missingHelperStateComesFromTypedFieldNotMessageText() async throws {
+        // Reworded helper messages must not break the missing-helper UI state.
+        let missing = await IMessageHelperConnector(
+            helper: StubIMessageHelperClient(status: IMessageHelperStatus(
+                ok: false,
+                message: "helper binary absent",
+                helperInstalled: false
+            ))
+        ).status()
+        #expect(missing.status == .missingHelper)
+
+        let installedButFailing = await IMessageHelperConnector(
+            helper: StubIMessageHelperClient(status: IMessageHelperStatus(
+                ok: false,
+                message: "helper is not installed correctly, run doctor",
+                helperInstalled: true
+            ))
+        ).status()
+        #expect(installedButFailing.status == .error)
+
+        let parsed = try IMessageHelperJSONAdapter.status(from: Data(#"{"ok":false,"message":"gone","helper_installed":false}"#.utf8))
+        #expect(parsed.helperInstalled == false)
+        #expect(try IMessageHelperJSONAdapter.status(from: Data(#"{"ok":true}"#.utf8)).helperInstalled == true)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func helperRunnerDrainsStdoutLargerThanThePipeBufferWithoutDeadlock() async throws {
         // 256 KB is well past the ~64 KB pipe buffer; before the concurrent

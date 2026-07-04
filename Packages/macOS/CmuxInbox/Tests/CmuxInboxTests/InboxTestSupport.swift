@@ -100,6 +100,26 @@ actor StubConnector: InboxConnector {
     }
 }
 
+struct StubIMessageHelperClient: IMessageHelperClient {
+    private let statusValue: IMessageHelperStatus
+
+    init(status: IMessageHelperStatus) {
+        statusValue = status
+    }
+
+    func status() async -> IMessageHelperStatus {
+        statusValue
+    }
+
+    func recent(cursor: String?) async throws -> InboxConnectorSyncResult {
+        throw InboxError.connectorUnavailable("stub helper has no messages")
+    }
+
+    func sendApprovedReply(draft: InboxDraft, thread: InboxThread) async throws {
+        throw InboxError.connectorUnavailable("stub helper cannot send")
+    }
+}
+
 struct InboxFixtures {
     let date = Date(timeIntervalSince1970: 1_700_000_000)
 

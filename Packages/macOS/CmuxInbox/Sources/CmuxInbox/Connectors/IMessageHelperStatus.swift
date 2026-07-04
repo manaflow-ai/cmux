@@ -10,12 +10,22 @@ public struct IMessageHelperStatus: Codable, Equatable, Sendable {
     public var lastSyncAt: Date?
     /// Whether the helper reported denied Messages permissions.
     public var permissionDenied: Bool
+    /// Whether the helper binary is installed and executable. Drives the
+    /// missing-helper UI state through a typed field instead of message text.
+    public var helperInstalled: Bool
 
     /// Creates a helper status.
-    public init(ok: Bool, message: String? = nil, lastSyncAt: Date? = nil, permissionDenied: Bool = false) {
+    public init(
+        ok: Bool,
+        message: String? = nil,
+        lastSyncAt: Date? = nil,
+        permissionDenied: Bool = false,
+        helperInstalled: Bool = true
+    ) {
         self.ok = ok
         self.message = message
         self.lastSyncAt = lastSyncAt
         self.permissionDenied = permissionDenied
+        self.helperInstalled = helperInstalled
     }
 }

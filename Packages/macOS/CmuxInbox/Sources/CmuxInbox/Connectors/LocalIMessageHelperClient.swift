@@ -33,7 +33,8 @@ public struct LocalIMessageHelperClient: IMessageHelperClient {
             return IMessageHelperStatus(
                 ok: false,
                 message: "cmux-imsg helper is not installed",
-                permissionDenied: false
+                permissionDenied: false,
+                helperInstalled: false
             )
         }
         do {

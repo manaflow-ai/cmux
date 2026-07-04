@@ -25,7 +25,7 @@ public actor IMessageHelperConnector: InboxConnector {
             accountStatus = .connected
         } else if status.permissionDenied {
             accountStatus = .permissionDenied
-        } else if status.message?.contains("not installed") == true {
+        } else if !status.helperInstalled {
             accountStatus = .missingHelper
         } else {
             accountStatus = .error
