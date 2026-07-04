@@ -9,15 +9,27 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
     /// The default number of total launch attempts, including the first attempt.
     public static let defaultMaxAttempts = 4
 
+    /// The default startup window, in seconds, during which lock diagnostics are retryable.
+    public static let defaultStartupWindowSeconds = 3
+
     /// The number of total launch attempts, including the first attempt.
     public var maxAttempts: Int
+
+    /// The startup window, in seconds, during which lock diagnostics are retryable.
+    public var startupWindowSeconds: Int
 
     /// Creates a Codex retry shell renderer.
     ///
     /// - Parameter maxAttempts: Total launch attempts, including the first attempt. Values below
     ///   `1` are clamped to `1`.
-    public init(maxAttempts: Int = Self.defaultMaxAttempts) {
+    /// - Parameter startupWindowSeconds: Seconds after launch during which lock diagnostics are
+    ///   retryable. Negative values are clamped to `0`.
+    public init(
+        maxAttempts: Int = Self.defaultMaxAttempts,
+        startupWindowSeconds: Int = Self.defaultStartupWindowSeconds
+    ) {
         self.maxAttempts = max(1, maxAttempts)
+        self.startupWindowSeconds = max(0, startupWindowSeconds)
     }
 
     /// Wraps a rendered Codex command in a retrying `/bin/zsh -c` launcher.
@@ -63,7 +75,7 @@ public struct CodexResumeRetryShell: Sendable, Equatable {
             "_cmux_codex_retry_capture=\"\"",
             "_cmux_codex_retry_pipe=\"\"",
             "[ \"$_cmux_codex_retry_status\" -eq 0 ] && exit 0",
-            "[ \"$((SECONDS - _cmux_codex_retry_started))\" -ge 3 ] && exit \"$_cmux_codex_retry_status\"",
+            "[ \"$((SECONDS - _cmux_codex_retry_started))\" -ge \(startupWindowSeconds) ] && exit \"$_cmux_codex_retry_status\"",
             "case \"$_cmux_codex_retry_output\" in *\"database is locked\"*|*\"another Codex process is using its local data\"*) ;; *) exit \"$_cmux_codex_retry_status\" ;; esac",
         ].joined(separator: "; ")
         let afterAttempt = [
