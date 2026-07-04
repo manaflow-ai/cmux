@@ -904,7 +904,7 @@ struct TitlebarControlsView: View {
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor(refreshID: showModifierHoldHints) { window in
-                    if viewModel.setHostWindow(window) { focusHistoryAvailabilityRevision &+= 1 }
+                    _ = viewModel.setHostWindow(window)
                     modifierKeyMonitor.setHostWindow(modifierHoldHintsEnabled ? window : nil)
                 }
                 .frame(width: 0, height: 0)
@@ -1360,7 +1360,7 @@ struct HiddenTitlebarSidebarControlsView: View {
     var body: some View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         ZStack(alignment: .leading) {
-            WindowAccessor { window in
+            WindowAccessor(invokeDuringUpdate: false) { window in
                 let nextWindowNumber = window.windowNumber
                 _ = viewModel.setHostWindow(window)
                 isHoveringWindowChrome = nextWindowNumber == MinimalModeSidebarChromeHoverState.shared.hoveredWindowNumber
@@ -1850,7 +1850,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let currentWindow = view.window
         guard currentWindow !== observedWindow else { return false }
         removeWindowGeometryObservers()
-        observedWindow = currentWindow
+        observedWindow = currentWindow; _ = viewModel.setHostWindow(currentWindow); NotificationCenter.default.post(name: .tabManagerFocusHistoryRevisionDidChange, object: nil)
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
         windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in

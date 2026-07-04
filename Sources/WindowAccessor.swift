@@ -5,15 +5,18 @@ import SwiftUI
 struct WindowAccessor: NSViewRepresentable {
     let onWindow: @MainActor (NSWindow) -> Void
     let dedupeByWindow: Bool
+    let invokeDuringUpdate: Bool
     let refreshID: AnyHashable?
 
     init(
         dedupeByWindow: Bool = true,
+        invokeDuringUpdate: Bool = true,
         refreshID: AnyHashable? = nil,
         onWindow: @escaping @MainActor (NSWindow) -> Void
     ) {
         self.onWindow = onWindow
         self.dedupeByWindow = dedupeByWindow
+        self.invokeDuringUpdate = invokeDuringUpdate
         self.refreshID = refreshID
     }
 
@@ -35,6 +38,7 @@ struct WindowAccessor: NSViewRepresentable {
             on: nsView,
             coordinator: context.coordinator
         )
+        guard invokeDuringUpdate else { return }
         if let window = nsView.window {
             nsView.onWindow?(window)
         }
