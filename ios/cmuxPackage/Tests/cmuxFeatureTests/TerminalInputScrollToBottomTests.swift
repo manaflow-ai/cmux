@@ -1,7 +1,4 @@
-// The suite drives the DEBUG-only `debugSkipRenderDispatchForTesting` hook (a
-// scene-less xctest host can never complete a Metal present), so it only
-// exists in DEBUG test configurations.
-#if DEBUG && canImport(UIKit)
+#if canImport(UIKit)
 import CMUXMobileCore
 import Foundation
 import Testing
@@ -31,7 +28,7 @@ struct TerminalInputScrollToBottomTests {
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
             produced.append(data)
         }
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {}
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {}
     }
 
     private struct Harness {
@@ -43,20 +40,16 @@ struct TerminalInputScrollToBottomTests {
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
         let delegate = InputCollectingDelegate()
-        GhosttySurfaceView.debugSkipRenderDispatchForTesting = true
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
+        // The xctest host has no window scene, so a Metal present can never
+        // complete here; suppress render dispatch so the render-stall recovery
+        // never resets the surface (and its seeded scrollback) under test.
+        view.isRenderDispatchSuppressed = true
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
         window.addSubview(view)
         view.frame = window.bounds
         window.isHidden = false
         return Harness(window: window, view: view, delegate: delegate)
-    }
-
-    /// Dismantles the harness and restores the process-wide render-skip hook
-    /// so later suites in the same test process exercise the real render path.
-    private func tearDown(_ harness: Harness) {
-        harness.view.prepareForDismantle()
-        GhosttySurfaceView.debugSkipRenderDispatchForTesting = false
     }
 
     /// Awaiting (not run-loop pumping) lets the main queue drain so the
@@ -99,7 +92,7 @@ struct TerminalInputScrollToBottomTests {
     @Test("typing while scrolled up snaps the viewport back to the bottom")
     func typedInputSnapsToBottom() async throws {
         let harness = try makeHarness()
-        defer { tearDown(harness) }
+        defer { harness.view.prepareForDismantle() }
         let marker = try await seedAndScrollUp(harness.view)
 
         harness.view.simulateInputProxyTextChangeForTesting("l", isComposing: false)
@@ -113,7 +106,7 @@ struct TerminalInputScrollToBottomTests {
     @Test("passive output while scrolled up does not force the viewport down")
     func passiveOutputDoesNotFollow() async throws {
         let harness = try makeHarness()
-        defer { tearDown(harness) }
+        defer { harness.view.prepareForDismantle() }
         let marker = try await seedAndScrollUp(harness.view)
 
         _ = await harness.view.processOutputAndWait(Data("passive-tail 1\r\npassive-tail 2\r\n".utf8))
