@@ -730,6 +730,8 @@ final class TerminalControllerSocketSecurityTests {
                 "workspace.create",
                 "mobile.terminal.create",
                 "terminal.create",
+                "mobile.terminal.close",
+                "terminal.close",
                 "mobile.terminal.input",
                 "terminal.input",
                 "mobile.terminal.replay",

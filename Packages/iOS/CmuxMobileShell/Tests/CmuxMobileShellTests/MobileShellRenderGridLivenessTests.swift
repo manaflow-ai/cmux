@@ -577,8 +577,9 @@ import Testing
 }
 
 /// Older Macs used `workspace.actions.v1` for rename/pin only. Newly added
-/// read-state and close actions need separate capability bits so a newer iPhone
-/// does not show controls that an older Mac will reject at runtime.
+/// read-state, workspace close, and terminal close actions need separate
+/// capability bits so a newer iPhone does not show controls that an older Mac
+/// will reject at runtime.
 @MainActor
 @Test func workspaceReadStateAndCloseCapabilitiesAreVersionGated() async throws {
     let oldMacClock = TestClock()
@@ -596,6 +597,7 @@ import Testing
     #expect(oldMacStore.supportsWorkspaceActions)
     #expect(oldMacStore.supportsWorkspaceReadStateActions == false)
     #expect(oldMacStore.supportsWorkspaceCloseActions == false)
+    #expect(oldMacStore.supportsTerminalCloseActions == false)
 
     let currentMacClock = TestClock()
     let currentMacRouter = LivenessHostRouter()
@@ -607,6 +609,7 @@ import Testing
         "workspace.actions.v1",
         "workspace.read_state.v1",
         "workspace.close.v1",
+        "terminal.close.v1",
     ])
     let currentMacStore = try await makeConnectedStore(router: currentMacRouter, box: currentMacBox, clock: currentMacClock)
     let currentMacResolved = try await pollUntil { await currentMacRouter.count(of: "mobile.host.status") >= 1 }
@@ -614,4 +617,5 @@ import Testing
     #expect(currentMacStore.supportsWorkspaceActions)
     #expect(currentMacStore.supportsWorkspaceReadStateActions)
     #expect(currentMacStore.supportsWorkspaceCloseActions)
+    #expect(currentMacStore.supportsTerminalCloseActions)
 }

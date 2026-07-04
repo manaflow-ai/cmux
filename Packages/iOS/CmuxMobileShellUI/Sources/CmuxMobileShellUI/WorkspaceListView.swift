@@ -643,4 +643,5 @@ struct WorkspaceListView: View {
         workspacePendingCloseID = nil
         closeWorkspace?(workspaceID)
     }
+
 }

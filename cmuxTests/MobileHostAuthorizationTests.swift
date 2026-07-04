@@ -1079,6 +1079,7 @@ struct MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.actions.v1"))
         #expect(capabilities.contains("workspace.read_state.v1"))
         #expect(capabilities.contains("workspace.close.v1"))
+        #expect(capabilities.contains("terminal.close.v1"))
         #expect(capabilities.contains("terminal.render_grid.v1"))
     }
 
