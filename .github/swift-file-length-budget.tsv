@@ -4,7 +4,7 @@
 34532	CLI/cmux.swift
 17954	Sources/AppDelegate.swift
 16427	Sources/ContentView.swift
-14282	Sources/TerminalController.swift
+14287	Sources/TerminalController.swift
 13201	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12296	Sources/GhosttyTerminalView.swift

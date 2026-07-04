@@ -185,7 +185,7 @@ import Testing
         #expect(workspace.customDescription == nil)
     }
 
-    @Test func workspaceActionSetDescriptionInvalidSourceFailsClosedToAgent() throws {
+    @Test func workspaceActionSetDescriptionRejectsInvalidSource() throws {
         let controller = TerminalController.shared
         let originalTabManager = controller.tabManager
         let manager = TabManager()
@@ -193,17 +193,23 @@ import Testing
         defer { controller.tabManager = originalTabManager }
 
         let workspace = try #require(manager.selectedWorkspace)
-        _ = controller.v2WorkspaceAction(params: [
+        let result = controller.v2WorkspaceAction(params: [
             "action": "set_description",
             "description": "agent summary text",
             "description_source": "typo",
         ])
 
-        #expect(workspace.customDescription == "agent summary text")
-        #expect(workspace.effectiveCustomDescriptionSource == .agent)
+        switch result {
+        case .err(let code, let message, _):
+            #expect(code == "invalid_params")
+            #expect(message == "description_source must be one of: user, agent")
+        case .ok(let payload):
+            Issue.record("Expected invalid_params, got \(payload)")
+        }
 
         workspace.resetSidebarContext(reason: "test")
         #expect(workspace.customDescription == nil)
+        #expect(workspace.effectiveCustomDescriptionSource == .user)
     }
 
     @Test func autosaveFingerprintTracksDescriptionProvenanceChange() throws {

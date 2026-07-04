@@ -4113,7 +4113,12 @@ class TerminalController {
                 case "agent":
                     .agent
                 default:
-                    .agent
+                    result = .err(
+                        code: "invalid_params",
+                        message: "description_source must be one of: user, agent",
+                        data: ["description_source": sourceRaw ?? ""]
+                    )
+                    return
                 }
                 tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw, source: source)
                 finish(["description": v2OrNull(workspace.customDescription)])
