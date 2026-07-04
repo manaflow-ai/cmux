@@ -14743,6 +14743,8 @@ struct CMUXCLI {
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
+              --description-source <user|agent>
+                                           Provenance for set-description (default: auto)
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -34498,7 +34500,7 @@ export default CMUXSessionRestore;
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>] [--description-source <user|agent>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
