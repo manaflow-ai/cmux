@@ -23,10 +23,11 @@ extension WorkspaceTaskStatus {
 
 // MARK: - Glyph model
 
-/// Pure mapping from a task status (+ manual-override flag) to the drawn
-/// glyph's shape: how much of the circle is filled, which color role it
-/// takes, and whether the checkmark / override dot render. Kept free of
-/// SwiftUI so the mapping is unit-testable.
+/// Pure mapping from a task status to the drawn glyph's shape: how much of
+/// the circle is filled, which color role it takes, and whether the
+/// checkmark renders. Kept free of SwiftUI so the mapping is unit-testable.
+/// Manual-override state surfaces only in the tooltip and the status
+/// popover, never as extra glyph decoration.
 struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
     /// Semantic color the view resolves against the row's palette.
     enum ColorRole: Equatable {
@@ -47,10 +48,8 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
     let colorRole: ColorRole
     /// Done renders a checkmark over the filled circle.
     let showsCheckmark: Bool
-    /// A manual (non-inferred) status renders a small dot at the lower right.
-    let showsOverrideDot: Bool
 
-    init(status: WorkspaceTaskStatus, hasOverride: Bool) {
+    init(status: WorkspaceTaskStatus) {
         switch status {
         case .todo:
             fillFraction = 0
@@ -73,7 +72,6 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
             colorRole = .done
             showsCheckmark = true
         }
-        showsOverrideDot = hasOverride
     }
 
     /// Localized format strings resolved once, not per row render (the glyph
@@ -113,7 +111,7 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
     let usesMonochrome: Bool
     /// The color used for every part of the glyph in monochrome mode.
     let monochromeColor: Color
-    /// The secondary color used for the todo outline and the override dot.
+    /// The secondary color used for the todo outline.
     let neutralColor: Color
     let fontScale: CGFloat
 
@@ -121,10 +119,9 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
     private static let slotWidth: CGFloat = 11
     private static let strokeWidth: CGFloat = 1
     private static let attentionStrokeWidth: CGFloat = 1.4
-    private static let overrideDotSize: CGFloat = 2
 
     private var model: SidebarWorkspaceTaskStatusGlyphModel {
-        SidebarWorkspaceTaskStatusGlyphModel(status: status, hasOverride: hasOverride)
+        SidebarWorkspaceTaskStatusGlyphModel(status: status)
     }
 
     private var statusColor: Color {
@@ -171,14 +168,6 @@ struct SidebarWorkspaceTaskStatusGlyph: View {
             }
         }
         .frame(width: size, height: size)
-        .overlay(alignment: .bottomTrailing) {
-            if model.showsOverrideDot {
-                Circle()
-                    .fill(neutralColor)
-                    .frame(width: Self.overrideDotSize, height: Self.overrideDotSize)
-                    .offset(x: 1, y: 1)
-            }
-        }
         // Fixed-width slot so titles align whether or not the pie is drawn
         // wider by the attention stroke.
         .frame(width: Self.slotWidth * fontScale, alignment: .center)

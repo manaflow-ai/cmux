@@ -17,42 +17,35 @@ struct WorkspaceTodoSidebarModelTests {
 
     @Test
     func glyphFillFractionsProgressAcrossLanes() {
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .todo, hasOverride: false).fillFraction == 0)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .working, hasOverride: false).fillFraction == 0.5)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .needsAttention, hasOverride: false).fillFraction == 0.5)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .review, hasOverride: false).fillFraction == 0.75)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .done, hasOverride: false).fillFraction == 1)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .todo).fillFraction == 0)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .working).fillFraction == 0.5)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .needsAttention).fillFraction == 0.5)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .review).fillFraction == 0.75)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .done).fillFraction == 1)
     }
 
     @Test
     func glyphColorRolesMatchLanes() {
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .todo, hasOverride: false).colorRole == .neutral)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .working, hasOverride: false).colorRole == .working)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .needsAttention, hasOverride: false).colorRole == .attention)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .review, hasOverride: false).colorRole == .review)
-        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .done, hasOverride: false).colorRole == .done)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .todo).colorRole == .neutral)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .working).colorRole == .working)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .needsAttention).colorRole == .attention)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .review).colorRole == .review)
+        #expect(SidebarWorkspaceTaskStatusGlyphModel(status: .done).colorRole == .done)
     }
 
     @Test
     func onlyDoneShowsCheckmark() {
         for status in WorkspaceTaskStatus.allCases {
-            let model = SidebarWorkspaceTaskStatusGlyphModel(status: status, hasOverride: false)
+            let model = SidebarWorkspaceTaskStatusGlyphModel(status: status)
             #expect(model.showsCheckmark == (status == .done))
         }
     }
 
-    @Test
-    func overrideDotTracksManualOverrideForEveryLane() {
-        for status in WorkspaceTaskStatus.allCases {
-            #expect(SidebarWorkspaceTaskStatusGlyphModel(status: status, hasOverride: true).showsOverrideDot)
-            #expect(!SidebarWorkspaceTaskStatusGlyphModel(status: status, hasOverride: false).showsOverrideDot)
-        }
-    }
 
     @Test
     func tooltipDistinguishesManualFromInferred() {
-        let manual = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review, hasOverride: true)
-        let inferred = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review, hasOverride: false)
+        let manual = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review)
+        let inferred = SidebarWorkspaceTaskStatusGlyphModel.tooltip(status: .review)
         #expect(manual != inferred)
         #expect(manual.contains(WorkspaceTaskStatus.review.displayName))
         #expect(inferred.contains(WorkspaceTaskStatus.review.displayName))
