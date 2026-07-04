@@ -818,7 +818,17 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeApprovalRecord? {
-        validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
+        matchingRecord(
+            for: binding,
+            in: validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
+        )
+    }
+
+    static func matchingRecord(
+        for binding: SurfaceResumeBindingSnapshot,
+        in records: [SurfaceResumeApprovalRecord]
+    ) -> SurfaceResumeApprovalRecord? {
+        records
             .filter { $0.matches(binding) }
             .sorted { lhs, rhs in
                 if lhs.commandPrefix.count != rhs.commandPrefix.count {
@@ -835,6 +845,41 @@ enum SurfaceResumeApprovalStore {
         fileManager: FileManager = .default,
         signingSecret: Data? = nil
     ) -> SurfaceResumeBindingSnapshot {
+        if let trustedBinding = implicitlyApprovedBinding(binding) {
+            return trustedBinding
+        }
+
+        return applyingStoredApproval(
+            to: binding,
+            using: validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
+        )
+    }
+
+    static func applyingStoredApproval(
+        to binding: SurfaceResumeBindingSnapshot,
+        using records: [SurfaceResumeApprovalRecord]
+    ) -> SurfaceResumeBindingSnapshot {
+        if let trustedBinding = implicitlyApprovedBinding(binding) {
+            return trustedBinding
+        }
+
+        var effective = binding
+        guard let record = matchingRecord(for: binding, in: records) else {
+            effective.autoResume = false
+            effective.approvalPolicy = .manual
+            effective.approvalRecordId = nil
+            return effective
+        }
+
+        effective.approvalPolicy = record.policy
+        effective.approvalRecordId = record.id
+        effective.autoResume = record.policy == .auto
+        return effective
+    }
+
+    private static func implicitlyApprovedBinding(
+        _ binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeBindingSnapshot? {
         if binding.isProcessDetected {
             var trustedBinding = binding
             trustedBinding.autoResume = true
@@ -850,24 +895,7 @@ enum SurfaceResumeApprovalStore {
             trustedBinding.approvalRecordId = nil
             return trustedBinding
         }
-
-        var effective = binding
-        guard let record = matchingRecord(
-            for: binding,
-            fileURL: fileURL,
-            fileManager: fileManager,
-            signingSecret: signingSecret
-        ) else {
-            effective.autoResume = false
-            effective.approvalPolicy = .manual
-            effective.approvalRecordId = nil
-            return effective
-        }
-
-        effective.approvalPolicy = record.policy
-        effective.approvalRecordId = record.id
-        effective.autoResume = record.policy == .auto
-        return effective
+        return nil
     }
 
     static func shouldPromptForProposal(

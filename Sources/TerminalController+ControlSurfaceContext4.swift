@@ -75,15 +75,17 @@ extension TerminalController {
         binding: SurfaceResumeBindingSnapshot?,
         cleared: Bool
     ) -> ControlSurfaceResumeSnapshot {
+        let approvalRecords = SurfaceResumeApprovalStore.validRecords()
         ControlSurfaceResumeSnapshot(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: workspace.id,
             paneID: workspace.paneId(forPanelId: surfaceId)?.id,
             surfaceID: surfaceId,
             cleared: cleared,
-            binding: controlResumeBinding(from: binding),
+            binding: controlResumeBinding(from: binding, approvalRecords: approvalRecords),
             bindingHistory: controlResumeBindingHistory(
-                from: workspace.surfaceResumeBindingHistory(panelId: surfaceId, including: binding)
+                from: workspace.surfaceResumeBindingHistory(panelId: surfaceId, including: binding),
+                approvalRecords: approvalRecords
             )
         )
     }
