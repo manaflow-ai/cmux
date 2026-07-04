@@ -3,10 +3,23 @@ import Foundation
 extension SurfaceResumeBindingSnapshot {
     var vaultAgentRegistrationID: String? {
         guard let id = kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !id.isEmpty else {
+              let restorableKind = RestorableAgentKind(rawValue: id),
+              restorableKind.usesVaultRegistryForCWDPolicy else {
             return nil
         }
-        return id
+        return restorableKind.rawValue
+    }
+}
+
+private extension RestorableAgentKind {
+    var usesVaultRegistryForCWDPolicy: Bool {
+        switch self {
+        case .custom, .grok, .pi, .antigravity:
+            return true
+        case .claude, .codex, .amp, .cursor, .gemini, .kiro, .opencode, .rovodev,
+             .hermesAgent, .copilot, .codebuddy, .factory, .qoder:
+            return false
+        }
     }
 }
 
