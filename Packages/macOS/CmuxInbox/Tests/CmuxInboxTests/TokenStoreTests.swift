@@ -43,6 +43,9 @@ struct TokenStoreTests {
 
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.int16Value == 0o600)
+        // The 0600 temp file used for the atomic swap must not linger.
+        let siblings = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
+        #expect(siblings == [url.lastPathComponent])
 
         try await vault.deleteToken(source: .slack, accountID: "default")
         #expect(try await vault.token(source: .slack, accountID: "default") == nil)

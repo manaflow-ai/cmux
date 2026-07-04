@@ -82,7 +82,19 @@ public actor InboxFileTokenVault: InboxTokenStoring {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(entries)
-            try data.write(to: fileURL, options: [.atomic])
+            // `.atomic` Data.write would rename a default-permission temp file
+            // over the vault, leaving token bytes world-readable until the
+            // chmod below (or forever, if the process dies in between). Create
+            // the temp file with 0600 up front, then swap it in atomically.
+            let temporaryURL = directory.appendingPathComponent(".\(fileURL.lastPathComponent).tmp")
+            guard fileManager.createFile(
+                atPath: temporaryURL.path,
+                contents: data,
+                attributes: [.posixPermissions: 0o600]
+            ) else {
+                throw InboxError.credentialStoreFailed("Token vault write failed")
+            }
+            _ = try fileManager.replaceItemAt(fileURL, withItemAt: temporaryURL)
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
             throw InboxError.credentialStoreFailed("Token vault write failed")
