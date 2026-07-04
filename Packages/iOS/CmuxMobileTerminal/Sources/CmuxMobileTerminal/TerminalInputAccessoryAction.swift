@@ -3,6 +3,10 @@ import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
+/// An action on the terminal's keyboard input-accessory bar: armable
+/// modifiers, zoom, common keys and escape sequences, launcher shortcuts,
+/// paste, and the composer toggle. Raw values are persisted in the user's
+/// toolbar layout, so cases must keep their order.
 public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// Arm the Ctrl modifier for the next key.
     case control
