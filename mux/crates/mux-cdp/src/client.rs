@@ -45,6 +45,11 @@ pub struct CdpKeyEvent<'a> {
     pub text: Option<&'a str>,
 }
 
+fn cdp_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("CMUX_MUX_CDP_DEBUG").is_some())
+}
+
 #[derive(Clone)]
 pub struct CdpClient {
     inner: Arc<Inner>,
@@ -80,7 +85,7 @@ impl CdpClient {
                 events,
                 next_id: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
-                timeout: Duration::from_secs(10),
+                timeout: Duration::from_secs(30),
             }),
         };
         client.spawn_reader()?;
@@ -283,6 +288,9 @@ impl CdpClient {
             anyhow::bail!("CDP connection is closed");
         }
         let text = serde_json::to_string(value)?;
+        if cdp_debug() {
+            eprintln!("cdp-> {text}");
+        }
         let mut ws = self.inner.ws.lock().unwrap();
         ws.send(Message::Text(text))?;
         Ok(())
@@ -344,6 +352,9 @@ fn reader_loop(weak: Weak<Inner>) {
 }
 
 fn handle_text(inner: &Arc<Inner>, text: &str) {
+    if cdp_debug() {
+        eprintln!("cdp<- {}", &text[..text.len().min(300)]);
+    }
     let Ok(value) = serde_json::from_str::<Value>(text) else { return };
     if let Some(id) = value.get("id").and_then(|v| v.as_u64()) {
         if let Some(tx) = inner.pending.lock().unwrap().remove(&id) {

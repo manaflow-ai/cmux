@@ -206,6 +206,12 @@ fn runtime_endpoint(
         }
     }
 
+    if std::env::var_os("CMUX_MUX_CDP_DEBUG").is_some() {
+        eprintln!(
+            "cdp: no external endpoint (discover={}); launching chrome",
+            opts.browser_discover
+        );
+    }
     let chrome = Chrome::launch_with(ChromeLaunchOptions {
         binary: opts.chrome_binary.clone(),
         user_data_dir: opts.browser_user_data_dir.as_deref().map(PathBuf::from),
