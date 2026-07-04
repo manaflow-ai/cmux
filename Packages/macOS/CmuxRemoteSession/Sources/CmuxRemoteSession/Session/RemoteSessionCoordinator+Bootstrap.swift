@@ -439,7 +439,7 @@ extension RemoteSessionCoordinator {
         let bundleVersion = buildInfo.appVersion()?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let baseVersion = (bundleVersion?.isEmpty == false) ? bundleVersion! : "dev"
-        guard Self.allowLocalDaemonBuildFallback(),
+        guard Self.allowLocalDaemonBuildFallback(environment: environment),
               let sourceFingerprint = remoteDaemonSourceFingerprint(),
               !sourceFingerprint.isEmpty else {
             return baseVersion
