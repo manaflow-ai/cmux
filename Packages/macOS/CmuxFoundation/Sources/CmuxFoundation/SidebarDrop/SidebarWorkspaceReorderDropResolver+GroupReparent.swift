@@ -47,7 +47,7 @@ extension SidebarWorkspaceReorderDropResolver {
         return root
     }
 
-    private func isCenterGroupHeaderDrop(pointerY: CGFloat?, targetHeight: CGFloat?) -> Bool {
+    func isCenterGroupHeaderDrop(pointerY: CGFloat?, targetHeight: CGFloat?) -> Bool {
         guard let pointerY, let targetHeight else { return false }
         let height = max(targetHeight, 1)
         let edgeBand = min(max(height * 0.25, 4), height * 0.4)

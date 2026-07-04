@@ -140,7 +140,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
             let currentGroupId = model.tabs.first(where: { $0.id == tabId })?.groupId
             if currentGroupId != previousGroupId || model.tabs.map(\.id) != previousOrder {
-                host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
+                host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIdsForReorderedWorkspace(tabId))
             }
             return true
         }
@@ -155,7 +155,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             }
             model.normalizeWorkspaceGroupContiguity()
         }
-        host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIdsForReorderedWorkspace(tabId))
         return true
     }
 
@@ -339,14 +339,14 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)
         model.syncWorkspaceGroupsOrderToAnchorOrder()
 
-        let movedWorkspaceIds: [UUID]
-        if let group = model.workspaceGroups.first(where: { $0.anchorWorkspaceId == tabId }) {
-            movedWorkspaceIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: group.id)
-        } else {
-            movedWorkspaceIds = [tabId]
-        }
+        let movedWorkspaceIds = movedWorkspaceIdsForReorderedWorkspace(tabId)
         host?.workspaceOrderDidChange(movedWorkspaceIds: movedWorkspaceIds)
         return true
+    }
+
+    private func movedWorkspaceIdsForReorderedWorkspace(_ tabId: UUID) -> [UUID] {
+        model.workspaceGroups.first { $0.anchorWorkspaceId == tabId }
+            .map { model.workspaceGroupSubtreeWorkspaceIds(groupId: $0.id) } ?? [tabId]
     }
 
     /// Whether a sidebar drag plans in top-level rows (group rows involved

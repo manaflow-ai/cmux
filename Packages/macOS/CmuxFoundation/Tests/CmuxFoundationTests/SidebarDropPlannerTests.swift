@@ -41,70 +41,86 @@ import Testing
         let dragged = UUID()
         let outside = UUID()
 
-        let plan = try #require(SidebarWorkspaceReorderDropResolver().plan(
-            for: SidebarWorkspaceReorderDropRequest(
-                point: CGPoint(x: 12, y: 44),
-                draggedWorkspaceId: dragged,
-                workspaces: [
-                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAnchor, isPinned: false, groupId: rootGroupId),
-                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childAnchor, isPinned: false, groupId: childGroupId),
-                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childMember, isPinned: false, groupId: childGroupId),
-                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil),
-                    SidebarWorkspaceReorderWorkspaceSnapshot(id: outside, isPinned: false, groupId: nil),
-                ],
-                groups: [
-                    SidebarWorkspaceReorderGroupSnapshot(id: rootGroupId, anchorWorkspaceId: rootAnchor, isPinned: false),
-                    SidebarWorkspaceReorderGroupSnapshot(
-                        id: childGroupId,
-                        anchorWorkspaceId: childAnchor,
-                        isPinned: false,
-                        parentGroupId: rootGroupId
-                    ),
-                ],
-                targets: [
-                    SidebarWorkspaceReorderDropTarget(
-                        workspaceId: rootAnchor,
-                        groupId: rootGroupId,
-                        isGroupHeader: true,
-                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
-                    ),
-                    SidebarWorkspaceReorderDropTarget(
-                        workspaceId: childAnchor,
-                        groupId: childGroupId,
-                        isGroupHeader: true,
-                        frame: CGRect(x: 12, y: 40, width: 168, height: 32)
-                    ),
-                    SidebarWorkspaceReorderDropTarget(
-                        workspaceId: childMember,
-                        groupId: childGroupId,
-                        isGroupHeader: false,
-                        frame: CGRect(x: 24, y: 80, width: 156, height: 32)
-                    ),
-                    SidebarWorkspaceReorderDropTarget(
-                        workspaceId: dragged,
-                        groupId: nil,
-                        isGroupHeader: false,
-                        frame: CGRect(x: 0, y: 120, width: 180, height: 32)
-                    ),
-                    SidebarWorkspaceReorderDropTarget(
-                        workspaceId: outside,
-                        groupId: nil,
-                        isGroupHeader: false,
-                        frame: CGRect(x: 0, y: 160, width: 180, height: 32)
-                    ),
-                ]
-            )
-        ))
+        func plan(at point: CGPoint) throws -> SidebarWorkspaceReorderDropPlan {
+            try #require(SidebarWorkspaceReorderDropResolver().plan(
+                for: SidebarWorkspaceReorderDropRequest(
+                    point: point,
+                    draggedWorkspaceId: dragged,
+                    workspaces: [
+                        SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAnchor, isPinned: false, groupId: rootGroupId),
+                        SidebarWorkspaceReorderWorkspaceSnapshot(id: childAnchor, isPinned: false, groupId: childGroupId),
+                        SidebarWorkspaceReorderWorkspaceSnapshot(id: childMember, isPinned: false, groupId: childGroupId),
+                        SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil),
+                        SidebarWorkspaceReorderWorkspaceSnapshot(id: outside, isPinned: false, groupId: nil),
+                    ],
+                    groups: [
+                        SidebarWorkspaceReorderGroupSnapshot(id: rootGroupId, anchorWorkspaceId: rootAnchor, isPinned: false),
+                        SidebarWorkspaceReorderGroupSnapshot(
+                            id: childGroupId,
+                            anchorWorkspaceId: childAnchor,
+                            isPinned: false,
+                            parentGroupId: rootGroupId
+                        ),
+                    ],
+                    targets: [
+                        SidebarWorkspaceReorderDropTarget(
+                            workspaceId: rootAnchor,
+                            groupId: rootGroupId,
+                            isGroupHeader: true,
+                            frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                        ),
+                        SidebarWorkspaceReorderDropTarget(
+                            workspaceId: childAnchor,
+                            groupId: childGroupId,
+                            isGroupHeader: true,
+                            frame: CGRect(x: 12, y: 40, width: 168, height: 32)
+                        ),
+                        SidebarWorkspaceReorderDropTarget(
+                            workspaceId: childMember,
+                            groupId: childGroupId,
+                            isGroupHeader: false,
+                            frame: CGRect(x: 24, y: 80, width: 156, height: 32)
+                        ),
+                        SidebarWorkspaceReorderDropTarget(
+                            workspaceId: dragged,
+                            groupId: nil,
+                            isGroupHeader: false,
+                            frame: CGRect(x: 0, y: 120, width: 180, height: 32)
+                        ),
+                        SidebarWorkspaceReorderDropTarget(
+                            workspaceId: outside,
+                            groupId: nil,
+                            isGroupHeader: false,
+                            frame: CGRect(x: 0, y: 160, width: 180, height: 32)
+                        ),
+                    ]
+                )
+            ))
+        }
 
-        #expect(plan.indicator == SidebarDropIndicator(tabId: childAnchor, edge: .top))
-        #expect(plan.indicatorScope == .group(rootGroupId))
-        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+        let edgePlan = try plan(at: CGPoint(x: 12, y: 44))
+
+        #expect(edgePlan.indicator == SidebarDropIndicator(tabId: childAnchor, edge: .top))
+        #expect(edgePlan.indicatorScope == .group(rootGroupId))
+        guard case .reorder(let edgeTargetIndex, let edgeUsesTopLevelRows, let edgeExplicitGroupId) = edgePlan.action else {
             Issue.record("Expected parent-group reorder plan")
             return
         }
-        #expect(targetIndex == 1)
-        #expect(!usesTopLevelRows)
-        #expect(explicitGroupId == rootGroupId)
+        #expect(edgeTargetIndex == 1)
+        #expect(!edgeUsesTopLevelRows)
+        #expect(edgeExplicitGroupId == rootGroupId)
+
+        let centerPlan = try plan(at: CGPoint(x: 12, y: 56))
+
+        #expect(centerPlan.indicator == SidebarDropIndicator(tabId: childAnchor, edge: .bottom))
+        #expect(centerPlan.indicatorScope == .group(childGroupId))
+        guard case .reorder(let centerTargetIndex, let centerUsesTopLevelRows, let centerExplicitGroupId) = centerPlan.action else {
+            Issue.record("Expected child-group reorder plan")
+            return
+        }
+        #expect(centerTargetIndex == 2)
+        #expect(!centerUsesTopLevelRows)
+        #expect(centerExplicitGroupId == childGroupId)
     }
 
     @Test func draggingNestedGroupAnchorToRootEndProducesPromotionPlan() throws {

@@ -136,7 +136,8 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     ) -> UUID? {
         guard let candidate = groupScopeCandidate(
             context: context,
-            groupsById: groupsById
+            groupsById: groupsById,
+            isDraggedGroupAnchor: groupByAnchorId[draggedWorkspace.id] != nil
         ) else {
             return nil
         }
@@ -165,13 +166,18 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
 
     private func groupScopeCandidate(
         context: SidebarWorkspaceReorderHitContext,
-        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        isDraggedGroupAnchor: Bool
     ) -> (groupId: UUID, isAmbiguous: Bool)? {
         if let target = context.target {
             if target.isGroupHeader,
                let groupId = target.groupId,
                let parentGroupId = groupsById[groupId]?.parentGroupId,
                groupsById[parentGroupId] != nil {
+                if !isDraggedGroupAnchor,
+                   isCenterGroupHeaderDrop(pointerY: context.pointerY, targetHeight: context.targetHeight) {
+                    return (groupId, false)
+                }
                 return (parentGroupId, false)
             }
             if let groupId = target.groupId,
