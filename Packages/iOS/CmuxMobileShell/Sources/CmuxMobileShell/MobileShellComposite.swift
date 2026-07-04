@@ -1585,26 +1585,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let directRoute = try? routeSelection.manualHostRoute(host: normalizedHost, port: port)
-        if let directRoute,
-           await manualHostRouteNeedsApproval(directRoute) {
-            queueManualHostTrustWarning(
-                route: directRoute,
-                displayHost: normalizedHost,
-                pending: .manual(
-                    name: name,
-                    host: normalizedHost,
-                    port: port,
-                    pairedMacDeviceID: pairedMacDeviceID,
-                    recordsPairingAttempt: recordsPairingAttempt,
-                    ifStillCurrent: ifStillCurrent
+        let approvalAttemptID = beginPairingValidationAttempt()
+        if let directRoute {
+            let needsApproval = await manualHostRouteNeedsApproval(directRoute)
+            guard isCurrentPairingAttempt(approvalAttemptID) else { return .superseded }
+            if needsApproval {
+                queueManualHostTrustWarning(
+                    route: directRoute,
+                    displayHost: normalizedHost,
+                    pending: .manual(
+                        name: name,
+                        host: normalizedHost,
+                        port: port,
+                        pairedMacDeviceID: pairedMacDeviceID,
+                        recordsPairingAttempt: recordsPairingAttempt,
+                        ifStillCurrent: ifStillCurrent
+                    )
                 )
-            )
-            return .needsUserApproval
+                return .needsUserApproval
+            }
         }
+        let attemptID: UUID
+        if recordsPairingAttempt {
+            attemptID = beginPairingAttempt(method: "manual")
+        } else {
+            attemptID = approvalAttemptID
+        }
+        guard isCurrentPairingAttempt(attemptID) else { return .superseded }
         if !preservesActiveConnection {
             activeRoute = directRoute
         }
-        let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         switch await failPairingIfOffline(
@@ -1653,12 +1663,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .failed
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+            let routedError = error as? MobileShellRoutedConnectionError
+            let underlyingError = routedError?.underlying ?? error
+            let failureRoute = routedError?.route ?? directRoute ?? activeRoute
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
             // A definitive auth failure (expired/invalid token after the
             // refresh-then-retry in the RPC layer already gave up) must drive the
             // re-auth prompt, not the generic "could not connect / Retry" banner.
-            if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
-            let category = MobilePairingFailureCategory.classify(error: error, route: directRoute ?? activeRoute)
+            if disconnectForAuthorizationFailureIfNeeded(underlyingError, route: failureRoute) { return .failed }
+            let category = MobilePairingFailureCategory.classify(error: underlyingError, route: failureRoute)
             applyPairingFailure(category, phase: "connect")
             clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
             return .failed
@@ -3198,12 +3211,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .needsUserApproval
         } catch {
             guard isCurrentPairingAttempt(attemptID) else { return .superseded }
+            let routedError = error as? MobileShellRoutedConnectionError
+            let underlyingError = routedError?.underlying ?? error
+            let failureRoute = routedError?.route ?? activeRoute
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
             // Definitive auth failures drive the re-auth prompt rather than a
             // generic connection error (matches the manual-host path); the
             // helper records the analytics failure + guidance.
-            if disconnectForAuthorizationFailureIfNeeded(error) { return .failed }
-            let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
+            if disconnectForAuthorizationFailureIfNeeded(underlyingError, route: failureRoute) { return .failed }
+            let category = MobilePairingFailureCategory.classify(error: underlyingError, route: failureRoute)
             applyPairingFailure(category, phase: "connect")
             clearFailedPairingConnection(preservingActiveConnection: preservesActiveConnection)
             return .failed
@@ -4950,20 +4966,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let routeAllowsStackAuthFallbackOverride = allowsStackAuthFallback
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
+        var lastErrorRoute: CmxAttachRoute?
         for route in supportedRoutes {
             if !preservesActiveConnection {
                 activeRoute = route
             }
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
-            if let pendingManualHostTrust,
-               await manualHostRouteNeedsApproval(route),
-               case let .hostPort(host, _) = route.endpoint {
-                queueManualHostTrustWarning(
-                    route: route,
-                    displayHost: host,
-                    pending: pendingManualHostTrust
-                )
-                throw ManualHostTrustApprovalQueued.required
+            if let pendingManualHostTrust {
+                let needsApproval = await manualHostRouteNeedsApproval(route)
+                guard isConnectCurrent() else { return nil }
+                if needsApproval, case let .hostPort(host, _) = route.endpoint {
+                    queueManualHostTrustWarning(
+                        route: route,
+                        displayHost: host,
+                        pending: pendingManualHostTrust
+                    )
+                    throw ManualHostTrustApprovalQueued.required
+                }
             }
             let manualHostTrusted = await manualHostStackAuthTrusted(for: route)
             let routeAllowsStackAuth = MobileShellRouteAuthPolicy().routeAllowsStackAuth(
@@ -5086,6 +5105,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
+                    lastErrorRoute = route
                     guard isConnectCurrent() else { return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
@@ -5095,6 +5115,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         diagnosticLog?.record(DiagnosticEvent(.pairFail))
+        if let lastError, let lastErrorRoute {
+            if lastError is CancellationError {
+                throw lastError
+            }
+            throw MobileShellRoutedConnectionError(underlying: lastError, route: lastErrorRoute)
+        }
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
 
@@ -5219,7 +5245,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
     }
 
-    private func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
+    func clearRemoteConnectionContext(preservingOtherMacWorkspaceState: Bool = false) {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
@@ -5392,7 +5418,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Emits `ios_pairing_failed` once for the in-flight attempt with a reason +
     /// phase, then clears the attempt timing so it can't double-fire.
-    private func recordPairingFailed(reason: String, phase: String) {
+    func recordPairingFailed(reason: String, phase: String) {
         guard let method = pairingAttemptMethod else { return }
         var props: [String: AnalyticsValue] = [
             "method": .string(method),
@@ -7610,54 +7636,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             syncSelectedTerminalForWorkspace()
         }
         return true
-    }
-
-    func disconnectForAuthorizationFailureIfNeeded(_ error: any Error) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else {
-            return false
-        }
-        let category = MobilePairingFailureCategory.classify(error: error, route: activeRoute)
-        // Not `applyPairingFailure`: this path also sets `connectionRequiresReauth`,
-        // uses fallback-if-empty, and gates analytics on `pairingAttemptMethod` so
-        // live-connection auth evictions never emit `ios_pairing_failed`.
-        connectionError = category.message.isEmpty
-            ? L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
-            : category.message
-        connectionErrorGuidance = category.guidance
-        connectionRequiresReauth = true
-        connectionState = .disconnected
-        macConnectionStatus = .unavailable
-        clearRemoteConnectionContext()
-        // Only emits while a pairing attempt is in flight: `recordPairingFailed`
-        // no-ops once `pairingAttemptMethod` is nil (cleared on success and by
-        // `invalidatePairingAttempt`), so live-connection auth failures that
-        // also route through here never emit `ios_pairing_failed`.
-        recordPairingFailed(reason: category.analyticsReason, phase: "auth")
-        return true
-    }
-
-    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
-        guard let connectionError = error as? MobileShellConnectionError else {
-            return false
-        }
-        switch connectionError {
-        case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
-            return true
-        case let .rpcError(code, message):
-            let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if let normalizedCode,
-               ["unauthorized", "forbidden", "invalid_token", "token_expired", "expired_token", "auth_required"].contains(normalizedCode) {
-                return true
-            }
-            let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            return normalizedMessage.contains("unauthorized")
-                || normalizedMessage.contains("forbidden")
-                || normalizedMessage.contains("invalid token")
-                || normalizedMessage.contains("expired token")
-                || normalizedMessage.contains("token expired")
-        case .invalidResponse, .connectionClosed, .requestTimedOut:
-            return false
-        }
     }
 
     private func applyPreviewTicket(_ ticket: CmxAttachTicket, route: CmxAttachRoute) {

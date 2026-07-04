@@ -217,6 +217,55 @@ import Testing
         #expect(store.connectionError?.isEmpty == false)
     }
 
+    @Test func staleManualHostApprovalLookupCannotReplaceCurrentPrompt() async throws {
+        let trustStore = BlockingManualHostTrustStore()
+        let store = makeStore(
+            runtime: PairingDeadlineRuntime(supportedRouteKinds: [.manualHost]),
+            manualHostTrustStore: trustStore
+        )
+
+        let first = Task { @MainActor in
+            await store.connectManualHost(
+                name: "Old LAN",
+                host: "192.168.1.77",
+                port: 58_465,
+                recordsPairingAttempt: true
+            )
+        }
+        await trustStore.waitUntilFirstLookupIsBlocked()
+
+        let second = await store.connectManualHost(
+            name: "New LAN",
+            host: "192.168.1.88",
+            port: 58_465,
+            recordsPairingAttempt: true
+        )
+
+        #expect(second == .needsUserApproval)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.88:58465")
+
+        await trustStore.releaseFirstLookup()
+        let firstResult = await first.value
+
+        #expect(firstResult == .superseded)
+        #expect(store.manualHostTrustWarning?.endpoint == "192.168.1.88:58465")
+    }
+
+    @Test func failedPairingWhileConnectedReportsAttemptedRoute() async throws {
+        let clock = TestClock()
+        let oldRouter = LivenessHostRouter()
+        let oldBox = TransportBox()
+        let runtime = PairingDeadlineRuntime()
+        let store = makeStore(runtime: runtime, connectionState: .connected)
+        try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
+
+        let result = await store.connectPairingURLResult(Self.qrURL)
+
+        #expect(result == .failed)
+        #expect(store.connectionState == .connected)
+        #expect(store.connectionError?.contains("100.64.0.5") == true)
+    }
+
     private static let qrURL = "cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465"
 
     private func makeStore(

@@ -81,6 +81,12 @@ import Testing
         #expect(entry == CmxManualPairingEntry(host: "100.64.0.5", port: 58465))
     }
 
+    @Test func hostFieldValueBracketsIPv6ForPhoneManualEntry() {
+        #expect(CmxManualPairingEntry(host: "fd00::12", port: 58465).hostFieldValue == "[fd00::12]")
+        #expect(CmxManualPairingEntry(host: "[fd00::12]", port: 58465).hostFieldValue == "[fd00::12]")
+        #expect(CmxManualPairingEntry(host: "100.64.0.5", port: 58465).hostFieldValue == "100.64.0.5")
+    }
+
     @Test func emptyRoutesYieldNothing() {
         #expect(CmxManualPairingEntry.best(in: []) == nil)
     }

@@ -400,7 +400,7 @@ struct MobilePairingView: View {
                 HStack(spacing: 8) {
                     copyButton(
                         label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"),
-                        value: entry.host
+                        value: entry.hostFieldValue
                     )
                     copyButton(
                         label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
