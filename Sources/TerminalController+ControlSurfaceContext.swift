@@ -21,6 +21,15 @@ extension TerminalController: ControlSurfaceContext {
         resolveTabManager(routing: routing) != nil
     }
 
+    func controlSurfaceReadTextStrings() -> ControlSurfaceReadTextStrings {
+        ControlSurfaceReadTextStrings(
+            linesMustBeGreaterThanZero: String(
+                localized: "rpc.v2.surface.read_text.linesMustBeGreaterThanZero",
+                defaultValue: "lines must be greater than 0"
+            )
+        )
+    }
+
     /// The routing twin of the legacy `v2ResolveWorkspace(params:tabManager:)`.
     /// `internal` (not `private`) so the surface witnesses in the sibling
     /// `+ControlSurfaceContext2`/`3` files share it.
