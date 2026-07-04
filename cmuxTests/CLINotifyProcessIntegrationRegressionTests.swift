@@ -111,6 +111,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
+        let clearTitleRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "workspace.set_auto_title" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            clearTitleRequests.contains { $0["clear_auto"] as? Bool == true },
+            "Expected non-clear SessionStart to keep the active auto title, saw \(context.state.commands)"
+        )
 
         var record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertEqual(

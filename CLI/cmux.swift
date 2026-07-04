@@ -23027,7 +23027,7 @@ struct CMUXCLI {
                         surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
                         telemetry: telemetry
                     )
-            if shouldRegisterPID, !suppressVisibleMutations {
+            if shouldRegisterPID, shouldPromoteActiveSession, !suppressVisibleMutations {
                 clearPersistedAgentSessionTitle(
                     workspaceId: workspaceId,
                     excludingSessionId: parsedInput.sessionId ?? "",
