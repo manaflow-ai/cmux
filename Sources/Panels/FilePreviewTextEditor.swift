@@ -265,7 +265,7 @@ final class SavingTextView: NSTextView {
 
     private static let maximumHighlightedUTF16Length = 600_000
     private static let maximumHighlightedTokenCount = 12_000
-    private static let syntaxHighlightDebounceNanoseconds: UInt64 = 180_000_000
+    private static let syntaxHighlightDebounceDuration: Duration = .milliseconds(180)
 
     convenience init() {
         self.init(frame: .zero, textContainer: nil)
@@ -432,7 +432,7 @@ final class SavingTextView: NSTextView {
     private func scheduleSyntaxHighlightRefresh() {
         pendingSyntaxHighlightTask?.cancel()
         pendingSyntaxHighlightTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.syntaxHighlightDebounceNanoseconds)
+            try? await ContinuousClock().sleep(for: Self.syntaxHighlightDebounceDuration) // Cancellable edit debounce.
             guard !Task.isCancelled, let self else { return }
             self.refreshSyntaxHighlighting()
         }

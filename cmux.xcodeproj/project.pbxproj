@@ -575,9 +575,11 @@
 		C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */; };
 		DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */; };
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
+		F11E52270000000000006025 /* FilePreviewSyntaxCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006026 /* FilePreviewSyntaxCursor.swift */; };
 		F11E52270000000000006007 /* FilePreviewSyntaxGrammar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006008 /* FilePreviewSyntaxGrammar.swift */; };
 		F11E52270000000000006005 /* FilePreviewSyntaxHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006006 /* FilePreviewSyntaxHighlighterTests.swift */; };
 		F11E52270000000000006003 /* FilePreviewSyntaxHighlightSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006004 /* FilePreviewSyntaxHighlightSettings.swift */; };
+		F11E52270000000000006027 /* FilePreviewSyntaxHighlightSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006028 /* FilePreviewSyntaxHighlightSettingsFileStoreTests.swift */; };
 		F11E52270000000000006021 /* FilePreviewSyntaxKeywords.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006022 /* FilePreviewSyntaxKeywords.swift */; };
 		F11E52270000000000006017 /* FilePreviewSyntaxLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006018 /* FilePreviewSyntaxLanguage.swift */; };
 		F11E52270000000000006019 /* FilePreviewSyntaxTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000006020 /* FilePreviewSyntaxTheme.swift */; };
@@ -1900,9 +1902,11 @@
 		C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookContainerView.swift; sourceTree = "<group>"; };
 		0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookSession.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReviewFeedbackTests.swift; sourceTree = "<group>"; };
+		F11E52270000000000006026 /* FilePreviewSyntaxCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxCursor.swift; sourceTree = "<group>"; };
 		F11E52270000000000006008 /* FilePreviewSyntaxGrammar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxGrammar.swift; sourceTree = "<group>"; };
 		F11E52270000000000006006 /* FilePreviewSyntaxHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewSyntaxHighlighterTests.swift; sourceTree = "<group>"; };
 		F11E52270000000000006004 /* FilePreviewSyntaxHighlightSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxHighlightSettings.swift; sourceTree = "<group>"; };
+		F11E52270000000000006028 /* FilePreviewSyntaxHighlightSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewSyntaxHighlightSettingsFileStoreTests.swift; sourceTree = "<group>"; };
 		F11E52270000000000006022 /* FilePreviewSyntaxKeywords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxKeywords.swift; sourceTree = "<group>"; };
 		F11E52270000000000006018 /* FilePreviewSyntaxLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxLanguage.swift; sourceTree = "<group>"; };
 		F11E52270000000000006020 /* FilePreviewSyntaxTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewSyntaxTheme.swift; sourceTree = "<group>"; };
@@ -3447,6 +3451,7 @@
 				F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */,
 				F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */,
 				F11E52270000000000006004 /* FilePreviewSyntaxHighlightSettings.swift */,
+				F11E52270000000000006026 /* FilePreviewSyntaxCursor.swift */,
 				F11E52270000000000006008 /* FilePreviewSyntaxGrammar.swift */,
 				F11E52270000000000006014 /* FilePreviewSyntaxTokenKind.swift */,
 				F11E52270000000000006016 /* FilePreviewSyntaxToken.swift */,
@@ -3918,6 +3923,7 @@
 				E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */,
 		C0DE49950000000000000002 /* FilePreviewKindResolverTests.swift */,
 		F11E52270000000000006006 /* FilePreviewSyntaxHighlighterTests.swift */,
+		F11E52270000000000006028 /* FilePreviewSyntaxHighlightSettingsFileStoreTests.swift */,
 				120A1EF846214C938416846E /* FileExplorerRootSyncPolicyTests.swift */,
 				4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */,
 				A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */,
@@ -4793,6 +4799,7 @@
 				A5001429 /* FilePreviewPDFViewport.swift in Sources */,
 				C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */,
 				DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */,
+					F11E52270000000000006025 /* FilePreviewSyntaxCursor.swift in Sources */,
 					F11E52270000000000006007 /* FilePreviewSyntaxGrammar.swift in Sources */,
 					F11E52270000000000006003 /* FilePreviewSyntaxHighlightSettings.swift in Sources */,
 					F11E52270000000000006021 /* FilePreviewSyntaxKeywords.swift in Sources */,
@@ -5540,6 +5547,7 @@
 				A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */,
 				C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */,
 				F11E52270000000000006005 /* FilePreviewSyntaxHighlighterTests.swift in Sources */,
+				F11E52270000000000006027 /* FilePreviewSyntaxHighlightSettingsFileStoreTests.swift in Sources */,
 				C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */,
 				FE002103 /* FileSearchRipgrepParserTests.swift in Sources */,
 				C35610000000000000000001 /* FinderFileDropRegressionTests.swift in Sources */,

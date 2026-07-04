@@ -9,7 +9,7 @@ enum FilePreviewSyntaxTokenizer {
     }
 
     static func tokens(in source: String, grammar: FilePreviewSyntaxGrammar) -> [FilePreviewSyntaxToken] {
-        var cursor = Cursor(source: source)
+        var cursor = FilePreviewSyntaxCursor(source: source)
         var tokens: [FilePreviewSyntaxToken] = []
         let lineCommentPatterns = grammar.lineComments.map { Array($0.unicodeScalars) }
         let blockOpen = grammar.blockComment.map { Array($0.open.unicodeScalars) }
@@ -88,7 +88,9 @@ enum FilePreviewSyntaxTokenizer {
             // Identifiers / keywords / types / function calls.
             if isIdentifierStart(scalar) {
                 let start = cursor.utf16Offset
-                let text = cursor.consumeIdentifier(allowsDollar: grammar.allowsDollarInIdentifiers)
+                let text = cursor.consumeIdentifier { scalar in
+                    isIdentifierContinuation(scalar, allowsDollar: grammar.allowsDollarInIdentifiers)
+                }
                 if grammar.keywords.contains(text) {
                     tokens.append(FilePreviewSyntaxToken(range: cursor.range(from: start), kind: .keyword))
                 } else if grammar.types.contains(text) {
@@ -109,7 +111,7 @@ enum FilePreviewSyntaxTokenizer {
     }
 
     private static func scanString(
-        _ cursor: inout Cursor,
+        _ cursor: inout FilePreviewSyntaxCursor,
         delimiter: Unicode.Scalar,
         grammar: FilePreviewSyntaxGrammar
     ) -> FilePreviewSyntaxToken {
@@ -168,90 +170,5 @@ enum FilePreviewSyntaxTokenizer {
 
     private static func isIdentifierContinuation(_ scalar: Unicode.Scalar, allowsDollar: Bool) -> Bool {
         isIdentifierStart(scalar) || isDigit(scalar) || (allowsDollar && scalar == "$")
-    }
-
-    /// Cursor over the source scalars that keeps a UTF-16 offset in sync so token
-    /// ranges line up with `NSTextStorage` / `NSString` indexing.
-    private struct Cursor {
-        private let scalars: [Unicode.Scalar]
-        private var index = 0
-        private(set) var utf16Offset = 0
-
-        init(source: String) {
-            scalars = Array(source.unicodeScalars)
-        }
-
-        var current: Unicode.Scalar? {
-            index < scalars.count ? scalars[index] : nil
-        }
-
-        func peek(_ ahead: Int) -> Unicode.Scalar? {
-            let target = index + ahead
-            return target < scalars.count ? scalars[target] : nil
-        }
-
-        mutating func advance() {
-            guard index < scalars.count else { return }
-            utf16Offset += scalars[index].value > 0xFFFF ? 2 : 1
-            index += 1
-        }
-
-        mutating func advance(_ count: Int) {
-            for _ in 0..<count { advance() }
-        }
-
-        mutating func advanceWhile(_ predicate: (Unicode.Scalar) -> Bool) {
-            while let scalar = current, !Task.isCancelled, predicate(scalar) { advance() }
-        }
-
-        mutating func advanceToEndOfLine() {
-            while let scalar = current, !Task.isCancelled, scalar != "\n", scalar != "\r" { advance() }
-        }
-
-        mutating func advanceUntilMatch(_ pattern: [Unicode.Scalar]) {
-            while current != nil, !Task.isCancelled {
-                if matches(pattern) {
-                    advance(pattern.count)
-                    return
-                }
-                advance()
-            }
-        }
-
-        mutating func consumeIdentifier(allowsDollar: Bool) -> String {
-            var result = ""
-            while let scalar = current,
-                  !Task.isCancelled,
-                  FilePreviewSyntaxTokenizer.isIdentifierContinuation(scalar, allowsDollar: allowsDollar) {
-                result.unicodeScalars.append(scalar)
-                advance()
-            }
-            return result
-        }
-
-        func matches(_ pattern: [Unicode.Scalar]) -> Bool {
-            guard !pattern.isEmpty, index + pattern.count <= scalars.count else { return false }
-            for offset in 0..<pattern.count where scalars[index + offset] != pattern[offset] {
-                return false
-            }
-            return true
-        }
-
-        func nextNonSpaceScalar() -> Unicode.Scalar? {
-            var probe = index
-            while probe < scalars.count {
-                let scalar = scalars[probe]
-                if scalar == " " || scalar == "\t" {
-                    probe += 1
-                    continue
-                }
-                return scalar
-            }
-            return nil
-        }
-
-        func range(from start: Int) -> NSRange {
-            NSRange(location: start, length: utf16Offset - start)
-        }
     }
 }
