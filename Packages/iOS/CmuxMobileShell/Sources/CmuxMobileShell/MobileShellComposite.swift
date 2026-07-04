@@ -5838,8 +5838,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
-        let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
-        let requestedMacDeviceID = workspaces.first { $0.id == rowWorkspaceID }?.macDeviceID ?? foregroundMacDeviceID
+        let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
+        let requestedWorkspaceID = requestedRow?.rpcWorkspaceID ?? rowWorkspaceID
+        let requestedMacDeviceID = requestedRow?.macDeviceID
+        let requestedNilOwnerForegroundMacDeviceID = requestedMacDeviceID == nil ? foregroundMacDeviceID : nil
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -5855,8 +5857,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let selectedRow = explicitlySelectedWorkspace
             if let selectedRow, let createdID = response.createdTerminalID,
                selectedRow.id == rowWorkspaceID
-                   || (selectedRow.rpcWorkspaceID == requestedWorkspaceID
-                       && selectedRow.macDeviceID == requestedMacDeviceID) {
+                   || (requestedRow != nil
+                       && selectedRow.rpcWorkspaceID == requestedWorkspaceID
+                       && selectedRow.macDeviceID == requestedMacDeviceID)
+                   || (requestedRow != nil && requestedMacDeviceID == nil
+                       && selectedRow.rpcWorkspaceID == requestedWorkspaceID
+                       && selectedRow.macDeviceID == (requestedNilOwnerForegroundMacDeviceID ?? foregroundMacDeviceID)) {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
                 createdTerminalSelection = CreatedTerminalSelection(workspace: selectedRow, terminalID: createdTerminalID)
                 selectedTerminalID = createdTerminalID
