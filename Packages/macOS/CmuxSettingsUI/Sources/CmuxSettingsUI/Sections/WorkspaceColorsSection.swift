@@ -131,7 +131,7 @@ public struct WorkspaceColorsSection: View {
                 json: "paneBorderColor",
                 resetLabel: String(localized: "settings.workspaceColors.color.reset", defaultValue: "Reset"),
                 model: paneBorderHex,
-                fallback: Self.paneDividerFallbackColor()
+                fallback: paneDividerFallbackColor()
             )
             SettingsCardDivider()
             paneChromeColorRow(
@@ -140,7 +140,7 @@ public struct WorkspaceColorsSection: View {
                 json: "activePaneBorderColor",
                 resetLabel: String(localized: "settings.workspaceColors.color.reset", defaultValue: "Reset"),
                 model: activePaneBorderHex,
-                fallback: Self.focusedPaneBorderFallbackColor()
+                fallback: focusedPaneBorderFallbackColor()
             )
             SettingsCardDivider()
 
@@ -194,7 +194,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: Self.cmuxAccentColor(),
+                    fallback: cmuxAccentColor(),
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)
@@ -350,7 +350,7 @@ public struct WorkspaceColorsSection: View {
     /// Mirrors the legacy `cmuxAccentColor()` helper (see
     /// `Sources/Sidebar/SidebarAppearanceSupport.swift`) so the rendered
     /// swatch matches the rest of the app instead of the system accent.
-    private static func cmuxAccentColor() -> Color {
+    private func cmuxAccentColor() -> Color {
         let nsColor = NSColor(name: nil) { appearance in
             let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
             if bestMatch == .darkAqua {
@@ -361,11 +361,11 @@ public struct WorkspaceColorsSection: View {
         return Color(nsColor: nsColor)
     }
 
-    private static func paneDividerFallbackColor() -> Color {
+    private func paneDividerFallbackColor() -> Color {
         Color(nsColor: .separatorColor)
     }
 
-    private static func focusedPaneBorderFallbackColor() -> Color {
+    private func focusedPaneBorderFallbackColor() -> Color {
         cmuxAccentColor()
     }
 }
