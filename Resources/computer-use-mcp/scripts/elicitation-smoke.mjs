@@ -20,7 +20,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const serverPath = join(here, "..", "cmux-computer-use-mcp.mjs");
 const fakeCodex = join(here, "fake-codex-app-server.mjs");
 
-async function run({ withElicitation, tool = "computer_apps", args = {}, expectMessage = null }) {
+async function runCalls({ withElicitation, calls, expectMessage = null }) {
   // Hermetic env: pin the fake codex and strip any ambient auto-approve so a
   // developer shell with CMUX_CU_AUTO_APPROVE=1 cannot bypass the very
   // approval paths under test.
@@ -45,13 +45,26 @@ async function run({ withElicitation, tool = "computer_apps", args = {}, expectM
     });
   }
   await client.connect(transport);
-  const res = await client.callTool({ name: tool, arguments: args });
-  const text = (res.content ?? [])
-    .filter((c) => c.type === "text")
-    .map((c) => c.text)
-    .join("\n");
+  const results = [];
+  for (const call of calls) {
+    const res = await client.callTool({ name: call.tool, arguments: call.args ?? {} });
+    const text = (res.content ?? [])
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("\n");
+    results.push({ isError: !!res.isError, text });
+  }
   await client.close();
-  return { isError: !!res.isError, text };
+  return results;
+}
+
+async function run({ withElicitation, tool = "computer_apps", args = {}, expectMessage = null }) {
+  const [result] = await runCalls({
+    withElicitation,
+    calls: [{ tool, args }],
+    expectMessage,
+  });
+  return result;
 }
 
 const accepted = await run({ withElicitation: true, expectMessage: "Allow Codex to use TestApp?" });
@@ -123,6 +136,26 @@ const openAccepted = await run({
 console.log(`computer_open with accepted elicitation -> isError=${openAccepted.isError}`);
 if (!openAccepted.isError || openAccepted.text.includes("not approved")) {
   console.error("FAIL: accepted elicitation should clear the gate and reach `open -a`");
+  process.exit(1);
+}
+
+const [stateResult, firstClick, staleClick] = await runCalls({
+  withElicitation: false,
+  calls: [
+    { tool: "computer_state", args: { app: "TestApp" } },
+    { tool: "computer_click", args: { app: "TestApp", element: 0 } },
+    { tool: "computer_click", args: { app: "TestApp", element: 0 } },
+  ],
+});
+console.log(
+  `stale element sequence -> state=${stateResult.isError} firstClick=${firstClick.isError} staleClick=${staleClick.isError}`
+);
+if (stateResult.isError || firstClick.isError) {
+  console.error("FAIL: expected first element action to use the fresh computer_state snapshot");
+  process.exit(1);
+}
+if (!staleClick.isError || !staleClick.text.includes("run computer_state first")) {
+  console.error("FAIL: stale element action should require a fresh computer_state snapshot");
   process.exit(1);
 }
 

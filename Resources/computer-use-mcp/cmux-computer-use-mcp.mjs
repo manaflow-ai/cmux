@@ -184,13 +184,9 @@ class AppServerSession {
     // Apps whose CURRENT element-index table was actually returned to the
     // agent by computer_state. Only this set authorizes element-index
     // actions — internal priming and screenshot-only captures must not.
-    // Deliberately NOT consumed per input action: the engine keeps its table
-    // until the next capture, and Codex Computer Use's native loop issues
-    // several element actions off one snapshot, re-perceiving when the model
-    // decides. This guard only closes the cases where the agent's view and
-    // the engine's table can DIVERGE (restart, hidden refresh) — UI drift
-    // after the agent's own action exists identically in native Codex
-    // Computer Use and is handled by the agent's re-capture loop.
+    // Consumed after every input action because clicks, keys, scrolls, drags,
+    // and accessibility actions can all mutate the UI behind the old element
+    // table. The next element-index action must follow a fresh computer_state.
     this.snapshotApps = new Set();
     this.startPromise = null;
     this.exitError = null;
@@ -475,7 +471,11 @@ async function callInputTool(tool, args) {
     }
     s.boundApps.add(app);
   }
-  return s.callTool(tool, args);
+  try {
+    return await s.callTool(tool, args);
+  } finally {
+    s.snapshotApps.delete(app);
+  }
 }
 
 const text = (value) => ({ type: "text", text: String(value) });

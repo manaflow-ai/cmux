@@ -890,6 +890,7 @@ def computer_use_sandbox(
     codex_override: str | None = None,
     legacy_codex_first: bool = False,
     hanging_codex_first: bool = False,
+    workspace_node_first: bool = False,
 ):
     def setup(tmp: Path, env: dict) -> None:
         if script:
@@ -944,6 +945,22 @@ def computer_use_sandbox(
                     continue
                 kept_entries.append(entry)
             env["PATH"] = ":".join([str(shim_dir), str(node_dir), *kept_entries])
+        if workspace_node_first:
+            node_dir = tmp / "workspace-node-bin"
+            node_dir.mkdir(parents=True, exist_ok=True)
+            node_real = shutil.which("node")
+            if node_real:
+                env["FAKE_TRUSTED_NODE"] = node_real
+            make_executable(
+                node_dir / "node",
+                """#!/usr/bin/env bash
+if [[ "${1:-}" == "${FAKE_REAL_NODE_SCRIPT:-}" && -n "${FAKE_TRUSTED_NODE:-}" ]]; then
+  exec "$FAKE_TRUSTED_NODE" "$@"
+fi
+exit 88
+""",
+            )
+            env["PATH"] = f"{node_dir}:{env['PATH']}"
         if disabled:
             env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
         if codex_override is not None:
@@ -1001,7 +1018,12 @@ def test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(fail
     expect(config is not None, f"computer use inject: expected --mcp-config=<json> in argv, got {real_argv}", failures)
     if config is not None:
         server = config.get("mcpServers", {}).get("cmux-computer-use", {})
-        expect(server.get("command") == "node", f"computer use inject: expected node command, got {config}", failures)
+        command = server.get("command")
+        expect(
+            isinstance(command, str) and Path(command).is_absolute() and Path(command).name == "node",
+            f"computer use inject: expected absolute node command, got {config}",
+            failures,
+        )
         args = server.get("args", [])
         # The sandbox tempdir is deleted when run_wrapper returns, so assert on
         # the path shape rather than a live stat.
@@ -1044,6 +1066,20 @@ def test_computer_use_mcp_skipped_without_codex_auth(failures: list[str]) -> Non
     expect(
         injected_mcp_config_index(real_argv) is None,
         f"computer use no-auth: expected no injection without auth.json, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_mcp_skips_workspace_node(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(codex_override="<sandbox-codex>", workspace_node_first=True),
+    )
+    expect(code == 0, f"computer use workspace-node: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use workspace-node: expected no injection with workspace-local node first on PATH, got {real_argv}",
         failures,
     )
 
@@ -2210,6 +2246,7 @@ def main() -> int:
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_computer_use_mcp_when_codex_machinery_present(failures)
     test_computer_use_mcp_skipped_without_codex_auth(failures)
+    test_computer_use_mcp_skips_workspace_node(failures)
     test_computer_use_mcp_skipped_for_strict_mcp_config(failures)
     test_computer_use_mcp_skipped_when_disabled(failures)
     test_computer_use_mcp_skipped_when_server_script_missing(failures)

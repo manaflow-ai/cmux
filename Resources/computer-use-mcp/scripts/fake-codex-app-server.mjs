@@ -35,6 +35,26 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   if (message.method === "mcpServer/tool/call") {
+    if (message.params?.tool === "get_app_state") {
+      send({
+        id: message.id,
+        result: {
+          content: [{ type: "text", text: "0 button 'OK'" }],
+          isError: false,
+        },
+      });
+      return;
+    }
+    if (message.params?.tool === "click") {
+      send({
+        id: message.id,
+        result: {
+          content: [{ type: "text", text: "clicked" }],
+          isError: false,
+        },
+      });
+      return;
+    }
     pendingToolCallId = message.id;
     send({
       id: "elicit-1",

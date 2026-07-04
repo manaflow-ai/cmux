@@ -761,6 +761,41 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
+cmux_computer_use_world_writable_dir() {
+    local dir="$1"
+    local mode
+    mode="$(stat -f %Lp "$dir" 2>/dev/null || stat -c %a "$dir" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    local other=$((mode % 10))
+    (( (other & 2) != 0 ))
+}
+
+cmux_computer_use_resolve_node() {
+    local node_bin
+    node_bin="$(command -v node 2>/dev/null)" || return 1
+    [[ "$node_bin" = /* && -x "$node_bin" ]] || return 1
+    case "$node_bin" in
+        "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}"/*|"${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"/*|*/cmux-cli-shims/*)
+            return 1
+            ;;
+    esac
+    local node_dir="${node_bin%/*}"
+    local node_dir_real
+    node_dir_real="$(cd "$node_dir" 2>/dev/null && pwd -P)" || return 1
+    local node_real="$node_dir_real/${node_bin##*/}"
+    local cwd_real
+    cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
+    if [[ -n "$cwd_real" ]]; then
+        case "$node_real" in
+            "$cwd_real"|"$cwd_real"/*)
+                return 1
+                ;;
+        esac
+    fi
+    cmux_computer_use_world_writable_dir "$node_dir_real" && return 1
+    printf '%s' "$node_real"
+}
+
 # Resolve the codex binary for automatic computer-use injection. The MCP server
 # can still resolve `codex` from PATH when configured manually, but the Claude
 # wrapper runs during ordinary agent startup and must not execute PATH-controlled
@@ -826,7 +861,8 @@ cmux_computer_use_mcp_config() {
                 ;;
         esac
     done
-    command -v node >/dev/null 2>&1 || return 1
+    local node_binary
+    node_binary="$(cmux_computer_use_resolve_node)" || return 1
     [[ -f "${CODEX_HOME:-$HOME/.codex}/auth.json" ]] || return 1
     local codex_binary
     codex_binary="$(cmux_computer_use_resolve_codex)" || return 1
@@ -836,7 +872,8 @@ cmux_computer_use_mcp_config() {
         "$self_dir/../cmux-computer-use-mcp.mjs" \
         "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
         if [[ -f "$candidate" ]]; then
-            printf '{"mcpServers":{"cmux-computer-use":{"command":"node","args":["%s"],"env":{"CMUX_CU_CODEX":"%s"}}}}' \
+            printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["%s"],"env":{"CMUX_CU_CODEX":"%s"}}}}' \
+                "$(cmux_computer_use_json_escape "$node_binary")" \
                 "$(cmux_computer_use_json_escape "$candidate")" \
                 "$(cmux_computer_use_json_escape "$codex_binary")"
             return 0
