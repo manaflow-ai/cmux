@@ -23252,7 +23252,7 @@ struct CMUXCLI {
                     workspace: .explicit(Self.claudeFeedTelemetryWorkspaceId(
                         resolvedWorkspaceId: workspaceId,
                         mappedSessionWorkspaceId: mappedSessionWorkspaceId,
-                        surfaceIsAuthoritative: resolvedSurface.isAuthoritative,
+                        surfaceAllowsWorkspaceAttribution: resolvedSurface.allowsFeedWorkspaceAttribution,
                         callerWorkspaceId: callerWorkspaceId
                     ))
                 )
@@ -23409,7 +23409,7 @@ struct CMUXCLI {
                 workspace: .explicit(Self.claudeFeedTelemetryWorkspaceId(
                     resolvedWorkspaceId: workspaceId,
                     mappedSessionWorkspaceId: mappedSessionWorkspaceId,
-                    surfaceIsAuthoritative: resolvedSurface.isAuthoritative,
+                    surfaceAllowsWorkspaceAttribution: resolvedSurface.allowsFeedWorkspaceAttribution,
                     callerWorkspaceId: callerWorkspaceId
                 ))
             )
@@ -24212,14 +24212,14 @@ struct CMUXCLI {
     private static func claudeFeedTelemetryWorkspaceId(
         resolvedWorkspaceId: String,
         mappedSessionWorkspaceId: String?,
-        surfaceIsAuthoritative: Bool,
+        surfaceAllowsWorkspaceAttribution: Bool,
         callerWorkspaceId: String?
     ) -> String? {
         func matchesResolved(_ value: String?) -> Bool {
             value == resolvedWorkspaceId
         }
         let authoritative = matchesResolved(mappedSessionWorkspaceId)
-            || surfaceIsAuthoritative
+            || surfaceAllowsWorkspaceAttribution
             || matchesResolved(callerWorkspaceId)
         return authoritative ? resolvedWorkspaceId : nil
     }
@@ -24318,7 +24318,8 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client,
                 preferCallerTTYOverRaw: false,
-                callerTerminalBinding: callerTerminalBinding
+                callerTerminalBinding: callerTerminalBinding,
+                rawAllowsFeedWorkspaceAttribution: true
             )
         }
         if let fallback = nonEmptyClaudeHookIdentifier(fallback) {
@@ -24360,7 +24361,11 @@ struct CMUXCLI {
                 defaultValue: "Surface not found: \(raw)"
             ))
         }
-        return ClaudeHookResolvedSurface(surfaceId: candidate, isAuthoritative: true)
+        return ClaudeHookResolvedSurface(
+            surfaceId: candidate,
+            isAuthoritative: true,
+            allowsFeedWorkspaceAttribution: true
+        )
     }
 
     private func nonEmptyClaudeHookIdentifier(_ value: String?) -> String? {
@@ -24531,6 +24536,10 @@ struct CMUXCLI {
         /// the calling process's tty binding) rather than the focused/first-
         /// surface fallback.
         let isAuthoritative: Bool
+        /// True only when the surface source is trusted enough to attribute feed
+        /// telemetry's workspace. Ambient `CMUX_SURFACE_ID` may be listed but can
+        /// be leaked from another pane, so it is not sufficient by itself.
+        let allowsFeedWorkspaceAttribution: Bool
     }
 
     private func resolveSurfaceIdAllowingFallback(
@@ -24546,7 +24555,8 @@ struct CMUXCLI {
         workspaceId: String,
         client: SocketClient,
         preferCallerTTYOverRaw: Bool = false,
-        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil
+        callerTerminalBinding: (() -> CallerTerminalBinding?)? = nil,
+        rawAllowsFeedWorkspaceAttribution: Bool = false
     ) throws -> ClaudeHookResolvedSurface {
         let rawCandidate: String? = if let raw,
             !raw.isEmpty,
@@ -24563,10 +24573,18 @@ struct CMUXCLI {
                client: client
            ),
            claudeHookSurfaceIsListed(callerSurfaceId, workspaceId: workspaceId, client: client) {
-            return ClaudeHookResolvedSurface(surfaceId: callerSurfaceId, isAuthoritative: true)
+            return ClaudeHookResolvedSurface(
+                surfaceId: callerSurfaceId,
+                isAuthoritative: true,
+                allowsFeedWorkspaceAttribution: true
+            )
         }
         if let rawCandidate {
-            return ClaudeHookResolvedSurface(surfaceId: rawCandidate, isAuthoritative: true)
+            return ClaudeHookResolvedSurface(
+                surfaceId: rawCandidate,
+                isAuthoritative: true,
+                allowsFeedWorkspaceAttribution: rawAllowsFeedWorkspaceAttribution
+            )
         }
         if let callerSurfaceId = resolveCallerSurfaceIdByTTY(
             workspaceId: workspaceId,
@@ -24574,11 +24592,16 @@ struct CMUXCLI {
             client: client
         ),
            claudeHookSurfaceIsListed(callerSurfaceId, workspaceId: workspaceId, client: client) {
-            return ClaudeHookResolvedSurface(surfaceId: callerSurfaceId, isAuthoritative: true)
+            return ClaudeHookResolvedSurface(
+                surfaceId: callerSurfaceId,
+                isAuthoritative: true,
+                allowsFeedWorkspaceAttribution: true
+            )
         }
         return ClaudeHookResolvedSurface(
             surfaceId: try resolveSurfaceId(nil, workspaceId: workspaceId, client: client),
-            isAuthoritative: false
+            isAuthoritative: false,
+            allowsFeedWorkspaceAttribution: false
         )
     }
 

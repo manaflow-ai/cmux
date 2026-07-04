@@ -86,6 +86,27 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
         )
     }
 
+    /// A leaked ambient `CMUX_SURFACE_ID` may still be listed in the focused
+    /// workspace, but it is not enough to prove the emitting workspace.
+    func testStopWithListedAmbientSurfaceDoesNotAttributeToFocusedFallback() throws {
+        let capture = try runClaudeStopHook(
+            callerWorkspaceId: nil,
+            surfaceEnvId: Self.focusedSurfaceId
+        )
+        let event = try XCTUnwrap(
+            capture.feedEvent,
+            "Expected the Stop hook to emit a feed.push, saw \(capture.commands)"
+        )
+        XCTAssertNil(
+            event["workspace_id"] as? String,
+            "Listed ambient surface must not make focused fallback authoritative; got \(String(describing: event["workspace_id"]))"
+        )
+        XCTAssertTrue(
+            capture.commands.contains { $0.contains("\"workspace.current\"") },
+            "Listed ambient surface scenario should exercise the focused fallback; saw \(capture.commands)"
+        )
+    }
+
     /// The caller's own `CMUX_WORKSPACE_ID` stays an authoritative attribution
     /// source: the normal per-surface case must keep recording the conversation
     /// subtitle on the caller's workspace. Guards against the fix over-dropping.
