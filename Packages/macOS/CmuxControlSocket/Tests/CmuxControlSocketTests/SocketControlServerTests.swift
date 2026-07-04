@@ -1,4 +1,4 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import CmuxSettings
 import Darwin
 import Foundation
@@ -67,10 +67,10 @@ private final class ServerEventRecorder: Sendable {
 }
 
 @MainActor
-private struct ServerHarness: ~Copyable {
+struct ServerHarness: ~Copyable {
     let directory: URL
     let socketPath: String
-    let recorder: ServerEventRecorder
+    fileprivate let recorder: ServerEventRecorder
     let server: SocketControlServer
 
     init() throws {

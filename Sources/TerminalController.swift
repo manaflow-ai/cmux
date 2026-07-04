@@ -358,6 +358,24 @@ class TerminalController {
         socketServer.activeSocketPath(preferredPath: preferredPath)
     }
 
+    /// The authoritative accept-loop generation of the underlying listener,
+    /// bumped on every (re)start through any recovery path. The activation
+    /// self-heal captures this before its background probe and re-checks it
+    /// before rebinding, so a listener replaced mid-probe is never torn down
+    /// on a stale decision (issue #6406 activation/wake race).
+    nonisolated var activeListenerGeneration: UInt64 {
+        socketServer.activeListenerGeneration
+    }
+
+    /// Whether the listener's own accept-source recovery is mid-backoff (a
+    /// parked rearm or a suspended accept source). The activation self-heal
+    /// checks this before rebinding and stands down when the server is already
+    /// recovering, so it never restarts over a scheduled backoff and resets the
+    /// accept-failure streak (issue #6406 review).
+    nonisolated var hasPendingAcceptRecovery: Bool {
+        socketServer.hasPendingAcceptRecovery
+    }
+
     nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
         !currentSocketCommandFocusAllowanceStack().isEmpty
     }
@@ -827,11 +845,15 @@ class TerminalController {
     }
 
     private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
-        let message = "Authentication required. Send auth <password> first."
+        // Both branches embed `passwordAuthRequiredResponseMarker` so the wire
+        // string always carries the substring the activation self-heal probe
+        // recognizes as "listener is alive" (SocketListenerActivationRecoveryPolicy).
+        let marker = SocketListenerActivationRecoveryPolicy.passwordAuthRequiredResponseMarker
+        let message = "\(marker). Send auth <password> first."
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return "ERROR: Authentication required — send auth <password> first"
+            return "ERROR: \(marker) — send auth <password> first"
         }
         let id = dict["id"]
         return v2Error(id: id, code: "auth_required", message: message)
