@@ -117,6 +117,12 @@ struct CmuxWebViewContextMenuLinkCaptureTests {
         let zoomed = webView.cssViewportPoint(for: NSPoint(x: 10, y: 10))
         #expect(abs(zoomed.x - 5) < 0.001)
         #expect(abs(zoomed.y - 5) < 0.001)
+
+        webView.pageZoom = 1
+        webView.magnification = 0.5
+        let magnified = webView.cssViewportPoint(for: NSPoint(x: 10, y: 10))
+        #expect(abs(magnified.x - 20) < 0.001)
+        #expect(abs(magnified.y - 20) < 0.001)
     }
 
     // MARK: - Harness

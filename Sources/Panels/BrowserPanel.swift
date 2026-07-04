@@ -3056,6 +3056,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
+    private let minViewportMagnification: CGFloat = 0.1
+    private var minimumViewportSize: CGSize?
     private var insecureHTTPBypassHostOnce: String?
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
@@ -3784,6 +3786,7 @@ final class BrowserPanel: Panel, ObservableObject {
         setupMediaPlaybackMessageHandler(for: webView)
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
+        applyMinimumViewportSize(reason: "bindWebView")
     }
 
     private func setupSSLTrustBypassMessageHandler(for webView: WKWebView) {
@@ -3937,7 +3940,6 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
             BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
         ])
 
         let resolvedThemeMode = BrowserThemeSettings.mode(defaults: defaults)
@@ -4728,6 +4730,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        _ = setMinimumViewportSize(
+            width: snapshot.minimumViewportWidth.map { CGFloat($0) },
+            height: snapshot.minimumViewportHeight.map { CGFloat($0) }
+        )
+
         // Diff viewer surfaces re-register their token from the on-disk manifest
         // and navigate via the app-owned custom scheme, so they restore even
         // though the local HTTP server that originally served them is gone.
@@ -7256,10 +7263,76 @@ extension BrowserPanel {
         webView.pageZoom
     }
 
+    static let maximumMinimumViewportDimension: CGFloat = 100_000
+
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
         return applyPageZoom(clamped)
+    }
+
+    func currentMinimumViewportSize() -> CGSize? {
+        minimumViewportSize
+    }
+
+    @discardableResult
+    func setMinimumViewportSize(width: CGFloat?, height: CGFloat?) -> Bool {
+        let normalizedWidth = Self.normalizedMinimumViewportDimension(width)
+        let normalizedHeight = Self.normalizedMinimumViewportDimension(height)
+        let nextSize: CGSize? = {
+            guard normalizedWidth != nil || normalizedHeight != nil else { return nil }
+            return CGSize(width: normalizedWidth ?? 0, height: normalizedHeight ?? 0)
+        }()
+
+        if Self.viewportSizeApproximatelyEqual(minimumViewportSize, nextSize) {
+            return applyMinimumViewportSize(reason: "minimumViewportSize.unchanged")
+        }
+
+        minimumViewportSize = nextSize
+        _ = applyMinimumViewportSize(reason: "minimumViewportSize.changed")
+        return true
+    }
+
+    @discardableResult
+    func applyMinimumViewportSize(reason _: String) -> Bool {
+        let scale = Self.minimumViewportMagnification(
+            webViewBounds: webView.bounds.size,
+            minimumViewportSize: minimumViewportSize, pageZoom: webView.pageZoom,
+            minimumMagnification: minViewportMagnification
+        )
+        guard scale.isFinite else { return false }
+        if abs(webView.magnification - scale) < 0.0001 {
+            return false
+        }
+        webView.setMagnification(scale, centeredAt: .zero)
+        return true
+    }
+
+    static func minimumViewportMagnification(
+        webViewBounds: CGSize,
+        minimumViewportSize: CGSize?,
+        pageZoom: CGFloat = 1.0,
+        minimumMagnification: CGFloat = 0.1
+    ) -> CGFloat {
+        guard let minimumViewportSize else { return 1.0 }
+        guard webViewBounds.width > 1, webViewBounds.height > 1 else { return 1.0 }
+        let zoomScale = pageZoom.isFinite && pageZoom > 0 ? pageZoom : 1.0
+
+        var scale: CGFloat = 1.0
+        if minimumViewportSize.width * zoomScale > webViewBounds.width { scale = min(scale, webViewBounds.width / (minimumViewportSize.width * zoomScale)) }
+        if minimumViewportSize.height * zoomScale > webViewBounds.height { scale = min(scale, webViewBounds.height / (minimumViewportSize.height * zoomScale)) }
+        return max(minimumMagnification, min(1.0, scale))
+    }
+
+    func maximumReachableMinimumViewportSize() -> CGSize? {
+        guard webView.bounds.width > 1, webView.bounds.height > 1 else { return nil }
+        let pageZoom = webView.pageZoom.isFinite && webView.pageZoom > 0 ? webView.pageZoom : 1.0
+        let maxWidth = webView.bounds.width / (pageZoom * minViewportMagnification)
+        let maxHeight = webView.bounds.height / (pageZoom * minViewportMagnification)
+        return CGSize(
+            width: min(Self.maximumMinimumViewportDimension, max(0, maxWidth)),
+            height: min(Self.maximumMinimumViewportDimension, max(0, maxHeight))
+        )
     }
 
     /// Take a snapshot of the web view
@@ -8231,6 +8304,23 @@ extension BrowserPanel {
 #endif
 
 private extension BrowserPanel {
+    static func normalizedMinimumViewportDimension(_ value: CGFloat?) -> CGFloat? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return min(value, BrowserPanel.maximumMinimumViewportDimension)
+    }
+
+    static func viewportSizeApproximatelyEqual(_ lhs: CGSize?, _ rhs: CGSize?, epsilon: CGFloat = 0.5) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return abs(lhs.width - rhs.width) <= epsilon &&
+                abs(lhs.height - rhs.height) <= epsilon
+        default:
+            return false
+        }
+    }
+
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
@@ -8238,6 +8328,7 @@ private extension BrowserPanel {
             return false
         }
         webView.pageZoom = clamped
+        if minimumViewportSize != nil { _ = applyMinimumViewportSize(reason: "pageZoom.changed") }
         return true
     }
 

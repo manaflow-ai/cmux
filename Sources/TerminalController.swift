@@ -1896,6 +1896,7 @@ class TerminalController {
         case "browser.tab.close":
             return v2Result(id: id, self.v2BrowserTabClose(params: params))
         case "browser.viewport.set":
+            // Mutates WKWebView magnification and BrowserPanel layout state.
             return v2Result(id: id, self.v2BrowserViewportSet(params: params))
         case "browser.geolocation.set":
             return v2Result(id: id, self.v2BrowserGeolocationSet(params: params))
@@ -8525,6 +8526,8 @@ class TerminalController {
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
+        case "browser.viewport.set":
+            preconditionFailure("browser.viewport.set must stay on the main actor")
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -9762,8 +9765,68 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserViewportSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.viewport.set", details: "WKWebView does not provide a per-tab programmable viewport emulation API equivalent to CDP")
+    private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
+        guard let width = v2StrictInt(params, "width"),
+              let height = v2StrictInt(params, "height"),
+              width >= 0,
+              height >= 0,
+              width <= Int(BrowserPanel.maximumMinimumViewportDimension),
+              height <= Int(BrowserPanel.maximumMinimumViewportDimension) else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "browser.viewport.automation.error.invalidSize",
+                    defaultValue: "browser.viewport.set requires width and height from 0 to \(Int(BrowserPanel.maximumMinimumViewportDimension))"
+                ),
+                data: nil
+            )
+        }
+
+        return v2BrowserWithPanel(params: params) { workspaceId, surfaceId, browserPanel in
+            let requestedWidth = CGFloat(width)
+            let requestedHeight = CGFloat(height)
+            if requestedWidth > 0 || requestedHeight > 0 {
+                guard let maximumReachable = browserPanel.maximumReachableMinimumViewportSize() else {
+                    return .err(
+                        code: "not_ready",
+                        message: String(
+                            localized: "browser.viewport.automation.error.layoutNotReady",
+                            defaultValue: "browser.viewport.set cannot run until the browser pane has a layout size"
+                        ),
+                        data: ["reason": "layout_unavailable"]
+                    )
+                }
+                if (requestedWidth > 0 && requestedWidth > maximumReachable.width) ||
+                    (requestedHeight > 0 && requestedHeight > maximumReachable.height) {
+                    return .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "browser.viewport.automation.error.exceedsPaneLimit",
+                            defaultValue: "browser.viewport.set exceeds the current pane's maximum emulated viewport size"
+                        ),
+                        data: [
+                            "max_width": Int(maximumReachable.width.rounded(.down)),
+                            "max_height": Int(maximumReachable.height.rounded(.down))
+                        ]
+                    )
+                }
+            }
+
+            let changed = browserPanel.setMinimumViewportSize(
+                width: requestedWidth,
+                height: requestedHeight
+            )
+            let storedSize = browserPanel.currentMinimumViewportSize()
+            return .ok(v2BrowserPanelFields(
+                V2BrowserPanelContext(workspaceId: workspaceId, surfaceId: surfaceId, browserPanel: browserPanel, webView: browserPanel.webView),
+                adding: [
+                    "handled": true, "changed": changed,
+                    "width": Int((storedSize?.width ?? 0).rounded()),
+                    "height": Int((storedSize?.height ?? 0).rounded()),
+                    "magnification": Double(browserPanel.webView.magnification)
+                ]
+            ))
+        }
     }
 
     private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {

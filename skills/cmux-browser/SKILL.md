@@ -114,7 +114,6 @@ If `get url` is empty or `about:blank`, navigate first instead of waiting on loa
 ## Limits (WKWebView)
 
 These commands currently return `not_supported` because they rely on Chrome/CDP-only APIs not exposed by WKWebView:
-- viewport emulation
 - offline emulation
 - trace/screencast recording
 - network route interception/mocking

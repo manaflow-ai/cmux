@@ -1520,6 +1520,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var profileID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
+    var minimumViewportWidth: Double?
+    var minimumViewportHeight: Double?
     var developerToolsVisible: Bool
     var isMuted: Bool
     var omnibarVisible: Bool? = nil
@@ -1540,6 +1542,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         profileID: UUID?,
         shouldRenderWebView: Bool,
         pageZoom: Double,
+        minimumViewportWidth: Double? = nil,
+        minimumViewportHeight: Double? = nil,
         developerToolsVisible: Bool,
         isMuted: Bool = false,
         omnibarVisible: Bool? = nil,
@@ -1553,6 +1557,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         self.profileID = profileID
         self.shouldRenderWebView = shouldRenderWebView
         self.pageZoom = pageZoom
+        self.minimumViewportWidth = minimumViewportWidth
+        self.minimumViewportHeight = minimumViewportHeight
         self.developerToolsVisible = developerToolsVisible
         self.isMuted = isMuted
         self.omnibarVisible = omnibarVisible
@@ -1568,6 +1574,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         case profileID
         case shouldRenderWebView
         case pageZoom
+        case minimumViewportWidth
+        case minimumViewportHeight
         case developerToolsVisible
         case isMuted
         case omnibarVisible
@@ -1584,6 +1592,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
         shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)
+        minimumViewportWidth = try container.decodeIfPresent(Double.self, forKey: .minimumViewportWidth)
+        minimumViewportHeight = try container.decodeIfPresent(Double.self, forKey: .minimumViewportHeight)
         developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
         isMuted = try container.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
         omnibarVisible = try container.decodeIfPresent(Bool.self, forKey: .omnibarVisible)

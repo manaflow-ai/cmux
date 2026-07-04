@@ -336,6 +336,44 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func minimumViewportSizeComputesCSSViewportExpansion() {
+        let scale = BrowserPanel.minimumViewportMagnification(
+            webViewBounds: CGSize(width: 575, height: 600),
+            minimumViewportSize: CGSize(width: 1150, height: 0)
+        )
+
+        #expect(abs(scale - 0.5) < 0.0001)
+        #expect((575 / scale) >= 1150)
+    }
+
+    @Test
+    func minimumViewportSizeAccountsForPageZoomChanges() {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 700, height: 600)
+
+        #expect(panel.setMinimumViewportSize(width: 1400, height: 0))
+        #expect(abs(panel.webView.magnification - 0.5) < 0.0001)
+
+        #expect(panel.setPageZoomFactor(2.0))
+        #expect(abs(panel.webView.magnification - 0.25) < 0.0001 && (700 / (panel.webView.pageZoom * panel.webView.magnification)) >= 1400)
+    }
+
+    @Test
+    func maximumReachableMinimumViewportSizeRequiresGeometry() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), renderInitialNavigation: false)
+        defer { panel.close() }
+        panel.webView.frame = .zero
+
+        #expect(panel.maximumReachableMinimumViewportSize() == nil)
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 700, height: 600); panel.webView.pageZoom = 2.0
+        let maximum = try #require(panel.maximumReachableMinimumViewportSize())
+        #expect(abs(maximum.width - 3500) < 0.001)
+        #expect(abs(maximum.height - 3000) < 0.001)
+    }
+
+    @Test
     func floatingPopupInheritsOpenerWebsiteDataStore() throws {
         let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
         defer { panel.close() }

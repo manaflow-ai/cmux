@@ -3,6 +3,7 @@
 
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -101,7 +102,6 @@ EXPECTED_BROWSER_METHODS = {
 
 # Commands that are intentionally exposed but must return not_supported on WKWebView.
 WKWEBVIEW_NOT_SUPPORTED = {
-    "browser.viewport.set": {"width": 1280, "height": 720},
     "browser.geolocation.set": {"latitude": 37.7749, "longitude": -122.4194},
     "browser.offline.set": {"enabled": True},
     "browser.trace.start": {},
@@ -133,6 +133,31 @@ def _expect_not_supported(c: cmux, method: str, params: dict) -> None:
     raise cmuxError(f"Expected not_supported for {method}, but call succeeded")
 
 
+def _expect_error(c: cmux, method: str, params: dict, needle: str) -> None:
+    try:
+        c._call(method, params)
+    except cmuxError as exc:
+        text = str(exc)
+        if needle in text:
+            return
+        raise cmuxError(f"Expected {needle} for {method}, got: {text}")
+    raise cmuxError(f"Expected {needle} for {method}, but call succeeded")
+
+
+def _call_retry_not_ready(c: cmux, method: str, params: dict, retries: int = 8) -> dict:
+    last_error = ""
+    for attempt in range(1, retries + 1):
+        try:
+            return c._call(method, params) or {}
+        except cmuxError as exc:
+            last_error = str(exc)
+            if "not_ready" in last_error and attempt < retries:
+                time.sleep(0.25)
+                continue
+            raise
+    raise cmuxError(f"{method} stayed not_ready: {last_error}")
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         caps = c.capabilities() or {}
@@ -144,6 +169,30 @@ def main() -> int:
         opened = c._call("browser.open_split", {"url": "about:blank"}) or {}
         sid = str(opened.get("surface_id") or "")
         _must(bool(sid), f"browser.open_split returned no surface_id: {opened}")
+
+        viewport = _call_retry_not_ready(c, "browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900})
+        _must(viewport.get("handled") is True, f"browser.viewport.set should report handled=true: {viewport}")
+        _must(viewport.get("changed") is True, f"browser.viewport.set should report changed=true on first set: {viewport}")
+        _must(viewport.get("width") == 1400, f"browser.viewport.set did not echo width: {viewport}")
+        _must(viewport.get("height") == 900, f"browser.viewport.set did not echo height: {viewport}")
+        c._call("browser.wait", {"surface_id": sid, "function": "window.innerWidth >= 1400", "timeout_ms": 5000})
+        inner_width = c._call("browser.eval", {"surface_id": sid, "script": "window.innerWidth"}) or {}
+        _must(int(inner_width.get("value") or 0) >= 1400, f"Expected viewport width >= 1400: {inner_width}")
+        same_viewport = _call_retry_not_ready(c, "browser.viewport.set", {"surface_id": sid, "width": 1400, "height": 900})
+        _must(same_viewport.get("handled") is True, f"idempotent browser.viewport.set should report handled=true: {same_viewport}")
+        _must(same_viewport.get("changed") is False, f"idempotent browser.viewport.set should report changed=false: {same_viewport}")
+        _expect_error(
+            c,
+            "browser.viewport.set",
+            {"surface_id": sid, "width": 1e100, "height": 900},
+            "invalid_params",
+        )
+        _expect_error(
+            c,
+            "browser.viewport.set",
+            {"surface_id": sid, "width": 1400.5, "height": 900},
+            "invalid_params",
+        )
 
         for method, extra in WKWEBVIEW_NOT_SUPPORTED.items():
             payload = {"surface_id": sid}
