@@ -177,16 +177,13 @@ extension VerticalTabsSidebar {
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
-            onDelete: { [weak tabManager, groupName = group.name, visibleMemberIdsAtActionTime] in
+            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, workstreamId = renderContext.drilledInWorkstreamId, visibleMemberIdsAtActionTime] in
                 guard let tabManager else { return }
                 let idsToClose = visibleMemberIdsAtActionTime()
                 guard !idsToClose.isEmpty else { return }
                 let otherMemberCount = max(idsToClose.count - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }
-                for id in idsToClose {
-                    guard let workspace = tabManager.tabs.first(where: { $0.id == id }) else { continue }
-                    tabManager.closeWorkspace(workspace)
-                }
+                tabManager.deleteWorkspaceGroupMembers(groupId: groupId, visibleInWorkstreamId: workstreamId)
             },
             onEditConfig: {
                 SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()

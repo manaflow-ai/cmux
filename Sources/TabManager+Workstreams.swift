@@ -47,6 +47,30 @@ extension TabManager {
         }
     }
 
+    @discardableResult
+    func deleteWorkspaceGroupMembers(groupId: UUID, visibleInWorkstreamId workstreamId: UUID?, recordHistory: Bool = true) -> Int {
+        guard workspaceGroups.contains(where: { $0.id == groupId }) else { return 0 }
+        let memberIds = workspaceGroupMemberIds(groupId: groupId, visibleInWorkstreamId: workstreamId)
+        var closed = 0
+        for id in memberIds {
+            guard let workspace = tabs.first(where: { $0.id == id }) else { continue }
+            if tabs.count <= 1 {
+                workspace.groupId = nil
+                workspaceGroups.removeAll { $0.id == groupId }
+                continue
+            }
+            let countBefore = tabs.count
+            closeWorkspace(workspace, recordHistory: recordHistory)
+            if tabs.count < countBefore {
+                closed += 1
+            }
+        }
+        if !tabs.contains(where: { $0.groupId == groupId }) {
+            workspaceGroups.removeAll { $0.id == groupId }
+        }
+        return closed
+    }
+
     func moveWorkstream(id: UUID, toIndex targetIndex: Int) {
         workstreamCoordinator.moveWorkstream(id: id, toIndex: targetIndex)
     }
@@ -61,11 +85,28 @@ extension TabManager {
 
     /// Drill into a workstream (sidebar shows only its workspaces).
     func enterWorkstream(id: UUID) {
+        guard workstreams.contains(where: { $0.id == id }) else { return }
         workstreamCoordinator.enterWorkstream(id: id)
+        pruneSidebarSelectionForCurrentWorkstreamScope()
     }
 
     /// Return to the top-level workstream list.
     func exitWorkstreamDrillIn() {
         workstreamCoordinator.exitWorkstreamDrillIn()
+        pruneSidebarSelectionForCurrentWorkstreamScope()
+    }
+
+    private func pruneSidebarSelectionForCurrentWorkstreamScope() {
+        let visibleWorkspaceIds = Set(tabs.compactMap { workspace in
+            workspace.workstreamId == drilledInWorkstreamId ? workspace.id : nil
+        })
+        let hiddenSelectedIds = sidebarSelectedWorkspaceIds.subtracting(visibleWorkspaceIds)
+        guard !hiddenSelectedIds.isEmpty else { return }
+        sidebarMultiSelection.subtractSelection(hiddenSelectedIds)
+        let focusedWorkspaceId = selectedTabId.flatMap { visibleWorkspaceIds.contains($0) ? $0 : nil }
+        sidebarMultiSelection.postDidHide(
+            hiddenWorkspaceIds: hiddenSelectedIds,
+            focusedWorkspaceId: focusedWorkspaceId
+        )
     }
 }

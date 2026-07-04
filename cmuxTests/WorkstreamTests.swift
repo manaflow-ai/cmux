@@ -194,6 +194,48 @@ struct WorkstreamTests {
         #expect(manager.tabs.first { $0.id == hiddenChildId }?.workstreamId == hiddenWorkstreamId)
     }
 
+    @Test func enterWorkstreamPrunesHiddenSidebarSelection() throws {
+        let manager = makeTabManager()
+        let visibleId = manager.tabs[0].id
+        let hiddenId = manager.tabs[1].id
+        let workstreamId = manager.createWorkstream(name: "WS", memberWorkspaceIds: [visibleId])
+        manager.setSidebarSelectedWorkspaceIds([visibleId, hiddenId])
+
+        manager.enterWorkstream(id: workstreamId)
+
+        #expect(manager.sidebarSelectedWorkspaceIds == [visibleId])
+    }
+
+    @Test func exitWorkstreamPrunesDrilledInSidebarSelection() throws {
+        let manager = makeTabManager()
+        let drilledInId = manager.tabs[0].id
+        let topLevelId = manager.tabs[1].id
+        let workstreamId = manager.createWorkstream(name: "WS", memberWorkspaceIds: [drilledInId])
+        manager.enterWorkstream(id: workstreamId)
+        manager.setSidebarSelectedWorkspaceIds([drilledInId, topLevelId])
+
+        manager.exitWorkstreamDrillIn()
+
+        #expect(manager.sidebarSelectedWorkspaceIds == [topLevelId])
+    }
+
+    @Test func scopedWorkspaceGroupDeleteClearsLastHoldoutGroup() throws {
+        let manager = makeTabManager(workspaceCount: 1)
+        let originalId = manager.tabs[0].id
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G"))
+        let originalWorkspace = try #require(manager.tabs.first { $0.id == originalId })
+        manager.closeWorkspace(originalWorkspace)
+        #expect(manager.tabs.count == 1)
+        #expect(manager.workspaceGroups.contains { $0.id == groupId })
+
+        let closed = manager.deleteWorkspaceGroupMembers(groupId: groupId, visibleInWorkstreamId: nil)
+
+        #expect(closed == 0)
+        #expect(manager.tabs.count == 1)
+        #expect(manager.tabs[0].groupId == nil)
+        #expect(!manager.workspaceGroups.contains { $0.id == groupId })
+    }
+
     @Test func restoringClosedWorkspaceReconcilesDrillInToRestoredWorkstream() throws {
         let manager = makeTabManager()
         let restoredWorkstream = manager.createWorkstream(name: "Restored")
