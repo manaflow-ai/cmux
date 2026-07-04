@@ -9,17 +9,6 @@ internal import CMUXDebugLog
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
 extension TerminalSurface {
-    /// Whether closing this surface should ask for confirmation.
-    public func needsConfirmClose() -> Bool {
-#if DEBUG
-        if let needsConfirmCloseOverrideForTesting {
-            return needsConfirmCloseOverrideForTesting
-        }
-#endif
-        guard let surface = surface else { return false }
-        return ghostty_surface_needs_confirm_quit(surface)
-    }
-
     /// Records a completed runtime clipboard read and notifies observers.
     public func noteClipboardReadCompleted() {
         clipboardReadGeneration += 1

@@ -317,8 +317,7 @@ struct DockControlDefinitionDecodingTests {
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let terminalPanel = try terminalPanel(in: store, panelId: panelId)
-        terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
-        defer { terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
+        terminalPanel.updateShellActivityState(.commandRunning)
 
         #expect(workspace.needsConfirmClose())
     }
@@ -378,12 +377,8 @@ struct DockControlDefinitionDecodingTests {
         let cleanPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
         let dirtyPanel = try terminalPanel(in: store, panelId: dirtyPanelId)
         let cleanPanel = try terminalPanel(in: store, panelId: cleanPanelId)
-        dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
-        cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
-        defer {
-            dirtyPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
-            cleanPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil)
-        }
+        dirtyPanel.updateShellActivityState(.commandRunning)
+        cleanPanel.updateShellActivityState(.promptIdle)
 
         var capturedPrompt: (title: String, message: String, acceptCmdD: Bool)?
         manager.confirmCloseHandler = { title, message, acceptCmdD in

@@ -2,12 +2,21 @@ import Foundation
 import Testing
 import Bonsplit
 import CmuxSettings
-import CmuxTerminal
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+#endif
+
+#if DEBUG
+extension TerminalSurface {
+    @MainActor
+    func setNeedsConfirmCloseOverrideForTesting(_ value: Bool?) {
+        closeConfirmationOverride = value
+    }
+}
 #endif
 
 @MainActor
@@ -163,7 +172,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let panelId = try #require(workspace.panelIdFromSurfaceId(tabId))
             workspace.setPanelCustomTitle(panelId: panelId, title: "Tab \(index + 1)")
             let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
-            terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
+            terminalPanel.updateShellActivityState(.commandRunning)
         }
 
         return Fixture(manager: manager, workspace: workspace, paneId: paneId, tabIds: tabIds)
