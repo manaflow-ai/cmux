@@ -129,6 +129,12 @@ check_app_host_build_for_testing_and_summary_guard() {
     in_build && /scripts\/ci\/run-in-console-session\.sh/ { saw_build_console=1 }
     in_build && /scripts\/ci\/xcodebuild_noninteractive\.py/ { saw_build_noninteractive=1 }
     in_build && /build-for-testing/ { saw_build_for_testing=1 }
+    in_build && /BUILD_OUTPUT=/ { saw_build_output=1 }
+    in_build && index($0, "build_for_testing 2>&1 | tee \"$BUILD_OUTPUT\"") { saw_build_capture=1 }
+    in_build && /Could not resolve package dependencies/ { saw_build_swiftpm_failure_match=1 }
+    in_build && /SwiftPM package resolution failed during build-for-testing/ { saw_build_swiftpm_recovery=1 }
+    in_build && /Failed to resolve Swift packages after 3 attempts in build-for-testing retry path/ { saw_build_resolve_retry_guard=1 }
+    in_build && index($0, "exit \"$EXIT_CODE\"") { saw_build_nonrecoverable_exit=1 }
 
     in_job && /- name: Run unit tests/ { in_unit=1; next }
     in_unit && /^[[:space:]]*- name:/ { in_unit=0 }
@@ -138,14 +144,14 @@ check_app_host_build_for_testing_and_summary_guard() {
     in_unit && index($0, "grep -qE \"$TEST_SUMMARY_RE\" \"$TEST_OUTPUT\" \"${APP_HOST_LOGS[@]}\"") { saw_summary_logs=1 }
 
     END {
-      exit !(saw_build_console && saw_build_noninteractive && saw_build_for_testing && saw_log_name && saw_log_collection && saw_summary_re && saw_summary_logs)
+      exit !(saw_build_console && saw_build_noninteractive && saw_build_for_testing && saw_build_output && saw_build_capture && saw_build_swiftpm_failure_match && saw_build_swiftpm_recovery && saw_build_resolve_retry_guard && saw_build_nonrecoverable_exit && saw_log_name && saw_log_collection && saw_summary_re && saw_summary_logs)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: app-host-unit-tests must run build-for-testing through the console-session path and validate zero-test coverage from the full wrapper logs"
+    echo "FAIL: app-host-unit-tests must run build-for-testing through the console-session path, recover SwiftPM cache failures, and validate zero-test coverage from the full wrapper logs"
     exit 1
   fi
 
-  echo "PASS: app-host-unit-tests build/test split preserves console-session execution and full-log summary checks"
+  echo "PASS: app-host-unit-tests build/test split preserves console-session execution, SwiftPM recovery, and full-log summary checks"
 }
 
 check_e2e_runner_fallbacks() {

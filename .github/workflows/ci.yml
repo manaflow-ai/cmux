@@ -473,17 +473,54 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          # Build the app + cmuxTests bundle once. The focused gates and shard
-          # run below all use test-without-building against these products.
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/xcodebuild_noninteractive.py \
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            build-for-testing
+          build_for_testing() {
+            # Build the app + cmuxTests bundle once. The focused gates and shard
+            # run below all use test-without-building against these products.
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              build-for-testing
+          }
+
+          BUILD_OUTPUT="$RUNNER_TEMP/cmux-build-for-testing-output-shard-${{ matrix.shard }}.txt"
+          set +e
+          build_for_testing 2>&1 | tee "$BUILD_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          # A restored SwiftPM/DerivedData cache can still fail during the first
+          # build that consumes it. Recover the same way the test retry path does
+          # so a transient corrupt package cache does not fail the shard before
+          # the retry logic has a chance to repair it.
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$BUILD_OUTPUT"; then
+            echo "SwiftPM package resolution failed during build-for-testing, clearing caches and retrying once"
+            rm -rf ~/Library/Caches/org.swift.swiftpm
+            mkdir -p ~/Library/Caches/org.swift.swiftpm
+            rm -rf "$CMUX_DERIVED_DATA_PATH"
+            mkdir -p "$CMUX_DERIVED_DATA_PATH"
+            for attempt in 1 2 3; do
+              if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+                -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+                -resolvePackageDependencies; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "Failed to resolve Swift packages after 3 attempts in build-for-testing retry path" >&2
+                exit 1
+              fi
+              echo "Build-for-testing retry-path package resolution failed on attempt $attempt, retrying..."
+              sleep $((attempt * 5))
+            done
+            build_for_testing
+          elif [ "$EXIT_CODE" -ne 0 ]; then
+            exit "$EXIT_CODE"
+          fi
 
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
