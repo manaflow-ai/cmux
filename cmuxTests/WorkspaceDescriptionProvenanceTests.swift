@@ -209,7 +209,7 @@ import Testing
 
         workspace.resetSidebarContext(reason: "test")
         #expect(workspace.customDescription == nil)
-        #expect(workspace.effectiveCustomDescriptionSource == .user)
+        #expect(workspace.effectiveCustomDescriptionSource == nil)
     }
 
     @Test func autosaveFingerprintTracksDescriptionProvenanceChange() throws {
