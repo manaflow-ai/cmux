@@ -176,7 +176,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// whenever the rendered grid changes so the owner can size the remote tmux
     /// client to match.
     @MainActor public var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
-    var lastReportedManualGrid: (columns: Int, rows: Int)?
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
     var manualIONoReflow = true

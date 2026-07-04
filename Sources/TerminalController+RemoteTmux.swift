@@ -336,32 +336,32 @@ extension TerminalController {
             proc.standardOutput = out
             proc.standardError = err
             try proc.run()
-            // Drain both pipes BEFORE waiting so a child that writes past the
-            // ~64KB pipe buffer can never deadlock against waitUntilExit —
-            // without parking blocking reads on the cooperative pool (that
-            // starves every later socket VM call). stderr accumulates on a
-            // GCD readability handler; stdout is read to EOF on this thread.
+            // Drain BOTH pipes on GCD readability handlers and wait for both
+            // EOFs before finalizing: every append happens on the handler
+            // queue before its EOF signal, so no chunk can race the join —
+            // and no cooperative-pool thread parks in a blocking read.
+            let drained = DispatchGroup()
+            let stdoutBuffer = OSAllocatedUnfairLock(initialState: Data())
             let stderrBuffer = OSAllocatedUnfairLock(initialState: Data())
-            err.fileHandleForReading.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                if chunk.isEmpty {
-                    handle.readabilityHandler = nil
-                } else {
-                    stderrBuffer.withLock { $0.append(chunk) }
+            for (handle, buffer) in [
+                (out.fileHandleForReading, stdoutBuffer),
+                (err.fileHandleForReading, stderrBuffer),
+            ] {
+                drained.enter()
+                handle.readabilityHandler = { handle in
+                    let chunk = handle.availableData
+                    if chunk.isEmpty {
+                        handle.readabilityHandler = nil
+                        drained.leave()
+                    } else {
+                        buffer.withLock { $0.append(chunk) }
+                    }
                 }
             }
-            let stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            drained.wait()
             proc.waitUntilExit()
-            err.fileHandleForReading.readabilityHandler = nil
-            // EOF race: collect whatever remains after the handler detaches.
-            let trailing = err.fileHandleForReading.readDataToEndOfFile()
-            let stderr = stderrBuffer.withLock { buffered -> String in
-                var data = buffered
-                data.append(trailing)
-                return String(data: data, encoding: .utf8) ?? ""
-            }
-            // No "ok" key: the response encoder adds its own top-level "ok"
-            // (call succeeded). tmux's exit status lives in "exit".
+            let stdout = stdoutBuffer.withLock { String(data: $0, encoding: .utf8) ?? "" }
+            let stderr = stderrBuffer.withLock { String(data: $0, encoding: .utf8) ?? "" }
             return [
                 "exit": Int(proc.terminationStatus),
                 "stdout": stdout,

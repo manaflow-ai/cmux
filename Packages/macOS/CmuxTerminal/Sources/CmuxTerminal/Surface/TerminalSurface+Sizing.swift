@@ -253,7 +253,6 @@ extension TerminalSurface {
             let cols = Int(grid.columns)
             let rows = Int(grid.rows)
             if cols > 1, rows > 1 {
-                lastReportedManualGrid = (cols, rows)
                 report(cols, rows)
             }
         }
