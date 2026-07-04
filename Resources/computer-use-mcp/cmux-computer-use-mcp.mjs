@@ -1255,9 +1255,9 @@ function rejectOutboundForToken(token) {
 
 function cancelToolRequest(requestId) {
   const key = requestKey(requestId);
-  canceledRequestIds.add(key);
   const token = activeToolCalls.get(key);
   if (!token) return;
+  canceledRequestIds.add(key);
   token.canceled = true;
   if (activeToolToken === token) {
     rejectOutboundForToken(token);
