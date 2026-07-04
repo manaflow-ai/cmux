@@ -2827,13 +2827,33 @@ struct CMUXCLI {
 
     private static func isCodingAgentEnvironment(_ environment: [String: String]) -> Bool {
         if let kind = normalizedEnvValue(environment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased() {
+            // Keep aligned with TaskManagerAgentDefinition.launchKinds.
             let agentKinds: Set<String> = [
+                "agy",
+                "amp",
+                "antigravity",
                 "claude",
+                "claude-teams",
+                "claudeteams",
+                "codebuddy",
+                "copilot",
                 "codex",
+                "codexteams",
+                "cursor",
+                "factory",
+                "gemini",
+                "grok",
+                "hermes-agent",
+                "kiro",
+                "omp",
                 "opencode",
                 "omo",
                 "omx",
                 "omc",
+                "pi",
+                "qoder",
+                "rovo",
+                "rovodev",
             ]
             if agentKinds.contains(kind) {
                 return true
