@@ -247,6 +247,11 @@ extension Workspace {
         } else {
             scheduleFocusReconcile()
         }
+        if let focusedPanelId,
+           remoteDirectoryTrustRequiredPanelIds.contains(focusedPanelId),
+           !remoteDirectoryReportPanelIds.contains(focusedPanelId) {
+            clearPanelGitBranch(panelId: focusedPanelId)
+        }
         let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
         let restoredNotifications = restoredSessionNotifications(
@@ -1643,17 +1648,21 @@ extension Workspace {
             clearRestoredUnreadIndicator(panelId: panelId)
         }
 
+        let restoredDirectoryRequiresRemoteTrust = snapshot.directoryRequiresRemoteTrust == true &&
+            snapshot.directoryIsTrustedRemoteReport != true
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
             let source: PanelDirectoryUpdateSource = snapshot.directoryIsTrustedRemoteReport == true
                 ? .trustedRestoredRemoteSnapshotMetadata
                 : .restoredSnapshotMetadata
             updatePanelDirectory(panelId: panelId, directory: directory, displayLabel: nil, source: source)
-            if snapshot.directoryRequiresRemoteTrust == true {
+            if restoredDirectoryRequiresRemoteTrust {
                 remoteDirectoryTrustRequiredPanelIds.insert(panelId)
             }
         }
 
-        if let branch = snapshot.gitBranch {
+        if restoredDirectoryRequiresRemoteTrust {
+            clearPanelGitBranch(panelId: panelId)
+        } else if let branch = snapshot.gitBranch {
             panelGitBranches[panelId] = SidebarGitBranchState(branch: branch.branch, isDirty: branch.isDirty)
         } else {
             panelGitBranches.removeValue(forKey: panelId)
@@ -5739,7 +5748,13 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration = configuration
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
-        remoteDirectoryTrustRequiredPanelIds = activeRemoteTerminalSurfaceIds
+        let validRemoteTrustPanelIds = Set(panels.compactMap { panelId, panel in
+            panel is TerminalPanel ? panelId : nil
+        })
+        remoteDirectoryTrustRequiredPanelIds = Set(remoteDirectoryTrustRequiredPanelIds.filter {
+            validRemoteTrustPanelIds.contains($0)
+        })
+        remoteDirectoryTrustRequiredPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         remoteDirectoryReportPanelIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         for panelId in remoteDirectoryTrustRequiredPanelIds {
