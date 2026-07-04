@@ -325,6 +325,7 @@ struct PairingView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .accessibilityElement(children: .combine)
     }
 
     /// The guidance line only belongs to a connection error. A local validation
