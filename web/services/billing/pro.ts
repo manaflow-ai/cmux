@@ -11,6 +11,7 @@
 // here so manual overrides survive.
 
 export const PRO_PRODUCT_ID = "pro";
+export const TEAM_PRODUCT_ID = process.env.CMUX_TEAM_PRODUCT_ID?.trim() || "team";
 export const PRO_PLAN_ID = "pro";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";

@@ -2,7 +2,10 @@ import type { CSSProperties } from "react";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
-import { APP_PRICING_CHECKOUT_URL } from "../lib/billing";
+import {
+  APP_PRICING_CHECKOUT_URL,
+  APP_PRICING_TEAM_CHECKOUT_URL,
+} from "../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
   CurrentPlanBadge,
@@ -21,7 +24,6 @@ import {
   type SizeRow,
 } from "../components/pricing-shared";
 
-const TEAM_CTA_URL = DOWNLOAD_CONFIRMATION_HREF;
 const ENTERPRISE_CTA_URL = "/enterprise";
 const pricing = enMessages.pricing;
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -114,7 +116,7 @@ export default async function AppPricingPage({
               price={pricing.team.price}
               period={pricing.perUserMonth}
             >
-              <PrimaryLink href={TEAM_CTA_URL}>{pricing.team.cta}</PrimaryLink>
+              <PrimaryLink href={APP_PRICING_TEAM_CHECKOUT_URL}>{pricing.team.cta}</PrimaryLink>
               <p className="mt-5 text-sm font-medium">
                 {pricing.team.featuresLead}
               </p>
@@ -168,7 +170,7 @@ export default async function AppPricingPage({
                   </PrimaryLink>
                 ),
                 team: (
-                  <PrimaryLink href={TEAM_CTA_URL} size="compact">
+                  <PrimaryLink href={APP_PRICING_TEAM_CHECKOUT_URL} size="compact">
                     {pricing.team.cta}
                   </PrimaryLink>
                 ),

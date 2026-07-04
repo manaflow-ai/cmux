@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
-import { PRO_CHECKOUT_URL } from "../../lib/billing";
+import { PRO_CHECKOUT_URL, TEAM_CHECKOUT_URL } from "../../lib/billing";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { buildAlternates } from "../../../i18n/seo";
 import {
@@ -26,10 +26,6 @@ import {
 // The Pro CTA destination is decided at runtime by the proCheckout PostHog
 // flag inside <ProCtaLink> (see app/lib/feature-flags.ts); the download
 // link is the safe fallback.
-// Team is per-seat ($35/user/month). Install is still the entry point, so the
-// Team CTA points at the download today; swap for the team checkout URL once
-// the billing flow is public.
-const TEAM_CTA_URL = DOWNLOAD_CONFIRMATION_HREF;
 const ENTERPRISE_CTA_URL = "/enterprise";
 
 export async function generateMetadata({
@@ -114,7 +110,7 @@ export default function PricingPage() {
             price={t("team.price")}
             period={t("perUserMonth")}
           >
-            <PrimaryLink href={TEAM_CTA_URL}>{t("team.cta")}</PrimaryLink>
+            <PrimaryLink href={TEAM_CHECKOUT_URL}>{t("team.cta")}</PrimaryLink>
             <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
             <FeatureList items={teamFeatures} />
           </PlanCard>
@@ -170,7 +166,7 @@ export default function PricingPage() {
                 </ProCtaLink>
               ),
               team: (
-                <PrimaryLink href={TEAM_CTA_URL} size="compact">
+                <PrimaryLink href={TEAM_CHECKOUT_URL} size="compact">
                   {t("team.cta")}
                 </PrimaryLink>
               ),

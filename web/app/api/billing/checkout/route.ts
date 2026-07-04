@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stackServerApp } from "../../../lib/stack";
 import {
   PRO_PRODUCT_ID,
+  TEAM_PRODUCT_ID,
   hasActiveProSubscription,
   syncProPlanMetadata,
 } from "../../../../services/billing/pro";
@@ -17,24 +18,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", request.url));
   }
 
+  const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
+  if (!plan) {
+    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
+  }
+
   const user =
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: "anonymous" }));
 
-  if (await hasActiveProSubscription(user)) {
+  if (plan === "pro" && (await hasActiveProSubscription(user))) {
     await syncProPlanMetadata(user, true);
     return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
   }
 
-  const returnUrl = new URL("/api/billing/confirm", request.url).toString();
+  const returnUrl = new URL(
+    plan === "pro" ? "/api/billing/confirm" : "/pricing?welcome=team",
+    request.url,
+  ).toString();
   let checkoutUrl: string;
+  const productId = plan === "pro" ? PRO_PRODUCT_ID : TEAM_PRODUCT_ID;
+  const customer = plan === "pro" ? user : await checkoutTeamCustomer(user);
   try {
-    checkoutUrl = await user.createCheckoutUrl({
-      productId: PRO_PRODUCT_ID,
+    checkoutUrl = await customer.createCheckoutUrl({
+      productId,
       returnUrl,
     });
   } catch (error) {
-    if (isAlreadyGrantedError(error)) {
+    if (plan === "pro" && isAlreadyGrantedError(error)) {
       await syncProPlanMetadata(user, true);
       return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
     }
@@ -43,13 +54,48 @@ export async function GET(request: NextRequest) {
     // buyer stays on the hosted receipt, and Pro state is picked up by the
     // read-time reconcile on VM create or the next visit to this route.
     try {
-      checkoutUrl = await user.createCheckoutUrl({ productId: PRO_PRODUCT_ID });
+      checkoutUrl = await customer.createCheckoutUrl({ productId });
     } catch (retryError) {
       console.error("[Billing] createCheckoutUrl failed", error, retryError);
       return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
     }
   }
   return NextResponse.redirect(checkoutUrl);
+}
+
+type CheckoutTeamCustomer = {
+  createCheckoutUrl(options: {
+    productId: string;
+    returnUrl?: string;
+  }): Promise<string>;
+};
+
+type CheckoutTeamUser = {
+  readonly selectedTeam?: CheckoutTeamCustomer | null;
+  listTeams?(): Promise<CheckoutTeamCustomer[]>;
+  createTeam?(data: { displayName: string }): Promise<CheckoutTeamCustomer>;
+};
+
+async function checkoutTeamCustomer(user: CheckoutTeamUser): Promise<CheckoutTeamCustomer> {
+  if (user.selectedTeam) return user.selectedTeam;
+
+  const teams = user.listTeams ? await user.listTeams() : [];
+  if (teams.length === 1) return teams[0];
+  if (teams.length > 1) return teams[0];
+
+  if (!user.createTeam) {
+    throw new Error("Stack Auth user cannot create a team checkout customer");
+  }
+
+  const team = await user.createTeam({ displayName: "cmux Team" });
+  return team;
+}
+
+function checkoutPlan(raw: string | null): "pro" | "team" | null {
+  if (!raw) return "pro";
+  const plan = raw.trim().toLowerCase();
+  if (plan === "pro" || plan === "team") return plan;
+  return null;
 }
 
 function isAlreadyGrantedError(error: unknown): boolean {

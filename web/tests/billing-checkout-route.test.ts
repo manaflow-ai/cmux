@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
+const teamCustomer = {
+  id: "team-signed-in",
+  createCheckoutUrl: mock(async () => "https://checkout.test/team"),
+};
 const signedInUser = {
   id: "user-signed-in",
   createCheckoutUrl: mock(async () => "https://checkout.test/signed-in"),
+  selectedTeam: null as null | typeof teamCustomer,
 };
 const anonymousUser = {
   id: "user-anonymous",
@@ -24,6 +29,7 @@ mock.module("../app/lib/stack", () => ({
 
 mock.module("../services/billing/pro", () => ({
   PRO_PRODUCT_ID: "pro",
+  TEAM_PRODUCT_ID: "team",
   hasActiveProSubscription,
   syncProPlanMetadata,
 }));
@@ -36,9 +42,12 @@ describe("billing checkout route", () => {
     hasActiveProSubscription.mockClear();
     syncProPlanMetadata.mockClear();
     signedInUser.createCheckoutUrl.mockClear();
+    teamCustomer.createCheckoutUrl.mockClear();
     anonymousUser.createCheckoutUrl.mockClear();
     signedInUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/signed-in");
+    teamCustomer.createCheckoutUrl.mockResolvedValue("https://checkout.test/team");
     anonymousUser.createCheckoutUrl.mockResolvedValue("https://checkout.test/anonymous");
+    signedInUser.selectedTeam = null;
     hasActiveProSubscription.mockResolvedValue(false);
     userResponses = [];
   });
@@ -74,5 +83,35 @@ describe("billing checkout route", () => {
       productId: "pro",
       returnUrl: "https://cmux.test/api/billing/confirm",
     });
+  });
+
+  test("routes team checkout through the team Stack product", async () => {
+    signedInUser.selectedTeam = teamCustomer;
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=team"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://checkout.test/team");
+    expect(hasActiveProSubscription).not.toHaveBeenCalled();
+    expect(signedInUser.createCheckoutUrl).not.toHaveBeenCalled();
+    expect(teamCustomer.createCheckoutUrl).toHaveBeenCalledWith({
+      productId: "team",
+      returnUrl: "https://cmux.test/pricing?welcome=team",
+    });
+  });
+
+  test("rejects unknown checkout plans", async () => {
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=enterprise"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/pricing?billing=invalid_plan",
+    );
+    expect(getUser).not.toHaveBeenCalled();
   });
 });
