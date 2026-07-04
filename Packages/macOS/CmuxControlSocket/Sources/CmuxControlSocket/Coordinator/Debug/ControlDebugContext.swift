@@ -57,6 +57,17 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response.
     func controlDebugActivateApp() -> String
 
+    /// Runs the app's update attempt action for `debug.update.attempt`.
+    ///
+    /// - Returns: `true` when the host accepted the request.
+    func controlDebugAttemptUpdate() -> Bool
+
+    /// Runs the app's pre-quit update relaunch preparation path for
+    /// `debug.update.prepare_relaunch_benchmark`.
+    ///
+    /// - Returns: Phase timings and app shape, or `nil` when unavailable.
+    func controlDebugUpdatePrepareRelaunchBenchmark() -> JSONValue?
+
     /// Runs the shared v1 `is_terminal_focused` body for
     /// `debug.terminal.is_focused`.
     ///

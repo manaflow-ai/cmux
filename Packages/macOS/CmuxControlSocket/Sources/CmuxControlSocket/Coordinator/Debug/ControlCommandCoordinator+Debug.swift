@@ -42,6 +42,10 @@ extension ControlCommandCoordinator {
             return debugTextBoxInteract(request.params)
         case "debug.app.activate":
             return debugActivateApp()
+        case "debug.update.attempt":
+            return debugAttemptUpdate()
+        case "debug.update.prepare_relaunch_benchmark":
+            return debugUpdatePrepareRelaunchBenchmark()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":
@@ -165,6 +169,14 @@ extension ControlCommandCoordinator {
         guard let payload = debugContext?.controlDebugSessionSnapshotSeedScrollback(
             charactersPerTerminal: charactersPerTerminal
         ) else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        return .ok(payload)
+    }
+
+    /// `debug.update.prepare_relaunch_benchmark` — run the pre-quit update preparation path.
+    func debugUpdatePrepareRelaunchBenchmark() -> ControlCallResult {
+        guard let payload = debugContext?.controlDebugUpdatePrepareRelaunchBenchmark() else {
             return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
         }
         return .ok(payload)
@@ -300,6 +312,15 @@ extension ControlCommandCoordinator {
         return resp == "OK"
             ? .ok(.object([:]))
             : .err(code: "internal_error", message: resp, data: nil)
+    }
+
+    /// `debug.update.attempt` — run the same host update action as the
+    /// command palette's "Attempt Update" entry.
+    func debugAttemptUpdate() -> ControlCallResult {
+        guard debugContext?.controlDebugAttemptUpdate() == true else {
+            return .err(code: "unavailable", message: "Update host unavailable", data: nil)
+        }
+        return .ok(.object([:]))
     }
 
     // MARK: - debug.command_palette.* (event posts)
