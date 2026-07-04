@@ -1484,6 +1484,20 @@ extension Workspace {
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
+                // Remember the session directory the auto-resume launcher targets
+                // for the run's lifetime so `updatePanelDirectory` can reject the
+                // spurious post-restore reports that would otherwise clobber the
+                // pane's tracked cwd while the resumed agent holds the foreground
+                // (#7155). Local panes only: a remote saved path can't be
+                // validated against the local disk, mirroring the guard above.
+                if restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput,
+                   restoredDirectoryIsLocalPath,
+                   let resumeSessionDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !resumeSessionDirectory.isEmpty {
+                    restoredResumeSessionWorkingDirectoriesByPanelId[terminalPanel.id] = resumeSessionDirectory
+                } else {
+                    restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
+                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -2641,12 +2655,17 @@ final class Workspace: Identifiable, ObservableObject {
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     private var restoredGuardedWorkingDirectoriesByPanelId: [UUID: String] = [:]
-    /// The session directory each restored auto-resume launcher targets, kept
-    /// for the lifetime of the resumed run (unlike the one-shot report guard
-    /// above, which the first spurious report consumes) so split/new-tab cwd
-    /// inheritance can rescue a clobbered tracked cwd while the resumed agent
-    /// still holds the pane's foreground (#7155). Internal so
-    /// `Workspace+PanelLifecycle` can clear it on panel close.
+    /// The session directory each restored auto-resume launcher targets, kept for
+    /// the lifetime of the resumed run — unlike the one-shot #6617 report guard
+    /// above, which the first spurious report consumes. While a resumed agent
+    /// holds the pane's foreground the shell never reaches a prompt, so any later
+    /// live cwd report that diverges from this anchor is spurious and would
+    /// otherwise clobber the pane's tracked cwd (and the workspace
+    /// currentDirectory) on the surface default. Keeping it lets
+    /// ``updatePanelDirectory`` reject those reports so every cwd consumer stays
+    /// on the resumed session's directory (#7155). Internal so
+    /// `Workspace+PanelLifecycle` can clear it on panel close and the
+    /// detached-surface transfer can carry it across a workspace move.
     var restoredResumeSessionWorkingDirectoriesByPanelId: [UUID: String] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
@@ -4632,15 +4651,25 @@ final class Workspace: Identifiable, ObservableObject {
         displayLabel: String?,
         source: PanelDirectoryUpdateSource
     ) -> Bool {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         if source == .liveReport,
            shouldIgnoreRestoredGuardedDirectoryReport(panelId: panelId, reportedDirectory: trimmed) {
             return false
         }
+        var effectiveDisplayLabel = displayLabel
+        if source == .liveReport,
+           let repaired = repairedResumedAgentPaneDirectory(panelId: panelId, reportedDirectory: trimmed) {
+            // A spurious report during a resumed run: record the session directory
+            // instead of clobbering the pane (#7155). The report's directory — and
+            // any display label it carried — describe the spurious location, so
+            // drop the label rather than attach it to the corrected directory.
+            trimmed = repaired
+            effectiveDisplayLabel = nil
+        }
         let directoryChanged = panelDirectories[panelId] != trimmed
         if directoryChanged { panelDirectories[panelId] = trimmed }
-        let trimmedDisplayLabel = displayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedDisplayLabel = effectiveDisplayLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDisplayLabel.isEmpty {
             if panelDirectoryDisplayLabels[panelId] != trimmedDisplayLabel {
                 panelDirectoryDisplayLabels[panelId] = trimmedDisplayLabel
@@ -4695,6 +4724,69 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         return restoredDirectoryStillExists
+    }
+
+    /// The directory to record instead of a live cwd report while a restored
+    /// auto-resume agent still holds the pane's foreground, or nil to record the
+    /// report as-is (#7155).
+    ///
+    /// While that agent runs the shell never reaches a prompt, so it cannot
+    /// re-report the pane's real cwd. The one-shot #6617 guard above covers only
+    /// the first spurious post-restore report; any later report that diverges
+    /// from the session directory the launcher targeted is likewise spurious
+    /// (typically the surface default, home) and — left unguarded — would clobber
+    /// `panelDirectories`/`currentDirectory` for the rest of the run, so every
+    /// consumer (splits, new tabs, ``resolvedWorkingDirectory()``, the sidebar
+    /// project root, the tab bar) would inherit home. Anchoring divergent reports
+    /// back to the recorded session directory keeps them all on the resumed
+    /// session's directory.
+    ///
+    /// A report equal to the session directory is honored (the child shell's own
+    /// `cd` re-affirming it). Local panes only — a remote pane's paths can't be
+    /// validated locally. Once the session directory no longer exists on disk the
+    /// report is accepted as the real fallback, mirroring the #6617
+    /// deleted-directory semantics.
+    ///
+    /// Deliberately keyed on the resumed-run state alone, not on a live-process
+    /// probe: a spurious home report during the startup window and a genuine home
+    /// report delivered in the tiny gap before the prompt-idle signal clears the
+    /// resumed state at agent exit are indistinguishable at report time (both are
+    /// home while the state still reads running). Anchoring to the session
+    /// directory is correct for the first (the real bug) and benign for the
+    /// second: the session directory is exactly where the pane should sit during
+    /// and right after the resumed run — the outcome the companion post-exit fix
+    /// (#7031/#7033) also produces by `cd`-ing the returning shell back there. In
+    /// normal delivery order the shell emits prompt-idle before the cwd, so the
+    /// state clears first and a genuine later report is honored anyway.
+    private func repairedResumedAgentPaneDirectory(
+        panelId: UUID,
+        reportedDirectory: String
+    ) -> String? {
+        guard isResumeCwdRepairEligible(restoredAgentResumeStatesByPanelId[panelId]) else { return nil }
+        guard !isRemoteTerminalSurface(panelId) else { return nil }
+        guard let sessionDirectory = Self.normalizedTerminalWorkingDirectory(
+            restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
+        ) else { return nil }
+        if reportedDirectory == sessionDirectory { return nil }
+        guard Self.directoryExistsOnDisk(sessionDirectory) ||
+            Self.unmountedVolumeRoot(for: sessionDirectory) != nil else {
+            return nil
+        }
+        return sessionDirectory
+    }
+
+    private func isResumeCwdRepairEligible(_ state: RestoredAgentResumeState?) -> Bool {
+        switch state {
+        case .awaitingAutoResumeCommand, .autoResumeCommandRunning:
+            true
+        case .manualResumeAvailable, .observedAgentCommandRunning, nil:
+            false
+        }
+    }
+
+    nonisolated private static func directoryExistsOnDisk(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -7050,7 +7142,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Local panes only: a remote pane's tracked cwd is a remote path that no
     /// local process inspection or existence check can validate.
     private func resumedAgentPaneWorkingDirectoryRescue(panelId: UUID) -> String? {
-        guard restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning else { return nil }
+        guard isResumeCwdRepairEligible(restoredAgentResumeStatesByPanelId[panelId]) else { return nil }
         guard !isRemoteTerminalSurface(panelId) else { return nil }
         // No recorded session directory means the resume launcher targets no
         // directory of its own (e.g. a registration with a `.ignore` cwd
@@ -9603,12 +9695,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let resumeState = detached.restorableAgentResumeState {
             restoredAgentResumeStatesByPanelId[detached.panelId] = resumeState
+            if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
+                restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
+            } else {
+                restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
+            }
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
-        }
-        if let resumeSessionWorkingDirectory = detached.restoredResumeSessionWorkingDirectory {
-            restoredResumeSessionWorkingDirectoriesByPanelId[detached.panelId] = resumeSessionWorkingDirectory
-        } else {
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: detached.panelId)
         }
         if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
