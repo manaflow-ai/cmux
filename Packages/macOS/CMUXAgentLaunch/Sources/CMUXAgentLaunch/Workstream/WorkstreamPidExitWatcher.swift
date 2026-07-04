@@ -41,15 +41,21 @@ public final class WorkstreamPidExitWatcher: @unchecked Sendable {
             eventMask: .exit,
             queue: pidWatcherQueue
         )
-        src.setEventHandler { [weak self, weak store] in
-            Task { @MainActor in
-                guard let self else { return }
-                store?.expireItems(forPpid: ppid)
-                self.pidWatchers[ppid]?.cancel()
-                self.pidWatchers.removeValue(forKey: ppid)
-            }
-        }
+        src.setEventHandler(handler: pidExitEventHandler(ppid: ppid, store: store))
         pidWatchers[ppid] = src
         src.resume()
+    }
+
+    nonisolated private func pidExitEventHandler(ppid: Int, store: WorkstreamStore) -> @Sendable () -> Void {
+        { [weak self, weak store] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    store?.expireItems(forPpid: ppid)
+                    self.pidWatchers[ppid]?.cancel()
+                    self.pidWatchers.removeValue(forKey: ppid)
+                }
+            }
+        }
     }
 }

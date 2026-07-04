@@ -231,13 +231,13 @@ final class AgentSessionProcessStore {
         guard session.terminationEscalationTimer == nil else {
             return
         }
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.main)
         timer.schedule(
             deadline: .now() + Self.terminationEscalationInterval,
             repeating: Self.terminationEscalationInterval
         )
         timer.setEventHandler { [weak self, session] in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 if session.process.isRunning {
                     _ = kill(session.process.processIdentifier, SIGKILL)
                     return

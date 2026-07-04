@@ -118,9 +118,16 @@ extension BrowserDataImportService {
         var skippedEncryptedCookies = 0
         let decryptor = ChromiumCookieDecryptor(browser: browser)
 
-        let databaseURLs = sourceProfiles.map {
-            $0.rootURL.appendingPathComponent("Cookies", isDirectory: false)
-        }.filter { fileManager.fileExists(atPath: $0.path) }
+        let databaseURLs = sourceProfiles.compactMap { profile -> URL? in
+            let flatCookiesURL = profile.rootURL.appendingPathComponent("Cookies", isDirectory: false)
+            if fileManager.fileExists(atPath: flatCookiesURL.path) {
+                return flatCookiesURL
+            }
+            let networkCookiesURL = profile.rootURL
+                .appendingPathComponent("Network", isDirectory: true)
+                .appendingPathComponent("Cookies", isDirectory: false)
+            return fileManager.fileExists(atPath: networkCookiesURL.path) ? networkCookiesURL : nil
+        }
 
         for databaseURL in databaseURLs {
             do {

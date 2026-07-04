@@ -49,18 +49,24 @@ public final class RemoteTmuxControlPipeWriter {
         }
         pendingBytes += data.count
 
-        queue.async { [weak self, handle, data] in
+        queue.async(execute: writeOperation(handle: handle, data: data))
+        return true
+    }
+
+    nonisolated private func writeOperation(handle: FileHandle, data: Data) -> @Sendable () -> Void {
+        { [weak self, handle, data] in
             var didFail = false
             do {
                 try handle.write(contentsOf: data)
             } catch {
                 didFail = true
             }
-            Task { @MainActor [weak self] in
-                self?.finishWrite(byteCount: data.count, didFail: didFail)
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.finishWrite(byteCount: data.count, didFail: didFail)
+                }
             }
         }
-        return true
     }
 
     private func finishWrite(byteCount: Int, didFail: Bool) {

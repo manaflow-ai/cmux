@@ -183,9 +183,7 @@ final class SharedLiveAgentIndex {
             eventMask: [.write, .link, .rename],
             queue: watchQueue
         )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.handleHookStoreChange() }
-        }
+        source.setEventHandler(handler: hookStoreWatchEventHandler())
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
@@ -197,6 +195,20 @@ final class SharedLiveAgentIndex {
             startReload()
         } else {
             changePending = true
+        }
+    }
+
+    nonisolated private func hookStoreWatchEventHandler() -> @Sendable () -> Void {
+        { [weak self] in
+            self?.scheduleHookStoreChangeFromWatchQueue()
+        }
+    }
+
+    nonisolated private func scheduleHookStoreChangeFromWatchQueue() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.handleHookStoreChange()
+            }
         }
     }
 }
