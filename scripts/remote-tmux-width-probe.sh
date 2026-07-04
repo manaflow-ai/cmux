@@ -20,6 +20,15 @@ last=""
 HIST=()
 trap 'printf "\033[?25h\n"; exit 0' INT TERM
 printf '\033[?25l'
+# Liveness marker: harnesses (shape-zoo launcher, sizing e2e suite) poll the
+# @probe_alive pane option instead of guessing from timing or foreground
+# command names, so an overloaded machine can't start measuring before the
+# probe is actually running. The option dies with the pane; quitting clears
+# it explicitly so a stopped probe never reads as alive.
+if [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
+  tmux set-option -p -t "$TMUX_PANE" @probe_alive 1 2>/dev/null || true
+  trap 'tmux set-option -p -t "$TMUX_PANE" -u @probe_alive 2>/dev/null; printf "\033[?25h\n"; exit 0' INT TERM
+fi
 while :; do
   # what the PTY says (authoritative "what tmux told this shell")
   set -- $(stty size < /dev/tty 2>/dev/null || echo "? ?")

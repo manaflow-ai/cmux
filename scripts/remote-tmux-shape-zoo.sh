@@ -115,27 +115,34 @@ shell_ready() {
 for _ in $(seq 1 30); do shell_ready && break; sleep 0.5; done
 
 PANES="$(T list-panes -s -t "$SESSION" -F '#{pane_id}')"
+# The probe announces itself by setting the @probe_alive pane option as its
+# first act (see remote-tmux-width-probe.sh). Confirming on that marker —
+# not on foreground-command names or a grace period — means a loaded box can
+# only DELAY the confirm, never falsify it: no measuring before the probe is
+# actually running.
+pending_panes() {
+  T list-panes -s -t "$SESSION" -F '#{pane_id} #{@probe_alive}' \
+    | while read -r pane alive; do
+        [ "$alive" = 1 ] || printf '%s\n' "$pane"
+      done
+}
 launch_and_confirm() {
-  for pane in $PANES; do
+  for pane in $1; do
     T send-keys -t "$pane" "PROBE_TICK=$TICK bash $PROBE" Enter
   done
-  # The probe replaces bash as the foreground command once it starts. Poll
-  # until every pane is running it (slow dotfiles/motd can swallow an Enter).
   for _ in $(seq 1 20); do
-    pending=0
-    while read -r pane cmd; do
-      [ "$cmd" = bash ] || pending=1
-    done < <(T list-panes -s -t "$SESSION" -F '#{pane_id} #{pane_current_command}')
-    [ "$pending" = 0 ] && return 0
+    [ -z "$(pending_panes)" ] && return 0
     sleep 0.5
   done
   return 1
 }
-# One re-launch pass covers a pane that never left its prompt on the first try.
-launch_and_confirm || launch_and_confirm || {
+# One re-launch pass covers a pane that never left its prompt on the first
+# try — re-sent ONLY to the panes still missing their marker, so a pane whose
+# probe is already running never gets stray keystrokes typed into it.
+launch_and_confirm "$PANES" || launch_and_confirm "$(pending_panes)" || {
   echo "warning: some panes never started the probe:" >&2
-  T list-panes -s -t "$SESSION" -F '  #{window_name}.#{pane_id} -> #{pane_current_command}' \
-    | grep -v ' -> bash$' >&2 || true
+  T list-panes -s -t "$SESSION" -F '  #{window_name}.#{pane_id} alive=#{@probe_alive} cmd=#{pane_current_command}' \
+    | grep -v 'alive=1' >&2 || true
 }
 
 echo "session '$SESSION' ready: $(T list-windows -t "$SESSION" -F '#{window_name}' | tr '\n' ' ')"

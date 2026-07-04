@@ -49,8 +49,14 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         launchTag = "ui-tests-sizing-\(UUID().uuidString.prefix(8))"
         // Short: tmux appends "/tmux-<uid>/default" and the unix socket path
         // caps at ~104 bytes. The APP creates this dir (via test_exec), not
-        // the runner.
-        tmuxTmpDir = "/tmp/ct\(UUID().uuidString.prefix(6))"
+        // the runner. FIXED, not per-run: teardown can't run when a test
+        // wedges (kill-server rides the app socket, and a wedged app is
+        // exactly what doesn't answer), so a unique dir per run leaks one
+        // probe-forking tmux server per wedged run — dozens accumulated once
+        // and drove the host's load average into the hundreds. With a fixed
+        // dir the NEXT run's session builder reaps whatever the last run
+        // left behind.
+        tmuxTmpDir = "/tmp/ct-sizing"
         tmuxBin = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
@@ -98,11 +104,16 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         // The sweep sizes. 1000×700 first is also the surface warm-up round:
         // every shape settles once before the resizes, so later rounds
         // measure resizing rather than cold surface creation (which on a
-        // loaded CI runner can exceed any reasonable settle window).
+        // loaded CI runner can exceed any reasonable settle window). All
+        // widths sit ABOVE the workspace's minimum content width (~990 with
+        // the zoo's eight tabs): AppKit enforces the content minimum as a
+        // required constraint, so a request below it applies clamped — a
+        // size no user window can occupy, and one the `setMirrorWindowSize`
+        // exact-apply assertion would rightly reject.
         for size in [CGSize(width: 1000, height: 700),
-                     CGSize(width: 860, height: 700),
-                     CGSize(width: 920, height: 700),
-                     CGSize(width: 965, height: 700)] {
+                     CGSize(width: 1032, height: 700),
+                     CGSize(width: 1048, height: 700),
+                     CGSize(width: 1080, height: 700)] {
             setMirrorWindowSize(size)
             for name in Self.shapeNames {
                 guard let id = windowId(named: name) else {
@@ -131,11 +142,13 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try assertSettles(selectedWindow: 0, within: 15, context: "before sweep")
 
         // End-to-end proof each resize really happened: a wider window must
-        // settle to strictly more pushed columns (860 < 920 < 965 spans
+        // settle to strictly more pushed columns (1032 < 1048 < 1080 spans
         // several cell widths). Guards against a resize path that silently
-        // stops applying, which would run every round at one size.
+        // stops applying, which would run every round at one size. Widths sit
+        // above the workspace minimum content width — see
+        // testEveryShapeRendersExactlyAtEveryWidth for why.
         var previousCols: Int?
-        for width in [860.0, 920.0, 965.0] {
+        for width in [1032.0, 1048.0, 1080.0] {
             setMirrorWindowSize(CGSize(width: width, height: 700))
             try assertSettles(selectedWindow: 0, within: 10, context: "at width \(Int(width))")
             try assertRatiosPreserved(context: "at width \(Int(width))")
@@ -405,6 +418,17 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             // panes floods %output through the control stream hard enough
             // to starve the app's main thread mid-sweep.
             _ = tmux(["send-keys", "-t", String(pane), "PROBE_TICK=2 bash \(probe)", "Enter"])
+        }
+        // Wait for every probe's own liveness marker (it sets the
+        // @probe_alive pane option as its first act) so scenarios never
+        // start measuring before the probes are actually running — on an
+        // overloaded runner the send-keys above can take seconds to land.
+        let aliveDeadline = Date().addingTimeInterval(15)
+        while Date() < aliveDeadline {
+            guard let flags = tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{@probe_alive}"]) else { return }
+            let perPane = flags.components(separatedBy: "\n")
+            if !perPane.isEmpty, perPane.allSatisfy({ $0 == "1" }) { return }
+            Thread.sleep(forTimeInterval: 0.2)
         }
     }
 
