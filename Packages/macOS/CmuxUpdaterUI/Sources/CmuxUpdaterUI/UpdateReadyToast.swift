@@ -34,19 +34,20 @@ public struct UpdateReadyToast: View {
         ZStack {
             if let installing = model.updateReadyToastInstalling {
                 toastCard(installing)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .animation(.easeInOut(duration: 0.25), value: model.updateReadyToastInstalling != nil)
     }
 
-    @ViewBuilder
     private func toastCard(_ installing: UpdateState.Installing) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 6) {
-                Image(systemName: "shippingbox.fill")
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.tint)
+                Image(systemName: "arrow.down.circle.fill")
+                    .cmuxFont(size: 12, weight: .medium)
+                    .foregroundStyle(.tint.secondary)
 
                 Text(title(for: installing))
                     .cmuxFont(size: 12, weight: .semibold)
@@ -66,6 +67,8 @@ public struct UpdateReadyToast: View {
                     Image(systemName: "bell.slash")
                         .cmuxFont(size: 10)
                         .foregroundColor(.secondary)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -80,6 +83,7 @@ public struct UpdateReadyToast: View {
                     Image(systemName: "xmark")
                         .cmuxFont(size: 9, weight: .semibold)
                         .foregroundColor(.secondary)
+                        .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -110,6 +114,7 @@ public struct UpdateReadyToast: View {
                     Text(String(localized: "update.toast.restartWhenIdle", defaultValue: "Restart When Idle"))
                         .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 .accessibilityIdentifier("UpdateReadyToastRestartWhenIdle")
             }
@@ -124,14 +129,15 @@ public struct UpdateReadyToast: View {
                         Image(systemName: "arrow.up.right")
                             .cmuxFont(size: 8)
                     }
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.tint)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("UpdateReadyToastSeeChanges")
             }
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -139,9 +145,9 @@ public struct UpdateReadyToast: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.75), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+        .shadow(color: .black.opacity(0.12), radius: 7, y: 2)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("UpdateReadyToast")
     }
@@ -149,7 +155,7 @@ public struct UpdateReadyToast: View {
     private func title(for installing: UpdateState.Installing) -> String {
         if let version = installing.stagedVersion, !version.isEmpty {
             let format = String(localized: "update.toast.title.withVersion", defaultValue: "cmux %@ is ready")
-            return String(format: format, version)
+            return String.localizedStringWithFormat(format, version)
         }
         return String(localized: "update.toast.title", defaultValue: "Update ready")
     }

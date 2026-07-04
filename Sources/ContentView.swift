@@ -10005,6 +10005,7 @@ struct VerticalTabsSidebar: View {
     /// has no TabItemView, so no implicit per-row publisher subscription
     /// would otherwise fire on `cd` while it's not selected.
     @State private var anchorCwdRevision: Int = 0
+    @State private var updateReadyToastHeight: CGFloat = 0
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
@@ -10237,6 +10238,12 @@ struct VerticalTabsSidebar: View {
         SidebarWorkspaceListMetrics.bottomScrimHeight
     }
 
+    private func updateReadyToastHeightDidChange(_ height: CGFloat) {
+        let resolvedHeight = max(0, height)
+        guard updateReadyToastHeight != resolvedHeight else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { updateReadyToastHeight = resolvedHeight }
+    }
+
     private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
         MinimalModeTitlebarDebugSnapshot(
             leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
@@ -10456,12 +10463,12 @@ struct VerticalTabsSidebar: View {
 
         ZStack(alignment: .bottomLeading) {
             if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
-                workspaceScrollArea(renderContext: renderContext)
+                workspaceScrollArea(renderContext: renderContext, extraBottomInset: updateReadyToastHeight)
             } else {
-                extensionSidebarScrollArea(renderContext: renderContext)
+                extensionSidebarScrollArea(renderContext: renderContext, extraBottomInset: updateReadyToastHeight)
             }
             VStack(alignment: .leading, spacing: 0) {
-                UpdateReadyToastOverlay(model: updateViewModel, actions: AppDelegate.shared)
+                UpdateReadyToastOverlay(model: updateViewModel, actions: AppDelegate.shared, onHeightChange: updateReadyToastHeightDidChange)
                 SidebarFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -10572,8 +10579,8 @@ struct VerticalTabsSidebar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+    private func workspaceScrollArea(renderContext: WorkspaceListRenderContext, extraBottomInset: CGFloat) -> some View {
+        let scrollInsets = SidebarWorkspaceScrollInsets(top: SidebarWorkspaceScrollInsets.workspaceList.top, bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom + extraBottomInset)
         return GeometryReader { geometryProxy in
             let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
                 viewportHeight: geometryProxy.size.height,
@@ -10604,7 +10611,7 @@ struct VerticalTabsSidebar: View {
                 .mask(
                     SidebarWorkspaceScrollEdgeFadeMask(
                         topHeight: sidebarTopScrimHeight,
-                        bottomHeight: sidebarBottomScrimHeight
+                        bottomHeight: sidebarBottomScrimHeight + extraBottomInset
                     )
                 )
                 .overlay(alignment: .top) {
@@ -10706,8 +10713,8 @@ struct VerticalTabsSidebar: View {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
-    private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        extensionSidebarScrollAreaContent(renderContext: renderContext)
+    private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext, extraBottomInset: CGFloat) -> some View {
+        extensionSidebarScrollAreaContent(renderContext: renderContext, extraBottomInset: extraBottomInset)
             .onAppear {
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
             }
@@ -10720,7 +10727,9 @@ struct VerticalTabsSidebar: View {
     }
 
     @ViewBuilder
-    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
+    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext, extraBottomInset: CGFloat) -> some View {
+        let scrollInsets = SidebarWorkspaceScrollInsets(top: SidebarWorkspaceScrollInsets.workspaceList.top, bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom + extraBottomInset)
+        let bottomScrimHeight = sidebarBottomScrimHeight + extraBottomInset
         if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
@@ -10736,39 +10745,24 @@ struct VerticalTabsSidebar: View {
             .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
                 refreshExtensionSidebarSnapshot()
             }
-            // Fade the extension's content out at the bottom so it dissolves behind the
-            // sidebar footer instead of overlapping it sharply, matching the default
-            // workspace sidebar's bottom scrim. Top stays sharp so the control strip
-            // remains crisp.
+            // Match the default sidebar's footer fade while keeping the control strip crisp.
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: 0,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: bottomScrimHeight
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
                   let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
-            // Periodic tick so the custom sidebar re-renders live (clock,
-            // countdowns, and refreshed workspace/data context), mirroring the
-            // default sidebar's TimelineView. No banned timers involved.
-            // The surface mounts the in-process renderer by default (native
-            // hover/focus/keyboard, same-frame resize); the
-            // `customSidebars.renderer` setting switches it to the
-            // out-of-process worker for untrusted sources (no file-derived
-            // view code runs in the host). The @LiveSetting's initial value
-            // lags one store round-trip on remount, so a non-default choice
-            // can mount the other renderer for one tick before flipping;
-            // harmless (the host shuts the short-lived client down on
-            // unmount).
+            // Periodic tick keeps custom sidebars live, mirroring the default sidebar.
+            // In-process is the default renderer; the setting can switch untrusted
+            // sources to the worker, with a harmless one-tick remount lag.
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 CustomSidebarSurface(
                     fileURL: customSidebarURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
-                    contentInsets: CustomSidebarContentInsets(
-                        top: SidebarWorkspaceScrollInsets.workspaceList.top,
-                        bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                    ),
+                    contentInsets: CustomSidebarContentInsets(top: scrollInsets.top, bottom: scrollInsets.bottom),
                     rendersInProcess: customSidebarRenderer == .inProcess,
                     client: $sidebarRenderWorkerClient
                 )
@@ -10776,13 +10770,13 @@ struct VerticalTabsSidebar: View {
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: bottomScrimHeight
                 )
             )
         } else {
             TimelineView(.periodic(from: .now, by: 30)) { timeline in
                 let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
-                extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date)
+                extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date, scrollInsets: scrollInsets)
             }
         }
     }
@@ -10790,7 +10784,8 @@ struct VerticalTabsSidebar: View {
     private func extensionSidebarTimelineContent(
         renderContext: WorkspaceListRenderContext,
         model: CmuxSidebarProviderRenderModel,
-        now: Date
+        now: Date,
+        scrollInsets: SidebarWorkspaceScrollInsets
     ) -> some View {
         GeometryReader { geometryProxy in
             ScrollView {
@@ -10800,7 +10795,7 @@ struct VerticalTabsSidebar: View {
                             maxWidth: .infinity,
                             minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
                                 viewportHeight: geometryProxy.size.height,
-                                insets: SidebarWorkspaceScrollInsets.workspaceList
+                                insets: scrollInsets
                             ),
                             alignment: .topLeading
                         )
@@ -10828,7 +10823,7 @@ struct VerticalTabsSidebar: View {
                         maxWidth: .infinity,
                         minHeight: SidebarWorkspaceScrollLayout.contentMinHeight(
                             viewportHeight: geometryProxy.size.height,
-                            insets: SidebarWorkspaceScrollInsets.workspaceList
+                            insets: scrollInsets
                         ),
                         alignment: .topLeading
                     )
@@ -10842,17 +10837,17 @@ struct VerticalTabsSidebar: View {
                 .frame(width: 0, height: 0)
             )
             .safeAreaInset(edge: .top, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.top)
+                Color.clear.frame(height: scrollInsets.top)
                     .allowsHitTesting(false)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear.frame(height: SidebarWorkspaceScrollInsets.workspaceList.bottom)
+                Color.clear.frame(height: scrollInsets.bottom)
                     .allowsHitTesting(false)
             }
             .mask(
                 SidebarWorkspaceScrollEdgeFadeMask(
                     topHeight: sidebarTopScrimHeight,
-                    bottomHeight: sidebarBottomScrimHeight
+                    bottomHeight: scrollInsets.bottom
                 )
             )
             .overlay(alignment: .top) {
