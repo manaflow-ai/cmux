@@ -272,7 +272,7 @@ final class MobileTerminalRenderObserver {
                         if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
                             deferredHybridByteSurfaceIDs.insert(surfaceID)
                         } else {
-                            pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+                            dropPendingHybridBytesAndRecover(surfaceID: surfaceID)
                         }
                     } else {
                         pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
@@ -299,7 +299,7 @@ final class MobileTerminalRenderObserver {
                     if shouldDeferHybridByteFlush(surfaceID: surfaceID) {
                         deferredHybridByteSurfaceIDs.insert(surfaceID)
                     } else {
-                        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+                        dropPendingHybridBytesAndRecover(surfaceID: surfaceID)
                     }
                 } else {
                     pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
@@ -342,6 +342,16 @@ final class MobileTerminalRenderObserver {
         let shouldDefer = pending.recordRenderGridMiss(maxRetries: maxDeferredHybridByteFlushRetries)
         pendingByteEventsBySurfaceID[surfaceID] = pending
         return shouldDefer
+    }
+
+    private func dropPendingHybridBytesAndRecover(surfaceID: UUID) {
+        pendingByteEventsBySurfaceID.removeValue(forKey: surfaceID)
+        // Reconnect drives the phone's existing replay path; sending bytes here
+        // would violate the advertised render-grid-before-bytes contract.
+        MobileHostService.closeConnectionsSubscribed(
+            to: "terminal.render_grid",
+            reason: "terminal render-grid recovery failed"
+        )
     }
 
     private func pendingTerminalBytesPayload(surfaceID: UUID) -> [String: Any]? {

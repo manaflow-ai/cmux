@@ -565,6 +565,16 @@ final class MobileHostService {
         }
     }
 
+    nonisolated static func closeConnectionsSubscribed(to topic: String, reason: String) {
+        for connection in MobileHostConnectionRegistry.shared.snapshot() {
+            Task {
+                if await connection.isSubscribed(to: topic) {
+                    await connection.close(reason: reason)
+                }
+            }
+        }
+    }
+
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
