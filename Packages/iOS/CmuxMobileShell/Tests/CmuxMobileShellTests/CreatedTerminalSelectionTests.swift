@@ -384,6 +384,59 @@ import Testing
         #expect(store.selectedTerminalID == created)
     }
 
+    @Test func remoteCreatedTerminalSelectionSurvivesEmptyOwnerIdentityAdoptionDuringCreate() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldTerminalCreateResponse(true)
+        let store = try await makeRoutingConnectedStore(router: router)
+        let aggregation = MobileWorkspaceAggregation()
+        let foregroundKey = MobileShellComposite.foregroundAnonymousKey
+        let macID = "mac-main"
+        let remoteWorkspaceID = MobileWorkspacePreview.ID(rawValue: RoutingHostRouter.workspaceID)
+        let remappedRowID = aggregation.rowID(macDeviceID: macID, workspaceID: remoteWorkspaceID)
+        let created = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.createdTerminal)
+
+        store.setWorkspaceStatesForTesting([
+            foregroundKey: MacWorkspaceState(
+                macDeviceID: foregroundKey,
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: remoteWorkspaceID,
+                        macDeviceID: "",
+                        name: "Foreground",
+                        terminals: [
+                            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A", isReady: true),
+                        ]
+                    ),
+                ],
+                status: .connected
+            ),
+            "other-mac": MacWorkspaceState(
+                macDeviceID: "other-mac",
+                workspaces: [
+                    MobileWorkspacePreview(
+                        id: "other-workspace",
+                        macDeviceID: "other-mac",
+                        name: "Other",
+                        terminals: [
+                            MobileTerminalPreview(id: "term-other", name: "Other", isReady: true),
+                        ]
+                    ),
+                ],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: nil)
+        store.selectedWorkspaceID = remoteWorkspaceID
+
+        store.createTerminal(in: remoteWorkspaceID)
+        await router.awaitTerminalCreateRequested()
+        store.adoptForegroundMacIdentity(macID)
+        await router.releaseTerminalCreateResponse()
+        await waitUntilSelectedTerminal(store, is: created)
+
+        #expect(store.selectedWorkspaceID == remappedRowID)
+        #expect(store.selectedTerminalID == created)
+    }
+
     private func waitUntilSelectedTerminal(
         _ store: MobileShellComposite,
         is terminalID: MobileTerminalPreview.ID
