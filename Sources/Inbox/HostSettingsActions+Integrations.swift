@@ -65,6 +65,32 @@ extension HostSettingsActions {
         }
     }
 
+    func signInIntegration(source: IntegrationSettingsSource) async -> IntegrationSignInResult {
+        guard source == .gmail else { return .unsupported }
+        guard let inboxRuntime else { return .unavailable(Self.gmailUnavailableMessage) }
+        guard let configuration = GmailOAuthCoordinator.ClientConfiguration.fromCmuxConfig() else {
+            return .unavailable(Self.gmailUnavailableMessage)
+        }
+        do {
+            let credentialJSON = try await GmailOAuthCoordinator().signIn(configuration: configuration)
+            try await inboxRuntime.connect(source: .gmail, accountID: "default", displayName: "Gmail", token: credentialJSON)
+            inboxRuntime.sync(source: .gmail)
+            if let account = integrationSettingsSnapshot().accounts(for: .gmail).first {
+                return .connected(account)
+            }
+            return .cancelled
+        } catch GmailOAuthCoordinator.OAuthError.cancelled {
+            return .cancelled
+        } catch {
+            hostSettingsLogger.error("gmail sign-in failed")
+            return .failed(String(localized: "settings.integrations.gmail.signInFailed", defaultValue: "Google sign-in did not complete. Please try again."))
+        }
+    }
+
+    private static var gmailUnavailableMessage: String {
+        String(localized: "settings.integrations.gmail.needsClient", defaultValue: "Add a Google OAuth client id under integrations.gmail.client_id in ~/.config/cmux/cmux.json to enable one-click Gmail sign-in. You can also paste an access token below.")
+    }
+
     func syncIntegration(source: IntegrationSettingsSource?) async {
         let inboxSource = source.flatMap(InboxSource.init(settingsSource:))
         inboxRuntime?.sync(source: inboxSource)

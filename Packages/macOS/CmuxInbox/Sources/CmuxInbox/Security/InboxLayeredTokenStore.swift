@@ -42,7 +42,7 @@ public actor InboxLayeredTokenStore: InboxTokenStoring {
 
     /// Deletes from both stores; missing entries are not an error.
     public func deleteToken(source: InboxSource, accountID: String) async throws {
-        let primaryResult: Error?
+        let primaryResult: (any Error)?
         do {
             try await primary.deleteToken(source: source, accountID: accountID)
             primaryResult = nil

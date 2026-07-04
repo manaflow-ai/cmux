@@ -29,6 +29,12 @@ public struct LocalIMessageHelperClient: IMessageHelperClient {
         paths.append(current.appendingPathComponent("tools/cmux-imsg/.build/release/cmux-imsg"))
         #endif
         paths.append(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/cmux-imsg"))
+        // User-installed helper shared across tagged builds; same trust domain
+        // as the rest of ~/.cmuxterm (inbox database, file token vault).
+        paths.append(
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".cmuxterm/bin/cmux-imsg")
+        )
         return paths
     }
 

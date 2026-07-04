@@ -179,6 +179,15 @@ public protocol SettingsHostActions: AnyObject {
         token: String?
     ) async -> IntegrationAccountSettingsSnapshot?
 
+    /// Runs a native provider sign-in (e.g. Google OAuth) for a source and
+    /// stores the resulting credential. Returns the connected account on
+    /// success, or nil if the provider has no native flow or the user
+    /// cancelled. `unavailableReason` is populated when the flow cannot start
+    /// (e.g. no OAuth client configured) so the UI can guide the user.
+    func signInIntegration(
+        source: IntegrationSettingsSource
+    ) async -> IntegrationSignInResult
+
     /// Disconnects an integration account and deletes any host-held token.
     func disconnectIntegration(source: IntegrationSettingsSource, accountID: String) async
 
@@ -209,6 +218,10 @@ public extension SettingsHostActions {
         displayName: String?,
         token: String?
     ) async -> IntegrationAccountSettingsSnapshot? { nil }
+
+    func signInIntegration(source: IntegrationSettingsSource) async -> IntegrationSignInResult {
+        .unsupported
+    }
 
     func disconnectIntegration(source: IntegrationSettingsSource, accountID: String) async {}
 

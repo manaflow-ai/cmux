@@ -9,6 +9,23 @@ public enum IntegrationSettingsSource: String, CaseIterable, Identifiable, Senda
     case generic
 
     public var id: String { rawValue }
+
+    /// Whether this source offers a native one-click sign-in (vs. token paste).
+    public var supportsNativeSignIn: Bool { self == .gmail }
+}
+
+/// Outcome of a native provider sign-in (e.g. Google OAuth).
+public enum IntegrationSignInResult: Sendable, Equatable {
+    /// Sign-in completed and the account is connected.
+    case connected(IntegrationAccountSettingsSnapshot)
+    /// The user cancelled or closed the browser flow.
+    case cancelled
+    /// This source has no native sign-in flow.
+    case unsupported
+    /// The flow could not start; the message explains what to configure.
+    case unavailable(String)
+    /// The flow started but failed; the message is user-safe.
+    case failed(String)
 }
 
 public struct IntegrationAccountSettingsSnapshot: Identifiable, Equatable, Sendable {

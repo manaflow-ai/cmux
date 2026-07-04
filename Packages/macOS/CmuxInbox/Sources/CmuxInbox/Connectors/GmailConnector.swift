@@ -42,11 +42,24 @@ public actor GmailConnector: InboxConnector {
 
     /// Polls Gmail history when a cursor exists, otherwise fetches recent unread messages.
     public func sync(cursor: String?) async throws -> InboxConnectorSyncResult {
-        guard let tokenData = try await tokenStore.token(source: .gmail, accountID: accountID),
-              let token = String(data: tokenData, encoding: .utf8),
-              !token.isEmpty else {
+        let token: String
+        switch try await resolveAccessToken() {
+        case .missing:
             let status = await status()
             return InboxConnectorSyncResult(accounts: [account(status: .missingCredentials, message: status.message)], status: status)
+        case .refreshFailed(let message):
+            let status = InboxConnectorStatus(
+                source: .gmail,
+                accountID: accountID,
+                displayName: displayName,
+                status: .tokenExpired,
+                message: message,
+                credentialState: .present,
+                capabilities: capabilities
+            )
+            return InboxConnectorSyncResult(accounts: [account(status: .tokenExpired, message: message)], status: status)
+        case .ready(let accessToken):
+            token = accessToken
         }
         let ids: [String]
         let nextCursor: String?
@@ -106,10 +119,40 @@ public actor GmailConnector: InboxConnector {
         return relay.historyID
     }
 
+    private enum ResolvedToken {
+        case ready(String)
+        case missing
+        case refreshFailed(String)
+    }
+
+    /// Resolves a usable access token, renewing OAuth credentials in place.
+    /// Raw pasted access tokens pass through untouched; JSON credentials from
+    /// the in-app Google sign-in auto-refresh and persist the rotated token.
+    private func resolveAccessToken() async throws -> ResolvedToken {
+        guard let tokenData = try await tokenStore.token(source: .gmail, accountID: accountID) else {
+            return .missing
+        }
+        guard var credential = GmailOAuthCredential.parse(from: tokenData) else {
+            guard let raw = String(data: tokenData, encoding: .utf8), !raw.isEmpty else { return .missing }
+            return .ready(raw)
+        }
+        guard credential.isExpired(now: Date.now) else { return .ready(credential.accessToken) }
+        guard credential.canRefresh else {
+            return .refreshFailed("Gmail access token expired. Reconnect Gmail to sign in again.")
+        }
+        do {
+            let response = try await httpClient.data(for: GmailOAuthCredential.refreshRequest(credential: credential))
+            credential = try GmailOAuthCredential.parseRefreshResponse(data: response.data, existing: credential, now: Date.now)
+            try await tokenStore.saveToken(credential.encoded(), source: .gmail, accountID: accountID)
+            return .ready(credential.accessToken)
+        } catch {
+            return .refreshFailed("Gmail token refresh failed. Reconnect Gmail to sign in again.")
+        }
+    }
+
     /// Sends a user-approved reply through `users.messages.send`.
     public func sendApprovedReply(draft: InboxDraft, thread: InboxThread) async throws {
-        guard let tokenData = try await tokenStore.token(source: .gmail, accountID: accountID),
-              let token = String(data: tokenData, encoding: .utf8) else {
+        guard case .ready(let token) = try await resolveAccessToken() else {
             throw InboxError.tokenUnavailable(.gmail, accountID)
         }
         let request = try Self.sendMessageRequest(token: token, accountID: accountID, draft: draft, thread: thread)

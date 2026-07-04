@@ -52,17 +52,29 @@ public actor SlackConnector: InboxConnector {
             let status = await status()
             return InboxConnectorSyncResult(accounts: [account(status: .missingCredentials, message: status.message)], status: status)
         }
-        guard !channelIDs.isEmpty else {
-            let status = InboxConnectorStatus(
-                source: .slack,
-                accountID: accountID,
-                displayName: displayName,
-                status: .degraded,
-                message: "Configure Slack channel IDs to enable backfill",
-                credentialState: .present,
-                capabilities: capabilities
-            )
-            return InboxConnectorSyncResult(accounts: [account(status: .degraded, message: status.message)], status: status)
+        // No configured channels means real workspaces get auto-discovery:
+        // every conversation the bot user is a member of, IMs included.
+        var channelNames: [String: String] = [:]
+        var resolvedChannelIDs = channelIDs
+        if resolvedChannelIDs.isEmpty {
+            let discovery = try await discoverConversations(token: token)
+            if let status = discovery.errorStatus {
+                return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
+            }
+            resolvedChannelIDs = discovery.channels.map(\.id)
+            channelNames = Dictionary(uniqueKeysWithValues: discovery.channels.map { ($0.id, $0.title) })
+            guard !resolvedChannelIDs.isEmpty else {
+                let status = InboxConnectorStatus(
+                    source: .slack,
+                    accountID: accountID,
+                    displayName: displayName,
+                    status: .degraded,
+                    message: "The Slack bot is not in any conversations yet. Invite it to a channel with /invite.",
+                    credentialState: .present,
+                    capabilities: capabilities
+                )
+                return InboxConnectorSyncResult(accounts: [account(status: .degraded, message: status.message)], status: status)
+            }
         }
 
         var threads: [InboxThread] = []
@@ -72,7 +84,15 @@ public actor SlackConnector: InboxConnector {
         // channel keeps its own high-watermark inside the opaque cursor.
         var cursors = Self.channelCursors(from: cursor)
         let legacyFloor = Self.legacyGlobalCursor(from: cursor)
-        for channelID in channelIDs {
+        // Slack throttles conversations.history hard for non-Marketplace apps,
+        // so each pass backfills a bounded rotating window; never-synced
+        // conversations go first and the rotation pointer rides the cursor.
+        let window = Self.syncWindow(
+            channels: resolvedChannelIDs,
+            cursors: cursors,
+            after: cursors[Self.rotationKey]
+        )
+        for channelID in window {
             let channelFloor = cursors[channelID] ?? legacyFloor
             let response = try await httpClient.data(for: Self.conversationsHistoryRequest(
                 token: token,
@@ -82,14 +102,20 @@ public actor SlackConnector: InboxConnector {
             if let status = statusOverride(from: response) {
                 return InboxConnectorSyncResult(accounts: [account(status: status.status, message: status.message)], status: status)
             }
-            let parsed = try parseHistory(data: response.data, channelID: channelID)
+            let parsed = try parseHistory(data: response.data, channelID: channelID, channelName: channelNames[channelID])
             threads.append(contentsOf: parsed.threads)
             items.append(contentsOf: parsed.items)
             if let latestTS = parsed.latestTS, (Double(latestTS) ?? 0) > (Double(channelFloor ?? "") ?? 0) {
                 cursors[channelID] = latestTS
-            } else if let channelFloor {
-                cursors[channelID] = channelFloor
+            } else {
+                cursors[channelID] = channelFloor ?? "0"
             }
+        }
+        // Only carry a rotation pointer when rotation is actually in play;
+        // small workspaces sync every channel each pass and keep a clean
+        // per-channel cursor map.
+        if resolvedChannelIDs.count > Self.historyFetchesPerSync {
+            cursors[Self.rotationKey] = window.last ?? cursors[Self.rotationKey]
         }
         let status = InboxConnectorStatus(
             source: .slack,
@@ -128,6 +154,83 @@ public actor SlackConnector: InboxConnector {
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(cursors) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// Cursor-map key carrying the rotation pointer; never a channel id.
+    public static let rotationKey = "__rotation"
+    /// Max history fetches per sync pass, sized for Slack's per-minute limits.
+    public static let historyFetchesPerSync = 10
+    private static let discoveryPageLimit = 3
+
+    public struct DiscoveredConversation: Equatable, Sendable {
+        public let id: String
+        public let title: String
+    }
+
+    /// Picks this pass's backfill window: never-synced conversations first,
+    /// then round-robin continuation after the previous pass's last channel.
+    public static func syncWindow(channels: [String], cursors: [String: String], after: String?) -> [String] {
+        guard channels.count > historyFetchesPerSync else { return channels }
+        let fresh = channels.filter { cursors[$0] == nil }
+        if fresh.count >= historyFetchesPerSync { return Array(fresh.prefix(historyFetchesPerSync)) }
+        var window = fresh
+        let synced = channels.filter { cursors[$0] != nil }
+        let start = after.flatMap { synced.firstIndex(of: $0).map { $0 + 1 } } ?? 0
+        for offset in 0..<synced.count where window.count < historyFetchesPerSync {
+            let candidate = synced[(start + offset) % synced.count]
+            if !window.contains(candidate) { window.append(candidate) }
+        }
+        return window
+    }
+
+    /// Lists every conversation the bot user belongs to via `users.conversations`.
+    public static func usersConversationsRequest(token: String, cursor: String?) -> URLRequest {
+        var components = URLComponents(string: "https://slack.com/api/users.conversations")!
+        var query = [
+            URLQueryItem(name: "types", value: "public_channel,private_channel,mpim,im"),
+            URLQueryItem(name: "exclude_archived", value: "true"),
+            URLQueryItem(name: "limit", value: "200"),
+        ]
+        if let cursor, !cursor.isEmpty { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+        components.queryItems = query
+        var request = URLRequest(url: components.url!)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    public static func parseConversationsList(data: Data) throws -> (channels: [DiscoveredConversation], nextCursor: String?) {
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        guard (object["ok"] as? Bool) != false else {
+            throw InboxError.connectorUnavailable((object["error"] as? String) ?? "Slack API error")
+        }
+        let channels = ((object["channels"] as? [[String: Any]]) ?? []).compactMap { raw -> DiscoveredConversation? in
+            guard let id = raw["id"] as? String else { return nil }
+            if let name = raw["name"] as? String, !name.isEmpty {
+                return DiscoveredConversation(id: id, title: "#\(name)")
+            }
+            if (raw["is_im"] as? Bool) == true {
+                return DiscoveredConversation(id: id, title: "DM \((raw["user"] as? String) ?? id)")
+            }
+            return DiscoveredConversation(id: id, title: "#\(id)")
+        }
+        let next = ((object["response_metadata"] as? [String: Any])?["next_cursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return (channels, next)
+    }
+
+    private func discoverConversations(token: String) async throws -> (channels: [DiscoveredConversation], errorStatus: InboxConnectorStatus?) {
+        var channels: [DiscoveredConversation] = []
+        var pageCursor: String?
+        for _ in 0..<Self.discoveryPageLimit {
+            let response = try await httpClient.data(for: Self.usersConversationsRequest(token: token, cursor: pageCursor))
+            if let status = statusOverride(from: response) {
+                return ([], status)
+            }
+            let page = try Self.parseConversationsList(data: response.data)
+            channels.append(contentsOf: page.channels)
+            guard let next = page.nextCursor else { break }
+            pageCursor = next
+        }
+        return (channels, nil)
     }
 
     /// Sends a user-approved Slack reply through `chat.postMessage`.
@@ -204,7 +307,7 @@ public actor SlackConnector: InboxConnector {
         )
     }
 
-    private func parseHistory(data: Data, channelID: String) throws -> (threads: [InboxThread], items: [InboxItem], latestTS: String?) {
+    private func parseHistory(data: Data, channelID: String, channelName: String? = nil) throws -> (threads: [InboxThread], items: [InboxItem], latestTS: String?) {
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
         guard (object["ok"] as? Bool) != false else {
             throw InboxError.connectorUnavailable((object["error"] as? String) ?? "Slack API error")
@@ -225,7 +328,7 @@ public actor SlackConnector: InboxConnector {
                 accountID: accountID,
                 externalThreadID: externalThreadID,
                 participants: [InboxParticipant(displayName: (message["user"] as? String) ?? "Slack")],
-                title: "#\(channelID)",
+                title: channelName ?? "#\(channelID)",
                 lastActivityAt: Self.dateFromSlackTS(ts),
                 externalURL: nil,
                 metadata: ["channel_id": channelID, "thread_ts": threadTS]

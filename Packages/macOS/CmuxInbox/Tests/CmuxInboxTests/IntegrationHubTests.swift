@@ -169,16 +169,19 @@ import CmuxInbox
     @Test func syncStatusUpsertPreservesNotificationsOptOut() async throws {
         let store = try InboxSQLiteStore(databaseURL: fixtures.temporaryDatabaseURL())
         let tokens = MemoryTokenStore(tokens: ["slack:default": "xoxb-test"])
-        let http = StubHTTPClient(responses: [])
+        // No configured channels triggers auto-discovery; a bot in no
+        // conversations reports a degraded account built with the model
+        // default notificationsEnabled=true, so syncing must not clobber
+        // the persisted opt-out.
+        let http = StubHTTPClient(responses: [
+            InboxHTTPResponse(statusCode: 200, data: Data(#"{"ok":true,"channels":[]}"#.utf8)),
+        ])
         let slack = SlackConnector(tokenStore: tokens, httpClient: http)
         let hub = IntegrationHub(store: store, connectors: [slack], tokenStore: tokens)
 
         _ = try await hub.connect(source: .slack, accountID: "default", displayName: "Workspace")
         try await hub.setNotificationsEnabled(source: .slack, accountID: "default", enabled: false)
 
-        // Slack with a token but no channel IDs reports a degraded account
-        // built with the model default notificationsEnabled=true; syncing must
-        // not clobber the persisted opt-out.
         _ = await hub.sync(source: .slack)
 
         let account = try #require(try await hub.accounts().first { $0.source == .slack })

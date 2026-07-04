@@ -17,6 +17,7 @@ struct IntegrationConnectSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var token = ""
     @State private var phase: Phase = .editing
+    @State private var showTokenField = false
 
     private enum Phase: Equatable {
         case editing
@@ -29,7 +30,10 @@ struct IntegrationConnectSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             header
             steps
-            if needsToken {
+            if source.supportsNativeSignIn {
+                nativeSignInButton
+                tokenDisclosure
+            } else if needsToken {
                 SecureField(
                     String(localized: "settings.integrations.token.placeholder", defaultValue: "Token"),
                     text: $token
@@ -86,6 +90,70 @@ struct IntegrationConnectSheet: View {
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.secondary.opacity(0.06)))
     }
 
+    private var nativeSignInButton: some View {
+        Button {
+            signInWithProvider()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "person.badge.key.fill")
+                Text(String(localized: "settings.integrations.gmail.signInButton", defaultValue: "Sign in with Google"))
+                    .cmuxFont(size: 12, weight: .semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 3)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(phase == .connecting || phase == .verifying)
+        .accessibilityIdentifier("IntegrationConnectSheet.signIn")
+    }
+
+    @ViewBuilder
+    private var tokenDisclosure: some View {
+        if showTokenField {
+            SecureField(
+                String(localized: "settings.integrations.token.placeholder", defaultValue: "Token"),
+                text: $token
+            )
+            .textFieldStyle(.roundedBorder)
+            .disabled(phase == .connecting || phase == .verifying)
+        } else {
+            Button {
+                showTokenField = true
+            } label: {
+                Text(String(localized: "settings.integrations.gmail.pasteTokenInstead", defaultValue: "Paste an access token instead"))
+                    .cmuxFont(size: 11)
+            }
+            .buttonStyle(.link)
+        }
+    }
+
+    private func signInWithProvider() {
+        phase = .connecting
+        Task {
+            let result = await hostActions.signInIntegration(source: source)
+            onUpdated()
+            switch result {
+            case .connected(let account):
+                phase = .finished(status: account.status, message: account.statusMessage, healthy: true)
+            case .cancelled:
+                phase = .editing
+            case .unsupported:
+                showTokenField = true
+                phase = .editing
+            case .unavailable(let message):
+                showTokenField = true
+                phase = .finished(status: String(localized: "settings.integrations.connectSheet.needsSetup", defaultValue: "Setup needed"), message: message, healthy: false)
+            case .failed(let message):
+                phase = .finished(
+                    status: String(localized: "settings.integrations.connectSheet.failed", defaultValue: "Connection failed"),
+                    message: message,
+                    healthy: false
+                )
+            }
+        }
+    }
+
     @ViewBuilder
     private var resultView: some View {
         switch phase {
@@ -130,10 +198,10 @@ struct IntegrationConnectSheet: View {
             Spacer()
             Button(String(localized: "common.cancel", defaultValue: "Cancel")) { dismiss() }
                 .keyboardShortcut(.cancelAction)
-            if case .finished = phase {
+            if case .finished(_, _, let healthy) = phase, healthy {
                 Button(String(localized: "common.close", defaultValue: "Close")) { dismiss() }
                     .keyboardShortcut(.defaultAction)
-            } else {
+            } else if showConnectButton {
                 Button(String(localized: "settings.integrations.connect", defaultValue: "Connect")) { connect() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(connectDisabled)
@@ -141,9 +209,16 @@ struct IntegrationConnectSheet: View {
         }
     }
 
+    /// Native-sign-in sources hide the manual Connect button unless the user
+    /// explicitly reveals the token field (paste-token fallback).
+    private var showConnectButton: Bool {
+        !source.supportsNativeSignIn || showTokenField
+    }
+
     private var connectDisabled: Bool {
         if phase == .connecting || phase == .verifying { return true }
-        if needsToken, token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        let tokenRequired = needsToken || (source.supportsNativeSignIn && showTokenField)
+        if tokenRequired, token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
         return false
     }
 
