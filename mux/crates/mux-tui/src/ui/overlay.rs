@@ -10,10 +10,9 @@ use ratatui::Frame;
 
 use crate::app::{App, ContextMenu};
 
-/// Centered rename dialog: bordered box with title, input row, and
-/// clickable [ OK ] / [ Cancel ] buttons. Writes the dialog and button
-/// rects back into the prompt so mouse handling matches the drawn
-/// geometry.
+/// Centered prompt dialog: bordered box with title, input row, and
+/// clickable shortcut buttons. Writes the dialog, input, and button rects
+/// back into the prompt so mouse handling matches the drawn geometry.
 pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     let screen = frame.area();
     let hover = app.hover;
@@ -22,7 +21,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         app.shake_frames -= 1;
     }
 
-    let width: u16 = 40.min(screen.width.saturating_sub(2)).max(20);
+    let width: u16 = 42.min(screen.width.saturating_sub(2)).max(20);
     let height: u16 = 9;
     if screen.width < width || screen.height < height {
         return;
@@ -52,30 +51,36 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     draw_border(buf, prompt.rect, border);
     buf.set_stringn(x + 2, y + 2, prompt.label, (width - 4) as usize, title_style);
 
-    // Input row: the buffer tail, with a visible text cursor.
-    let input_w = (width - 4) as usize;
-    let shown: String = {
-        let chars: Vec<char> = prompt.buffer.chars().collect();
-        let skip = chars.len().saturating_sub(input_w.saturating_sub(1));
-        chars[skip..].iter().collect()
-    };
-    for dx in 0..input_w as u16 {
+    // Input row: visible slice around the cursor.
+    let input_w = width.saturating_sub(4);
+    prompt.input_rect = Rect { x: x + 2, y: y + 4, width: input_w, height: 1 };
+    let (shown, cursor_col) = prompt.input.visible_text_and_cursor(input_w as usize);
+    for dx in 0..input_w {
         buf[(x + 2 + dx, y + 4)].set_symbol(" ").set_style(input_style);
     }
-    buf.set_stringn(x + 2, y + 4, &shown, input_w, input_style);
-    let cursor_x = x + 2 + (shown.chars().count() as u16).min(input_w as u16 - 1);
+    buf.set_stringn(x + 2, y + 4, &shown, input_w as usize, input_style);
+    let cursor_x = x + 2 + (cursor_col as u16).min(input_w);
     frame.set_cursor_position(Position::new(cursor_x, y + 4));
 
-    // Buttons, right-aligned: [ Cancel ]  [ OK ]
-    let ok_label = "[ OK ]";
-    let cancel_label = "[ Cancel ]";
-    let ok_w = ok_label.len() as u16;
-    let cancel_w = cancel_label.len() as u16;
+    // Buttons, right-aligned: [ Clear ^C ]  [ Cancel esc ]  [ OK ⏎ ].
+    let clear_label = "[ Clear ^C ]";
+    let cancel_label = "[ Cancel esc ]";
+    let ok_label = "[ OK ⏎ ]";
+    let clear_w = label_width(clear_label);
+    let cancel_w = label_width(cancel_label);
+    let ok_w = label_width(ok_label);
     let ok_x = x + width - 2 - ok_w;
     let cancel_x = ok_x.saturating_sub(cancel_w + 2);
+    let clear_fits = clear_w + 2 <= cancel_x.saturating_sub(x + 2);
+    let clear_x = cancel_x.saturating_sub(clear_w + 2);
     let button_y = y + 6;
     prompt.ok = Rect { x: ok_x, y: button_y, width: ok_w, height: 1 };
     prompt.cancel = Rect { x: cancel_x, y: button_y, width: cancel_w, height: 1 };
+    prompt.clear = if clear_fits {
+        Rect { x: clear_x, y: button_y, width: clear_w, height: 1 }
+    } else {
+        Rect::default()
+    };
     let button_style = |rect: Rect, accent: bool| {
         let hovered = hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
         let mut s = if accent { base.fg(Color::Indexed(114)) } else { base };
@@ -85,6 +90,15 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
         s
     };
     let buf = frame.buffer_mut();
+    if clear_fits {
+        buf.set_stringn(
+            clear_x,
+            button_y,
+            clear_label,
+            clear_w as usize,
+            button_style(prompt.clear, false),
+        );
+    }
     buf.set_stringn(
         cancel_x,
         button_y,
@@ -170,4 +184,8 @@ fn draw_border(buf: &mut ratatui::buffer::Buffer, rect: Rect, style: Style) {
     buf[(x1, y0)].set_symbol("┐").set_style(style);
     buf[(x0, y1)].set_symbol("└").set_style(style);
     buf[(x1, y1)].set_symbol("┘").set_style(style);
+}
+
+fn label_width(label: &str) -> u16 {
+    label.chars().count() as u16
 }

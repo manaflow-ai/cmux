@@ -33,6 +33,7 @@ use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
 use crate::ui::graphics::{GraphicPlacement, GraphicsState};
+use crate::ui::input::{InputEvent, TextInput};
 use crate::ui::thumb_geometry;
 
 pub enum AppEvent {
@@ -212,16 +213,18 @@ pub enum PromptTarget {
     BrowserTab { pane: Option<PaneId> },
 }
 
-/// Centered rename dialog: a text input with OK/Cancel buttons. The
-/// renderer writes the final geometry back so mouse hit-testing (buttons,
-/// dismiss-outside) matches what is drawn.
+/// Centered prompt dialog: a readline-capable text input plus buttons.
+/// The renderer writes the final geometry back so mouse hit-testing
+/// (input, buttons, dismiss-outside) matches what is drawn.
 pub struct Prompt {
     pub label: &'static str,
-    pub buffer: String,
+    pub input: TextInput,
     pub target: PromptTarget,
     /// Dialog rect (set by the renderer each frame).
     pub rect: Rect,
-    /// OK / Cancel button rects (set by the renderer each frame).
+    /// Input / button rects (set by the renderer each frame).
+    pub input_rect: Rect,
+    pub clear: Rect,
     pub ok: Rect,
     pub cancel: Rect,
 }
@@ -230,9 +233,11 @@ impl Prompt {
     fn new(label: &'static str, buffer: String, target: PromptTarget) -> Self {
         Prompt {
             label,
-            buffer,
+            input: TextInput::new(buffer),
             target,
             rect: Rect::default(),
+            input_rect: Rect::default(),
+            clear: Rect::default(),
             ok: Rect::default(),
             cancel: Rect::default(),
         }
@@ -703,8 +708,14 @@ impl App {
             }
             AppEvent::Input(Event::Paste(text)) => {
                 self.reassert_visible_surface_sizes();
-                self.paste(&text);
-                Ok(HandleOutcome::new(false, true))
+                let needs_draw = if let Some(prompt) = self.prompt.as_mut() {
+                    prompt.input.insert_str(&text);
+                    true
+                } else {
+                    self.paste(&text);
+                    false
+                };
+                Ok(HandleOutcome::new(needs_draw, true))
             }
             AppEvent::Input(Event::FocusGained) => {
                 self.reassert_visible_surface_sizes();
@@ -801,21 +812,22 @@ impl App {
         Ok(false)
     }
 
-    /// Commit the open rename dialog (Enter or the OK button).
+    /// Commit the open prompt (Enter or the OK button).
     fn commit_prompt(&mut self) {
         let Some(prompt) = self.take_prompt() else { return };
+        let input = prompt.input.as_str().to_string();
         match prompt.target {
             PromptTarget::Workspace(id) => {
-                if !prompt.buffer.is_empty() {
-                    self.session.rename_workspace(id, prompt.buffer);
+                if !input.is_empty() {
+                    self.session.rename_workspace(id, input);
                 }
             }
             // Empty screen/tab names clear back to the default.
-            PromptTarget::Screen(id) => self.session.rename_screen(id, prompt.buffer),
-            PromptTarget::Surface(id) => self.session.rename_surface(id, prompt.buffer),
+            PromptTarget::Screen(id) => self.session.rename_screen(id, input),
+            PromptTarget::Surface(id) => self.session.rename_surface(id, input),
             PromptTarget::BrowserTab { pane } => {
-                if !prompt.buffer.trim().is_empty() {
-                    if let Err(e) = self.create_browser_tab(pane, &prompt.buffer) {
+                if !input.trim().is_empty() {
+                    if let Err(e) = self.create_browser_tab(pane, &input) {
                         self.status_message = Some(e.to_string());
                     } else {
                         self.status_message = None;
@@ -836,37 +848,31 @@ impl App {
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
-        if self.prompt.is_none() {
-            return Ok(false);
-        }
-        match key.code {
-            KeyCode::Esc => {
-                self.close_prompt();
-            }
-            KeyCode::Enter => self.commit_prompt(),
-            KeyCode::Backspace => {
-                if let Some(prompt) = self.prompt.as_mut() {
-                    prompt.buffer.pop();
-                }
-            }
-            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some(prompt) = self.prompt.as_mut() {
-                    prompt.buffer.push(c);
-                }
-            }
-            _ => {}
+        let Some(prompt) = self.prompt.as_mut() else { return Ok(false) };
+        match prompt.input.handle_key(&key) {
+            InputEvent::Commit => self.commit_prompt(),
+            InputEvent::Cancel => self.close_prompt(),
+            InputEvent::Changed | InputEvent::None => {}
         }
         Ok(true)
     }
 
-    /// Clicks while the rename dialog is open: OK commits, Cancel (or a
-    /// click outside the dialog) dismisses; clicks inside are swallowed.
+    /// Clicks while the prompt is open: OK commits, Clear empties the
+    /// input, Cancel (or a click outside the dialog) dismisses, and
+    /// input-row clicks move the cursor.
     fn handle_prompt_click(&mut self, x: u16, y: u16) -> anyhow::Result<bool> {
-        let Some(prompt) = self.prompt.as_ref() else { return Ok(false) };
+        let Some(prompt) = self.prompt.as_mut() else { return Ok(false) };
         if prompt.ok.contains(x, y) {
             self.commit_prompt();
+            return Ok(true);
+        } else if prompt.clear.contains(x, y) {
+            prompt.input.clear();
+        } else if prompt.input_rect.contains(x, y) {
+            let column = x.saturating_sub(prompt.input_rect.x) as usize;
+            prompt.input.set_cursor_from_visible_column(column, prompt.input_rect.width as usize);
         } else if prompt.cancel.contains(x, y) || !prompt.rect.contains(x, y) {
             self.close_prompt();
+            return Ok(true);
         }
         Ok(true)
     }
@@ -1185,7 +1191,10 @@ impl App {
     /// or a dialog button): these render the hand pointer.
     fn is_clickable(&self, x: u16, y: u16) -> bool {
         if let Some(prompt) = &self.prompt {
-            return prompt.ok.contains(x, y) || prompt.cancel.contains(x, y);
+            return prompt.ok.contains(x, y)
+                || prompt.cancel.contains(x, y)
+                || prompt.clear.contains(x, y)
+                || prompt.input_rect.contains(x, y);
         }
         if let Some(menu) = &self.menu {
             // Everything inside the menu rect is menu territory: only item

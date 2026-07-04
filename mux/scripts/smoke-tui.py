@@ -308,7 +308,7 @@ text = output.decode("utf-8", "replace")
 assert "Rename tab" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
 assert "┌" in text, text[-800:]
-assert "[ OK ]" not in text, text[-800:]
+assert "[ OK ⏎ ]" not in text, text[-800:]
 os.write(fd, b"\x1b")  # close menu
 drain(0.4)
 
@@ -339,10 +339,10 @@ assert "Rename tab" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
 os.write(fd, b"\x1b[<0;82;6M\x1b[<0;82;6m")
 drain(0.8)
-# A centered rename dialog opens (title + OK/Cancel buttons).
+# A centered rename dialog opens (title, input, and shortcut buttons).
 text = output.decode("utf-8", "replace")
-assert "[ OK ]" in text and "[ Cancel ]" in text, text[-800:]
-os.write(fd, b"clicked-tab")
+assert "[ Clear ^C ]" in text and "[ Cancel esc ]" in text and "[ OK ⏎ ]" in text, text[-800:]
+os.write(fd, b"tab\x01my-\x1bf-ok")
 drain(0.5)
 output = b""
 os.write(fd, b"\x1b[<0;65;17M\x1b[<0;65;17m")
@@ -354,9 +354,9 @@ tab_names = [
     for p in s["panes"]
     for t in p["tabs"]
 ]
-assert "clicked-tab" in tab_names, tab_names
+assert "my-tab-ok" in tab_names, tab_names
 text = output.decode("utf-8", "replace")
-assert "clicked-tab" in text, text[-1200:]
+assert "my-tab-ok" in text, text[-1200:]
 print("right-click menu -> rename tab prompt ok")
 
 # "Close tab" closes the active tab for the pane under the context menu.

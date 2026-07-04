@@ -4,6 +4,7 @@
 //! pushes a [`Hit`] so clicks always match what is on screen.
 
 pub mod graphics;
+pub(crate) mod input;
 mod overlay;
 mod pane;
 mod scrollbar;
