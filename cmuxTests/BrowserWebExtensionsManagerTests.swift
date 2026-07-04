@@ -76,6 +76,34 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.controller.extensionContexts.contains(context))
     }
 
+    @available(macOS 15.4, *)
+    @Test func contentScriptOnlyMatchPatternsAreGranted() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manifest: [String: Any] = [
+            "manifest_version": 3,
+            "name": "cmux content script only test",
+            "version": "1.0",
+            "description": "Test fixture",
+            "content_scripts": [
+                [
+                    "matches": ["*://content-only.example/*"],
+                    "js": ["content.js"],
+                ]
+            ],
+        ]
+        let dir = try Self.writeExtension(named: "content-only", in: root, manifest: manifest)
+        try "// no-op".write(to: dir.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        await manager.loadExtensions()
+
+        #expect(manager.loadErrors.isEmpty)
+        let context = try #require(manager.loadedContexts.first)
+        let url = try #require(URL(string: "https://content-only.example/page"))
+        #expect(context.grantedPermissionMatchPatterns.contains { $0.matches(url) })
+    }
+
     @Test func runtimePermissionPromptsGrantOnlyManifestDeclaredSet() async throws {
         guard #available(macOS 15.4, *) else { return }
         let root = try Self.makeExtensionsRoot()
