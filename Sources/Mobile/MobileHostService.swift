@@ -2481,6 +2481,8 @@ actor MobileHostConnection {
     /// Append server-pushed events to this connection's ordered event drain.
     fileprivate func enqueueEvents(_ events: [MobileHostQueuedEvent]) async {
         guard !events.isEmpty, !isClosed else { return }
+        let events = events.filter { canSendQueuedEvent($0) }
+        guard !events.isEmpty else { return }
         let incomingByteCount = events.reduce(0) { $0 + $1.estimatedBytes }
         guard pendingEventSendByteCount + incomingByteCount <= Self.maximumPendingEventSendByteCount else {
             pendingEventSends.removeAll()
@@ -2512,14 +2514,12 @@ actor MobileHostConnection {
         isDrainingEventSends = false
     }
 
-    @discardableResult
+    private func canSendQueuedEvent(_ event: MobileHostQueuedEvent) -> Bool {
+        isSubscribed(to: event.topic) && event.requiredTopics.allSatisfy { isSubscribed(to: $0) }
+            && event.excludedTopics.allSatisfy { !isSubscribed(to: $0) }
+    }
     private func sendEvent(_ event: MobileHostQueuedEvent) async -> Bool {
-        for topic in event.requiredTopics where !isSubscribed(to: topic) {
-            return false
-        }
-        for topic in event.excludedTopics where isSubscribed(to: topic) {
-            return false
-        }
+        guard canSendQueuedEvent(event) else { return false }
         return await sendEvent(topic: event.topic, payload: event.payload)
     }
 
