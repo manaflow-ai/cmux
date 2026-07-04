@@ -24,6 +24,13 @@ Cases:
       wild on 2026-07-02.
   (l) Per-row `.anchorPreference` (the #5323 virtualization defeat) fails.
   (m) A required row type missing from its file fails loudly (no silent skip).
+  (o) An `.onReceive(` in a row whose publisher lacks a `.receive(on:)` hop
+      fails — a CurrentValueSubject bridge replays synchronously while the
+      LazyVStack realizes the row (and emits during willSet), so the action
+      writes row @State inside the in-flight layout transaction. This exact
+      shape shipped in stable v0.64.17 via `selectedTabIdPublisher`.
+  (p) The same subscription routed through `.receive(on: RunLoop.main)`
+      passes, including when `.receive(on:)` spans multiple lines.
 """
 
 import importlib.util
@@ -311,6 +318,49 @@ def main():
         failures += 0 if expect(
             run_guard(write_fixture(workdir, "AnchorRow.swift", anchor_row)),
             False, "per-row .anchorPreference (#5323 shape) fails",
+        ) else 1
+
+        # (o) An .onReceive( whose publisher chain has no .receive(on:) hop:
+        # the CurrentValueSubject bridge replays synchronously during lazy row
+        # realization and emits during willSet, so the action's @State write
+        # lands inside the in-flight layout transaction (the #2586/#6556
+        # family). This shape shipped in stable v0.64.17 and livelocked in the
+        # wild on 2026-07-02/03. A .receive(on:) inside the ACTION closure
+        # (outside the publisher argument) must not mask the violation.
+        sync_onreceive_row = row_fixture(
+            "        HStack { Text(tab.title) }\n"
+            "            .onReceive(\n"
+            "                tabManager.selectedTabIdPublisher\n"
+            "                    .map { $0 == tab.id }\n"
+            "                    .removeDuplicates()\n"
+            "            ) { isSelected in\n"
+            "                observedIsActive = isSelected\n"
+            "            }"
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "SyncOnReceiveRow.swift", sync_onreceive_row)),
+            False, "row .onReceive without .receive(on:) fails",
+        ) else 1
+
+        # (p) The same subscription with a .receive(on: RunLoop.main) hop in
+        # the publisher chain passes -- also with the hop split across lines,
+        # since the real call sites chain one operator per line.
+        deferred_onreceive_row = row_fixture(
+            "        HStack { Text(tab.title) }\n"
+            "            .onReceive(\n"
+            "                tabManager.selectedTabIdPublisher\n"
+            "                    .map { $0 == tab.id }\n"
+            "                    .removeDuplicates()\n"
+            "                    .receive(\n"
+            "                        on: RunLoop.main\n"
+            "                    )\n"
+            "            ) { isSelected in\n"
+            "                observedIsActive = isSelected\n"
+            "            }"
+        )
+        failures += 0 if expect(
+            run_guard(write_fixture(workdir, "DeferredOnReceiveRow.swift", deferred_onreceive_row)),
+            True, "row .onReceive with .receive(on:) passes",
         ) else 1
 
         # (n) --file on a row-view source (no container functions) must not
