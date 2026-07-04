@@ -317,6 +317,34 @@ struct WorkstreamTests {
         #expect(manager.sidebarScopedWorkspaceRowIds() == [secondScopedId, firstScopedId, thirdScopedId])
     }
 
+    @Test func sidebarScopedMovePromotesHiddenGroupMember() throws {
+        let manager = makeTabManager(workspaceCount: 3)
+        let hiddenGroupMemberId = manager.tabs[0].id
+        let peerId = manager.tabs[1].id
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [hiddenGroupMemberId]))
+        let workstreamId = manager.createWorkstream(name: "WS", memberWorkspaceIds: [hiddenGroupMemberId, peerId])
+        manager.enterWorkstream(id: workstreamId)
+
+        #expect(manager.moveWorkspaceInSidebarScope(tabId: hiddenGroupMemberId, by: 1))
+
+        #expect(manager.sidebarScopedWorkspaceRowIds() == [peerId, hiddenGroupMemberId])
+        #expect(manager.tabs.first { $0.id == hiddenGroupMemberId }?.groupId == nil)
+        #expect(manager.workspaceGroups.contains { $0.id == groupId })
+    }
+
+    @Test func sidebarScopedEmptyAreaReorderPreservesHiddenRows() throws {
+        let manager = makeTabManager(workspaceCount: 4)
+        let firstScopedId = manager.tabs[0].id
+        let secondScopedId = manager.tabs[1].id
+        let hiddenId = manager.tabs[2].id
+        let workstreamId = manager.createWorkstream(name: "WS", memberWorkspaceIds: [firstScopedId, secondScopedId])
+        manager.enterWorkstream(id: workstreamId)
+
+        #expect(manager.reorderWorkspaceInSidebarScope(tabId: firstScopedId, toVisibleIndex: 1, isDragOperation: true))
+
+        #expect(Array(manager.tabs.map(\.id).prefix(3)) == [secondScopedId, firstScopedId, hiddenId])
+    }
+
     @Test func sidebarScopedCloseOtherIgnoresKeepIdsOutsideScope() throws {
         let manager = makeTabManager()
         let hiddenId = manager.tabs[0].id

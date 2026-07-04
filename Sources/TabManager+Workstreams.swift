@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
 
@@ -62,15 +63,52 @@ extension TabManager {
         let visibleIds = sidebarScopedWorkspaceRowIds()
         guard delta != 0, let visibleIndex = visibleIds.firstIndex(of: tabId),
               visibleIds.indices.contains(visibleIndex + delta) else { return false }
-        let peerIndex = visibleIndex + delta
-        let peerId = visibleIds[peerIndex]
-        if delta < 0 {
-            return reorderWorkspace(tabId: tabId, before: peerId)
-        }
-        if visibleIds.indices.contains(peerIndex + 1) {
-            return reorderWorkspace(tabId: tabId, before: visibleIds[peerIndex + 1])
-        }
-        return reorderWorkspace(tabId: tabId, after: peerId)
+        let targetIndex = visibleIndex + delta
+        return reorderWorkspaceInSidebarScope(
+            tabId: tabId,
+            toVisibleIndex: targetIndex,
+            targetWorkspaceId: visibleIds[targetIndex]
+        )
+    }
+
+    func reorderWorkspaceInSidebarScope(
+        tabId: UUID,
+        toVisibleIndex targetIndex: Int,
+        targetWorkspaceId explicitTargetWorkspaceId: UUID? = nil,
+        isDragOperation: Bool = false
+    ) -> Bool {
+        let visibleIds = sidebarScopedWorkspaceRowIds()
+        guard !visibleIds.isEmpty,
+              visibleIds.contains(tabId),
+              let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
+        let clampedTarget = max(0, min(targetIndex, visibleIds.count - 1))
+        let visibleGroupIds = Set(workspaceGroups.compactMap { group -> UUID? in
+            tabs.first { $0.id == group.anchorWorkspaceId }?.workstreamId == drilledInWorkstreamId ? group.id : nil
+        })
+        let isHiddenGroupMember = workspace.groupId.map { !visibleGroupIds.contains($0) } ?? false
+        let usesTopLevelRows = isHiddenGroupMember || sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: tabId,
+            targetWorkspaceId: explicitTargetWorkspaceId
+        )
+        let destinationIds = usesTopLevelRows
+            ? sidebarReorderWorkspaceIds(
+                forDraggedWorkspaceId: tabId,
+                targetWorkspaceId: explicitTargetWorkspaceId,
+                usesTopLevelRows: true
+            )
+            : tabs.map(\.id)
+        guard let destinationIndex = SidebarDropPlanner().remappedTargetIndex(
+            scopedTargetIndex: clampedTarget,
+            draggedTabId: tabId,
+            scopedTabIds: visibleIds,
+            destinationTabIds: destinationIds
+        ) else { return false }
+        return reorderSidebarWorkspace(
+            tabId: tabId,
+            toIndex: destinationIndex,
+            isDragOperation: isDragOperation,
+            usesTopLevelRows: usesTopLevelRows
+        )
     }
 
     func workspaceIdsForClosingOtherSidebarRows(keeping keepIds: Set<UUID>) -> [UUID] {

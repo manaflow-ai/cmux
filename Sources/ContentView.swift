@@ -10180,14 +10180,12 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    /// Constructs the drop delegate for the empty area in the parent scope,
-    /// so the child view receives a closure-bundle-equivalent value rather
-    /// than an `@Observable` store.
     private func emptyAreaTabDropDelegate(renderContext: WorkspaceListRenderContext) -> SidebarTabDropDelegate {
         SidebarTabDropDelegate(
             targetTabId: nil,
             tabManager: tabManager,
             workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
+            scopedWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
             dragState: dragState,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -13036,8 +13034,6 @@ private struct SidebarEmptyArea: View {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let dragAutoScrollController: SidebarDragAutoScrollController
-    // Value snapshot + closure bundles instead of an @Observable store
-    // reference (snapshot-boundary rule).
     let topDropIndicatorVisible: Bool
     var tabDropDelegate: SidebarTabDropDelegate? = nil
     let bonsplitDropIndicator: Binding<SidebarDropIndicator?>
@@ -15744,18 +15740,13 @@ struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
     let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
+    let scopedWorkspaceRowIds: [UUID]
     let dragState: SidebarDragState
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let targetRowHeight: CGFloat?
     let dragAutoScrollController: SidebarDragAutoScrollController
 
-    /// The identity of the workspace being dragged, resolved from this window's
-    /// `SidebarDragState` first and falling back to the process-wide
-    /// ``SidebarWorkspaceDragRegistry`` for a drag that originated in another
-    /// window. This single resolver is the one source of truth the drop path
-    /// keys on, so an intra-window reorder and a cross-window move share the same
-    /// code instead of forking into parallel drop delegates.
     private var effectiveDraggedTabId: UUID? {
         dragState.draggedTabId ?? dragState.currentWorkspaceDragId
     }
@@ -15951,6 +15942,17 @@ struct SidebarTabDropDelegate: DropDelegate {
         }
         if isCrossWindowDrag(draggedTabId) {
             return performCrossWindowDrop(draggedTabId: draggedTabId)
+        }
+        if targetTabId == nil, scopedWorkspaceRowIds.contains(draggedTabId) {
+            let previousSelectionIds = selectedTabIds
+            let anchorId = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+                existingAnchorIndex: lastSidebarSelectionIndex, liveWorkspaceIds: tabManager.tabs.map(\.id)
+            )
+            let didReorder = tabManager.reorderWorkspaceInSidebarScope(
+                tabId: draggedTabId, toVisibleIndex: max(0, scopedWorkspaceRowIds.count - 1), isDragOperation: true
+            )
+            syncSidebarSelection(preserving: previousSelectionIds, preferredAnchorWorkspaceId: anchorId)
+            return didReorder
         }
         let defaultUsesTopLevelRows = tabManager.sidebarReorderUsesTopLevelRows(
             forDraggedWorkspaceId: draggedTabId,
