@@ -74,6 +74,7 @@ const TIMEOUT_MS = positiveIntegerEnv("CMUX_CU_TIMEOUT_MS", 180000);
 const MAX_TREE = positiveIntegerEnv("CMUX_CU_MAX_TREE", 60000);
 const MAX_PENDING_TOOL_CALLS = 8;
 const MAX_TOOL_CALL_ARGUMENT_BYTES = 256 * 1024;
+const MAX_RETAINED_SNAPSHOTS = 4;
 // Explicit opt-in for headless automation: pre-approve the engine's per-app
 // control elicitations instead of forwarding them to the MCP client. Headless
 // clients (e.g. `claude -p`) cannot show the approval prompt and cancel it,
@@ -779,14 +780,52 @@ default:
 `;
 
 class MacComputerUseProvider {
+  constructor() {
+    this.binaryPath = null;
+    this.binaryDir = null;
+    this.compilePromise = null;
+  }
+
+  async executable() {
+    if (this.binaryPath) return this.binaryPath;
+    if (!this.compilePromise) {
+      this.compilePromise = this.compileProvider().catch((error) => {
+        this.compilePromise = null;
+        throw error;
+      });
+    }
+    return this.compilePromise;
+  }
+
+  async compileProvider() {
+    const dir = await mkdtemp(join(tmpdir(), "cmux-cu-provider-"));
+    activeProviderDirs.add(dir);
+    const binaryPath = join(dir, "cmux-computer-use-provider");
+    try {
+      await runWithStdin("/usr/bin/swiftc", ["-o", binaryPath, "-"], MAC_PROVIDER_SWIFT);
+      this.binaryDir = dir;
+      this.binaryPath = binaryPath;
+      return binaryPath;
+    } catch (error) {
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      activeProviderDirs.delete(dir);
+      throw error;
+    }
+  }
+
   async run(input) {
     let stdout;
     const payload = Buffer.from(JSON.stringify(input), "utf8").toString("base64");
     try {
-      stdout = await runWithStdin("/usr/bin/swift", ["-", "--", payload], MAC_PROVIDER_SWIFT);
+      const binaryPath = await this.executable();
+      const { stdout: providerOutput } = await execFileTool(binaryPath, ["--", payload], {
+        timeout: TIMEOUT_MS,
+        env: childEnv(),
+      });
+      stdout = providerOutput;
     } catch (error) {
       throw new Error(
-        `macOS provider needs the Swift toolchain (xcode-select --install): ${error?.message ?? error}`
+        `macOS provider needs the Swift compiler toolchain (xcode-select --install): ${error?.message ?? error}`
       );
     }
     const parsed = JSON.parse(stdout);
@@ -819,6 +858,20 @@ class MacComputerUseProvider {
     const result = await this.run(action);
     return result.message || "ok";
   }
+
+  dispose() {
+    if (this.binaryDir) {
+      try {
+        rmSync(this.binaryDir, { recursive: true, force: true });
+      } catch {
+        // best effort
+      }
+      activeProviderDirs.delete(this.binaryDir);
+    }
+    this.binaryDir = null;
+    this.binaryPath = null;
+    this.compilePromise = null;
+  }
 }
 
 class ComputerUseSession {
@@ -834,11 +887,23 @@ class ComputerUseSession {
   }
 
   rememberState(app, state, { exposeElements, exposeCoordinates }) {
-    this.snapshots.set(app, state);
+    const snapshot = retainableSnapshot(state);
+    this.snapshots.delete(app);
+    this.snapshots.set(app, snapshot);
     if (exposeElements) this.snapshotApps.add(app);
     else this.snapshotApps.delete(app);
-    if (exposeCoordinates && state.image) this.coordinateApps.add(app);
+    if (exposeCoordinates && snapshot.image) this.coordinateApps.add(app);
     else this.coordinateApps.delete(app);
+    this.pruneSnapshots();
+  }
+
+  pruneSnapshots() {
+    while (this.snapshots.size > MAX_RETAINED_SNAPSHOTS) {
+      const oldest = this.snapshots.keys().next().value;
+      this.snapshots.delete(oldest);
+      this.snapshotApps.delete(oldest);
+      this.coordinateApps.delete(oldest);
+    }
   }
 
   revoke(app) {
@@ -852,6 +917,7 @@ class ComputerUseSession {
     this.snapshots.clear();
     this.snapshotApps.clear();
     this.coordinateApps.clear();
+    this.provider?.dispose?.();
   }
 }
 
@@ -869,6 +935,41 @@ async function session() {
 
 function revokeAppState(app) {
   currentSession?.revoke(normalizeAppName(app));
+}
+
+function finiteNumberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function retainableBounds(bounds) {
+  if (!bounds) return null;
+  const x = finiteNumberOrNull(bounds.x);
+  const y = finiteNumberOrNull(bounds.y);
+  const width = finiteNumberOrNull(bounds.width);
+  const height = finiteNumberOrNull(bounds.height);
+  if (x == null || y == null || width == null || height == null) return null;
+  return { x, y, width, height };
+}
+
+function retainableSnapshot(state) {
+  const bounds = retainableBounds(state?.window?.bounds);
+  const imageWidth = finiteNumberOrNull(state?.image?.width);
+  const imageHeight = finiteNumberOrNull(state?.image?.height);
+  const elements = (state?.elements ?? [])
+    .map((element) => ({
+      index: finiteNumberOrNull(element?.index),
+      path: Array.isArray(element?.path)
+        ? element.path.map((part) => Number(part)).filter((part) => Number.isInteger(part) && part >= 0)
+        : [],
+    }))
+    .filter((element) => element.index != null);
+  return {
+    elements,
+    windowIndex: state?.windowIndex ?? null,
+    window: bounds ? { bounds } : null,
+    image: imageWidth != null && imageHeight != null ? { width: imageWidth, height: imageHeight } : null,
+  };
 }
 
 function screenPointFromSnapshot(snapshot, x, y) {
@@ -1114,6 +1215,7 @@ function passthrough(result, fallback) {
 // shutdown so a client disconnect / signal during capture can't leave a
 // full-desktop PNG on disk.
 const activeCaptureDirs = new Set();
+const activeProviderDirs = new Set();
 
 async function desktopScreenshot(display) {
   if (
@@ -1758,6 +1860,14 @@ function shutdown() {
     }
   }
   activeCaptureDirs.clear();
+  for (const dir of activeProviderDirs) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  }
+  activeProviderDirs.clear();
   try {
     if (currentSession) currentSession.dispose();
   } catch {
