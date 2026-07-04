@@ -4910,6 +4910,9 @@ class TerminalController {
     private nonisolated func v2SurfaceReadText(params: [String: Any]) -> V2CallResult {
         var includeScrollback = v2Bool(params, "scrollback") ?? false
         let lineLimit = v2Int(params, "lines")
+        if let lineLimit, lineLimit <= 0 {
+            return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
+        }
         if lineLimit != nil {
             includeScrollback = true
         }
@@ -4947,9 +4950,6 @@ class TerminalController {
             )
             guard let tabManager = self.resolveTabManager(routing: routing) else {
                 return .err(code: "unavailable", message: "TabManager not available", data: nil)
-            }
-            if let lineLimit, lineLimit <= 0 {
-                return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
             }
             let explicitSurfaceID = self.v2UUID(params, "surface_id")
             let hasSurfaceIDParam = params["surface_id"] != nil
