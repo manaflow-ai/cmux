@@ -178,6 +178,30 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         }
     }
 
+    @MainActor
+    @Test("binding-only cwd-ignore lookup supports registry-owned built-in IDs")
+    func bindingOnlyCwdIgnoreSupportsRegistryOwnedBuiltInIDs() throws {
+        try withIsolatedAutoResumeDefaults { defaults in
+            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            let sessionDirectory = try makeTemporaryProjectDirectory(prefix: "cmux-issue-7031-ignore-built-in")
+            defer { try? FileManager.default.removeItem(atPath: sessionDirectory) }
+            let registration = cwdIgnoreRegistration(id: "pi", name: "Pi Override")
+            try writeVaultAgentConfig(registration, in: sessionDirectory)
+            let restored = try restoredBindingOnlyPanel(
+                sessionDirectory: sessionDirectory,
+                sessionId: "ignore-built-in-issue-7031-session",
+                defaults: defaults,
+                bindingKind: registration.id
+            )
+
+            #expect(restored.workspace.restoredResumeSessionWorkingDirectoriesByPanelId[restored.panelId] == nil)
+            let script = try harness.resumeLauncherScript(from: restored.panel)
+            #expect(!script.contains("cd -- '\(sessionDirectory)'"))
+            #expect(script.contains("exec -l \"$_cmux_resume_shell\""))
+        }
+    }
+
     private func withIsolatedAutoResumeDefaults<T>(_ body: (UserDefaults) throws -> T) throws -> T {
         let suiteName = "cmux.AgentSessionAutoResumeReturnDirectoryTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -296,10 +320,13 @@ struct AgentSessionAutoResumeReturnDirectoryTests {
         return (restored, panel, restoredPanelId)
     }
 
-    private func cwdIgnoreRegistration() -> CmuxVaultAgentRegistration {
+    private func cwdIgnoreRegistration(
+        id: String = "acme-ignore",
+        name: String = "Acme Ignore"
+    ) -> CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
-            id: "acme-ignore",
-            name: "Acme Ignore",
+            id: id,
+            name: name,
             detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
             sessionIdSource: .argvOption("--session"),
             resumeCommand: "acme-agent --session {{sessionId}}",

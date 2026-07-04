@@ -195,14 +195,14 @@ extension Workspace {
             return restoreSessionLayout(snapshot.layout)
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
-
+        let vaultCWDPolicyResolver = SurfaceResumeBindingVaultCWDPolicyResolver()
         for entry in leafEntries {
             restorePane(
                 entry.paneId,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
-                oldToNewPanelIds: &oldToNewPanelIds
+                oldToNewPanelIds: &oldToNewPanelIds, vaultCWDPolicyResolver: vaultCWDPolicyResolver
             )
         }
 
@@ -1091,7 +1091,7 @@ extension Workspace {
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         snapshotWorkspaceId: UUID?,
-        oldToNewPanelIds: inout [UUID: UUID]
+        oldToNewPanelIds: inout [UUID: UUID], vaultCWDPolicyResolver: SurfaceResumeBindingVaultCWDPolicyResolver
     ) {
         let existingPanelIds = bonsplitController
             .tabs(inPane: paneId)
@@ -1104,7 +1104,7 @@ extension Workspace {
             guard let createdPanelId = createPanel(
                 from: panelSnapshot,
                 inPane: paneId,
-                snapshotWorkspaceId: snapshotWorkspaceId
+                snapshotWorkspaceId: snapshotWorkspaceId, vaultCWDPolicyResolver: vaultCWDPolicyResolver
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1179,7 +1179,7 @@ extension Workspace {
     private func createPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
-        snapshotWorkspaceId: UUID?
+        snapshotWorkspaceId: UUID?, vaultCWDPolicyResolver: SurfaceResumeBindingVaultCWDPolicyResolver = SurfaceResumeBindingVaultCWDPolicyResolver()
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
@@ -1192,7 +1192,7 @@ extension Workspace {
                 snapshotRestorableAgent,
                 resumeBinding: resumeBinding
             )
-            let resumeBindingCWDPolicy = restorableAgent?.registration?.cwd ?? resumeBinding?.registeredVaultCWDPolicy(workingDirectory: snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory)
+            let resumeBindingCWDPolicy = restorableAgent?.registration?.cwd ?? resumeBinding.flatMap { vaultCWDPolicyResolver.cwdPolicy(for: $0, fallbackWorkingDirectory: snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory) }
             let sessionReturnWorkingDirectory = resumeBindingCWDPolicy == .ignore
                 ? nil
                 : resumeBinding?.cwd ?? snapshot.terminal?.workingDirectory ?? restorableAgent?.workingDirectory ?? snapshot.directory ?? currentDirectory
