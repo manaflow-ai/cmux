@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "Ancho mínimo en puntos al que se puede arrastrar la barra lateral izquierda (de espacios de trabajo). Redúcelo para recuperar espacio para el terminal sin ocultar la barra lateral. Limitado a 100–260; el valor predeterminado es 216.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
         "fileExplorer": {

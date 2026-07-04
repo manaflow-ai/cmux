@@ -1138,6 +1138,7 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
+          "leftMinWidth": "Minimum width in points the left (workspace) sidebar can be dragged to. Lower it to reclaim space for the terminal without hiding the sidebar. Clamped to 100–260; defaults to 216.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
         "fileExplorer": {

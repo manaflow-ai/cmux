@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "Minste bredde i punkter som det venstre sidepanelet (arbeidsområder) kan dras til. Reduser den for å frigjøre plass til terminalen uten å skjule sidepanelet. Begrenset til 100–260; standard er 216.",
           "rightMaxWidth": "Maksimal bredde i punkter for høyre sidepanel. Hvis den utelates, brukes den innebygde dynamiske grensen."
         },
         "fileExplorer": {

@@ -12,6 +12,7 @@ public struct SidebarSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
+    private let leftSidebarWidthSettings = LeftSidebarWidthSettings()
 
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
@@ -35,6 +36,7 @@ public struct SidebarSection: View {
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
     @State private var showMetadata: DefaultsValueModel<Bool>
+    @State private var leftMinWidth: DefaultsValueModel<Double>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
 
@@ -61,6 +63,7 @@ public struct SidebarSection: View {
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
+        _leftMinWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.leftMinWidth))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
@@ -94,6 +97,7 @@ public struct SidebarSection: View {
             showLog,
             showProgress,
             showMetadata,
+            leftMinWidth,
             rightMaxWidth,
             rememberedRightMaxWidth,
         ]
@@ -167,6 +171,24 @@ public struct SidebarSection: View {
         rightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(value)
     }
 
+    private var leftMinWidthBinding: Binding<Double> {
+        Binding(
+            get: { leftSidebarWidthSettings.clampedMinimumWidth(leftMinWidth.current) },
+            set: { leftMinWidth.set(leftSidebarWidthSettings.clampedMinimumWidth($0)) }
+        )
+    }
+
+    private var leftMinWidthValueText: String {
+        String(Int(leftSidebarWidthSettings.clampedMinimumWidth(leftMinWidth.current).rounded()))
+    }
+
+    private var leftMinWidthIsDefault: Bool {
+        abs(
+            leftSidebarWidthSettings.clampedMinimumWidth(leftMinWidth.current)
+                - LeftSidebarWidthSettings.defaultMinimumWidth
+        ) < 0.5
+    }
+
     @ViewBuilder
     private var mainCard: some View {
         SettingsCard {
@@ -221,6 +243,40 @@ public struct SidebarSection: View {
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.leftMinWidth"),
+                String(localized: "settings.sidebar.leftMinWidth", defaultValue: "Sidebar Minimum Width"),
+                subtitle: String(localized: "settings.sidebar.leftMinWidth.subtitle", defaultValue: "Smallest width the workspace sidebar can be resized to. Lower it to reclaim space for the terminal without hiding the sidebar."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: leftMinWidthBinding,
+                        in: LeftSidebarWidthSettings.range,
+                        step: 1
+                    )
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsSidebarMinimumWidthSlider")
+                    .accessibilityLabel(String(localized: "settings.sidebar.leftMinWidth", defaultValue: "Sidebar Minimum Width"))
+
+                    Text(String.localizedStringWithFormat(
+                        String(localized: "settings.sidebar.leftMinWidth.value", defaultValue: "%@ pt"),
+                        leftMinWidthValueText
+                    ))
+                    .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.sidebar.leftMinWidth.reset", defaultValue: "Reset")) {
+                        leftMinWidth.set(LeftSidebarWidthSettings.defaultMinimumWidth)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(leftMinWidthIsDefault)
                 }
             }
             SettingsCardDivider()

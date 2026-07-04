@@ -14,4 +14,3 @@ struct TerminalViewportInputs {
     let toolbarPresentationFrame: CGRect?
 }
 #endif
-

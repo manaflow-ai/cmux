@@ -116,6 +116,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    /// Minimum width, in points, the left (workspace) sidebar can be resized
+    /// to. Normalization and bounds live in ``LeftSidebarWidthSettings``.
+    public let leftMinWidth = DefaultsKey<Double>(
+        id: LeftSidebarWidthSettings.settingsPath,
+        defaultValue: LeftSidebarWidthSettings.defaultMinimumWidth,
+        userDefaultsKey: LeftSidebarWidthSettings.minimumWidthKey
+    )
+
     public let rightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth",
         defaultValue: RightSidebarWidthSettings.noOverrideValue,

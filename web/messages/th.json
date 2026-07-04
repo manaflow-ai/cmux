@@ -842,6 +842,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "leftMinWidth": "ความกว้างต่ำสุดเป็นพอยต์ที่สามารถลากแถบด้านซ้าย (พื้นที่ทำงาน) ได้ ลดค่าลงเพื่อเพิ่มพื้นที่ให้เทอร์มินัลโดยไม่ต้องซ่อนแถบด้านข้าง จำกัดที่ 100–260 ค่าเริ่มต้นคือ 216",
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
         },
         "fileExplorer": {

@@ -716,6 +716,14 @@ final class CmuxSettingsFileStore {
             }
         }
 
+        if let value = jsonDouble(section[LeftSidebarWidthSettings.jsonKey]), value > 0 {
+            snapshot.managedUserDefaults[LeftSidebarWidthSettings.minimumWidthKey] = .double(
+                LeftSidebarWidthSettings().clampedMinimumWidth(value)
+            )
+        } else if section.keys.contains(LeftSidebarWidthSettings.jsonKey) {
+            logInvalid(LeftSidebarWidthSettings.settingsPath, sourcePath: sourcePath)
+        }
+
         if let value = jsonDouble(section[RightSidebarWidthSettings.jsonKey]), value > 0 {
             snapshot.managedUserDefaults[RightSidebarWidthSettings.maxWidthKey] = .double(
                 RightSidebarWidthSettings().clampedSettingsEditorMaximumWidth(value)

@@ -892,6 +892,12 @@
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "leftMinWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "descriptionKey": "schemaDescriptions.sidebar.leftMinWidth",
+          "description": "Minimum width in points the left (workspace) sidebar can be dragged to. Lower it to reclaim space for the terminal without hiding the sidebar. Clamped to 100–260; defaults to 216."
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,

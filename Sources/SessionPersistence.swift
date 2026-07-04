@@ -1,5 +1,6 @@
 import CoreGraphics
 import CmuxCore
+import CmuxSettings
 import Foundation
 import Bonsplit
 import CmuxWorkspaces
@@ -15,15 +16,18 @@ enum SessionSnapshotSchema {
 }
 
 enum SessionPersistencePolicy {
-    static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
+    // Width policy for the left (workspace) sidebar lives in CmuxSettings'
+    // `LeftSidebarWidthSettings` so the catalog, cmux.json loader, Settings UI,
+    // and this runtime policy all share one source of truth.
+    static let sidebarMinimumWidthKey = LeftSidebarWidthSettings.minimumWidthKey
     // Keep the default equal to the minimum so a fresh sidebar starts at the
     // minimum width. The titlebar title tracks the sidebar's actual width only
     // when it is wider than the minimum, so a default above the minimum would make
     // the folder/title shift when toggling the sidebar at the default width.
-    static let defaultSidebarWidth: Double = 216
-    static let defaultMinimumSidebarWidth: Double = 216
-    static let minimumSidebarWidth: Double = 216
-    static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
+    static let defaultSidebarWidth: Double = LeftSidebarWidthSettings.defaultMinimumWidth
+    static let defaultMinimumSidebarWidth: Double = LeftSidebarWidthSettings.defaultMinimumWidth
+    static let minimumSidebarWidth: Double = LeftSidebarWidthSettings.defaultMinimumWidth
+    static let sidebarMinimumWidthRange: ClosedRange<Double> = LeftSidebarWidthSettings.range
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
@@ -49,8 +53,7 @@ enum SessionPersistencePolicy {
     }
 
     static func sanitizedMinimumSidebarWidth(_ candidate: Double) -> Double {
-        guard candidate.isFinite else { return defaultMinimumSidebarWidth }
-        return min(max(candidate, sidebarMinimumWidthRange.lowerBound), sidebarMinimumWidthRange.upperBound)
+        LeftSidebarWidthSettings().clampedMinimumWidth(candidate)
     }
 
     private static func storedSidebarMinimumWidth(defaults: UserDefaults) -> Double? {
