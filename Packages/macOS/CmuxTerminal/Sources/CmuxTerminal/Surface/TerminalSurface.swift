@@ -173,8 +173,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let manualInputHandler: (@Sendable (Data) -> Void)?
 
     /// For MANUAL-I/O remote tmux display surfaces: invoked on the main actor
-    /// whenever the rendered grid changes so the owner can size the remote tmux
-    /// client to match.
+    /// when the rendered grid first becomes readable, then whenever it changes,
+    /// so the owner can size the remote tmux client to match.
     @MainActor public var onManualGridResize: (@MainActor (_ columns: Int, _ rows: Int) -> Void)?
     var lastReportedManualGrid: (columns: Int, rows: Int)?
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress

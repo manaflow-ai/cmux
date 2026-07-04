@@ -1,10 +1,5 @@
 import Testing
-
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxRemoteSession
 
 /// Regression coverage for remote-tmux mirror multi-pane client sizing
 /// (https://github.com/manaflow-ai/cmux/issues/7053): after an in-tab split, the
@@ -18,14 +13,14 @@ import Testing
 /// (``RemoteTmuxLayoutNode/composedClientGrid(paneGrid:)``) over layout trees
 /// parsed by the real ``RemoteTmuxRawLayoutParser`` — behavior, not source shape.
 ///
-@Suite("remote tmux window mirror sizing")
-struct RemoteTmuxWindowMirrorSizingTests {
+@Suite("remote tmux layout node sizing")
+struct RemoteTmuxLayoutNodeSizingTests {
 
     /// A single pane composes to exactly its own rendered grid (the leaf case —
     /// the same value the single-pane path reports via `renderedGridCells()`).
     @Test
     func singlePaneComposesToItsRenderedGrid() throws {
-        let node = try #require(RemoteTmuxRawLayoutParser.parse("f00d,147x85,0,0,0"))
+        let node = try #require(RemoteTmuxRawLayoutParser().parse("f00d,147x85,0,0,0"))
         let grid = try #require(node.composedClientGrid { _ in (columns: 147, rows: 85) })
         #expect(grid.columns == 147)
         #expect(grid.rows == 85)
@@ -38,7 +33,7 @@ struct RemoteTmuxWindowMirrorSizingTests {
     @Test
     func sideBySideSplitReportsHeaderCorrectedHeight() throws {
         // 148x85 { 74x85 @0 pane %0 | 73x85 @75 pane %1 }  (74 + 1 divider + 73 = 148)
-        let node = try #require(RemoteTmuxRawLayoutParser.parse("1a2b,148x85,0,0{74x85,0,0,0,73x85,75,0,1}"))
+        let node = try #require(RemoteTmuxRawLayoutParser().parse("1a2b,148x85,0,0{74x85,0,0,0,73x85,75,0,1}"))
         let rendered: [Int: (columns: Int, rows: Int)] = [0: (74, 83), 1: (73, 83)]
         let grid = try #require(node.composedClientGrid { rendered[$0] })
         #expect(grid.columns == 148)   // 74 + 73 + 1 divider column
@@ -50,7 +45,7 @@ struct RemoteTmuxWindowMirrorSizingTests {
     /// make the shorter visible pane clip alt-screen content.
     @Test
     func sideBySideSplitUsesShortestVisibleHeight() throws {
-        let node = try #require(RemoteTmuxRawLayoutParser.parse("1a2b,148x85,0,0{74x85,0,0,0,73x85,75,0,1}"))
+        let node = try #require(RemoteTmuxRawLayoutParser().parse("1a2b,148x85,0,0{74x85,0,0,0,73x85,75,0,1}"))
         let grid = try #require(node.composedClientGrid { $0 == 0 ? (columns: 74, rows: 83) : (columns: 73, rows: 80) })
         #expect(grid.columns == 148)
         #expect(grid.rows == 80)       // min(83, 80)
@@ -62,7 +57,7 @@ struct RemoteTmuxWindowMirrorSizingTests {
     @Test
     func stackedSplitSumsHeaderCorrectedHeights() throws {
         // 80x50 [ 80x25 @0 pane %0 / 80x24 @26 pane %1 ]  (25 + 1 divider + 24 = 50)
-        let node = try #require(RemoteTmuxRawLayoutParser.parse("1a2b,80x50,0,0[80x25,0,0,0,80x24,0,26,1]"))
+        let node = try #require(RemoteTmuxRawLayoutParser().parse("1a2b,80x50,0,0[80x25,0,0,0,80x24,0,26,1]"))
         let grid = try #require(node.composedClientGrid { $0 == 0 ? (columns: 80, rows: 23) : (columns: 80, rows: 22) })
         #expect(grid.columns == 80)
         #expect(grid.rows == 23 + 22 + 1)   // 46: header-corrected sum + 1 divider row
@@ -74,7 +69,7 @@ struct RemoteTmuxWindowMirrorSizingTests {
     @Test
     func nestedSideBySideSplitUsesShortestRenderedBranchHeight() throws {
         let node = try #require(
-            RemoteTmuxRawLayoutParser.parse("f92f,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}")
+            RemoteTmuxRawLayoutParser().parse("f92f,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}")
         )
         let rendered: [Int: (columns: Int, rows: Int)] = [
             4: (60, 38),
@@ -95,7 +90,7 @@ struct RemoteTmuxWindowMirrorSizingTests {
         // Nested: { pane4 60x40 | [ pane5 59x20 / pane8 59x19 ] 59x40 } — the parser's
         // own doc example. (60 + 1 + 59 = 120 across; 20 + 1 + 19 = 40 down.)
         let node = try #require(
-            RemoteTmuxRawLayoutParser.parse("f92f,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}")
+            RemoteTmuxRawLayoutParser().parse("f92f,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}")
         )
         let claimed: [Int: (columns: Int, rows: Int)] = [4: (60, 40), 5: (59, 20), 8: (59, 19)]
         let grid = try #require(node.composedClientGrid { claimed[$0] })
@@ -104,12 +99,12 @@ struct RemoteTmuxWindowMirrorSizingTests {
     }
 
     /// A not-yet-live leaf (no rendered grid) makes the whole composition `nil`, so
-    /// the caller keeps retrying instead of sending a short client size that would
-    /// reflow the remote to a partial layout.
+    /// the caller waits for a surface readiness/grid signal instead of sending a
+    /// short client size that would reflow the remote to a partial layout.
     @Test
     func notYetLivePanePropagatesNil() throws {
         let node = try #require(
-            RemoteTmuxRawLayoutParser.parse("f92f,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}")
+            RemoteTmuxRawLayoutParser().parse("f92f,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}")
         )
         let grid = node.composedClientGrid { paneId in paneId == 8 ? nil : (columns: 10, rows: 10) }
         #expect(grid == nil)

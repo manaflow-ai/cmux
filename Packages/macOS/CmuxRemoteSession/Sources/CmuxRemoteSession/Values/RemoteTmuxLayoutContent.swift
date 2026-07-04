@@ -1,4 +1,5 @@
-enum RemoteTmuxLayoutContent: Sendable, Equatable {
+/// The payload of a tmux layout node: either one pane or a split subtree.
+public enum RemoteTmuxLayoutContent: Sendable, Equatable {
     /// A leaf pane, identified by its numeric tmux pane id (the `%N` without the
     /// leading `%`).
     case pane(Int)

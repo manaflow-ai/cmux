@@ -13,21 +13,29 @@ import Foundation
 /// { "width": 80, "height": 24, "x": 0, "y": 0,
 ///   "horizontal": [ { …, "pane": 1 }, { …, "pane": 2 } ] }
 /// ```
-struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
-    typealias Content = RemoteTmuxLayoutContent
+public struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
+    /// The node payload: one tmux pane or a split subtree.
+    public typealias Content = RemoteTmuxLayoutContent
 
     /// Width of the node in terminal cells.
-    let width: Int
+    public let width: Int
     /// Height of the node in terminal cells.
-    let height: Int
+    public let height: Int
     /// X offset from the window's top-left, in cells.
-    let x: Int
+    public let x: Int
     /// Y offset from the window's top-left, in cells.
-    let y: Int
+    public let y: Int
     /// The node's content: a leaf pane or a split.
-    let content: Content
+    public let content: Content
 
-    init(width: Int, height: Int, x: Int, y: Int, content: Content) {
+    /// Creates a parsed tmux layout node.
+    ///
+    /// - Parameter width: Width of the node in terminal cells.
+    /// - Parameter height: Height of the node in terminal cells.
+    /// - Parameter x: X offset from the window's top-left, in cells.
+    /// - Parameter y: Y offset from the window's top-left, in cells.
+    /// - Parameter content: The node's pane or split content.
+    public init(width: Int, height: Int, x: Int, y: Int, content: Content) {
         self.width = width
         self.height = height
         self.x = x
@@ -39,7 +47,11 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
         case width, height, x, y, pane, horizontal, vertical
     }
 
-    init(from decoder: Decoder) throws {
+    /// Decodes a tmux layout node from its JSON representation.
+    ///
+    /// - Parameter decoder: The decoder containing width, height, origin, and
+    ///   exactly one of `pane`, `horizontal`, or `vertical`.
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         width = try container.decode(Int.self, forKey: .width)
         height = try container.decode(Int.self, forKey: .height)
@@ -61,7 +73,11 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    /// Encodes a tmux layout node to its JSON representation.
+    ///
+    /// - Parameter encoder: The encoder that receives width, height, origin, and
+    ///   the node content key.
+    public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(width, forKey: .width)
         try container.encode(height, forKey: .height)
@@ -76,7 +92,7 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
 
     /// All pane ids in this subtree, in depth-first left-to-right order — the
     /// natural order to create matching cmux splits.
-    var paneIDsInOrder: [Int] {
+    public var paneIDsInOrder: [Int] {
         switch content {
         case let .pane(id):
             return [id]
@@ -108,7 +124,7 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
     ///   when that pane has no grid yet.
     /// - Returns: the composed grid, or `nil` as soon as any leaf's `paneGrid` is
     ///   `nil` — so a partially-rendered layout never reports a short client size.
-    func composedClientGrid(
+    public func composedClientGrid(
         paneGrid: (_ paneId: Int) -> (columns: Int, rows: Int)?
     ) -> (columns: Int, rows: Int)? {
         switch content {
@@ -116,7 +132,7 @@ struct RemoteTmuxLayoutNode: Sendable, Equatable, Codable {
             // Source the pane's ON-SCREEN rendered grid (excludes the per-pane
             // header), so the composed client size matches what is actually visible
             // rather than tmux's claimed geometry. `nil` (pane not live yet)
-            // propagates up so the caller retries.
+            // propagates up so the caller can wait for the surface readiness signal.
             return paneGrid(paneId)
         case let .horizontal(children):
             var columns = 0

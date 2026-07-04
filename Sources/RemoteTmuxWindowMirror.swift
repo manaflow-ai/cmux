@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxRemoteSession
 import CmuxTerminal
 import Foundation
 import Observation
@@ -80,7 +81,7 @@ final class RemoteTmuxWindowMirror {
             panelsByPaneId[paneId] = panel
             syntheticPaneIds[paneId] = PaneID()
             // Re-report the composed client size whenever this pane's rendered grid
-            // changes (initial layout, window resize, header show/hide) — the
+            // becomes readable or changes (initial layout, window resize, header show/hide) — the
             // multi-pane analogue of the single-pane display surface's `onResize`
             // hook. Race-free: the surface reports AFTER it applies the new grid, so
             // the composition reads the up-to-date size rather than a pre-resize one.
@@ -125,7 +126,8 @@ final class RemoteTmuxWindowMirror {
     ///
     /// Returns `true` once every pane surface is live and the size was applied
     /// (sent, or already current via the `lastClientSize` dedup); `false` while any
-    /// pane hasn't rendered its grid yet, so the caller should retry. Idempotent.
+    /// pane hasn't rendered its grid yet. The caller may make a synchronous attempt;
+    /// surface readiness and grid-resize callbacks drive later attempts. Idempotent.
     @discardableResult
     func updateClientSize() -> Bool {
         // Snapshot each live pane's rendered grid on the main actor, then compose

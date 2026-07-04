@@ -57,13 +57,10 @@ final class RemoteTmuxSessionMirror {
     /// Per-window multi-pane renderers (present once a window has >1 pane).
     private var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
-    /// Initial client-sizing retry; see ``scheduleInitialClientSizing()``.
-    private var initialSizingTask: Task<Void, Never>?
     /// Re-arm the initial sizing when one of this workspace's surfaces becomes
     /// ready / enters a window: a background workspace's surfaces may not even
-    /// EXIST while the rebuild-time retry runs (they are created when the
-    /// workspace is first shown), so that retry alone could expire and leave the
-    /// remote at ssh's default 80×24. Removed in ``detachObserver()``.
+    /// exist during rebuild (they are created when the workspace is first shown).
+    /// Removed in ``detachObserver()``.
     private var surfaceReadyObservers: [NSObjectProtocol] = []
 
     init(
@@ -171,8 +168,6 @@ final class RemoteTmuxSessionMirror {
     /// multi-pane renderers (called when the mirror is torn down so its callbacks
     /// don't linger on a shared connection and its pane surfaces don't leak).
     func detachObserver() {
-        initialSizingTask?.cancel()
-        initialSizingTask = nil
         for observer in surfaceReadyObservers { NotificationCenter.default.removeObserver(observer) }
         surfaceReadyObservers.removeAll()
         if let observerToken {
@@ -266,29 +261,12 @@ final class RemoteTmuxSessionMirror {
         }
     }
 
-    /// Brief retry that sizes the remote tmux client to a single-pane tab's
-    /// rendered grid on attach. Needed because `createSurface` stamps the final
-    /// grid before the tab is on screen, and `TerminalSurface.updateSize` only
-    /// reports grid CHANGES — so without an initial push the remote would stay at
-    /// ssh's default 80×24 (mangling TUIs) until the user resizes the window.
-    /// This is the single-pane analogue of the multi-pane path's
-    /// `RemoteTmuxWindowMirrorView.scheduleClientSize` (same shape: one synchronous
-    /// attempt, then a sleep-first retry). One push from the first on-screen
-    /// surface suffices (the tmux client has a single size); live resizes
-    /// afterwards flow through the panel's `onResize` hook. Re-armed by the
-    /// surface-readiness observers whenever a surface becomes displayable, so a
-    /// background workspace is sized when first shown even though this retry
-    /// budget expired long before.
+    /// Makes one initial sizing attempt for single-pane tabs. Surface readiness,
+    /// hosted-window, and manual-grid callbacks invoke this again when a readable
+    /// on-screen grid exists, so there is no polling window to expire while a
+    /// workspace is still backgrounded.
     private func scheduleInitialClientSizing() {
-        initialSizingTask?.cancel()
-        if pushInitialClientSize() { return }
-        initialSizingTask = Task { @MainActor [weak self] in
-            for _ in 0..<20 {
-                do { try await ContinuousClock().sleep(for: .milliseconds(150)) } catch { return }
-                guard let self else { return }
-                if self.pushInitialClientSize() { return }
-            }
-        }
+        _ = pushInitialClientSize()
     }
 
     /// One initial-sizing attempt. Returns `true` when there is nothing (more) to

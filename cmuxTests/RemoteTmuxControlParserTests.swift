@@ -1,4 +1,5 @@
 import Foundation
+import CmuxRemoteSession
 import Testing
 
 #if canImport(cmux_DEV)
@@ -366,13 +367,13 @@ import Testing
             id: 1,
             width: 80,
             height: 24,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1"))
+            layout: try #require(RemoteTmuxRawLayoutParser().parse("80x24,0,0,1"))
         )
         let multiPane = RemoteTmuxWindow(
             id: 2,
             width: 120,
             height: 40,
-            layout: try #require(RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"))
+            layout: try #require(RemoteTmuxRawLayoutParser().parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}"))
         )
 
         #expect(RemoteTmuxSessionMirror.shouldSeedSinglePaneDisplay(for: singlePane))
@@ -404,19 +405,19 @@ import Testing
     // MARK: - Raw layout parser
 
     @Test func parsesLeafLayoutWithChecksum() {
-        let node = RemoteTmuxRawLayoutParser.parse("f92f,80x24,0,0,1")
+        let node = RemoteTmuxRawLayoutParser().parse("f92f,80x24,0,0,1")
         #expect(node == RemoteTmuxLayoutNode(
             width: 80, height: 24, x: 0, y: 0, content: .pane(1)
         ))
     }
 
     @Test func parsesLeafLayoutWithoutChecksum() {
-        let node = RemoteTmuxRawLayoutParser.parse("80x24,0,0,7")
+        let node = RemoteTmuxRawLayoutParser().parse("80x24,0,0,7")
         #expect(node?.content == .pane(7))
     }
 
     @Test func parsesHorizontalSplit() {
-        let node = RemoteTmuxRawLayoutParser.parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}")
+        let node = RemoteTmuxRawLayoutParser().parse("abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5}")
         #expect(node == RemoteTmuxLayoutNode(
             width: 120, height: 40, x: 0, y: 0,
             content: .horizontal([
@@ -428,7 +429,7 @@ import Testing
     }
 
     @Test func parsesVerticalSplit() {
-        let node = RemoteTmuxRawLayoutParser.parse("abcd,80x40,0,0[80x20,0,0,1,80x19,0,21,2]")
+        let node = RemoteTmuxRawLayoutParser().parse("abcd,80x40,0,0[80x20,0,0,1,80x19,0,21,2]")
         #expect(node?.content == .vertical([
             RemoteTmuxLayoutNode(width: 80, height: 20, x: 0, y: 0, content: .pane(1)),
             RemoteTmuxLayoutNode(width: 80, height: 19, x: 0, y: 21, content: .pane(2)),
@@ -437,7 +438,7 @@ import Testing
 
     @Test func parsesNestedSplit() {
         // A horizontal split whose right child is itself a vertical split.
-        let node = RemoteTmuxRawLayoutParser.parse(
+        let node = RemoteTmuxRawLayoutParser().parse(
             "abcd,120x40,0,0{60x40,0,0,4,59x40,61,0[59x20,61,0,5,59x19,61,21,8]}"
         )
         #expect(node?.paneIDsInOrder == [4, 5, 8])
@@ -445,14 +446,14 @@ import Testing
 
     @Test func rejectsSingleChildSplit() {
         // A split must have at least two children; one child is malformed.
-        #expect(RemoteTmuxRawLayoutParser.parse("abcd,60x40,0,0{60x40,0,0,4}") == nil)
+        #expect(RemoteTmuxRawLayoutParser().parse("abcd,60x40,0,0{60x40,0,0,4}") == nil)
     }
 
     @Test func rejectsGarbageLayout() {
-        #expect(RemoteTmuxRawLayoutParser.parse("not-a-layout") == nil)
-        #expect(RemoteTmuxRawLayoutParser.parse("") == nil)
+        #expect(RemoteTmuxRawLayoutParser().parse("not-a-layout") == nil)
+        #expect(RemoteTmuxRawLayoutParser().parse("") == nil)
         // Trailing junk after a valid node fails (cursor must reach the end).
-        #expect(RemoteTmuxRawLayoutParser.parse("80x24,0,0,1xyz") == nil)
+        #expect(RemoteTmuxRawLayoutParser().parse("80x24,0,0,1xyz") == nil)
     }
 }
 

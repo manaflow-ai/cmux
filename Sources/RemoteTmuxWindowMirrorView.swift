@@ -13,7 +13,6 @@ struct RemoteTmuxWindowMirrorView: View {
     /// Pane-header ✕ handler — owned by the workspace layer so the kill-pane can
     /// be gated on a close confirmation (the view stays dialog-free).
     let onClosePane: (Int) -> Void
-    @State private var sizingRetryTask: Task<Void, Never>?
 
     var body: some View {
         GeometryReader { geo in
@@ -29,33 +28,18 @@ struct RemoteTmuxWindowMirrorView: View {
             // Size the remote tmux window to the rendered area so pane content
             // matches the on-screen grid. `geo.size` is the trigger to re-evaluate;
             // `updateClientSize` reads the panes' rendered grids for the real size.
-            .onAppear { scheduleClientSize() }
-            .onChange(of: geo.size) { _, _ in scheduleClientSize() }
-            .onDisappear { sizingRetryTask?.cancel() }
+            .onAppear { refreshClientSize() }
+            .onChange(of: geo.size) { _, _ in refreshClientSize() }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Match the terminal background so the area never shows through as black.
         .background(Color(nsColor: appearance.backgroundColor))
     }
 
-    /// Pushes the client size to tmux, retrying briefly while the pane surfaces
-    /// haven't rendered their grids yet — so the initial `refresh-client -C` lands
-    /// even when the view size never changes after attach. Live resizes afterwards
-    /// flow through each pane surface's `onManualGridResize` hook (race-free: the
-    /// surface reports after applying its grid), so this is the initial-push path;
-    /// `updateClientSize` dedups + reports readiness, so the retry stops as soon as
-    /// the panes go live.
-    private func scheduleClientSize() {
-        sizingRetryTask?.cancel()
-        if mirror.updateClientSize() { return }
-        sizingRetryTask = Task { @MainActor in
-            // Retry until every pane surface reports its rendered grid (local layout
-            // timing, normally a frame or two; budget generously for a loaded system).
-            // do/catch (not try?) so a cancelled sleep returns immediately.
-            for _ in 0..<20 {
-                do { try await ContinuousClock().sleep(for: .milliseconds(150)) } catch { return }
-                if mirror.updateClientSize() { return }
-            }
-        }
+    /// Makes one synchronous sizing attempt. If any pane has not produced an
+    /// on-screen grid yet, each surface's `onManualGridResize` callback triggers
+    /// the next attempt when that grid becomes readable.
+    private func refreshClientSize() {
+        _ = mirror.updateClientSize()
     }
 }

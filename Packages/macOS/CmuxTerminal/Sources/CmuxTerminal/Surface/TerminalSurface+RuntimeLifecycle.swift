@@ -110,6 +110,7 @@ extension TerminalSurface {
               displayID != 0 else { return }
         guard let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") else { return }
         ghostty_surface_set_display_id(s, displayID)
+        reportManualGridResizeIfNeeded(reason: "reconcileAttachedWindow")
     }
 
     /// Whether the surface model is attached to `view` with a live runtime
@@ -243,6 +244,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        lastReportedManualGrid = nil
 
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -311,6 +313,7 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        lastReportedManualGrid = nil
         activePortalHostLease = nil
         pendingSocketInputQueue.removeAll(keepingCapacity: false)
         pendingSocketInputBytes = 0
@@ -400,6 +403,7 @@ extension TerminalSurface {
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
             }
+            reportManualGridResizeIfNeeded(reason: "attachReuse")
             return
         }
 
@@ -457,6 +461,7 @@ extension TerminalSurface {
 #if DEBUG
             logDebugEvent("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
+            reportManualGridResizeIfNeeded(reason: "attachDisplayId")
         }
     }
 
@@ -543,6 +548,7 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        lastReportedManualGrid = nil
         if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }
@@ -596,6 +602,7 @@ extension TerminalSurface {
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
+        reportManualGridResizeIfNeeded(reason: "createSurface")
 
         // Flush remote-tmux output that arrived before the surface existed
         // after sizing, so the seed paints into the final grid instead of

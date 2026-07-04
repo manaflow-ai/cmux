@@ -11,11 +11,15 @@ import Foundation
 /// - `,<paneId>` — a leaf pane,
 /// - `{ … }` — a left-right (horizontal) split of comma-separated child nodes,
 /// - `[ … ]` — a top-bottom (vertical) split of comma-separated child nodes.
-enum RemoteTmuxRawLayoutParser {
+public struct RemoteTmuxRawLayoutParser {
+    /// Creates a parser for raw tmux window-layout strings.
+    public init() {}
+
     /// Parses a window-layout string (with or without the leading checksum).
     ///
+    /// - Parameter raw: The raw `#{window_layout}` / `%layout-change` layout.
     /// - Returns: the root layout node, or `nil` if the string is malformed.
-    static func parse(_ raw: String) -> RemoteTmuxLayoutNode? {
+    public func parse(_ raw: String) -> RemoteTmuxLayoutNode? {
         // Normalize first: the strict `cursor == chars.count` completion check below
         // would otherwise reject an otherwise-valid layout that carries a trailing
         // newline/space.
@@ -27,7 +31,7 @@ enum RemoteTmuxRawLayoutParser {
             chars.removeFirst(5)
         }
         var cursor = 0
-        guard let node = parseNode(chars, &cursor), cursor == chars.count else { return nil }
+        guard let node = Self.parseNode(chars, &cursor), cursor == chars.count else { return nil }
         return node
     }
 
