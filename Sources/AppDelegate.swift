@@ -9262,7 +9262,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Stages the appshot context in an existing agent surface. Returns `false`
-    /// if the surface vanished so the caller can fall back to a new thread.
+    /// if the surface vanished before delivery could be scheduled; `onStaged`
+    /// fires only after the terminal surface accepts the text.
     ///
     /// The text is typed but NOT auto-submitted (no trailing Return): the prompt
     /// embeds the frontmost window's title, which is attacker-influenceable, and
@@ -9271,12 +9272,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// never be auto-executed as a shell command. Deliberately does not steal
     /// focus from the frontmost app, so consecutive appshots keep capturing it.
     @discardableResult
-    func sendAppshotText(_ text: String, workspaceId: UUID, panelId: UUID) -> Bool {
+    func sendAppshotText(_ text: String, workspaceId: UUID, panelId: UUID,
+                         onStaged: (() -> Void)? = nil, onFailure: (() -> Void)? = nil) -> Bool {
         guard let manager = tabManagerFor(tabId: workspaceId),
               let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
               workspace.terminalPanel(for: panelId) != nil else { return false }
         manager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
-        sendTextWhenReady(text, to: workspace, preferredPanelId: panelId)
+        sendTextWhenReady(text, to: workspace, preferredPanelId: panelId, onSuccess: onStaged, onFailure: onFailure)
         return true
     }
 
@@ -9383,9 +9385,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         to tab: Tab,
         preferredPanelId: UUID? = nil,
         beforeSend: (() -> Void)? = nil,
+        onSuccess: (() -> Void)? = nil,
         onFailure: (() -> Void)? = nil
     ) {
         let isReactGrabPasteback = preferredPanelId != nil
+        func finishSend(_ didSend: Bool) {
+            if didSend { onSuccess?() } else { onFailure?() }
+        }
 #if DEBUG
         let initialTargetPanel = Self.resolveTerminalPanelForTextSend(
             in: tab,
@@ -9409,9 +9415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ),
            terminalPanel.isAgentHibernated {
             beforeSend?()
-            if !terminalPanel.sendText(text) {
-                onFailure?()
-            }
+            finishSend(terminalPanel.sendText(text))
             return
         }
 
@@ -9440,9 +9444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 #endif
-            if !didSend {
-                onFailure?()
-            }
+            finishSend(didSend)
             return
         }
 
@@ -9499,9 +9501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
 #endif
-            if !didSend {
-                onFailure?()
-            }
+            finishSend(didSend)
         }
 
         panelsCancellable = tab.panelsPublisher

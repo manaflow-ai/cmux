@@ -102,13 +102,14 @@ final class AppshotController {
 
         switch route {
         case let .append(workspaceId, panelId):
-            if AppDelegate.shared?.sendAppshotText(prompt, workspaceId: workspaceId, panelId: panelId) == true {
-                routingState.lastRoute = AppshotAgentRef(workspaceId: workspaceId, panelId: panelId, at: now)
-            } else {
-                routeToActiveAgentOrNewWorkspace(prompt: prompt, now: now)
+            let failedRef = AppshotAgentRef(workspaceId: workspaceId, panelId: panelId, at: now)
+            if !stageAppshotText(prompt, workspaceId: workspaceId, panelId: panelId, onFailure: { [weak self] in
+                self?.routeToActiveAgentOrNewWorkspace(prompt: prompt, excluding: failedRef)
+            }) {
+                routeToActiveAgentOrNewWorkspace(prompt: prompt, excluding: failedRef)
             }
         case .noRecentTarget:
-            routeToActiveAgentOrNewWorkspace(prompt: prompt, now: now)
+            routeToActiveAgentOrNewWorkspace(prompt: prompt)
         }
     }
 
@@ -118,14 +119,45 @@ final class AppshotController {
     /// surface at all. The fresh workspace is a plain shell (not a confirmed
     /// agent), so it is intentionally NOT recorded as the appshot route: the next
     /// appshot re-resolves the active agent instead of stacking onto that shell.
-    private func routeToActiveAgentOrNewWorkspace(prompt: String, now: Date) {
+    private func routeToActiveAgentOrNewWorkspace(prompt: String, excluding excludedRef: AppshotAgentRef? = nil) {
         if let ref = AppDelegate.shared?.appshotFocusedAgentRef(),
-           AppDelegate.shared?.sendAppshotText(prompt, workspaceId: ref.workspaceId, panelId: ref.panelId) == true {
-            routingState.lastRoute = AppshotAgentRef(workspaceId: ref.workspaceId, panelId: ref.panelId, at: now)
-            return
+           !isSameSurface(ref, as: excludedRef) {
+            if stageAppshotText(prompt, workspaceId: ref.workspaceId, panelId: ref.panelId, onFailure: { [weak self] in
+                self?.openAppshotInNewWorkspaceOrBeep(prompt)
+            }) {
+                return
+            }
         }
+        openAppshotInNewWorkspaceOrBeep(prompt)
+    }
+
+    private func stageAppshotText(
+        _ prompt: String,
+        workspaceId: UUID,
+        panelId: UUID,
+        onFailure: @escaping () -> Void
+    ) -> Bool {
+        AppDelegate.shared?.sendAppshotText(
+            prompt,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            onStaged: { [weak self] in
+                self?.routingState.lastRoute = AppshotAgentRef(workspaceId: workspaceId, panelId: panelId, at: Date())
+            },
+            onFailure: onFailure
+        ) == true
+    }
+
+    private func openAppshotInNewWorkspaceOrBeep(_ prompt: String) {
         if AppDelegate.shared?.openAppshotInNewWorkspace(prompt) == nil {
             NSSound.beep()
         }
+    }
+
+    private func isSameSurface(_ ref: (workspaceId: UUID, panelId: UUID), as excludedRef: AppshotAgentRef?) -> Bool {
+        guard let excludedRef else {
+            return false
+        }
+        return ref.workspaceId == excludedRef.workspaceId && ref.panelId == excludedRef.panelId
     }
 }
