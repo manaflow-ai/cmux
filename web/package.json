@@ -31,7 +31,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
     "@aws-sdk/rds-signer": "^3.1045.0",
+    "@aws-sdk/s3-request-presigner": "^3.1045.0",
     "@base-ui-components/react": "^1.0.0-rc.0",
     "@effect/experimental": "0.57.9",
     "@effect/platform": "0.93.6",

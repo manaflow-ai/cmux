@@ -1,0 +1,66 @@
+import { and, eq } from "drizzle-orm";
+import { cloudDb } from "../../../../db/client";
+import { vaultSessions } from "../../../../db/schema";
+import { vaultConfig, isVaultConfigured } from "../../../../services/vault/config";
+import { buildObjectKey, presignPut } from "../../../../services/vault/storage";
+import { readVaultJsonObject, validateVaultBatch } from "../../../../services/vault/validation";
+import { jsonResponse } from "../../../../services/vms/routeHelpers";
+import { unauthorized, verifyRequest } from "../../../../services/vms/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request): Promise<Response> {
+  if (!isVaultConfigured()) return jsonResponse({ error: "vault_not_configured" }, 503);
+  const user = await verifyRequest(request, { allowCookie: false });
+  if (!user) return unauthorized();
+
+  const body = await readVaultJsonObject(request);
+  if (!body.ok) {
+    return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+  }
+  const batch = validateVaultBatch(body.value);
+  if (!batch.ok) return jsonResponse({ error: batch.error }, 400);
+
+  const config = vaultConfig();
+  if (batch.value.some((item) => item.compressedSizeBytes > config.maxUploadBytes)) {
+    return jsonResponse({ error: "upload_too_large" }, 400);
+  }
+
+  const db = cloudDb();
+  const results = [];
+  for (const item of batch.value) {
+    const [existing] = await db
+      .select({ latestSha256: vaultSessions.latestSha256 })
+      .from(vaultSessions)
+      .where(
+        and(
+          eq(vaultSessions.userId, user.id),
+          eq(vaultSessions.agent, item.agent),
+          eq(vaultSessions.agentSessionId, item.agentSessionId),
+        ),
+      )
+      .limit(1);
+
+    if (existing?.latestSha256 === item.sha256) {
+      results.push({
+        agent: item.agent,
+        agentSessionId: item.agentSessionId,
+        relPath: item.relPath,
+        status: "unchanged",
+      });
+      continue;
+    }
+
+    const objectKey = buildObjectKey(user.id, item.agent, item.agentSessionId, item.sha256);
+    results.push({
+      agent: item.agent,
+      agentSessionId: item.agentSessionId,
+      relPath: item.relPath,
+      status: "upload",
+      objectKey,
+      putUrl: await presignPut(objectKey, item.compressedSizeBytes),
+    });
+  }
+  return jsonResponse({ items: results });
+}

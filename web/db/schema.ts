@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   index,
   integer,
   jsonb,
@@ -142,6 +143,69 @@ export const notificationSendEvents = pgTable(
   },
   (table) => [
     index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+export const vaultSessions = pgTable(
+  "vault_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    agent: text("agent").notNull(),
+    agentSessionId: text("agent_session_id").notNull(),
+    relPath: text("rel_path").notNull(),
+    cwd: text("cwd"),
+    latestSha256: text("latest_sha256").notNull(),
+    latestObjectKey: text("latest_object_key").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }),
+    firstUploadedAt: timestamp("first_uploaded_at", { withTimezone: true }).notNull(),
+    lastUploadedAt: timestamp("last_uploaded_at", { withTimezone: true }).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    uniqueIndex("vault_sessions_user_agent_session_unique").on(
+      table.userId,
+      table.agent,
+      table.agentSessionId,
+    ),
+    index("vault_sessions_user_last_uploaded_idx").on(table.userId, table.lastUploadedAt),
+  ],
+);
+
+export const vaultSnapshots = pgTable(
+  "vault_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => vaultSessions.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    objectKey: text("object_key").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_snapshots_session_sha_unique").on(table.sessionId, table.sha256),
+  ],
+);
+
+export const vaultCliAuthRequests = pgTable(
+  "vault_cli_auth_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    deviceCodeHash: text("device_code_hash").notNull(),
+    userCode: text("user_code").notNull(),
+    status: text("status").notNull(),
+    userId: text("user_id"),
+    tokens: jsonb("tokens").$type<{ accessToken: string; refreshToken: string } | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
+    index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
   ],
 );
 

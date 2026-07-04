@@ -43,6 +43,33 @@
     "viewChangelog": "変更履歴を見る",
     "otherPlatforms": "その他のプラットフォーム"
   },
+  "vault": {
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "CLIアクセスを承認",
+      "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
+      "codeLabel": "ユーザーコード",
+      "approveButton": "アクセスを承認",
+      "approving": "承認中...",
+      "success": "アクセスを承認しました。ターミナルに戻れます。",
+      "error": "このコードを承認できませんでした。有効期限が切れていないか確認してください。"
+    },
+    "sessions": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "同期済みセッション",
+      "description": "ローカルマシンから同期された最近のコーディングエージェントのトランスクリプトです。",
+      "emptyTitle": "同期済みセッションはまだありません",
+      "emptyBody": "ローカルのエージェントセッションがあるマシンでCLIの同期コマンドを実行してください。",
+      "agent": "エージェント",
+      "session": "セッション",
+      "cwd": "作業ディレクトリ",
+      "size": "サイズ",
+      "lastUploaded": "最終アップロード",
+      "unknownCwd": "不明なディレクトリ"
+    }
+  },
   "nav": {
     "docs": "ドキュメント",
     "blog": "ブログ",

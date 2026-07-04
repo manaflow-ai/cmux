@@ -43,6 +43,33 @@
     "viewChangelog": "View Changelog",
     "otherPlatforms": "Other platforms"
   },
+  "vault": {
+    "cliAuth": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "Approve CLI access",
+      "description": "Confirm the code shown by cmux-vault to connect this device to your signed-in cmux account.",
+      "codeLabel": "User code",
+      "approveButton": "Approve access",
+      "approving": "Approving...",
+      "success": "Access approved. You can return to the terminal.",
+      "error": "Could not approve this code. Check that it has not expired."
+    },
+    "sessions": {
+      "section": "vault",
+      "eyebrow": "cmux Vault",
+      "title": "Synced sessions",
+      "description": "Recent coding-agent transcripts synced from your local machines.",
+      "emptyTitle": "No synced sessions yet",
+      "emptyBody": "Run the CLI sync command from a machine with local agent sessions.",
+      "agent": "Agent",
+      "session": "Session",
+      "cwd": "Working directory",
+      "size": "Size",
+      "lastUploaded": "Last uploaded",
+      "unknownCwd": "Unknown directory"
+    }
+  },
   "nav": {
     "docs": "Docs",
     "blog": "Blog",
