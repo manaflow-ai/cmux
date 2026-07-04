@@ -153,6 +153,7 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
     var workspaceId: String
+    var workspaceIsAuthoritative: Bool?
     var surfaceId: String
     var cwd: String?
     var transcriptPath: String?
@@ -691,6 +692,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        workspaceIsAuthoritative: Bool? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -740,6 +742,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                workspaceIsAuthoritative: workspaceIsAuthoritative,
                 now: now
             )
             state.sessions[normalized] = record
@@ -1111,9 +1114,12 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        workspaceIsAuthoritative: Bool? = nil,
         now: TimeInterval
     ) {
+        let workspaceChanged = record.workspaceId != workspaceId
         record.workspaceId = workspaceId
+        if let workspaceIsAuthoritative { record.workspaceIsAuthoritative = workspaceIsAuthoritative } else if workspaceChanged { record.workspaceIsAuthoritative = nil }
         if !surfaceId.isEmpty {
             record.surfaceId = surfaceId
         }
@@ -20317,7 +20323,7 @@ struct CMUXCLI {
             "--remote",
             appServerURL,
             threadId
-        ]
+        ] + AgentResumeArgv.codexUpdateCheckSuppressionOverride
         return parts
             .map { codexTeamsShellQuote($0) }
             .joined(separator: " ")
@@ -22987,12 +22993,10 @@ struct CMUXCLI {
             } else {
                 print(message)
             }
-
         default:
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
         }
     }
-
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -23013,7 +23017,7 @@ struct CMUXCLI {
                 didResolveCallerTTYBinding = true
                 let ttyBinding = resolveCallerTerminalBindingByTTY(
                     client: client,
-                    includeAmbientTTY: workspaceArg == nil && surfaceArg == nil
+                    includeAmbientTTY: workspaceArg == nil && (surfaceArg == nil || hookSurfaceFlag != nil)
                 )
                 if let ttyBinding,
                    claudeHookSurfaceIsListed(ttyBinding.surfaceId, workspaceId: ttyBinding.workspaceId, client: client) {
@@ -23036,7 +23040,7 @@ struct CMUXCLI {
             }
             return callerTTYBindingCache
         }
-        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = preferCallerTTYRouting ? callerTTYBinding : nil
+        let callerTTYBindingProvider: (() -> CallerTerminalBinding?)? = hookWsFlag == nil ? callerTTYBinding : nil
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
@@ -23049,36 +23053,35 @@ struct CMUXCLI {
                 "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
             ]
         )
-
-        enum ClaudeFeedTelemetryWorkspace {
-            case defaultArgument
-            case explicit(String?)
-        }
-
         var didSendFeedTelemetry = false
-        func sendClaudeFeedTelemetry(workspace: ClaudeFeedTelemetryWorkspace = .defaultArgument) {
+        func sendClaudeFeedTelemetry(workspaceId: String? = nil, surfaceId: String? = nil, defaultToWorkspaceArg: Bool = true) {
             didSendFeedTelemetry = true
-            let telemetryWorkspaceId: String? = switch workspace {
-            case .defaultArgument:
-                workspaceArg
-            case .explicit(let workspaceId):
-                workspaceId
-            }
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: telemetryWorkspaceId,
+                workspaceId: workspaceId ?? (defaultToWorkspaceArg ? workspaceArg : nil), surfaceId: surfaceId,
                 socketPassword: socketPassword
             )
+        }
+        func authoritativeClaudeHookWorkspace(_ workspaceId: String? = nil, mappedSession: ClaudeHookSessionRecord? = nil) -> String? {
+            let rawWorkspace = (mappedSession?.workspaceIsAuthoritative == true ? nonEmptyClaudeHookIdentifier(mappedSession?.workspaceId) : nil) ??
+                nonEmptyClaudeHookIdentifier(workspaceArg)
+            let resolvedWorkspace = rawWorkspace.flatMap { try? resolveWorkspaceId($0, client: client) }
+            if let workspaceId {
+                return resolvedWorkspace == workspaceId || callerTTYBindingProvider?()?.workspaceId == workspaceId ? workspaceId : nil
+            }
+            guard let resolvedWorkspace else { return callerTTYBindingProvider?()?.workspaceId }
+            return (try? client.sendV2(method: "surface.list", params: ["workspace_id": resolvedWorkspace])) != nil
+                ? resolvedWorkspace
+                : callerTTYBindingProvider?()?.workspaceId
         }
         defer {
             if !didSendFeedTelemetry {
                 sendClaudeFeedTelemetry()
             }
         }
-
         switch subcommand {
         case "session-start", "active":
             telemetry.breadcrumb("claude-hook.session-start")
@@ -23098,7 +23101,12 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
+            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId) ?? (resolvedSurface.allowsFeedWorkspaceAttribution ? workspaceId : nil)
+            let hasAuthoritativeWorkspace = feedWorkspace != nil
+            sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
+                                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                                    defaultToWorkspaceArg: false)
+            guard hasAuthoritativeWorkspace else { telemetry.breadcrumb("claude-hook.session-start.unknown-workspace"); print("OK"); return }
             let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -23110,13 +23118,6 @@ struct CMUXCLI {
                 fallbackKind: "claude",
                 cwd: parsedInput.cwd
             )
-            // `claude --resume <parent> --fork-session` fires SessionStart with the
-            // PARENT session id — the forked session id is only minted at the first
-            // UserPromptSubmit. Upserting here would steal the parent record's
-            // surface/pid/launch command from the pane that still owns that
-            // conversation, so fork launches leave the store untouched; the forked
-            // session is recorded once its own id appears on prompt-submit.
-            // https://github.com/manaflow-ai/cmux/issues/5908
             let isForkSessionLaunch = isClaudeForkSessionLaunch(
                 env: ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid
@@ -23144,6 +23145,7 @@ struct CMUXCLI {
                     launchCommand: launchCommand,
                     isRestorable: false,
                     agentLifecycle: shouldPromoteActiveSession ? .running : .unknown,
+                    workspaceIsAuthoritative: hasAuthoritativeWorkspace,
                     markActive: shouldPromoteActiveSession,
                     turnId: parsedInput.turnId
                 )
@@ -23160,16 +23162,6 @@ struct CMUXCLI {
                     )
                 }
             }
-            // Register PID for stale-session detection and OSC suppression.
-            // Startup/resume SessionStart remains non-visible; /clear is a
-            // new active boundary and must keep the sidebar Running before
-            // any late pre-clear Stop can write Idle.
-            // Fork launches register their PID only with an authoritative
-            // surface: the hook reports the PARENT session id (which is often
-            // the workspace-active session), and the pre-prompt fork SessionEnd
-            // cleanup clears only authoritative targets, so a fallback-pane
-            // registration would leave a stale agent PID on a pane the fork
-            // never owned.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
                 : shouldPromoteActiveSession ||
@@ -23206,7 +23198,6 @@ struct CMUXCLI {
                 )
             }
             print("OK")
-
         case "stop", "idle":
             telemetry.breadcrumb("claude-hook.stop")
             do {
@@ -23234,29 +23225,12 @@ struct CMUXCLI {
                     currentAgentPID: claudePid,
                     env: ProcessInfo.processInfo.environment
                 )
-                let mappedSessionWorkspaceId = authoritativeClaudeHookWorkspaceId(
-                    mappedSession?.workspaceId,
-                    resolvedWorkspaceId: workspaceId,
-                    client: client
-                )
-                let callerWorkspaceId = authoritativeClaudeHookWorkspaceId(
-                    workspaceArg,
-                    resolvedWorkspaceId: workspaceId,
-                    client: client
-                )
-                // Only attribute the conversation subtitle when the emitting
-                // workspace is authoritatively known; a focused/first-workspace
-                // fallback here would stamp this turn onto whichever workspace is
-                // selected (https://github.com/manaflow-ai/cmux/issues/7132).
-                sendClaudeFeedTelemetry(
-                    workspace: .explicit(Self.claudeFeedTelemetryWorkspaceId(
-                        resolvedWorkspaceId: workspaceId,
-                        mappedSessionWorkspaceId: mappedSessionWorkspaceId,
-                        surfaceAllowsWorkspaceAttribution: resolvedSurface.allowsFeedWorkspaceAttribution,
-                        callerWorkspaceId: callerWorkspaceId
-                    ))
-                )
-
+                let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession) ?? (resolvedSurface.allowsFeedWorkspaceAttribution ? workspaceId : nil)
+                let hasAuthoritativeWorkspace = feedWorkspace != nil
+                sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
+                                        surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                                        defaultToWorkspaceArg: false)
+                guard hasAuthoritativeWorkspace else { telemetry.breadcrumb("claude-hook.stop.unknown-workspace"); print("OK"); return }
                 guard shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     parsedInput: parsedInput,
@@ -23268,20 +23242,12 @@ struct CMUXCLI {
                     print("OK")
                     return
                 }
-
                 guard !suppressVisibleMutations else {
                     telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
                     print("OK")
                     return
                 }
-
-                // Whether this turn ended with unfinished background work (a running
-                // background task or a pending cron). Cached on the session record so
-                // the ~60s-later idle_prompt Notification can consult it, and forwarded
-                // to the app so it can suppress the done-ping until work truly drains.
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
-
-                // Update session with transcript summary and send completion notification.
                 let completion = summarizeClaudeHookStop(
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
@@ -23294,13 +23260,11 @@ struct CMUXCLI {
                         cwd: parsedInput.cwd,
                         transcriptPath: parsedInput.transcriptPath,
                         isRestorable: true,
-                        // Pending background work keeps the pane out of the
-                        // hibernatable .idle state so the planner cannot SIGTERM
-                        // a live task (mirrors the antigravity fullyIdle flip).
                         agentLifecycle: hasPendingBackgroundWork ? .running : .idle,
                         lastSubtitle: completion?.subtitle,
                         lastBody: completion?.body,
                         hadPendingBackgroundWorkAtStop: hasPendingBackgroundWork,
+                        workspaceIsAuthoritative: true,
                         markActive: true,
                         allowsNewSessionReplacement: true
                     )
@@ -23315,7 +23279,6 @@ struct CMUXCLI {
                         launchCommand: mappedSession?.launchCommand
                     )
                 }
-
                 setAgentLifecycle(
                     client: client,
                     key: Self.claudeCodeStatusKey,
@@ -23362,6 +23325,10 @@ struct CMUXCLI {
                 print("OK")
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
+                    if !didSendFeedTelemetry {
+                        let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                        sendClaudeFeedTelemetry(workspaceId: authoritativeClaudeHookWorkspace(mappedSession: mappedSession), defaultToWorkspaceArg: false)
+                    }
                     telemetry.breadcrumb("claude-hook.stop.ignored", data: ["error": String(describing: error)])
                     print("OK")
                     return
@@ -23393,26 +23360,12 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            let mappedSessionWorkspaceId = authoritativeClaudeHookWorkspaceId(
-                mappedSession?.workspaceId,
-                resolvedWorkspaceId: workspaceId,
-                client: client
-            )
-            let callerWorkspaceId = authoritativeClaudeHookWorkspaceId(
-                workspaceArg,
-                resolvedWorkspaceId: workspaceId,
-                client: client
-            )
-            // See the `.stop` branch: never attribute the conversation subtitle to a
-            // focused/first-workspace fallback (#7132).
-            sendClaudeFeedTelemetry(
-                workspace: .explicit(Self.claudeFeedTelemetryWorkspaceId(
-                    resolvedWorkspaceId: workspaceId,
-                    mappedSessionWorkspaceId: mappedSessionWorkspaceId,
-                    surfaceAllowsWorkspaceAttribution: resolvedSurface.allowsFeedWorkspaceAttribution,
-                    callerWorkspaceId: callerWorkspaceId
-                ))
-            )
+            let feedWorkspace = authoritativeClaudeHookWorkspace(workspaceId, mappedSession: mappedSession) ?? (resolvedSurface.allowsFeedWorkspaceAttribution ? workspaceId : nil)
+            let hasAuthoritativeWorkspace = feedWorkspace != nil
+            sendClaudeFeedTelemetry(workspaceId: feedWorkspace,
+                                    surfaceId: resolvedSurface.isAuthoritative ? surfaceId : nil,
+                                    defaultToWorkspaceArg: false)
+            guard hasAuthoritativeWorkspace else { telemetry.breadcrumb("claude-hook.prompt-submit.unknown-workspace"); print("OK"); return }
             let shouldApplyPromptSubmit =
                 shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
@@ -23439,12 +23392,6 @@ struct CMUXCLI {
                 return
             }
             if let sessionId = parsedInput.sessionId {
-                // A forked session's first hook is this prompt-submit — its
-                // SessionStart fired under the parent session id — so capture the
-                // pane's pid and launch command here the way session-start does for
-                // normal launches. Only on first sighting, so an established
-                // record's richer capture is never overwritten.
-                // https://github.com/manaflow-ai/cmux/issues/5908
                 let firstSightingLaunchCommand = mappedSession == nil
                     ? agentLaunchCommandFromEnvironment(
                         ProcessInfo.processInfo.environment,
@@ -23463,6 +23410,7 @@ struct CMUXCLI {
                     launchCommand: firstSightingLaunchCommand,
                     isRestorable: true,
                     agentLifecycle: .running,
+                    workspaceIsAuthoritative: hasAuthoritativeWorkspace,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
@@ -23554,7 +23502,6 @@ struct CMUXCLI {
                 currentAgentPID: claudePid,
                 env: ProcessInfo.processInfo.environment
             )
-            sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
             let resolvedSurface = try resolvePreferredSurfaceForClaudeHookDetailed(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
@@ -23564,6 +23511,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
+            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -23776,7 +23724,7 @@ struct CMUXCLI {
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: consumedSession.surfaceId)
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
@@ -23835,7 +23783,7 @@ struct CMUXCLI {
                 client: client
             )
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspace: .explicit(workspaceId))
+            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -24194,48 +24142,6 @@ struct CMUXCLI {
             return ""
         }
         return " --panel=\(surfaceId)"
-    }
-
-    /// Workspace id to stamp on Claude `Stop` / `UserPromptSubmit` feed telemetry —
-    /// the value iMessage mode reads (`TerminalController.v2ApplyIMessageModeSideEffects`)
-    /// to attribute the sidebar conversation subtitle. Returns `nil` when the
-    /// workspace was resolved only from the focused/first-workspace fallback: the
-    /// hook has no mapped session that actually resolves to this workspace, no
-    /// authoritative surface (a TTY/PID binding, an explicit `--surface`, or the
-    /// mapped session's surface), and no caller `CMUX_WORKSPACE_ID`/`--workspace`
-    /// that actually resolves to this workspace. In that case the emitting
-    /// workspace is unknown, so the turn must be dropped rather than recorded onto
-    /// whichever workspace happens to be selected — mirroring the surface-less
-    /// notification rule in #7133 and the `runGenericAgentHook` path, which already
-    /// returns nil instead of borrowing the focused workspace.
-    /// https://github.com/manaflow-ai/cmux/issues/7132
-    private static func claudeFeedTelemetryWorkspaceId(
-        resolvedWorkspaceId: String,
-        mappedSessionWorkspaceId: String?,
-        surfaceAllowsWorkspaceAttribution: Bool,
-        callerWorkspaceId: String?
-    ) -> String? {
-        func matchesResolved(_ value: String?) -> Bool {
-            value == resolvedWorkspaceId
-        }
-        let authoritative = matchesResolved(mappedSessionWorkspaceId)
-            || surfaceAllowsWorkspaceAttribution
-            || matchesResolved(callerWorkspaceId)
-        return authoritative ? resolvedWorkspaceId : nil
-    }
-
-    private func authoritativeClaudeHookWorkspaceId(
-        _ raw: String?,
-        resolvedWorkspaceId: String,
-        client: SocketClient
-    ) -> String? {
-        guard let raw = nonEmptyClaudeHookIdentifier(raw),
-              let candidate = try? resolveWorkspaceId(raw, client: client),
-              candidate == resolvedWorkspaceId,
-              (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil else {
-            return nil
-        }
-        return candidate
     }
 
     private func resolvePreferredWorkspaceIdForClaudeHook(

@@ -1,134 +1,69 @@
 import Darwin
 import Dispatch
 import Foundation
-import XCTest
+import Testing
 
-/// Regression coverage for
-/// https://github.com/manaflow-ai/cmux/issues/7132 — "Sidebar conversation
-/// subtitle attributed to the wrong workspace".
-///
-/// In iMessage mode the sidebar subtitle falls through to
-/// `Workspace.latestConversationMessage`, which the app records strictly by the
-/// `workspace_id` carried on the Claude `Stop` feed event
-/// (`TerminalController.v2ApplyIMessageModeSideEffects` →
-/// `handleAssistantFinalMessage`). The bug is upstream in the CLI: when a
-/// `Stop` hook cannot authoritatively resolve its own workspace (no mapped
-/// session, no TTY/PID binding, and no `CMUX_WORKSPACE_ID` — the detached /
-/// shared-daemon case, cf. #7100), `runClaudeHook` falls through to
-/// `workspace.current` (the *focused* workspace) and then stamps that focused
-/// id onto its feed telemetry — even though the very same event's visible
-/// status mutation is correctly suppressed because the resolved surface is
-/// non-authoritative. The feed telemetry then records one workspace's assistant
-/// message onto whichever workspace happens to be selected.
-///
-/// The generic-agent hook path (`runGenericAgentHook`) already returns `nil`
-/// (dropping the event) when workspace identity is unknown; these tests pin the
-/// Claude path to the same "attribute to the emitter or nowhere — never the
-/// focused workspace" contract, mirroring the surface-less notification rule in
-/// #7133.
-///
-/// Uses XCTest (not Swift Testing) deliberately: the app-host unit-test lane
-/// gates on the XCTest `Executed … (N unexpected)` summary, so a regression
-/// must fail as an XCTest assertion to turn CI red.
-///
-/// Exercises the real bundled `cmux` CLI against a mock socket so the assertion
-/// is on the actual `feed.push` payload the app would receive.
-final class ClaudeHookConversationAttributionTests: XCTestCase {
+/// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7132.
+/// A Claude `Stop` hook with no authoritative workspace identity must attribute
+/// its sidebar conversation subtitle to nowhere, never to the focused workspace.
+/// Exercises the real bundled CLI against a mock socket and asserts on the
+/// actual `feed.push` payload the app would receive.
+@Suite(.serialized)
+struct ClaudeHookConversationAttributionTests {
+    private final class BundleToken {}
+
     private static let focusedWorkspaceId = "99999999-9999-9999-9999-999999999999"
     private static let focusedSurfaceId = "98989898-9898-9898-9898-989898989898"
     private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
+    private static let staleWorkspaceId = "33333333-3333-3333-3333-333333333333"
     /// A `CMUX_SURFACE_ID` that exists in no listed workspace — enough to clear
     /// the "no cmux target" hook guard while forcing a non-authoritative surface
     /// resolution, exactly like a detached/re-hosted session's leaked env.
     private static let strayEnvSurfaceId = "55555555-5555-5555-5555-555555555555"
 
-    /// A `Stop` hook whose emitting workspace cannot be authoritatively resolved
-    /// must NOT attribute its conversation message to the focused workspace.
-    func testStopWithoutIdentityDoesNotAttributeToFocusedWorkspace() throws {
+    @Test func stopWithoutIdentityDoesNotAttributeToFocusedWorkspaceOrPersistFallback() throws {
         let capture = try runClaudeStopHook(
             callerWorkspaceId: nil,
-            surfaceEnvId: Self.strayEnvSurfaceId
+            surfaceEnvId: Self.strayEnvSurfaceId,
+            includeSessionStart: true,
+            repeatCount: 2
         )
-        let event = try XCTUnwrap(
-            capture.feedEvent,
-            "Expected the Stop hook to emit a feed.push, saw \(capture.commands)"
+        #expect(
+            capture.feedEvents.count == 2,
+            Comment(rawValue: "Expected two Stop feed.push events, saw \(capture.commands)")
         )
-        let attributed = event["workspace_id"] as? String
-        // Pre-fix the resolver falls through to `workspace.current`
-        // (`focusedWorkspaceId`) and stamps it here; the fix drops attribution
-        // entirely so the message is never mis-homed onto the selected workspace.
-        XCTAssertNil(
-            attributed,
-            "Stop feed telemetry must omit workspace_id when the emitting workspace is unknown; got \(String(describing: attributed)) (focused=\(Self.focusedWorkspaceId))"
-        )
-    }
-
-    /// A stale or malformed caller workspace value may still make the resolver
-    /// fall back to the focused workspace, but that fallback must not become feed
-    /// telemetry attribution just because the original env value was non-empty.
-    func testStopWithInvalidCallerWorkspaceDoesNotAttributeToFocusedFallback() throws {
-        let capture = try runClaudeStopHook(
-            callerWorkspaceId: "not-a-workspace",
-            surfaceEnvId: Self.strayEnvSurfaceId
-        )
-        let event = try XCTUnwrap(
-            capture.feedEvent,
-            "Expected the Stop hook to emit a feed.push, saw \(capture.commands)"
-        )
-        XCTAssertNil(
-            event["workspace_id"] as? String,
-            "Invalid caller workspace must not make focused fallback authoritative; got \(String(describing: event["workspace_id"]))"
-        )
-        XCTAssertTrue(
-            capture.commands.contains { $0.contains("\"workspace.current\"") },
-            "Invalid caller workspace should still exercise the focused fallback; saw \(capture.commands)"
-        )
-    }
-
-    /// A leaked ambient `CMUX_SURFACE_ID` may still be listed in the focused
-    /// workspace, but it is not enough to prove the emitting workspace.
-    func testStopWithListedAmbientSurfaceDoesNotAttributeToFocusedFallback() throws {
-        let capture = try runClaudeStopHook(
-            callerWorkspaceId: nil,
-            surfaceEnvId: Self.focusedSurfaceId
-        )
-        let event = try XCTUnwrap(
-            capture.feedEvent,
-            "Expected the Stop hook to emit a feed.push, saw \(capture.commands)"
-        )
-        XCTAssertNil(
-            event["workspace_id"] as? String,
-            "Listed ambient surface must not make focused fallback authoritative; got \(String(describing: event["workspace_id"]))"
-        )
-        XCTAssertTrue(
-            capture.commands.contains { $0.contains("\"workspace.current\"") },
-            "Listed ambient surface scenario should exercise the focused fallback; saw \(capture.commands)"
-        )
+        for event in capture.feedEvents {
+            let attributed = event["workspace_id"] as? String
+            #expect(
+                attributed == nil,
+                Comment(rawValue: "Stop feed telemetry must omit unknown workspace_id; got \(String(describing: attributed))")
+            )
+            #expect(attributed != Self.focusedWorkspaceId)
+        }
     }
 
     /// The caller's own `CMUX_WORKSPACE_ID` stays an authoritative attribution
     /// source: the normal per-surface case must keep recording the conversation
     /// subtitle on the caller's workspace. Guards against the fix over-dropping.
-    func testStopWithCallerWorkspaceStaysAttributedToCaller() throws {
+    @Test func stopWithCallerWorkspaceStaysAttributedToCaller() throws {
         let capture = try runClaudeStopHook(
             callerWorkspaceId: Self.callerWorkspaceId,
             surfaceEnvId: Self.callerSurfaceId
         )
-        let event = try XCTUnwrap(
+        let event = try #require(
             capture.feedEvent,
-            "Expected the Stop hook to emit a feed.push, saw \(capture.commands)"
+            Comment(rawValue: "Expected the Stop hook to emit a feed.push, saw \(capture.commands)")
         )
-        XCTAssertEqual(
-            event["workspace_id"] as? String,
-            Self.callerWorkspaceId,
-            "Stop feed telemetry must keep the caller's own workspace, got \(String(describing: event["workspace_id"]))"
+        #expect(
+            event["workspace_id"] as? String == Self.callerWorkspaceId,
+            Comment(rawValue: "Stop feed telemetry must keep the caller's own workspace, got \(String(describing: event["workspace_id"]))")
         )
         // The caller's env is authoritative, so the focused workspace must never
         // be consulted.
-        XCTAssertFalse(
-            capture.commands.contains { $0.contains("\"workspace.current\"") },
-            "Caller-owned Stop hook must not fall back to workspace.current; saw \(capture.commands)"
+        #expect(
+            !capture.commands.contains { $0.contains("\"workspace.current\"") },
+            Comment(rawValue: "Caller-owned Stop hook must not fall back to workspace.current; saw \(capture.commands)")
         )
     }
 
@@ -137,33 +72,78 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
     /// lists), the workspace attribution must survive — the fix keys on the
     /// authoritative *workspace*, not merely on an authoritative surface, so the
     /// normal per-surface subtitle is not dropped.
-    func testStopWithCallerWorkspaceSurvivesNonAuthoritativeSurface() throws {
+    @Test func stopWithCallerWorkspaceSurvivesNonAuthoritativeSurface() throws {
         let capture = try runClaudeStopHook(
             callerWorkspaceId: Self.callerWorkspaceId,
             surfaceEnvId: Self.strayEnvSurfaceId
         )
-        let event = try XCTUnwrap(
+        let event = try #require(
             capture.feedEvent,
-            "Expected the Stop hook to emit a feed.push, saw \(capture.commands)"
+            Comment(rawValue: "Expected the Stop hook to emit a feed.push, saw \(capture.commands)")
         )
-        XCTAssertEqual(
-            event["workspace_id"] as? String,
-            Self.callerWorkspaceId,
-            "Authoritative caller workspace must survive a non-authoritative surface, got \(String(describing: event["workspace_id"]))"
+        #expect(
+            event["workspace_id"] as? String == Self.callerWorkspaceId,
+            Comment(rawValue: "Authoritative caller workspace must survive a non-authoritative surface, got \(String(describing: event["workspace_id"]))")
         )
-        XCTAssertNotEqual(event["workspace_id"] as? String, Self.focusedWorkspaceId)
+        #expect(event["workspace_id"] as? String != Self.focusedWorkspaceId)
+    }
+
+    /// A stale caller workspace must not become authoritative merely because a
+    /// raw env value was present. If resolving it falls back to the focused
+    /// workspace, feed telemetry still omits workspace attribution.
+    @Test func stopWithStaleCallerWorkspaceDoesNotAttributeToFocusedWorkspace() throws {
+        let capture = try runClaudeStopHook(
+            callerWorkspaceId: Self.staleWorkspaceId,
+            surfaceEnvId: Self.strayEnvSurfaceId
+        )
+        let event = try #require(
+            capture.feedEvent,
+            Comment(rawValue: "Expected the Stop hook to emit a feed.push, saw \(capture.commands)")
+        )
+        let attributed = event["workspace_id"] as? String
+        #expect(
+            attributed == nil,
+            Comment(rawValue: "Stale caller workspace must not fall through to focused workspace attribution; got \(String(describing: attributed))")
+        )
+        #expect(attributed != Self.focusedWorkspaceId)
+    }
+
+    /// A leaked ambient `CMUX_SURFACE_ID` may be listed in the focused workspace,
+    /// but that alone does not prove the emitting workspace for feed attribution.
+    @Test func stopWithListedAmbientSurfaceDoesNotAttributeToFocusedWorkspace() throws {
+        let capture = try runClaudeStopHook(
+            callerWorkspaceId: nil,
+            surfaceEnvId: Self.focusedSurfaceId
+        )
+        let event = try #require(
+            capture.feedEvent,
+            Comment(rawValue: "Expected the Stop hook to emit a feed.push, saw \(capture.commands)")
+        )
+        let attributed = event["workspace_id"] as? String
+        #expect(
+            attributed == nil,
+            Comment(rawValue: "Listed ambient surface must not authorize focused workspace attribution; got \(String(describing: attributed))")
+        )
+        #expect(attributed != Self.focusedWorkspaceId)
+        #expect(
+            capture.commands.contains { $0.contains("\"workspace.current\"") },
+            Comment(rawValue: "Listed ambient surface should still exercise the focused fallback; saw \(capture.commands)")
+        )
     }
 
     // MARK: - Harness
 
     private struct FeedCapture {
-        let feedEvent: [String: Any]?
+        let feedEvents: [[String: Any]]
+        var feedEvent: [String: Any]? { feedEvents.last }
         let commands: [String]
     }
 
     private func runClaudeStopHook(
         callerWorkspaceId: String?,
-        surfaceEnvId: String
+        surfaceEnvId: String,
+        includeSessionStart: Bool = false,
+        repeatCount: Int = 1
     ) throws -> FeedCapture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-7132-\(UUID().uuidString)", isDirectory: true)
@@ -191,6 +171,13 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
             case "surface.list":
                 let params = payload["params"] as? [String: Any]
                 let workspaceId = params?["workspace_id"] as? String
+                if workspaceId == Self.staleWorkspaceId {
+                    return Self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "workspace_not_found", "message": "Workspace not found"]
+                    )
+                }
                 return Self.v2Response(id: id, ok: true, result: ["surfaces": Self.surfaces(forWorkspace: workspaceId)])
             case "system.top":
                 return Self.v2Response(id: id, ok: true, result: ["windows": []])
@@ -206,47 +193,36 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
             }
         }
 
-        var environment = ProcessInfo.processInfo.environment
-        for key in [
-            "CMUX_SOCKET",
-            "CMUX_SOCKET_PASSWORD",
-            "CMUX_SOCKET_PATH",
-            "CMUX_PANEL_ID",
-            "CMUX_SURFACE_ID",
-            "CMUX_TAB_ID",
-            "CMUX_WINDOW_ID",
-            "CMUX_WORKSPACE_ID",
-        ] {
-            environment.removeValue(forKey: key)
-        }
-        environment["HOME"] = root.path
-        environment["PATH"] = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SURFACE_ID"] = surfaceEnvId
-        environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root.appendingPathComponent("claude-hook-sessions.json").path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-        if let callerWorkspaceId {
-            environment["CMUX_WORKSPACE_ID"] = callerWorkspaceId
-        }
-
         let sessionId = "claude-7132-\(UUID().uuidString)"
-        let stdin = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop"}"#
-
-        let result = Self.runProcess(
-            executablePath: try Self.bundledCLIPath(),
-            arguments: ["hooks", "claude", "stop"],
-            environment: environment,
-            standardInput: stdin,
-            timeout: 10
-        )
-        XCTAssertFalse(result.timedOut, "hooks claude stop timed out; stderr=\(result.stderr)")
+        func runHook(_ subcommand: String, eventName: String) throws {
+            let stdin = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"\#(eventName)"}"#
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: ["hooks", "claude", subcommand],
+                environment: cliEnvironment(
+                    root: root,
+                    socketPath: socketPath,
+                    callerWorkspaceId: callerWorkspaceId,
+                    surfaceEnvId: surfaceEnvId
+                ),
+                standardInput: stdin,
+                timeout: 10
+            )
+            #expect(!result.timedOut, Comment(rawValue: "hooks claude stop timed out; stderr=\(result.stderr)"))
+        }
+        if includeSessionStart {
+            try runHook("session-start", eventName: "SessionStart")
+            try runHook("prompt-submit", eventName: "UserPromptSubmit")
+        }
+        for _ in 0..<repeatCount {
+            try runHook("stop", eventName: "Stop")
+        }
 
         // Feed telemetry is delivered best-effort on a separate one-way socket
         // connection; the CLI writes it before exiting but the mock records it
         // asynchronously, so poll the recorded commands for the Stop event.
-        let event = Self.pollForStopFeedEvent(state: state, timeout: 5)
-        return FeedCapture(feedEvent: event, commands: state.snapshot())
+        let events = Self.pollForStopFeedEvents(state: state, expectedCount: repeatCount, timeout: 5)
+        return FeedCapture(feedEvents: events, commands: state.snapshot())
     }
 
     private static func surfaces(forWorkspace workspaceId: String?) -> [[String: Any]] {
@@ -259,18 +235,24 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
         return []
     }
 
-    private static func pollForStopFeedEvent(state: MockServerState, timeout: TimeInterval) -> [String: Any]? {
+    private static func pollForStopFeedEvents(
+        state: MockServerState,
+        expectedCount: Int,
+        timeout: TimeInterval
+    ) -> [[String: Any]] {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let event = stopFeedEvent(in: state.snapshot()) {
-                return event
+            let events = stopFeedEvents(in: state.snapshot())
+            if events.count >= expectedCount {
+                return events
             }
             usleep(50_000)
         }
-        return stopFeedEvent(in: state.snapshot())
+        return stopFeedEvents(in: state.snapshot())
     }
 
-    private static func stopFeedEvent(in commands: [String]) -> [String: Any]? {
+    private static func stopFeedEvents(in commands: [String]) -> [[String: Any]] {
+        var events: [[String: Any]] = []
         for line in commands {
             guard let payload = jsonObject(line),
                   payload["method"] as? String == "feed.push",
@@ -279,9 +261,40 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
                   (event["hook_event_name"] as? String) == "Stop" else {
                 continue
             }
-            return event
+            events.append(event)
         }
-        return nil
+        return events
+    }
+
+    private func cliEnvironment(
+        root: URL,
+        socketPath: String,
+        callerWorkspaceId: String?,
+        surfaceEnvId: String
+    ) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        for key in [
+            "CMUX_SOCKET",
+            "CMUX_SOCKET_PASSWORD",
+            "CMUX_SOCKET_PATH",
+            "CMUX_SURFACE_ID",
+            "CMUX_TAB_ID",
+            "CMUX_PANEL_ID",
+            "CMUX_WINDOW_ID",
+            "CMUX_WORKSPACE_ID",
+        ] {
+            environment.removeValue(forKey: key)
+        }
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = surfaceEnvId
+        environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root.appendingPathComponent("claude-hook-sessions.json").path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        if let callerWorkspaceId {
+            environment["CMUX_WORKSPACE_ID"] = callerWorkspaceId
+        }
+        return environment
     }
 
     private final class MockServerState: @unchecked Sendable {
@@ -309,8 +322,6 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
         let timedOut: Bool
     }
 
-    private final class BundleToken {}
-
     private static func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
     }
@@ -337,7 +348,7 @@ final class ClaudeHookConversationAttributionTests: XCTestCase {
             Darwin.close(fd)
             throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
         }
-        withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
+        _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
                     buffer[index] = CChar(bitPattern: utf8[index])

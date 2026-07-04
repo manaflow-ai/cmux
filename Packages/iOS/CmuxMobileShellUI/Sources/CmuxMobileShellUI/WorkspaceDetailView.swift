@@ -61,6 +61,9 @@ struct WorkspaceDetailView: View {
     @State var chatSessionsWorkspaceID: String?
     /// Last terminal id whose cached snapshot said it had a chat session.
     @State var cachedChatToggleTerminalID: String?
+    @State var ignoredChatSessionRefreshKey: String?
+    @State var ignoredChatSessionRefreshID: UUID?
+    @State var ignoredChatSessionRefreshTask: Task<[ChatSessionDescriptor]?, Never>?
     /// Per-session chat stores kept warm while the workspace detail is visible.
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
@@ -331,7 +334,6 @@ struct WorkspaceDetailView: View {
             requestClose: requestCloseWorkspaceFromMenu
         )
     }
-
     #endif
 
     private var newWorkspaceToolbarButton: some View {
@@ -423,14 +425,12 @@ struct WorkspaceDetailView: View {
                 }
                 .accessibilityIdentifier("MobileViewAsTextMenuItem")
             }
-
             #if DEBUG
             Button(action: copyDebugLogsFromMenu) {
                 Label(L10n.string("mobile.debug.copyLogs", defaultValue: "Copy Debug Logs"), systemImage: "doc.on.clipboard")
             }
             .accessibilityIdentifier("MobileCopyDebugLogsMenuItem")
             #endif
-
             Button(action: openFeedbackComposerFromMenu) {
                 Label(
                     L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"),
