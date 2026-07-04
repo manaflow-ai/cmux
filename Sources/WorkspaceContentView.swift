@@ -60,6 +60,8 @@ private struct WorkspacePanelContentHostView: View {
 final class TmuxWorkspacePaneOverlayModel {
     private(set) var unreadRects: [CGRect] = []
     private(set) var flashRect: CGRect?
+    private(set) var activePaneBorderRect: CGRect?
+    private(set) var activePaneBorderColorHex: String?
     private(set) var flashStartedAt: Date?
     private(set) var flashReason: WorkspaceAttentionFlashReason?
 
@@ -72,6 +74,8 @@ final class TmuxWorkspacePaneOverlayModel {
     ) {
         unreadRects = state.unreadRects
         flashRect = state.flashRect
+        activePaneBorderRect = state.activePaneBorderRect
+        activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
 
         let didChangeWorkspace = currentWorkspaceId != state.workspaceId
@@ -94,6 +98,8 @@ final class TmuxWorkspacePaneOverlayModel {
     func clear() {
         unreadRects = []
         flashRect = nil
+        activePaneBorderRect = nil
+        activePaneBorderColorHex = nil
         flashStartedAt = nil
         flashReason = nil
         currentWorkspaceId = nil
@@ -321,6 +327,9 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
+            workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
