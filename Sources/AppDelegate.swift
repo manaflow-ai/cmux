@@ -3211,6 +3211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func scrubPersistedSessionScrollbackForOptOut(source: String) -> Bool {
         guard !SessionScrollbackPersistenceSettings.isEnabled() else { return false }
         let didScrubPersistedSnapshots = sessionSnapshotStore.scrubPersistedTerminalScrollback()
+        let didRemoveReplayFiles = SessionScrollbackReplayStore.removeReplayFiles()
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
                 workspace.clearRestoredTerminalScrollbackForPersistenceOptOut()
@@ -3222,10 +3223,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         cmuxDebugLog(
             "session.scrollbackPersistence.scrub source=\(source) " +
-                "persisted=\(didScrubPersistedSnapshots ? 1 : 0)"
+                "persisted=\(didScrubPersistedSnapshots ? 1 : 0) " +
+                "replayFiles=\(didRemoveReplayFiles ? 1 : 0)"
         )
 #endif
-        return didScrubPersistedSnapshots
+        return didScrubPersistedSnapshots || didRemoveReplayFiles
     }
 
     private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {

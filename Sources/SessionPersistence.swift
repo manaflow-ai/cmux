@@ -1984,6 +1984,21 @@ enum SessionScrollbackReplayStore {
         return [environmentKey: replayFileURL.path]
     }
 
+    @discardableResult
+    static func removeReplayFiles(
+        tempDirectory: URL = FileManager.default.temporaryDirectory,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let directory = replayDirectoryURL(tempDirectory: tempDirectory)
+        guard fileManager.fileExists(atPath: directory.path) else { return false }
+        do {
+            try fileManager.removeItem(at: directory)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
@@ -2104,7 +2119,7 @@ enum SessionScrollbackReplayStore {
 
     private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
-        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        let directory = replayDirectoryURL(tempDirectory: tempDirectory)
 
         do {
             try FileManager.default.createDirectory(
@@ -2120,5 +2135,9 @@ enum SessionScrollbackReplayStore {
         } catch {
             return nil
         }
+    }
+
+    private static func replayDirectoryURL(tempDirectory: URL) -> URL {
+        tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
     }
 }

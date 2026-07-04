@@ -470,7 +470,7 @@ import Testing
         #expect(enabledWorkspace.restoredTerminalScrollbackByPanelId.values.contains("SENSITIVE_TOKEN_OUTPUT"))
     }
 
-    @Test @MainActor func persistedSessionSnapshotsScrubScrollbackWhenPersistenceDisabled() throws {
+    @Test @MainActor func persistedSessionSnapshotsAndReplayFilesScrubScrollbackWhenPersistenceDisabled() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-persisted-scrollback-scrub-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -508,7 +508,17 @@ import Testing
         #expect(primaryBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
         #expect(backupBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
 
+        let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+            for: "SENSITIVE_TOKEN_OUTPUT",
+            tempDirectory: root
+        )
+        let replayPath = try #require(replayEnvironment[SessionScrollbackReplayStore.environmentKey])
+        let replayURL = URL(fileURLWithPath: replayPath)
+        let replayBefore = try #require(String(data: Data(contentsOf: replayURL), encoding: .utf8))
+        #expect(replayBefore.contains("SENSITIVE_TOKEN_OUTPUT"))
+
         #expect(repository.scrubPersistedTerminalScrollback())
+        #expect(SessionScrollbackReplayStore.removeReplayFiles(tempDirectory: root))
 
         for fileURL in [primaryURL, backupURL] {
             let contents = try #require(String(data: Data(contentsOf: fileURL), encoding: .utf8))
@@ -519,6 +529,7 @@ import Testing
             )
             #expect(terminal.scrollback == nil)
         }
+        #expect(!FileManager.default.fileExists(atPath: replayURL.path))
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
