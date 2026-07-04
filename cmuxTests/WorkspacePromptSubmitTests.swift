@@ -291,6 +291,28 @@ struct WorkspacePromptSubmitTests {
         #expect(unrelatedSnapshot.lastPromptMarkKey == nil)
     }
 
+    @Test func testRestoredPromptMarkKeySurvivesResnapshotWithoutNewSubmit() throws {
+        let source = Workspace()
+        let sourcePanelId = try #require(source.focusedPanelId)
+
+        let esc = "\u{001B}"
+        let message = "deploy the release"
+        source.restoredTerminalScrollbackByPanelId[sourcePanelId] = "\(esc)[2m> \(esc)[0m\(message)\nowner output\n"
+
+        #expect(source.recordSubmittedMessage(message, panelId: sourcePanelId))
+        let sourceSnapshot = source.sessionSnapshot(includeScrollback: true)
+        let sourceTerminalSnapshot = try #require(sourceSnapshot.panels.first { $0.id == sourcePanelId }?.terminal)
+        #expect(sourceTerminalSnapshot.lastPromptMarkKey == message)
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(sourceSnapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+
+        let resnapshot = restored.sessionSnapshot(includeScrollback: true)
+        let restoredTerminalSnapshot = try #require(resnapshot.panels.first { $0.id == restoredPanelId }?.terminal)
+        #expect(restoredTerminalSnapshot.lastPromptMarkKey == message)
+    }
+
     @Test func testIMessageModeUsesManagedSettingsKey() throws {
         let suiteName = "cmux.iMessageMode.test.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

@@ -150,6 +150,7 @@ extension Workspace {
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredPromptMarkKeysByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
@@ -526,17 +527,10 @@ extension Workspace {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning,
-                // Persist only the bounded prompt match KEY, and only into the
-                // snapshot of the terminal that owned the submitted prompt and whose
-                // saved scrollback actually contains that prompt row. The owner gate
-                // keeps a workspace-scoped prompt out of unrelated panels that happen
-                // to contain the same text.
-                lastPromptMarkKey: latestSubmittedPanelId == panelId
-                    ? SessionScrollbackReplayStore.persistablePromptMatchKey(
-                        forScrollback: resolvedScrollback,
-                        lastUserMessage: latestSubmittedMessage
-                    )
-                    : nil
+                lastPromptMarkKey: sessionPromptMarkKeyForSnapshot(
+                    panelId: panelId,
+                    resolvedScrollback: resolvedScrollback
+                )
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1018,6 +1012,38 @@ extension Workspace {
         return resolved
     }
 
+    private func sessionPromptMarkKeyForSnapshot(
+        panelId: UUID,
+        resolvedScrollback: String?
+    ) -> String? {
+        let key: String?
+        if latestSubmittedPanelId == panelId {
+            // Persist only the bounded prompt match KEY, and only into the
+            // snapshot of the terminal that owned the submitted prompt and whose
+            // saved scrollback actually contains that prompt row. The owner gate
+            // keeps a workspace-scoped prompt out of unrelated panels that happen
+            // to contain the same text.
+            key = SessionScrollbackReplayStore.persistablePromptMatchKey(
+                forScrollback: resolvedScrollback,
+                lastUserMessage: latestSubmittedMessage
+            )
+        } else if let restoredPromptMarkKey = restoredPromptMarkKeysByPanelId[panelId] {
+            key = SessionScrollbackReplayStore.persistablePromptMatchKey(
+                forScrollback: resolvedScrollback,
+                lastUserMessage: restoredPromptMarkKey
+            )
+        } else {
+            key = nil
+        }
+
+        if let key {
+            restoredPromptMarkKeysByPanelId[panelId] = key
+        } else {
+            restoredPromptMarkKeysByPanelId.removeValue(forKey: panelId)
+        }
+        return key
+    }
+
 #if DEBUG
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> (terminals: Int, characters: Int) {
         for panelId in debugSessionSnapshotScrollbackFallbackPanelIds {
@@ -1487,8 +1513,19 @@ extension Workspace {
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
+                if let restoredPromptMarkKey = restoredPromptMarkKey.flatMap({
+                    SessionScrollbackReplayStore.persistablePromptMatchKey(
+                        forScrollback: fallbackScrollback,
+                        lastUserMessage: $0
+                    )
+                }) {
+                    restoredPromptMarkKeysByPanelId[terminalPanel.id] = restoredPromptMarkKey
+                } else {
+                    restoredPromptMarkKeysByPanelId.removeValue(forKey: terminalPanel.id)
+                }
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
+                restoredPromptMarkKeysByPanelId.removeValue(forKey: terminalPanel.id)
             }
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
@@ -2650,6 +2687,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private var restoredPromptMarkKeysByPanelId: [UUID: String] = [:]
 #if DEBUG
     var debugSessionSnapshotScrollbackFallbackPanelIds: Set<UUID> = []
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
@@ -5294,6 +5332,9 @@ final class Workspace: Identifiable, ObservableObject {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredPromptMarkKeysByPanelId = restoredPromptMarkKeysByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredResumeSessionWorkingDirectoriesByPanelId = restoredResumeSessionWorkingDirectoriesByPanelId.filter {
@@ -8930,6 +8971,7 @@ final class Workspace: Identifiable, ObservableObject {
         recomputeListeningPorts()
         clearRemoteConfigurationIfWorkspaceBecameLocal()
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        restoredPromptMarkKeysByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
         debugSessionSnapshotScrollbackFallbackPanelIds.removeAll(keepingCapacity: false)
         debugSessionSnapshotSyntheticScrollbackByPanelId.removeAll(keepingCapacity: false)
