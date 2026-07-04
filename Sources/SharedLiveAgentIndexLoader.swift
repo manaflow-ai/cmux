@@ -31,18 +31,21 @@ struct SharedLiveAgentIndexLoader {
     }
 
     func loadSynchronously() -> RestorableAgentSessionIndex {
-        if let registry {
-            return RestorableAgentSessionIndex.load(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager,
-                registry: registry,
-                detectedSnapshots: [:],
-                processArgumentsProvider: processArgumentsProvider
-            )
-        }
+        let resolvedRegistry = registry
+            ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: resolvedRegistry,
+            fileManager: fileManager,
+            processSnapshot: processSnapshotProvider(),
+            capturedAt: capturedAtProvider(),
+            processArgumentsProvider: processArgumentsProvider
+        )
         return RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
-            fileManager: fileManager
+            fileManager: fileManager,
+            registry: resolvedRegistry,
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: processArgumentsProvider
         )
     }
 }

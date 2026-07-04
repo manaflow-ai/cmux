@@ -2129,8 +2129,8 @@ final class SharedLiveAgentIndex: ObservableObject {
         refreshTask = Task { @MainActor [weak self] in
             let newIndex = await Task.detached(priority: .utility) {
                 // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
-                // for load(); everything else should read SharedLiveAgentIndex.shared).
-                RestorableAgentSessionIndex.load()
+                // for index loading; everything else should read SharedLiveAgentIndex.shared).
+                SharedLiveAgentIndexLoader().loadSynchronously()
             }.value
             guard let self else { return }
             // Assigning to `@Published` fires objectWillChange, which subscribed
@@ -11491,15 +11491,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
     /// palette path that performs that probe first.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
-        guard panels[panelId] is TerminalPanel else { return false }
-        guard let snapshot = forkableAgentSnapshot(forPanelId: panelId) else {
-            return false
-        }
-        let isRemote = isRemoteTerminalSurface(panelId)
-        return ContentView.commandPaletteSnapshotForkAvailability(
-            snapshot,
-            isRemoteTerminal: isRemote
-        ) == .supportedWithoutProbe
+        forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable
     }
 
     /// Snapshot used by the right-click fork path. Prefers the workspace's restored snapshot

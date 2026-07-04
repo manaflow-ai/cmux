@@ -131,6 +131,25 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(index.processIDs(workspaceId: liveWorkspaceId, panelId: livePanelId) == Set([processId]))
     }
 
+    @Test
+    func contextMenuAvailabilityReportsHiddenReasons() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        #expect(
+            workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId) == .noAgentSnapshot
+        )
+        #expect(
+            workspace.forkAgentConversationContextMenuAvailability(forPanelId: UUID()) == .notTerminalPanel
+        )
+
+        workspace.setRestoredAgentSnapshotForTesting(makeProbeRequiredOpenCodeSnapshot(), panelId: panelId)
+        #expect(
+            workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId) == .requiresProbe
+        )
+        #expect(!workspace.canForkAgentConversationFromPanel(panelId))
+    }
+
     private func makeForkableClaudeSnapshot(
         sessionId: String = "019dad34-d218-7943-b81a-eddac5c87951",
         workingDirectory: String = "/tmp/fork repo"
@@ -143,6 +162,26 @@ struct WorkspaceForkConversationContextMenuTests {
                 launcher: "claude",
                 executablePath: "/opt/homebrew/bin/claude",
                 arguments: ["/opt/homebrew/bin/claude"],
+                workingDirectory: workingDirectory,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+    }
+
+    private func makeProbeRequiredOpenCodeSnapshot(
+        sessionId: String = "019dad34-d218-7943-b81a-eddac5c87952",
+        workingDirectory: String = "/tmp/fork repo"
+    ) -> SessionRestorableAgentSnapshot {
+        SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: sessionId,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode", "--session", sessionId],
                 workingDirectory: workingDirectory,
                 environment: nil,
                 capturedAt: 123,

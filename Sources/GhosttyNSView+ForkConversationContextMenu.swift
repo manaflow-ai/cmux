@@ -48,11 +48,33 @@ extension GhosttyNSView {
     }
 
     private func canForkCurrentAgentConversation() -> Bool {
-        guard let panelId = terminalSurface?.id,
-              let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId) else {
+        guard let panelId = terminalSurface?.id else {
+#if DEBUG
+            cmuxDebugLog("fork.contextMenu.hidden reason=missing_terminal_surface")
+#endif
             return false
         }
-        return located.workspace.canForkAgentConversationFromPanel(panelId)
+        guard let located = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId) else {
+#if DEBUG
+            cmuxDebugLog(
+                "fork.contextMenu.hidden panel=\(panelId.uuidString.prefix(5)) " +
+                "reason=missing_workspace"
+            )
+#endif
+            return false
+        }
+        let availability = located.workspace.forkAgentConversationContextMenuAvailability(
+            forPanelId: panelId
+        )
+#if DEBUG
+        if !availability.isAvailable {
+            cmuxDebugLog(
+                "fork.contextMenu.hidden workspace=\(located.workspace.id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=\(availability.diagnosticReason)"
+            )
+        }
+#endif
+        return availability.isAvailable
     }
 
     @objc func forkCurrentAgentConversation(_ sender: Any?) {
