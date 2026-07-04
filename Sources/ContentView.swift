@@ -6149,12 +6149,13 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceCanvasLayout,
                 workspace.layoutMode == .canvas
             )
-            let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
-            snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)
+            let workspaceIndex = tabManager.sidebarScopedWorkspaceIndex(tabId: workspace.id)
+            let scopedWorkspaceCount = tabManager.sidebarScopedWorkspaceRowIds().count
+            snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, workspaceIndex != nil && scopedWorkspaceCount > 1)
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasAbove, (workspaceIndex ?? 0) > 0)
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasBelow,
-                (workspaceIndex ?? tabManager.tabs.count - 1) < tabManager.tabs.count - 1
+                workspaceIndex.map { $0 < scopedWorkspaceCount - 1 } ?? false
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanMarkRead,
@@ -7788,7 +7789,10 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            tabManager.moveTabsToTop([workspace.id])
+            guard tabManager.moveWorkspaceToTopInSidebarScope(tabId: workspace.id) else {
+                NSSound.beep()
+                return
+            }
             tabManager.selectWorkspace(workspace)
         }
         registry.register(commandId: "palette.closeOtherWorkspaces") {
@@ -14429,7 +14433,7 @@ struct TabItemView: View, Equatable {
         .disabled((visibleWorkspaceRowIndex ?? visibleWorkspaceRowCount) >= visibleWorkspaceRowCount - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
-            tabManager.moveTabsToTop(Set(targetIds))
+            _ = tabManager.moveWorkspacesToTopInSidebarScope(tabIds: Set(targetIds))
             syncSelectionAfterMutation()
         }
         .disabled(targetIds.isEmpty)

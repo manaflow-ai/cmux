@@ -1215,7 +1215,7 @@ struct cmuxApp: App {
 
     private func moveSelectedWorkspaceToTop(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
-        manager.moveTabsToTop([workspace.id])
+        guard manager.moveWorkspaceToTopInSidebarScope(tabId: workspace.id) else { return }
         manager.selectWorkspace(workspace)
     }
 
@@ -1319,7 +1319,7 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             moveSelectedWorkspaceToTop(in: manager)
         }
-        .disabled(workspace == nil || workspaceIndex == 0)
+        .disabled(workspaceIndex == nil || workspaceIndex == 0)
 
         Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {

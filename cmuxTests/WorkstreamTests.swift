@@ -315,6 +315,8 @@ struct WorkstreamTests {
         #expect(manager.moveWorkspaceInSidebarScope(tabId: firstScopedId, by: 1))
 
         #expect(manager.sidebarScopedWorkspaceRowIds() == [secondScopedId, firstScopedId, thirdScopedId])
+        #expect(manager.moveWorkspaceToTopInSidebarScope(tabId: thirdScopedId))
+        #expect(manager.sidebarScopedWorkspaceRowIds() == [thirdScopedId, secondScopedId, firstScopedId])
     }
 
     @Test func sidebarScopedMovePromotesHiddenGroupMember() throws {

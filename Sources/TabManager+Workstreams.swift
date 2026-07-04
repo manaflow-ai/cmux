@@ -71,6 +71,20 @@ extension TabManager {
         )
     }
 
+    func moveWorkspaceToTopInSidebarScope(tabId: UUID) -> Bool {
+        reorderWorkspaceInSidebarScope(tabId: tabId, toVisibleIndex: 0)
+    }
+
+    func moveWorkspacesToTopInSidebarScope(tabIds: Set<UUID>) -> Bool {
+        let visibleIds = sidebarScopedWorkspaceRowIds().filter { tabIds.contains($0) }
+        guard !visibleIds.isEmpty else { return false }
+        var moved = false
+        for id in visibleIds.reversed() {
+            moved = reorderWorkspaceInSidebarScope(tabId: id, toVisibleIndex: 0) || moved
+        }
+        return moved
+    }
+
     func reorderWorkspaceInSidebarScope(
         tabId: UUID,
         toVisibleIndex targetIndex: Int,

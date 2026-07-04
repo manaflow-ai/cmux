@@ -4118,7 +4118,7 @@ class TerminalController {
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "move_top":
-                tabManager.moveTabToTop(workspace.id)
+                _ = tabManager.moveWorkspaceToTopInSidebarScope(tabId: workspace.id)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "close_others":
