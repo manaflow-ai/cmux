@@ -121,6 +121,13 @@ public final class IssueInboxStore: ObservableObject {
     /// - Returns: Per-source refresh report.
     @discardableResult
     public func refresh() async -> IssueInboxRefreshReport {
+        // Re-read issue-inbox.json so config edits made after the initial load
+        // (for example through the empty-state "Open Config" button) take
+        // effect on the next refresh without reloading the surface.
+        loadConfiguration()
+        let configuredIDs = Set(sourceConfigs.map(\.sourceID))
+        sourceErrors = sourceErrors.filter { configuredIDs.contains($0.key) }
+        items = items.filter { configuredIDs.contains($0.sourceID) }
         guard !adapters.isEmpty else {
             return IssueInboxRefreshReport()
         }
