@@ -4,7 +4,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tungstenite::client::IntoClientRequest;
@@ -76,7 +76,9 @@ impl CdpClient {
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = web_socket_url.into_client_request()?;
         let (ws, _) = client(request, stream)?;
-        ws.get_ref().set_read_timeout(Some(Duration::from_millis(100)))?;
+        // The reader and writers share tungstenite's synchronous WebSocket.
+        // Nonblocking reads keep the reader from holding the mutex while idle.
+        ws.get_ref().set_nonblocking(true)?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
         let client = CdpClient {
             inner: Arc::new(Inner {
@@ -291,9 +293,30 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        let mut ws = self.inner.ws.lock().unwrap();
-        ws.send(Message::Text(text))?;
-        Ok(())
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if self.inner.closed.load(Ordering::Acquire) {
+                anyhow::bail!("CDP connection is closed");
+            }
+
+            {
+                let mut ws = self.inner.ws.lock().unwrap();
+                match ws.send(Message::Text(text.clone())) {
+                    Ok(()) => return Ok(()),
+                    Err(WsError::Io(e))
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+
+            if Instant::now() >= deadline {
+                anyhow::bail!("CDP send timed out");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 
@@ -341,6 +364,7 @@ fn reader_loop(weak: Weak<Inner>) {
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
                 ) =>
             {
+                std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
             Err(e) => {
