@@ -17,7 +17,6 @@ final class SharedLiveAgentIndex {
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let processScopeFingerprintCacheAge: TimeInterval = 0.25
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -41,10 +40,7 @@ final class SharedLiveAgentIndex {
         },
         processScopeFingerprintProvider: @escaping @MainActor () -> Set<String> = {
             SharedLiveAgentIndexLoader.processScopeFingerprint(
-                from: CmuxTopProcessSnapshot.captureCached(
-                    includeProcessDetails: false,
-                    maximumAge: Self.processScopeFingerprintCacheAge
-                )
+                from: CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
             )
         }
     ) {

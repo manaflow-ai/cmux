@@ -8,7 +8,7 @@ extension Workspace {
         fromPanelId panelId: UUID,
         destination: AgentConversationForkDestination
     ) -> Bool {
-        guard canForkAgentConversationFromPanel(panelId),
+        guard forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable,
               let snapshot = forkableAgentSnapshot(forPanelId: panelId),
               let anchorTabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else {
