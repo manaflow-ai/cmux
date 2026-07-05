@@ -96,7 +96,14 @@ final class FeedCoordinator: @unchecked Sendable {
         event: WorkstreamEvent,
         waitTimeout: TimeInterval
     ) -> IngestBlockingResult {
-        guard let requestId = event.requestId, waitTimeout > 0 else {
+        // Codex CLI hook `PermissionRequest`s are non-blocking telemetry (Codex
+        // owns the allow/deny via its own reviewer), so they short-circuit to
+        // the non-blocking path. Codex app-server (Teams) approvals share the
+        // same event name + source but are real decisions cmux resolves through
+        // a blocking Feed reply, so they are *not* excluded here and fall
+        // through to the blocking semaphore path.
+        guard let requestId = event.requestId, waitTimeout > 0, Self.isBlockingDecisionEvent(event.hookEventName),
+              !event.isCodexHookPermissionTelemetry else {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     FeedCoordinator.shared.store.ingest(event)
@@ -122,9 +129,7 @@ final class FeedCoordinator: @unchecked Sendable {
         // caps the pending lifetime to the agent process lifetime
         // — no polling, no leaked cards when the agent is killed.
         let itemIdSlot = UnsafeItemIdSlot()
-        let resolvedAttentionTarget = Self.isBlockingDecisionEvent(event.hookEventName)
-            ? Self.resolveAttentionTarget(event: event)
-            : nil
+        let resolvedAttentionTarget = Self.resolveAttentionTarget(event: event)
         DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 FeedCoordinator.shared.store.ingest(event)

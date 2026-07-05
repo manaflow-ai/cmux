@@ -50,6 +50,10 @@ struct FeedEventClassifier {
         /// Resolved against the tool name so Claude's `ExitPlanMode` /
         /// `AskUserQuestion` approvals route to their dedicated kinds.
         case approvalRequest
+        /// A permission-request hook that should remain telemetry. Codex
+        /// emits this before its own approval reviewer, so cmux must preserve
+        /// the event name without taking ownership of the allow/deny decision.
+        case permissionTelemetry
         /// A tool is about to run but no approval is pending. Telemetry
         /// only. Used by agents that expose a *separate* approval event
         /// (Claude, Codex, Hermes) so their pre-tool hook never escalates.
@@ -116,6 +120,8 @@ struct FeedEventClassifier {
         switch semantic {
         case .approvalRequest:
             return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
+        case .permissionTelemetry:
+            return ("PermissionRequest", false)
         case .toolStartMaybeApproval:
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
                 return dedicated
@@ -186,9 +192,10 @@ struct FeedEventClassifier {
         "codex": [
             // Codex runs PermissionRequest hooks before its own approval
             // reviewer. Treat this as telemetry so "Approve for me" can still
-            // use Codex's auto-review path instead of blocking on cmux Feed.
-            "PermissionRequest": .toolStart,
-            "permission_request": .toolStart,
+            // use Codex's auto-review path instead of blocking on cmux Feed,
+            // but keep the original event name for telemetry consumers.
+            "PermissionRequest": .permissionTelemetry,
+            "permission_request": .permissionTelemetry,
             "PreToolUse": .toolStart,
             "pre_tool_use": .toolStart,
             "beforeShellExecution": .toolStart,

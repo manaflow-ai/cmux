@@ -591,6 +591,67 @@ struct FeedCoordinatorTests {
         #expect(attention.events.first?.hookEventName == .permissionRequest)
     }
 
+    @Test func blockingIngestBlocksCodexAppServerApproval() async {
+        defer {
+            Self.resetFeedCoordinatorTestHooks()
+        }
+
+        let attention = AttentionSurfaceRecorder()
+        let requestId = "codex-app-server-approval-block"
+
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+            FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
+                attention.record(event)
+            }
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                guard ingestedRequestId == requestId else { return }
+                FeedCoordinator.shared.deliverReply(
+                    requestId: ingestedRequestId,
+                    decision: .permission(.once)
+                )
+            }
+        }
+
+        // A Codex app-server (Teams) approval shares the Codex `PermissionRequest`
+        // event name + source with non-blocking hook telemetry, distinguished only
+        // by the `app_server_method` marker. It is a real decision cmux owns, so it
+        // must take the blocking semaphore path (resolve via the Feed reply) rather
+        // than short-circuit to an immediate acknowledgement.
+        let event = WorkstreamEvent(
+            sessionId: "codex-app-server-test",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"app_server_method":"item/commandExecution/requestApproval","request_id":"41","command":"true"}"#,
+            context: WorkstreamContext(permissionMode: "codex app-server"),
+            requestId: requestId
+        )
+
+        let done = DispatchSemaphore(value: 0)
+        let resultBox = IngestResultBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 1
+            )
+            done.signal()
+        }
+        #expect(done.wait(timeout: .now() + 2) == .success)
+        await MainActor.run {}
+
+        guard case .resolved(_, .permission(.once)) = resultBox.value else {
+            Issue.record("Codex app-server approval must block on a Feed decision, not immediately acknowledge")
+            return
+        }
+        #expect(
+            attention.events.count == 1,
+            "a Codex app-server approval must request in-app needs-input attention surfacing"
+        )
+    }
+
     @Test func blockingDecisionEventPredicateCoversEveryDecisionKind() {
         // The three blocking-decision kinds must all surface attention…
         #expect(FeedCoordinator.isBlockingDecisionEvent(.permissionRequest))

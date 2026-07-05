@@ -85,6 +85,16 @@ extension AgentChatSessionRegistry {
             // is idle, so it must not create a synthetic working state.
             return previous
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
+            // Codex CLI permission telemetry shares the `PermissionRequest`
+            // wire name but is non-blocking: Codex owns the approval reviewer,
+            // so there is no pending cmux decision. It must not flip the
+            // session into needs-input; treat it as tool-use activity
+            // (working), matching the pre-telemetry-rename behavior when it
+            // decoded as `PreToolUse`.
+            if event.isCodexHookPermissionTelemetry {
+                if case .working = previous { return previous }
+                return .working(since: event.receivedAt)
+            }
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:

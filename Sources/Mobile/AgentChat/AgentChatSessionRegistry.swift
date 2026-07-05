@@ -749,5 +749,4 @@ final class AgentChatSessionRegistry {
     private func processIsDead(_ pid: Int) -> Bool {
         kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
-
 }
