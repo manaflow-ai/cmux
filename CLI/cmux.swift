@@ -8348,8 +8348,8 @@ struct CMUXCLI {
         )
     }
 
-    /// `cmux ssh-tmux <destination>` — open a dedicated cmux window mirroring a remote
-    /// host's tmux sessions over `tmux -CC` (the remote-tmux beta).
+    /// `cmux ssh-tmux <destination>` — mirror a remote host's tmux sessions as
+    /// workspaces in the current window over `tmux -CC` (the remote-tmux beta).
     ///
     /// Unlike `cmux ssh`, this carries no cmuxd-remote/relay bootstrap: it only
     /// drives the SSH ControlMaster the mirror multiplexes over. The app's mirror
@@ -8416,7 +8416,8 @@ struct CMUXCLI {
         var params: [String: Any] = ["host": destination]
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
-        if noFocus { params["activate"] = false }
+        params["activate"] = !noFocus
+        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
 
         // The first call runs a non-interactive (BatchMode) discovery in the app,
         // which can take a couple of seconds; show progress so it doesn't look idle.
@@ -8430,7 +8431,7 @@ struct CMUXCLI {
         var didAuthenticate = false
         while true {
             let result = try client.sendV2(
-                method: "remote.tmux.window",
+                method: "remote.tmux.mirror",
                 params: params,
                 responseTimeout: 75  // > the app-side 60s timeout, so the app's result/error always arrives first
             )
@@ -8439,7 +8440,8 @@ struct CMUXCLI {
                     print(jsonString(result))
                 } else {
                     let windowId = (result["window_id"] as? String) ?? ""
-                    print("OK host=\(destination) window=\(windowId)")
+                    let count = (result["workspace_ids"] as? [Any])?.count ?? 0
+                    print("OK host=\(destination) workspaces=\(count) window=\(windowId)")
                 }
                 return
             }
@@ -14793,26 +14795,24 @@ struct CMUXCLI {
             return String(localized: "cli.help.ssh-tmux", defaultValue: """
             Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
 
-            Open a dedicated cmux window that mirrors a remote host's tmux sessions over
-            tmux control mode (tmux -CC) via SSH: each tmux session becomes a workspace,
-            each window a tab, and a multi-pane window a native split. Requires the
-            "Remote tmux" beta to be enabled in Settings.
+            Mirror a remote host's tmux sessions into the current window's sidebar over
+            SSH tmux control mode (tmux -CC). Each session becomes a workspace, each
+            window a tab, and each multi-pane window a native split. Requires the
+            "Remote tmux" beta setting.
 
             If the host needs interactive authentication (password, host-key confirmation,
             MFA, or a security-key touch), cmux runs ssh inline in this terminal so you can
             authenticate, then mirrors the sessions over the shared SSH connection. Hosts
             that authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror
-            with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port
-            settings are honored.
+            with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.
 
             Flags:
               --port <n>          SSH port
               --identity <path>   SSH identity file path
-              --no-focus          Open the mirror window without activating it
+              --no-focus          Do not select the mirror workspace or focus its window
 
             Example:
               cmux ssh-tmux dev@my-host
-              cmux ssh-tmux my-ssh-alias
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
             """)
         case "ssh-session-list":

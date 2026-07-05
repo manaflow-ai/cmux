@@ -18,6 +18,7 @@ import Testing
             panelId: UUID(),
             connection: connection,
             layout: Self.twoPaneLayout(left: 4, right: 5),
+            appearance: .default,
             makePanel: { _ in nil }
         )
 
@@ -31,6 +32,7 @@ import Testing
             panelId: UUID(),
             connection: connection,
             layout: Self.twoPaneLayout(left: 4, right: 5),
+            appearance: .default,
             makePanel: { _ in nil }
         )
         #expect(mirror.activePaneId == 4)

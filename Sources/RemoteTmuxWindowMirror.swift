@@ -4,46 +4,37 @@ import CmuxTerminal
 import Foundation
 import Observation
 
-/// Owns the per-pane ``TerminalPanel``s and current layout for ONE mirrored tmux
-/// window, so a single cmux tab can render the tmux window's full multi-pane
-/// split layout side by side — with the native cmux pane chrome (each pane is a
-/// real ``TerminalPanel`` rendered via ``TerminalPanelView``).
-///
-/// Created lazily by ``RemoteTmuxSessionMirror`` the first time a window has more
-/// than one pane; once created it owns every pane's panel for that window. The
-/// remote tmux control stream is the source of truth: pane output is fed into
-/// the matching surface, typed input is forwarded to that pane via `send-keys`,
-/// and a user split is propagated to `split-window`.
 @MainActor
 @Observable
 final class RemoteTmuxWindowMirror {
-    /// tmux window id (the `@N` without the sigil).
     let windowId: Int
-    /// The bonsplit tab's panel id this window renders into.
     let panelId: UUID
-
-    @ObservationIgnored private weak var connection: RemoteTmuxControlConnection?
-    /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
-    @ObservationIgnored private let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
-
-    /// The window's current pane layout — drives the SwiftUI split container.
+    var bonsplitController: BonsplitController
     private(set) var layout: RemoteTmuxLayoutNode
-    /// The tmux pane the user last focused (drives the focus overlay + splits).
     private(set) var activePaneId: Int?
 
-    /// ``TerminalPanel`` per tmux pane id. Not observation-tracked: the view
-    /// re-reads it whenever ``layout`` (which IS tracked) changes, and the two
-    /// are always updated together in ``reconcile(layout:)``.
-    @ObservationIgnored private var panelsByPaneId: [Int: TerminalPanel] = [:]
-    /// Stable synthetic bonsplit pane id per tmux pane (for portal hosting),
-    /// minted at panel-creation time so the view body is a pure read.
-    @ObservationIgnored private var syntheticPaneIds: [Int: PaneID] = [:]
+    @ObservationIgnored weak var connection: RemoteTmuxControlConnection?
+    @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
+    @ObservationIgnored var onClosePaneRequest: ((Int) -> Void)?
+    @ObservationIgnored var panelsByPaneId: [Int: TerminalPanel] = [:]
+    @ObservationIgnored var tabIdByPaneId: [Int: TabID] = [:]
+    @ObservationIgnored var paneIdByPaneId: [Int: PaneID] = [:]
+    @ObservationIgnored var paneIdByBonsplitPane: [PaneID: Int] = [:]
+    @ObservationIgnored var paneIdByTabId: [TabID: Int] = [:]
+    @ObservationIgnored var cwdByPaneId: [Int: String] = [:]
+    @ObservationIgnored var isApplyingRemoteLayout = false
+    @ObservationIgnored var isApplyingTmuxFocus = false
+    @ObservationIgnored var lastClientSize: (cols: Int, rows: Int)?
+    @ObservationIgnored var lastContentSizePoints: CGSize?
+    @ObservationIgnored var lastDividerPositions: [UUID: CGFloat] = [:]
+    @ObservationIgnored var splitTargets: [UUID: SplitResizeTarget] = [:]
 
     init(
         windowId: Int,
         panelId: UUID,
         connection: RemoteTmuxControlConnection,
         layout: RemoteTmuxLayoutNode,
+        appearance: BonsplitConfiguration.Appearance,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -51,158 +42,182 @@ final class RemoteTmuxWindowMirror {
         self.connection = connection
         self.makePanel = makePanel
         self.layout = layout
+        self.bonsplitController = Self.makeController(appearance: appearance)
+        configureBonsplitController()
         reconcile(layout: layout)
     }
 
-    /// All tmux pane ids currently in the window, depth-first left→right.
     var paneIDsInOrder: [Int] { layout.paneIDsInOrder }
 
-    /// The panel rendering `tmuxPaneId`, if it exists.
     func panel(forPane tmuxPaneId: Int) -> TerminalPanel? { panelsByPaneId[tmuxPaneId] }
 
-    /// The surface rendering `tmuxPaneId`, if it exists.
     func surface(forPane tmuxPaneId: Int) -> TerminalSurface? { panelsByPaneId[tmuxPaneId]?.surface }
 
-    /// The stable synthetic bonsplit pane id for `tmuxPaneId`, or `nil` if no panel
-    /// exists for it (minted in ``reconcile(layout:)``; a pure read here so it's
-    /// body-safe). Returns `nil` rather than minting a throwaway `PaneID()` on a miss,
-    /// which would churn the portal-host lease keyed off this id.
-    func syntheticPaneID(forPane tmuxPaneId: Int) -> PaneID? {
-        syntheticPaneIds[tmuxPaneId]
+    func tmuxPaneId(forTab tabId: TabID) -> Int? { paneIdByTabId[tabId] }
+
+    func isFocused(tabId: TabID) -> Bool {
+        tmuxPaneId(forTab: tabId).map { $0 == activePaneId } ?? false
     }
 
-    /// Updates the layout, creating panels for new panes and tearing down panels
-    /// for panes tmux removed (surviving panes keep their panel and scrollback).
     func reconcile(layout newLayout: RemoteTmuxLayoutNode) {
+        let previousLayout = layout
+        let treeReady = bonsplitTreeMatches(layout: previousLayout)
         let livePaneIds = Set(newLayout.paneIDsInOrder)
         for paneId in newLayout.paneIDsInOrder where panelsByPaneId[paneId] == nil {
             guard let panel = makePanel(paneId) else { continue }
             panelsByPaneId[paneId] = panel
-            syntheticPaneIds[paneId] = PaneID()
-            // Canonical seed (reflow classification → capture → cwd). The session
-            // mirror's cwd observer maps the pane back to this window's tab.
             connection?.seedPane(paneId: paneId)
         }
+        layout = newLayout
+        if newLayout == previousLayout, treeReady {
+            refreshDividerPositions()
+        } else if treeReady,
+                  RemoteTmuxMirrorLayoutMath.sameShapeAndPaneIds(previousLayout, newLayout) {
+            refreshDividerPositions()
+        } else if treeReady,
+                  applyTargetedStructureChange(from: previousLayout, to: newLayout) {
+            refreshDividerPositions()
+        } else {
+            rebuildBonsplitTree()
+        }
         for (paneId, panel) in panelsByPaneId where !livePaneIds.contains(paneId) {
-            // Use the full panel close (detaches the portal from the registry
-            // BEFORE freeing the surface) so a stale portal entry can't be
-            // dereferenced by a later Core Animation commit.
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
             panelsByPaneId[paneId] = nil
-            syntheticPaneIds[paneId] = nil
+            cwdByPaneId[paneId] = nil
             if activePaneId == paneId { activePaneId = nil }
         }
-        if layout != newLayout { layout = newLayout }
         seedActivePaneIfNeeded()
+        refreshPaneTitles()
+        repushClientSizeForLastContentSize()
     }
 
-    /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).
     func routeOutput(paneId: Int, data: Data) {
         panelsByPaneId[paneId]?.surface.processRemoteOutput(data)
     }
 
-    @ObservationIgnored private var lastClientSize: (cols: Int, rows: Int)?
-
-    /// Tells tmux to size this session's windows to the rendered cmux area, so
-    /// captured/live pane content matches the on-screen grid. Derives cols/rows
-    /// from the content pixel area and a live pane's cell size; sends
-    /// `refresh-client -C` only when the grid actually changes (no feedback loop:
-    /// the cmux area doesn't change when tmux reflows).
-    /// Returns `true` once the pane surface is live and the size was applied (sent, or
-    /// already current via the `lastClientSize` dedup); `false` when no pane has
-    /// reported its cell size yet, so the caller should retry. Idempotent.
     @discardableResult
     func updateClientSize(contentSizePoints: CGSize) -> Bool {
-        guard contentSizePoints.width > 1, contentSizePoints.height > 1,
-              let cell = panelsByPaneId.values.lazy.compactMap({ $0.surface.cellSizePoints() }).first,
-              cell.width > 1, cell.height > 1 else { return false }
-        let cols = max(20, Int(contentSizePoints.width / cell.width))
-        let rows = max(5, Int(contentSizePoints.height / cell.height))
-        guard lastClientSize?.cols != cols || lastClientSize?.rows != rows else { return true }
-        lastClientSize = (cols, rows)
-        connection?.setClientSize(columns: cols, rows: rows)
+        lastContentSizePoints = contentSizePoints
+        guard let cell = panelsByPaneId.values.lazy.compactMap({ $0.surface.cellSizePoints() }).first else {
+            return false
+        }
+        let appearance = bonsplitController.configuration.appearance
+        guard let grid = RemoteTmuxMirrorLayoutMath.clientGrid(
+            layout: layout,
+            contentSize: contentSizePoints,
+            cellSize: cell,
+            tabBarHeight: appearance.tabBarHeight,
+            dividerThickness: appearance.dividerThickness
+        ) else { return false }
+        guard lastClientSize?.cols != grid.columns || lastClientSize?.rows != grid.rows else { return true }
+        lastClientSize = (grid.columns, grid.rows)
+        connection?.setClientSize(columns: grid.columns, rows: grid.rows)
         return true
     }
 
-    /// Records the user-focused pane and asks tmux to make it active.
     func focus(pane tmuxPaneId: Int) {
         setActivePane(tmuxPaneId, fromTmux: false)
     }
 
-    /// Records the active pane. tmux-driven syncs (`fromTmux: true`) never echo
-    /// `select-pane` back to tmux; a user focus does.
     func setActivePane(_ paneId: Int, fromTmux: Bool) {
         guard layout.paneIDsInOrder.contains(paneId) else { return }
         if activePaneId != paneId { activePaneId = paneId }
+        if let bonsplitPane = paneIdByPaneId[paneId] {
+            isApplyingTmuxFocus = true
+            bonsplitController.focusPane(bonsplitPane)
+            isApplyingTmuxFocus = false
+        }
         if !fromTmux {
             connection?.send("select-pane -t @\(windowId).%\(paneId)")
         }
     }
 
-    /// Seeds or repairs the active pane from tmux's tracked active pane
-    /// (`%window-pane-changed` → ``RemoteTmuxControlConnection/activePaneByWindow``),
-    /// so a freshly-mirrored window renders tmux's real focus instead of
-    /// all-unfocused-until-first-click (#7372).
-    private func seedActivePaneIfNeeded() {
-        let live = layout.paneIDsInOrder
-        let seed = connection?.activePaneByWindow[windowId] ?? live.first
-        if activePaneId.map({ live.contains($0) }) != true, let seed {
-            setActivePane(seed, fromTmux: true)
-        }
-    }
-
-    /// Propagates a user split of `tmuxPaneId` to tmux `split-window`
-    /// (`-h` = side-by-side, `-v` = stacked). The new pane arrives via the
-    /// resulting `%layout-change` → ``reconcile(layout:)``.
     @discardableResult
     func requestSplit(fromPane tmuxPaneId: Int, vertical: Bool) -> Bool {
         guard let connection, connection.connectionState == .connected else { return false }
         return connection.send("split-window \(vertical ? "-v" : "-h") -t @\(windowId).%\(tmuxPaneId)")
     }
 
-    /// Propagates a user close of `tmuxPaneId` to tmux `kill-pane`. The pane is
-    /// removed via the resulting `%layout-change` (or `%window-close` if it was
-    /// the window's last pane).
     func requestKillPane(_ tmuxPaneId: Int) {
         connection?.send("kill-pane -t @\(windowId).%\(tmuxPaneId)")
     }
 
-    /// The pane's last-known foreground classification (alt-screen flag +
-    /// `pane_current_command`), driving the kill-pane close confirmation.
-    /// `nil` when the pane was never classified (closes without a dialog).
     func paneForegroundState(_ tmuxPaneId: Int) -> RemoteTmuxControlConnection.PaneForegroundState? {
         connection?.paneForegroundStates[tmuxPaneId]
     }
 
-    /// Live, close-time query of `tmuxPaneId`'s foreground state (see
-    /// ``RemoteTmuxControlConnection/queryPaneActivity(paneId:completion:)``).
-    /// Completes with `nil` when the connection is gone — the caller falls back
-    /// to ``paneForegroundState(_:)``.
     func queryPaneActivity(
         _ tmuxPaneId: Int,
         completion: @escaping ([Int: RemoteTmuxControlConnection.PaneForegroundState]?) -> Void
     ) {
-        guard let connection else {
-            completion(nil)
-            return
-        }
+        guard let connection else { completion(nil); return }
         connection.queryPaneActivity(paneId: tmuxPaneId, completion: completion)
     }
 
-    /// Tears down every pane panel (called when the window-tab is removed).
+    func updatePaneCwd(paneId: Int, path: String) {
+        cwdByPaneId[paneId] = path
+        updatePaneTitle(paneId)
+    }
+
+    func updatePaneTitle(_ paneId: Int) {
+        guard let tabId = tabIdByPaneId[paneId] else { return }
+        bonsplitController.updateTab(tabId, title: title(forPane: paneId))
+    }
+
     func teardown() {
-        // Unsubscribe each pane's cwd subscription first — matching reconcile(layout:),
-        // which unsubscribes per removed pane. Without this, a control connection that
-        // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
         for paneId in panelsByPaneId.keys {
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
         }
         for panel in panelsByPaneId.values { panel.close() }
         panelsByPaneId.removeAll()
-        syntheticPaneIds.removeAll()
+        tabIdByPaneId.removeAll()
+        paneIdByPaneId.removeAll()
+        paneIdByBonsplitPane.removeAll()
+        paneIdByTabId.removeAll()
         activePaneId = nil
+    }
+}
+
+extension RemoteTmuxWindowMirror: BonsplitDelegate {
+    func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        guard !isApplyingRemoteLayout else { return true }
+        if let tmuxPane = paneIdByTabId[tab.id] { onClosePaneRequest?(tmuxPane) }
+        return false
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
+        isApplyingRemoteLayout
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        guard !isApplyingRemoteLayout else { return true }
+        if let tmuxPane = paneIdByBonsplitPane[pane] {
+            _ = requestSplit(fromPane: tmuxPane, vertical: orientation == .vertical)
+        }
+        return false
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+        guard !isApplyingRemoteLayout, !isApplyingTmuxFocus,
+              let tmuxPane = paneIdByBonsplitPane[pane] else { return }
+        guard activePaneId != tmuxPane else { return }
+        focus(pane: tmuxPane)
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
+        guard !isApplyingRemoteLayout else { return }
+        for (splitId, target) in splitTargets {
+            guard let geometry = currentSplitGeometry(splitId: splitId),
+                  abs(geometry.position - (lastDividerPositions[splitId] ?? geometry.position)) > 0.005 else {
+                continue
+            }
+            lastDividerPositions[splitId] = geometry.position
+            let cells = max(1, Int(round(CGFloat(target.totalCells) * geometry.position)))
+            let flag = target.orientation == .horizontal ? "-x" : "-y"
+            _ = connection?.send("resize-pane -t @\(windowId).%\(target.paneId) \(flag) \(cells)")
+        }
     }
 }

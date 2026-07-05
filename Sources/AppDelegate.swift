@@ -4488,13 +4488,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
             )
-            // A dedicated remote-tmux mirror window needs a live SSH control
-            // connection and should not restore as an empty shell. If the user
-            // dragged local workspaces into that window, keep those local
-            // workspaces: TabManager already prunes remote mirror workspaces
-            // from its snapshot.
-            if remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
-               windowSnapshot.tabManager.workspaces.isEmpty {
+            // A window whose live workspaces are only remote-tmux mirrors needs
+            // live SSH control connections and should not restore as an empty
+            // shell. If local workspaces were dragged in, keep those snapshots.
+            if windowSnapshot.tabManager.workspaces.isEmpty,
+               !context.tabManager.tabs.isEmpty,
+               context.tabManager.tabs.allSatisfy(\.isRemoteTmuxMirror) {
                 continue
             }
 
@@ -7371,14 +7370,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
-        // In a dedicated remote-tmux window, a new workspace means "create a new
-        // tmux session on that host" — route it to the remote and mirror it into
-        // this window instead of creating a local workspace.
-        if let context,
-           remoteTmuxController.handleRemoteWindowNewWorkspaceRequested(windowId: context.windowId) {
-            return true
-        }
-
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
@@ -8576,13 +8567,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.remoteTmuxController.handleWorkspaceClosed(workspaceId: workspace.id)
                 }
             }
-            // If this was a dedicated remote-tmux window, detach its host's control
-            // connections (no-op when the kill path above already tore them down).
-            // A window/quit close only detaches — the remote tmux server stays alive.
-            self.remoteTmuxController.handleRemoteWindowClosed(windowId: windowId)
-            // Also detach any per-workspace mirrors in this window (covers the
-            // socket `remote.tmux.mirror` path into a non-dedicated window), so
-            // their pane surfaces / ssh connections don't leak on window close.
             if let manager {
                 self.remoteTmuxController.handleWindowWorkspacesClosed(
                     workspaceIds: manager.tabs.map { $0.id }

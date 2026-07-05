@@ -57,6 +57,7 @@ import Testing
             panelId: UUID(),
             connection: connection,
             layout: RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(7)),
+            appearance: .default,
             makePanel: { _ in nil }
         )
 

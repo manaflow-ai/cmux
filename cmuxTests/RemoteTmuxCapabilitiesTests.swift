@@ -23,7 +23,6 @@ import Testing
             "remote.tmux.detach",
             "remote.tmux.state",
             "remote.tmux.mirror",
-            "remote.tmux.window",
         ].allSatisfy { advertisedMethods.contains($0) })
     }
 }

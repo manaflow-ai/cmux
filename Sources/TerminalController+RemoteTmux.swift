@@ -1,4 +1,5 @@
 import Foundation
+import CmuxControlSocket
 
 /// Socket/CLI handlers for the remote-tmux (`ssh … tmux -CC`) beta feature.
 ///
@@ -118,7 +119,8 @@ extension TerminalController {
     }
 
     /// `remote.tmux.mirror` — mirror every tmux session on a host as its own
-    /// sidebar workspace (windows become tabs). Params: `host` (required).
+    /// sidebar workspace in the resolved window. Params: `host` (required),
+    /// optional `port`, `identity_file`, `activate`, and routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
@@ -126,52 +128,22 @@ extension TerminalController {
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        return v2VmCall(id: id, timeoutSeconds: 30) {
-            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
-            else {
-                throw RemoteTmuxError.unreachable("app not ready")
-            }
-            try await controller.mirrorHost(host: host)
-            return ["host": host.destination, "mirrored": true]
-        }
-    }
-
-    /// `remote.tmux.window` — open a dedicated cmux window mirroring every tmux
-    /// session on a host (the `cmux ssh-tmux` CLI entry point).
-    ///
-    /// Params: `host` (required), optional `port` (Int), optional `identity_file`
-    /// (String), optional `activate` (Bool, default `true`).
-    ///
-    /// Returns `{mirrored: true, window_id}` on success, or
-    /// `{auth_required: true, ssh_argv: […]}` when the host needs interactive
-    /// authentication. cmux's control client uses plain pipes and cannot prompt,
-    /// so the CLI runs `ssh_argv` in the user's terminal (where the tty makes
-    /// password / host-key / MFA / FIDO prompts work) to open the shared
-    /// ControlMaster, then re-issues this command — which now succeeds by
-    /// multiplexing over the authenticated master.
-    nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
-        guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
-        }
-        guard let host = Self.remoteTmuxHost(from: params) else {
-            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
-        }
-        let activate = (params["activate"] as? Bool) ?? true
-        // 60s (the CLI waits longer still) so a slow-but-valid BatchMode probe
-        // completes instead of the app timing out first and turning an
-        // auth-required result into an opaque timeout error.
+        let activate = (params["activate"] as? Bool) ?? false
+        let routing = remoteTmuxRouting(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
-            let outcome = try await controller.mirrorHostInNewWindow(host: host, activateWindow: activate)
+            let requestedManager = await MainActor.run { self.resolveTabManager(routing: routing) }
+            let outcome = try await controller.attachHost(host: host, into: requestedManager, activate: activate)
             switch outcome {
-            case .mirrored(let windowId):
+            case .mirrored(let windowId, let workspaceIds):
                 return [
                     "host": host.destination,
                     "mirrored": true,
                     "window_id": windowId.uuidString,
+                    "workspace_ids": workspaceIds.map(\.uuidString),
                 ]
             case .authRequired(let sshArgv):
                 return [
@@ -181,6 +153,19 @@ extension TerminalController {
                 ]
             }
         }
+    }
+
+    nonisolated func remoteTmuxRouting(from params: [String: Any]) -> ControlRoutingSelectors {
+        ControlRoutingSelectors(
+            hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
+            windowID: v2UUID(params, "window_id"),
+            groupID: v2UUID(params, "group_id"),
+            workspaceID: v2UUID(params, "workspace_id"),
+            surfaceID: v2UUID(params, "surface_id")
+                ?? v2UUID(params, "terminal_id")
+                ?? v2UUID(params, "tab_id"),
+            paneID: v2UUID(params, "pane_id")
+        )
     }
 
     /// `remote.tmux.detach` — detach a control client (leaves the remote session alive).
