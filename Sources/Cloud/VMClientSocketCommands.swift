@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
@@ -142,7 +143,7 @@ extension TerminalController {
             let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
             return v2VmCall(id: id) {
                 let accounts = try await AIAccountsClient.shared.list(teamID: teamID)
-                return ["accounts": accounts]
+                return ["accounts": accounts.map(\.foundationObject)]
             }
         case "aiAccounts.upload":
             guard let rawProvider = Self.socketWorkerString(params["provider"]),
@@ -160,7 +161,8 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let sources = AIAccountCredentialSources()
                 let payload = try sources.uploadPayload(provider: provider, label: label, explicitAPIKey: explicitKey)
-                return try await AIAccountsClient.shared.upload(payload, teamID: teamID, validate: validate)
+                let result = try await AIAccountsClient.shared.upload(payload, teamID: teamID, validate: validate)
+                return (result.foundationObject as? [String: Any]) ?? [:]
             }
         case "aiAccounts.remove":
             guard let accountID = Self.socketWorkerString(params["id"]), !accountID.isEmpty else {
@@ -168,7 +170,8 @@ extension TerminalController {
             }
             let teamID = Self.socketWorkerString(params["teamId"]) ?? Self.socketWorkerString(params["team_id"])
             return v2VmCall(id: id) {
-                try await AIAccountsClient.shared.remove(id: accountID, teamID: teamID)
+                let result = try await AIAccountsClient.shared.remove(id: accountID, teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
             }
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")

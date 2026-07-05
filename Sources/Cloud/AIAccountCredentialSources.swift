@@ -1,6 +1,7 @@
+import CmuxControlSocket
 import Foundation
 
-enum AIAccountProvider: String {
+enum AIAccountProvider: String, Sendable {
     case claude
     case codex
     case anthropicKey = "anthropic-key"
@@ -80,14 +81,18 @@ enum AIAccountCredentialSourceError: Error, CustomStringConvertible {
     }
 }
 
-struct AIAccountUploadPayload: CustomDebugStringConvertible {
+struct AIAccountUploadPayload: Sendable, CustomDebugStringConvertible {
     let provider: AIAccountProvider
     let label: String?
     private let credential: Credential
 
-    enum Credential {
-        case claudeOAuth([String: Any])
-        case codexTokens([String: Any])
+    /// Credential values are stored as typed `JSONValue` trees (not
+    /// `[String: Any]`) so the payload is `Sendable` and can cross into the
+    /// `AIAccountsClient` actor without carrying untyped JSONSerialization
+    /// output across isolation boundaries.
+    enum Credential: Sendable {
+        case claudeOAuth([String: JSONValue])
+        case codexTokens([String: JSONValue])
         case apiKey(String)
     }
 
@@ -97,6 +102,8 @@ struct AIAccountUploadPayload: CustomDebugStringConvertible {
         self.credential = credential
     }
 
+    /// Foundation-shaped body for `JSONSerialization`; only used at the HTTP
+    /// boundary inside `AIAccountsClient`.
     var jsonBody: [String: Any] {
         var body: [String: Any] = ["provider": provider.apiProvider]
         if let label, !label.isEmpty {
@@ -104,9 +111,9 @@ struct AIAccountUploadPayload: CustomDebugStringConvertible {
         }
         switch credential {
         case let .claudeOAuth(value):
-            body["claudeAiOauth"] = value
+            body["claudeAiOauth"] = value.mapValues(\.foundationObject)
         case let .codexTokens(value):
-            body["tokens"] = value
+            body["tokens"] = value.mapValues(\.foundationObject)
         case let .apiKey(value):
             body["apiKey"] = value
         }
@@ -166,10 +173,10 @@ struct AIAccountCredentialSources {
             throw AIAccountCredentialSourceError.missingClaudeOAuthField(field)
         }
 
-        var forwarded: [String: Any] = [:]
+        var forwarded: [String: JSONValue] = [:]
         for field in ["accessToken", "refreshToken", "expiresAt", "subscriptionType", "rateLimitTier"] {
-            if let value = oauth[field] {
-                forwarded[field] = value
+            if let value = oauth[field], let bridged = JSONValue(foundationObject: value) {
+                forwarded[field] = bridged
             }
         }
         return AIAccountUploadPayload(provider: .claude, label: normalizedLabel(label), credential: .claudeOAuth(forwarded))
@@ -187,12 +194,13 @@ struct AIAccountCredentialSources {
             ("id_token", "idToken"),
             ("account_id", "accountID"),
         ]
-        var forwarded: [String: Any] = [:]
+        var forwarded: [String: JSONValue] = [:]
         for (source, target) in mapping {
-            guard Self.hasNonEmptyJSONValue(tokens[source]) else {
+            guard let raw = tokens[source], Self.hasNonEmptyJSONValue(raw),
+                  let bridged = JSONValue(foundationObject: raw) else {
                 throw AIAccountCredentialSourceError.missingCodexTokenField(source)
             }
-            forwarded[target] = tokens[source]
+            forwarded[target] = bridged
         }
         return AIAccountUploadPayload(provider: .codex, label: normalizedLabel(label), credential: .codexTokens(forwarded))
     }

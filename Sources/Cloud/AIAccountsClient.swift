@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxControlSocket
 import Foundation
 
 enum AIAccountsClientError: Error, CustomStringConvertible {
@@ -37,17 +38,25 @@ actor AIAccountsClient {
         self.auth = auth
     }
 
-    func list(teamID: String?) async throws -> [[String: Any]] {
+    /// Public results are typed `JSONValue` trees so no untyped
+    /// `JSONSerialization` dictionaries cross the actor boundary;
+    /// `[String: Any]` stays private to the HTTP request/decode path below.
+    func list(teamID: String?) async throws -> [JSONValue] {
         let (data, http) = try await request("GET", path: "/api/subrouter/accounts", teamID: teamID)
         try ensureOK(http, data: data)
         let object = try decodeJSONObject(data)
         guard let accounts = object["accounts"] as? [[String: Any]] else {
             throw AIAccountsClientError.malformedResponse("missing `accounts` array")
         }
-        return accounts
+        return try accounts.map { account in
+            guard let value = JSONValue(foundationObject: account) else {
+                throw AIAccountsClientError.malformedResponse("account entry is not valid JSON")
+            }
+            return value
+        }
     }
 
-    func upload(_ payload: AIAccountUploadPayload, teamID: String?, validate: Bool) async throws -> [String: Any] {
+    func upload(_ payload: AIAccountUploadPayload, teamID: String?, validate: Bool) async throws -> JSONValue {
         let queryItems = validate ? [URLQueryItem(name: "validate", value: "1")] : []
         let (data, http) = try await request(
             "POST",
@@ -57,27 +66,37 @@ actor AIAccountsClient {
             teamID: teamID
         )
         try ensureOK(http, data: data)
-        return try decodeJSONObject(data)
+        return try bridgedJSONObject(data)
     }
 
-    func remove(id accountID: String, teamID: String?) async throws -> [String: Any] {
+    func remove(id accountID: String, teamID: String?) async throws -> JSONValue {
         let escaped = try pathSegment(accountID, fieldName: "account id")
         let (data, http) = try await request("DELETE", path: "/api/subrouter/accounts/\(escaped)", teamID: teamID)
         try ensureOK(http, data: data)
-        return try decodeJSONObject(data)
+        return try bridgedJSONObject(data)
     }
 
     /// Percent-encode a caller-provided value as a single URL path segment.
     /// `.urlPathAllowed` permits `/`, so ids from socket/CLI params could
-    /// otherwise inject extra path components into the request URL.
+    /// otherwise inject extra path components into the request URL; `.` and
+    /// `..` are rejected because URL normalization would resolve them into a
+    /// different backend route instead of an account-id segment.
     private func pathSegment(_ value: String, fieldName: String) throws -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
         guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed),
-              !encoded.isEmpty else {
+              !encoded.isEmpty, encoded != ".", encoded != ".." else {
             throw AIAccountsClientError.malformedResponse("invalid \(fieldName)")
         }
         return encoded
+    }
+
+    private func bridgedJSONObject(_ data: Data) throws -> JSONValue {
+        let object = try decodeJSONObject(data)
+        guard let value = JSONValue(foundationObject: object) else {
+            throw AIAccountsClientError.malformedResponse("response is not valid JSON")
+        }
+        return value
     }
 
     private func request(
