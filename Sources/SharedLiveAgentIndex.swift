@@ -17,7 +17,6 @@ final class SharedLiveAgentIndex: ObservableObject {
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let forkAvailabilityProbeTTL: TimeInterval = 5.0
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -156,8 +155,7 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 
     private var hasFreshForkAvailabilityProbe: Bool {
-        guard let forkAvailabilityProbeCompletedAt else { return false }
-        return Date().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
+        forkAvailabilityProbeCompletedAt != nil
     }
 
     private func handleHookStoreChange() {
