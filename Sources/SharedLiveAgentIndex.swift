@@ -59,7 +59,7 @@ final class SharedLiveAgentIndex {
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        guard hasFreshForkAvailabilityProbe,
+        guard hasCompletedForkAvailabilityProbe,
               !isForkAvailabilityRefreshInFlight else {
             return nil
         }
@@ -182,6 +182,10 @@ final class SharedLiveAgentIndex {
         return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
     }
 
+    private var hasCompletedForkAvailabilityProbe: Bool {
+        forkAvailabilityProbeCompletedAt != nil
+    }
+
     private var isForkAvailabilityRefreshInFlight: Bool {
         refreshTask != nil || forkAvailabilityRefreshTask != nil
     }
@@ -226,9 +230,9 @@ final class SharedLiveAgentIndex {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
-        if index == nil, refreshTask == nil {
+        if refreshTask == nil, forkAvailabilityRefreshTask == nil {
             startReload()
-        } else if refreshTask != nil || forkAvailabilityRefreshTask != nil {
+        } else {
             changePending = true
         }
     }
