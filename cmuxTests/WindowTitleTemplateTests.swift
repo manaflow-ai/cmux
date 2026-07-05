@@ -410,6 +410,23 @@ struct WindowTitleTemplateTests {
         #expect(restoredAgentSnapshot.directoryIsTrustedRemoteReport == true)
     }
 
+    @MainActor
+    @Test func remoteTmuxMirrorRequiresTrustedDirectoryBeforePresentationFallback() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/tmux-workspace"
+        let workspace = Workspace(workingDirectory: localDirectory)
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: panelId, directory: localDirectory))
+
+        workspace.isRemoteTmuxMirror = true
+        #expect(workspace.presentedCurrentDirectory == nil)
+        #expect(workspace.reportedPanelDirectory(panelId: panelId) == nil)
+
+        workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: remoteDirectory)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: panelId) == remoteDirectory)
+    }
+
     private func isolatedDefaults() throws -> UserDefaults {
         let suiteName = "cmux.WindowTitleTemplateTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

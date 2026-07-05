@@ -22,6 +22,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
         var branch: SidebarPanelGitBranch?
         var badge: SidebarPullRequestBadge?
         var isTerminal = true
+        var isRemoteTerminal = false
     }
 
     struct WorkspaceState {
@@ -85,6 +86,9 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
     func hasTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
         state(workspaceId)?.panels[panelId]?.isTerminal ?? false
+    }
+    func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
+        state(workspaceId)?.panels[panelId]?.isRemoteTerminal ?? false
     }
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
         state(workspaceId)?.panels[panelId]?.directory?.nonEmptyNormalizedGitProbeDirectory

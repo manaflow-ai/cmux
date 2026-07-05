@@ -26,8 +26,12 @@ extension Workspace {
         return directories.count == 1 ? directories.first : nil
     }
 
+    private var usesRemoteDirectoryProvenance: Bool {
+        isRemoteWorkspace || isRemoteTmuxMirror
+    }
+
     var presentedCurrentDirectory: String? {
-        isRemoteWorkspace ? reportedRemoteCurrentDirectory : normalizedSidebarDirectory(currentDirectory)
+        usesRemoteDirectoryProvenance ? reportedRemoteCurrentDirectory : normalizedSidebarDirectory(currentDirectory)
     }
 
     func reportedPanelDirectory(panelId: UUID) -> String? {
@@ -38,9 +42,10 @@ extension Workspace {
     }
 
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
-        if !isRemoteWorkspace { return true }
+        if !usesRemoteDirectoryProvenance { return true }
         guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),
-              !isRemoteTerminalSurface(panelId) else { return false }
+              !isRemoteTerminalSurface(panelId),
+              !isRemoteTmuxMirror else { return false }
         return terminalPanel(for: panelId) != nil
     }
 
@@ -61,7 +66,7 @@ extension Workspace {
     private func sidebarHomeDirectoryForCanonicalization(
         resolvedPanelDirectories: [UUID: String]
     ) -> String? {
-        guard isRemoteWorkspace else { return FileManager.default.homeDirectoryForCurrentUser.path }
+        guard usesRemoteDirectoryProvenance else { return FileManager.default.homeDirectoryForCurrentUser.path }
         return SidebarBranchOrdering().inferredRemoteHomeDirectory(
             from: Array(resolvedPanelDirectories.values),
             fallbackDirectory: reportedRemoteCurrentDirectory
@@ -208,13 +213,13 @@ extension Workspace {
     }
 
     var presentedGitBranch: SidebarGitBranchState? {
-        if isRemoteWorkspace, presentedCurrentDirectory == nil { return nil }
+        if usesRemoteDirectoryProvenance, presentedCurrentDirectory == nil { return nil }
         return gitBranch
     }
 
     func reportedPanelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
         guard let branch = panelGitBranches[panelId] else { return nil }
-        if isRemoteWorkspace, reportedPanelDirectory(panelId: panelId) == nil { return nil }
+        if usesRemoteDirectoryProvenance, reportedPanelDirectory(panelId: panelId) == nil { return nil }
         return branch
     }
 

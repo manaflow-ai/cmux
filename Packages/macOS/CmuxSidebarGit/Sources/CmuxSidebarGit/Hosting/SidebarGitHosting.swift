@@ -35,6 +35,8 @@ public protocol SidebarGitHosting: AnyObject {
     func panelExists(workspaceId: UUID, panelId: UUID) -> Bool
     /// Whether the panel is a terminal panel.
     func hasTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool
+    /// Whether the panel is an active remote terminal panel.
+    func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's git-probe directory (the sidebar directory fallback
     /// chain: live cwd, requested working directory, focused workspace
     /// directory), normalized; `nil` when unknown.

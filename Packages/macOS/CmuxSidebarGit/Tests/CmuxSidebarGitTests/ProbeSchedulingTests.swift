@@ -167,6 +167,7 @@ import CmuxGit
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/srv/old")
         host.workspaces[0].state.isRemote = true
         host.workspaces[0].state.panels[panelId]?.hasTrustedRemoteDirectory = true
+        host.workspaces[0].state.panels[panelId]?.isRemoteTerminal = true
         host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
             branch: "old-main",
             isDirty: true
@@ -188,7 +189,7 @@ import CmuxGit
             pullRequestProbing: pullRequestProbing
         )
 
-        service.updateRemoteSurfaceDirectory(
+        service.updateSurfaceDirectory(
             workspaceId: workspaceId,
             panelId: panelId,
             directory: "/srv/new",

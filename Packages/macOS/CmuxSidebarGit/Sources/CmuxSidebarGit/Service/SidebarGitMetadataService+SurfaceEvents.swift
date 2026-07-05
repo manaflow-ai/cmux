@@ -54,15 +54,17 @@ extension SidebarGitMetadataService {
         recordDirectory: (any SidebarGitHosting, UUID, UUID, String, String?) -> Bool
     ) {
         guard let host, host.workspaceExists(workspaceId) else { return }
+        let clearsMetadataBeforeRefresh = clearMetadataBeforeRefresh ||
+            host.isRemoteTerminalPanel(workspaceId: workspaceId, panelId: panelId)
         let previousDirectory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId)
-        let hadTrustedRemoteDirectory = clearMetadataBeforeRefresh &&
+        let hadTrustedRemoteDirectory = clearsMetadataBeforeRefresh &&
             host.hasTrustedRemotePanelDirectory(workspaceId: workspaceId, panelId: panelId)
         let normalized = directory.normalizedGitProbeDirectory
         guard recordDirectory(host, workspaceId, panelId, normalized, displayLabel) else { return }
         let nextDirectory = normalized.nonEmptyNormalizedGitProbeDirectory
-        if previousDirectory != nextDirectory || (clearMetadataBeforeRefresh && !hadTrustedRemoteDirectory) {
+        if previousDirectory != nextDirectory || (clearsMetadataBeforeRefresh && !hadTrustedRemoteDirectory) {
             let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-            if clearMetadataBeforeRefresh {
+            if clearsMetadataBeforeRefresh {
                 if host.isRemoteWorkspace(workspaceId) == true {
                     clearWorkspaceGitProbeTracking(for: probeKey)
                     if hadTrustedRemoteDirectory, previousDirectory != nextDirectory {
@@ -74,7 +76,7 @@ extension SidebarGitMetadataService {
                 clearWorkspaceGitMetadata(for: probeKey)
             }
             guard sidebarGitMetadataWatchEnabled else {
-                if !clearMetadataBeforeRefresh {
+                if !clearsMetadataBeforeRefresh {
                     clearWorkspaceGitMetadata(for: probeKey)
                 }
                 return

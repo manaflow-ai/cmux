@@ -41,6 +41,10 @@ extension TabManager: SidebarGitHosting {
         tabs.first(where: { $0.id == workspaceId })?.terminalPanel(for: panelId) != nil
     }
 
+    func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
+        tabs.first(where: { $0.id == workspaceId })?.isRemoteTerminalSurface(panelId) == true
+    }
+
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
         return gitProbeDirectory(for: workspace, panelId: panelId)
