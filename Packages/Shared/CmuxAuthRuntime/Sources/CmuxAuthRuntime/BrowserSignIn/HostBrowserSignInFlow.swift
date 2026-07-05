@@ -39,6 +39,12 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var activeCallbackState: String?
     @ObservationIgnored private var pendingManualCallbackState: String?
     @ObservationIgnored private var pendingFallbackCallbackState: String?
+    /// Callback state for a default-browser recovery the user opened from the
+    /// signed-out error state. Unlike ``pendingFallbackCallbackState`` it is
+    /// owned by an already-opened browser, not by an in-flight popup attempt,
+    /// so popup teardown (``cancelActiveAttempt()`` / ``startAttempt()``) must
+    /// not clear it — only completion and sign-out do (issue #6015).
+    @ObservationIgnored private var pendingDefaultBrowserCallbackState: String?
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
 
     /// Creates the flow.
@@ -87,6 +93,29 @@ public final class HostBrowserSignInFlow {
         return makeSignInURL(activeCallbackState)
     }
 
+    /// Sign-in URL for completing sign-in entirely in the user's default
+    /// browser when no popup attempt is in flight — e.g. the Safari-backed
+    /// `ASWebAuthenticationSession` popup already failed or was dismissed and
+    /// the account UI is offering the recovery affordance from a signed-out
+    /// error state (issue #6015). Records the issued callback state so the
+    /// `cmux://auth-callback` deep link routes back through
+    /// ``handleCallbackURL(_:)`` and finishes the sign-in even though no
+    /// attempt is active — the no-active-attempt mirror of
+    /// ``activeAttemptSignInURL``.
+    public var defaultBrowserSignInURL: URL {
+        // Reuse an outstanding issued state so repeated taps — a common "nothing
+        // happened, click again" reaction to a hung popup — keep routing to the
+        // same callback instead of orphaning the earlier browser tab. The state
+        // lives in its own durable slot (not ``pendingFallbackCallbackState``)
+        // so that also clicking "Sign In…" — which starts a popup attempt and
+        // clears the popup-scoped slot — does not invalidate the browser the
+        // user actually completes. Cleared on completion and sign-out, so a
+        // later recovery still gets a fresh state.
+        let state = pendingDefaultBrowserCallbackState ?? makeCallbackState()
+        pendingDefaultBrowserCallbackState = state
+        return makeSignInURL(state)
+    }
+
     /// Run a browser sign-in attempt with a deadline for `auth.begin_sign_in`.
     public func signIn(timeout: TimeInterval) async -> Bool {
         log.log("auth.browser.signIn.request timeoutMs=\(Int(timeout * 1000)) signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn)")
@@ -105,6 +134,33 @@ public final class HostBrowserSignInFlow {
     @discardableResult
     public func handleCallbackURL(_ url: URL) async -> Bool {
         log.log("auth.callback.external.received \(authCallbackSummary(url))")
+        // A durable default-browser recovery callback wins even when a fresh
+        // popup attempt is now active: the user opened that browser tab from the
+        // error state and may have also clicked "Sign In…". Match its state
+        // explicitly, ahead of the active-attempt check below, so the browser
+        // the user actually finished in is not rejected as a state mismatch
+        // (issue #6015).
+        if callbackRouter.isAuthCallbackURL(url),
+           let state = authCallbackState(from: url),
+           state == pendingDefaultBrowserCallbackState {
+            log.log("auth.callback.external.routeToDefaultBrowser activeAttempt=\(activeAttemptID.map(String.init) ?? "nil")")
+            let signedIn = await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
+            if signedIn, let attemptID = activeAttemptID {
+                // Tear down the orphaned popup the user also started so its
+                // Safari window closes once the browser tab completed sign-in.
+                // Only on success — a recovery callback that fails to validate
+                // must leave the user's still-viable popup attempt (and its
+                // timeout / slow-sign-in hint) intact.
+                cancelAttemptTimeout()
+                cancelSlowSignInHint()
+                resumeActiveSessionContinuation(
+                    returning: .cancelled(reason: "external_callback"),
+                    reason: "externalDefaultBrowserCallback",
+                    expectedAttemptID: attemptID
+                )
+            }
+            return signedIn
+        }
         if let attemptID = activeAttemptID,
            activeSessionContinuation != nil,
            callbackRouter.isAuthCallbackURL(url) {
@@ -144,6 +200,10 @@ public final class HostBrowserSignInFlow {
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
         lastFailure = nil
+        // cancelActiveAttempt() clears the popup-scoped fallback slot; the
+        // durable default-browser slot is user-scoped, so sign-out invalidates
+        // it explicitly here.
+        pendingDefaultBrowserCallbackState = nil
         cancelActiveAttempt()
         await coordinator.signOut()
         log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
@@ -234,6 +294,20 @@ public final class HostBrowserSignInFlow {
                 return await self.completeCallback(url: callbackURL, attemptID: attemptID)
             case let .cancelled(reason):
                 self.log.log("auth.browser.attempt.cancelled id=\(attemptID) reason=\(reason) signedIn=\(self.coordinator.isAuthenticated)")
+                if self.activeAttemptID == attemptID,
+                   self.signInIsSlow,
+                   !self.coordinator.isAuthenticated {
+                    // Issue #6015: the user dismissed an ASWebAuthenticationSession
+                    // popup that had already hung past the slow threshold without
+                    // ever redirecting back to cmux://auth-callback. Record an
+                    // actionable failure so the account UI surfaces guidance and
+                    // keeps the default-browser fallback reachable instead of
+                    // silently dropping back to "Not signed in". This only fires
+                    // for a genuine user dismissal of the still-active popup —
+                    // sign-out / replace clear activeAttemptID before resuming, so
+                    // our own teardown never lands here.
+                    self.recordBrowserSessionFailure(reason: "dismissed_after_slow", attemptID: attemptID)
+                }
                 return self.coordinator.isAuthenticated
             case let .failed(reason):
                 self.recordBrowserSessionFailure(reason: reason, attemptID: attemptID)
@@ -439,6 +513,10 @@ public final class HostBrowserSignInFlow {
         if authCallbackState(from: url) == pendingFallbackCallbackState {
             pendingFallbackCallbackState = nil
         }
+        // A successful sign-in via ANY path makes a lingering default-browser
+        // recovery state moot — clear it unconditionally so an abandoned
+        // recovery tab can't later re-seed tokens and replace the live session.
+        pendingDefaultBrowserCallbackState = nil
         lastFailure = nil
         return true
     }

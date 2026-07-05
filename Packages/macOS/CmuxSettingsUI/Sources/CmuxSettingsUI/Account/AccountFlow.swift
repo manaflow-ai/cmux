@@ -35,15 +35,25 @@ public protocol AccountFlow: AnyObject {
     /// indefinite spinner when this is `true`.
     var signInIsSlow: Bool { get }
 
+    /// A localized, display-safe description of the most recent failed sign-in
+    /// attempt while the user is signed out, or `nil` when the last attempt did
+    /// not fail. The UI renders this so a browser sign-in that opens its window
+    /// and never completes surfaces an actionable error — paired with the
+    /// default-browser fallback — instead of silently returning to the
+    /// signed-out state (issue #6015).
+    var signInErrorMessage: String? { get }
+
     /// Launches the host's sign-in flow. The package shows the user a
     /// progress indicator while ``isWorkingOnAuth`` is `true` and
     /// re-reads ``currentIdentity`` when the flow resolves.
     func startSignIn()
 
-    /// Opens the in-flight sign-in in the user's default browser as a fallback
-    /// when the system sign-in window hangs (``signInIsSlow``). The browser
-    /// completes the sign-in and deep-links back into the app to finish the
-    /// in-flight attempt. A no-op when no sign-in is in flight.
+    /// Opens sign-in in the user's default browser as a fallback when the
+    /// Safari-backed system sign-in window hangs (``signInIsSlow``) or has
+    /// failed (``signInErrorMessage``). When a popup attempt is in flight the
+    /// browser finishes that attempt; otherwise it starts a fresh
+    /// default-browser sign-in. Either way the browser completes the sign-in
+    /// and deep-links back into the app to finish it (issue #6015).
     func openSignInInDefaultBrowser()
 
     /// Signs out and clears any cached identity. After this returns,

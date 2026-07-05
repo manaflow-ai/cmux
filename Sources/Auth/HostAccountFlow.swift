@@ -45,12 +45,25 @@ final class HostAccountFlow: AccountFlow {
         browserSignIn.signInIsSlow
     }
 
+    var signInErrorMessage: String? {
+        // Only while signed out: a stale failure from a prior attempt must not
+        // shadow a successful sign-in. `lastFailure` is cleared on success and
+        // never carries `.cancelled`, so its `errorDescription` is always a
+        // user-facing message here.
+        guard coordinator.currentUser == nil else { return nil }
+        return browserSignIn.lastFailure?.errorDescription
+    }
+
     func startSignIn() {
         browserSignIn.beginSignIn()
     }
 
     func openSignInInDefaultBrowser() {
-        guard let url = browserSignIn.activeAttemptSignInURL else { return }
+        // Prefer the in-flight attempt's URL so the deep-link callback routes
+        // back to that attempt; when no popup attempt is active (the signed-out
+        // error/idle recovery path) fall back to a fresh default-browser URL
+        // that still routes its callback home (issue #6015).
+        let url = browserSignIn.activeAttemptSignInURL ?? browserSignIn.defaultBrowserSignInURL
         NSWorkspace.shared.open(url)
     }
 
