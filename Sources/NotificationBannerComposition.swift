@@ -102,9 +102,10 @@ enum NotificationBannerComposer {
         // prompt, either of which can embed tokens or URL credentials. Native
         // banners escape the app (Notification Center, lock screen), so scrub
         // every field before composing.
+        let subtitle = [sourceDisplayName, kind].compactMap(notificationBannerNonEmpty).joined(separator: " · ")
         return NotificationBannerContent(
             title: notificationBannerScrubber.scrub(title),
-            subtitle: [sourceDisplayName, kind].compactMap(notificationBannerNonEmpty).joined(separator: " · "),
+            subtitle: notificationBannerScrubber.scrub(subtitle),
             body: notificationBannerScrubber.scrub(body)
         )
     }

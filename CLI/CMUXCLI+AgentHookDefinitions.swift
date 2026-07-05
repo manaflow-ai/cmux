@@ -198,7 +198,8 @@ extension CMUXCLI {
             configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
             sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
             hookMarker: "cmux hooks opencode", format: .flat,
-            events: []
+            events: [],
+            publishesStopNotification: false
         ),
         AgentHookDef(
             name: "pi", displayName: "Pi", statusKey: "pi",
