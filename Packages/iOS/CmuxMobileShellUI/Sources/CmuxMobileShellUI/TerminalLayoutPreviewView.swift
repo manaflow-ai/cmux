@@ -63,6 +63,15 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {}
 
+    /// Quiesce the surface on teardown (resigns input, stops the display link,
+    /// and halts accessibility reads), matching the production
+    /// ``GhosttySurfaceRepresentable``. The C surface itself is freed by
+    /// ``GhosttySurfaceView`` `deinit`; calling this just stops work promptly
+    /// instead of waiting for ARC to release the view.
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
+    }
+
     /// Retained delegate (the surface holds it weakly). No-op: the preview only
     /// exercises layout, not input/resize round-trips.
     final class Coordinator: GhosttySurfaceViewDelegate {

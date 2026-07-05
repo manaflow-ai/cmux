@@ -46,6 +46,12 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
         coordinator.stop()
+        // Quiesce the surface deterministically on teardown (resigns input,
+        // stops the display link, and halts accessibility reads), matching the
+        // production `GhosttySurfaceRepresentable`. The C surface itself is freed
+        // by `GhosttySurfaceView.deinit`; this just stops work promptly instead
+        // of waiting for ARC to release the view.
+        (uiView as? GhosttySurfaceView)?.prepareForDismantle()
     }
 
     @MainActor

@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 internal import CmuxMobileRPC
+internal import CmuxMobileShellModel
 internal import CmuxMobileSupport
 internal import CmuxMobileTransport
 import Foundation
@@ -92,6 +93,21 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
 }
 
 extension MobilePairingFailureCategory {
+    var pairingStep: MobilePairingStep? {
+        switch self {
+        case .offline, .hostUnreachable, .listenerNotRunning, .localNetworkBlocked,
+             .dnsFailed, .handshakeTimedOut, .connectionDropped:
+            return .network
+        case .accountMismatch, .emailMismatch, .authFailed, .ticketExpired:
+            return .authentication
+        case .invalidCode, .unrecognizedVersion, .loopbackRejected,
+             .unsupportedRoute, .noSupportedRoute:
+            return .trust
+        case .unknown, .cancelled:
+            return nil
+        }
+    }
+
     /// The compact `ios_pairing_failed` `reason` enum value (no error text, no
     /// host) for product analytics.
     public var analyticsReason: String {
