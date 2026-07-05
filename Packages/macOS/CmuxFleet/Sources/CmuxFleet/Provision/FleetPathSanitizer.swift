@@ -19,14 +19,24 @@ public struct FleetPathSanitizer: Sendable {
     /// - Parameter key: The source task key to sanitize.
     /// - Returns: A non-empty safe directory name.
     public func directoryName(for key: String) -> String {
+        let sanitizedKey = sanitizedName(for: key)
+        if !sanitizedKey.isEmpty {
+            return sanitizedKey
+        }
+
+        let sanitizedFallback = sanitizedName(for: fallback)
+        return sanitizedFallback.isEmpty ? "task" : sanitizedFallback
+    }
+
+    private func sanitizedName(for value: String) -> String {
         guard maxLength > 0 else {
-            return fallback
+            return ""
         }
 
         var result = ""
         var previousWasReplacement = false
 
-        for scalar in key.unicodeScalars {
+        for scalar in value.unicodeScalars {
             if isAllowed(scalar) {
                 result.unicodeScalars.append(scalar)
                 previousWasReplacement = false
@@ -43,7 +53,7 @@ public struct FleetPathSanitizer: Sendable {
             result = trimmed(result)
         }
 
-        return result.isEmpty ? fallback : result
+        return result
     }
 
     private func isAllowed(_ scalar: UnicodeScalar) -> Bool {

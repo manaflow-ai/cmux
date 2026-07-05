@@ -217,6 +217,21 @@ struct FleetSupervisorTests {
         #expect(reduced.1.isEmpty)
     }
 
+    @Test func agentStopWithTerminalPullRequestCompletesAndCleansUp() {
+        let task = FleetTestSupport.task(
+            state: .running,
+            pr: FleetPullRequestStatus(number: 12, state: .merged)
+        )
+
+        let reduced = FleetSupervisor().reduce(
+            task: task,
+            signal: .agentStopped(taskID: task.id, at: FleetTestSupport.eventDate)
+        )
+
+        #expect(reduced.0.state == .done)
+        #expect(reduced.1 == [.cleanupWorkspace(task: reduced.0)])
+    }
+
     @Test func agentStopWithoutPullRequestSchedulesRetryOrFailsAtMaxAttempts() {
         let retrying = FleetTestSupport.task(state: .running, attempts: 1)
         let retry = FleetSupervisor().reduce(

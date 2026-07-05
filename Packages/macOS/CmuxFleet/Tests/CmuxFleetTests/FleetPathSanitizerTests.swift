@@ -32,6 +32,13 @@ struct FleetPathSanitizerTests {
         #expect(FleetPathSanitizer().directoryName(for: "////") == "task")
         #expect(FleetPathSanitizer(maxLength: 100).directoryName(for: "") == "task")
         #expect(FleetPathSanitizer(maxLength: 0).directoryName(for: "abc") == "task")
-        #expect(FleetPathSanitizer(maxLength: 0, fallback: "fallback").directoryName(for: "abc") == "fallback")
+        #expect(FleetPathSanitizer(maxLength: 0, fallback: "fallback").directoryName(for: "abc") == "task")
+    }
+
+    @Test func sanitizesFallbackThroughSamePipeline() {
+        #expect(FleetPathSanitizer(fallback: "../x").directoryName(for: "///") == "x")
+        #expect(FleetPathSanitizer(fallback: "a/b").directoryName(for: "") == "a_b")
+        #expect(FleetPathSanitizer(fallback: "").directoryName(for: "") == "task")
+        #expect(FleetPathSanitizer(maxLength: 2, fallback: "abc/def").directoryName(for: "") == "ab")
     }
 }

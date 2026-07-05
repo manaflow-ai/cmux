@@ -89,6 +89,10 @@ public struct FleetSupervisor: Sendable {
             guard taskID == task.id, acceptsAgentStop(from: task.state) else {
                 return (task, [])
             }
+            if task.pr?.isTerminal == true {
+                let transitioned = transition(task: task, to: .done, at: at)
+                return (transitioned.0, transitioned.1 + [.cleanupWorkspace(task: transitioned.0)])
+            }
             if task.pr != nil {
                 return transition(task: task, to: .awaitingReview, at: at)
             }

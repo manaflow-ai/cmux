@@ -70,16 +70,16 @@ public enum FleetTaskState: String, CaseIterable, Codable, Sendable {
         case .provisioning:
             to == .launching || to == .failed || to == .cancelled
         case .launching:
-            to == .running || to == .retryBackoff || to == .awaitingReview || to == .failed
-                || to == .cancelled
+            to == .running || to == .retryBackoff || to == .awaitingReview || to == .done
+                || to == .failed || to == .cancelled
         case .running:
-            to == .needsInput || to == .retryBackoff || to == .awaitingReview || to == .failed
-                || to == .cancelled
+            to == .needsInput || to == .retryBackoff || to == .awaitingReview || to == .done
+                || to == .failed || to == .cancelled
         case .needsInput:
-            to == .running || to == .retryBackoff || to == .awaitingReview || to == .failed
-                || to == .cancelled
+            to == .running || to == .retryBackoff || to == .awaitingReview || to == .done
+                || to == .failed || to == .cancelled
         case .stalled:
-            to == .retryBackoff || to == .failed || to == .cancelled
+            to == .retryBackoff || to == .done || to == .failed || to == .cancelled
         case .retryBackoff:
             to == .launching || to == .cancelled
         case .awaitingReview:
