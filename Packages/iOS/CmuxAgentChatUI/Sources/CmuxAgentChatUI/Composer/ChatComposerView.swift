@@ -30,16 +30,12 @@ public struct ChatComposerView: View {
     @State private var attachments: [ChatComposerAttachment] = []
     @State private var dictation = ComposerDictationController()
     #endif
-
     @Environment(\.chatTheme) private var theme
-
     @ScaledMetric(relativeTo: .title) private var sendButtonSize: CGFloat = 36
     private let controlHeight: CGFloat = 40
-
     private static let maxAttachmentDimension: CGFloat = 2048
     private static let jpegQuality: CGFloat = 0.85
     private static let hardStopWindow: TimeInterval = 2
-
     public init(
         agentState: ChatAgentState,
         agentKind: ChatAgentKind,
@@ -99,6 +95,7 @@ public struct ChatComposerView: View {
     #if os(iOS)
     @ViewBuilder
     private var composerSurface: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             GlassEffectContainer {
                 composerStack
@@ -106,6 +103,9 @@ public struct ChatComposerView: View {
         } else {
             composerStack
         }
+        #else
+        composerStack
+        #endif
     }
     #endif
 
@@ -375,6 +375,7 @@ public struct ChatComposerView: View {
         isDraftFocused = true
     }
 
+    @MainActor
     private var attachButton: some View {
         PhotosPicker(selection: $pickedItems, maxSelectionCount: 4, matching: .images) {
             MobileComposerIconLabel(

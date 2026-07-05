@@ -394,6 +394,7 @@ private struct ChatTranscriptTableConfiguration {
         return items
     }
 
+    @MainActor
     @ViewBuilder
     func view(for item: ChatTranscriptTableItem, tableWidth: CGFloat) -> some View {
         itemView(for: item)
@@ -407,6 +408,7 @@ private struct ChatTranscriptTableConfiguration {
             )
     }
 
+    @MainActor
     @ViewBuilder
     private func itemView(for item: ChatTranscriptTableItem) -> some View {
         switch item {

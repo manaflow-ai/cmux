@@ -30,10 +30,21 @@ import Testing
     )
     #expect(firstRefreshSent, "the first ahead-of-render-grid ACK should refresh the event subscription")
     let subscribeCountAfterFirstAck = await router.count(of: "mobile.events.subscribe")
+    let hostStatusCountAfterFirstAck = await router.count(of: "mobile.host.status")
 
     await store.submitTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
     let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 2 }
     #expect(inputSent)
+    let restartSent = await router.waitForCount(
+        of: "mobile.host.status",
+        atLeast: hostStatusCountAfterFirstAck + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(
+        !restartSent,
+        "duplicate ACKs for the same pending sequence must not restart the render-grid event stream"
+    )
     let duplicateRefreshSent = await router.waitForCount(
         of: "mobile.events.subscribe",
         atLeast: subscribeCountAfterFirstAck + 1,

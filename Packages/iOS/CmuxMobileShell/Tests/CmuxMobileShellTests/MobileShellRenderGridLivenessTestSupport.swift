@@ -56,6 +56,7 @@ actor LivenessHostRouter {
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var surfaceID: String?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -69,6 +70,7 @@ actor LivenessHostRouter {
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var holdSubscribe = false
     private var replayRequestCount = 0
     private var replayResponseCount = 0
@@ -79,18 +81,27 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.bytes.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var terminalFidelity = "render_grid"
+    private let terminalInputSeq: UInt64 = 100
+    private var replayFramesBySurfaceID: [String: [(seq: UInt64, text: String)]] = [:]
+    private var replayResponseCountsBySurfaceID: [String: Int] = [:]
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
-    private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
+    private var emptyReplayResponsesRemaining = 0
+    private var viewportEffectiveGridOverride: LivenessViewportReport?
+    private var emptyViewportResponsesRemaining = 0
 
-    func record(method: String?, topics: [String]?) {
-        recorded.append(RecordedRequest(method: method, topics: topics))
+    func record(method: String?, topics: [String]?, surfaceID: String?) {
+        recorded.append(RecordedRequest(method: method, topics: topics, surfaceID: surfaceID))
         resumeSatisfiedCountWaiters()
     }
 
-    func count(of method: String) -> Int {
-        recorded.filter { $0.method == method }.count
+    func count(of method: String, surfaceID: String? = nil) -> Int {
+        recorded.filter { request in
+            request.method == method
+                && (surfaceID == nil || request.surfaceID == surfaceID)
+        }.count
     }
 
     func replayResponsesServed() -> Int {
@@ -182,6 +193,15 @@ actor LivenessHostRouter {
         self.capabilities = capabilities
     }
 
+    func setTerminalFidelity(_ terminalFidelity: String) {
+        self.terminalFidelity = terminalFidelity
+    }
+
+    func setReplayFrames(_ frames: [(seq: UInt64, text: String)], surfaceID: String = "live-terminal") {
+        replayFramesBySurfaceID[surfaceID] = frames
+        replayResponseCountsBySurfaceID[surfaceID] = 0
+    }
+
     func enqueueReplayTexts(_ texts: [String]) {
         replayTexts.append(contentsOf: texts)
     }
@@ -225,6 +245,13 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Delay the Nth `mobile.events.subscribe` request until release, then
+    /// continue with a normal ack. This keeps a refresh task in flight while a
+    /// test drives another event through the same single-flight guard.
+    func delaySubscribeRequest(number: Int) {
+        delayedSubscribeRequestNumbers.insert(number)
+    }
+
     /// Hold the Nth `mobile.terminal.replay` response (1-based), letting a test
     /// swap clients while the old request is still in flight.
     func holdReplayRequest(number: Int) {
@@ -243,7 +270,13 @@ actor LivenessHostRouter {
         heldViewportRequestNumbers.insert(number)
     }
 
-    func setViewportEffectiveGrid(columns: Int, rows: Int) { viewportEffectiveGridOverride = .init(columns: columns, rows: rows) }; func emptyNextViewportResponses(count: Int = 1) { emptyViewportResponsesRemaining += count }
+    func setViewportEffectiveGrid(columns: Int, rows: Int) {
+        viewportEffectiveGridOverride = .init(columns: columns, rows: rows)
+    }
+
+    func emptyNextViewportResponses(count: Int = 1) {
+        emptyViewportResponsesRemaining += count
+    }
 
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
@@ -258,6 +291,7 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        delayedSubscribeRequestNumbers = []
         heldReplayRequestNumbers = []
         heldReplayResponsesRemaining = 0
         heldViewportRequestNumbers = []
@@ -268,7 +302,12 @@ actor LivenessHostRouter {
         }
     }
 
-    func response(method: String?, id: String?, viewportReport: LivenessViewportReport? = nil) async -> Data? {
+    func response(
+        method: String?,
+        id: String?,
+        surfaceID: String?,
+        viewportReport: LivenessViewportReport? = nil
+    ) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
@@ -286,6 +325,13 @@ actor LivenessHostRouter {
                                 "is_ready": true,
                                 "is_focused": true,
                             ],
+                            [
+                                "id": "secondary-terminal",
+                                "title": "Secondary Terminal",
+                                "current_directory": "/Users/test/project",
+                                "is_ready": true,
+                                "is_focused": false,
+                            ],
                         ],
                     ],
                 ],
@@ -297,11 +343,14 @@ actor LivenessHostRouter {
                 return nil
             }
             return try? Self.resultFrame(id: id, result: [
-                "terminal_fidelity": "render_grid",
+                "terminal_fidelity": terminalFidelity,
                 "capabilities": capabilities,
             ])
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
+            if delayedSubscribeRequestNumbers.contains(subscribeRequestCount) {
+                await park()
+            }
             if holdSubscribe || heldSubscribeRequestNumbers.contains(subscribeRequestCount) {
                 await park()
                 return nil
@@ -312,6 +361,13 @@ actor LivenessHostRouter {
                 "stream_id": "test-stream",
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
+            ])
+        case "terminal.input":
+            return try? Self.resultFrame(id: id, result: [
+                "workspace_id": "live-workspace",
+                "surface_id": surfaceID ?? "live-terminal",
+                "queued": false,
+                "terminal_seq": terminalInputSeq,
             ])
         case "mobile.terminal.replay":
             replayRequestCount += 1
@@ -331,6 +387,22 @@ actor LivenessHostRouter {
             if emptyReplayResponsesRemaining > 0 {
                 emptyReplayResponsesRemaining -= 1
                 return try? Self.resultFrame(id: id, result: [:])
+            }
+            // Render-grid replay path (render-grid liveness tests configure
+            // per-surface frames). Falls back to the byte/text replay path
+            // below when no render-grid frames were scripted.
+            let replaySurfaceID = surfaceID ?? "live-terminal"
+            if let replayFrames = replayFramesBySurfaceID[replaySurfaceID],
+               !replayFrames.isEmpty {
+                let replayIndex = replayResponseCountsBySurfaceID[replaySurfaceID] ?? 0
+                replayResponseCountsBySurfaceID[replaySurfaceID] = replayIndex + 1
+                let frame = replayFrames[min(replayIndex, replayFrames.count - 1)]
+                return try? Self.replayResultFrame(
+                    id: id,
+                    surfaceID: replaySurfaceID,
+                    seq: frame.seq,
+                    text: frame.text
+                )
             }
             if !replayPayloads.isEmpty {
                 let payload = replayPayloads.removeFirst()
@@ -366,17 +438,19 @@ actor LivenessHostRouter {
             if heldViewportRequestNumbers.contains(viewportRequestCount) {
                 await park()
             }
-            if emptyViewportResponsesRemaining > 0 { emptyViewportResponsesRemaining -= 1; return try? Self.resultFrame(id: id, result: [:]) }
+            if emptyViewportResponsesRemaining > 0 {
+                emptyViewportResponsesRemaining -= 1
+                return try? Self.resultFrame(id: id, result: [:])
+            }
             // Mirror the Mac host: acknowledge the report with the effective
             // shared grid. Echoing the reported viewport models a single
             // attached device, whose report is always the effective minimum.
             var result: [String: Any] = [:]
-            if let viewportReport = viewportEffectiveGridOverride ?? viewportReport { result["columns"] = viewportReport.columns; result["rows"] = viewportReport.rows }
+            if let viewportReport = viewportEffectiveGridOverride ?? viewportReport {
+                result["columns"] = viewportReport.columns
+                result["rows"] = viewportReport.rows
+            }
             return try? Self.resultFrame(id: id, result: result)
-        case "terminal.input":
-            return try? Self.resultFrame(id: id, result: [
-                "terminal_seq": 100,
-            ])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
@@ -404,6 +478,24 @@ actor LivenessHostRouter {
             "error": ["message": message],
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    }
+
+    private static func replayResultFrame(id: String?, surfaceID: String, seq: UInt64, text: String) throws -> Data {
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: surfaceID,
+            stateSeq: seq,
+            columns: 16,
+            rows: 4,
+            text: text
+        )
+        return try resultFrame(id: id, result: [
+            "workspace_id": "live-workspace",
+            "surface_id": surfaceID,
+            "seq": NSNumber(value: seq),
+            "columns": 16,
+            "rows": 4,
+            "render_grid": try frame.jsonObject(),
+        ])
     }
 }
 
@@ -466,6 +558,7 @@ actor LivenessTransport: CmxByteTransport {
             let id = parsed?["id"] as? String
             let params = parsed?["params"] as? [String: Any]
             let topics = params?["topics"] as? [String]
+            let surfaceID = params?["surface_id"] as? String
             let viewportReport: LivenessViewportReport? = {
                 guard method == "mobile.terminal.viewport",
                       let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
@@ -474,12 +567,17 @@ actor LivenessTransport: CmxByteTransport {
                 }
                 return LivenessViewportReport(columns: columns, rows: rows)
             }()
-            await router.record(method: method, topics: topics)
+            await router.record(method: method, topics: topics, surfaceID: surfaceID)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
-            Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id, viewportReport: viewportReport) else {
+            Task { [router, weak self, surfaceID, viewportReport] in
+                guard let response = await router.response(
+                    method: method,
+                    id: id,
+                    surfaceID: surfaceID,
+                    viewportReport: viewportReport
+                ) else {
                     return
                 }
                 await self?.deliver(response)
