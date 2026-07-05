@@ -191,7 +191,7 @@ mod tests {
         assert_eq!(
             bytes,
             format!(
-                "\x1b_Ga=T,f=100,i=8,q=2,m=1;{}\x1b\\\x1b_Gq=2,m=0;bbbb\x1b\\",
+                "\x1b_Ga=t,f=100,i=8,q=2,m=1;{}\x1b\\\x1b_Gq=2,m=0;bbbb\x1b\\",
                 "a".repeat(4096)
             )
         );
