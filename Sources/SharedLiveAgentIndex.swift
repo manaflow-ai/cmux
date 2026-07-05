@@ -59,7 +59,7 @@ final class SharedLiveAgentIndex {
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        guard hasCompletedForkAvailabilityProbe,
+        guard hasFreshForkAvailabilityProbe,
               !isForkAvailabilityRefreshInFlight else {
             return nil
         }
