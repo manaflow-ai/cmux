@@ -2697,7 +2697,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
-        guard !isRemoteWorkspace else {
+        guard !usesRemoteDirectoryProvenance else {
             extensionSidebarProjectRootPath = nil
             return
         }
@@ -4670,7 +4670,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
         // Remote workspace directories are remote-host paths; no local per-directory config can apply.
-        if isRemoteWorkspace { return nil }
+        if usesRemoteDirectoryProvenance { return nil }
         if let panelId {
             for candidate in [panelDirectories[panelId], terminalPanel(for: panelId)?.requestedWorkingDirectory] {
                 let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -4749,7 +4749,7 @@ final class Workspace: Identifiable, ObservableObject {
             if surfaceTabBarDirectory != nextSurfaceTabBarDirectory { surfaceTabBarDirectory = nextSurfaceTabBarDirectory }
             if currentDirectory != trimmed { currentDirectory = trimmed }
         }
-        if isRemoteWorkspace {
+        if usesRemoteDirectoryProvenance {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: provenanceChanged)
         }
         return true
@@ -5418,7 +5418,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarFinderDirectory() -> String? {
-        guard !isRemoteWorkspace else { return nil }
+        guard !usesRemoteDirectoryProvenance else { return nil }
         let panelIds = sidebarOrderedPanelIds()
         let localPanelIds = panelIds.filter {
             !remoteDetectedSurfaceIds.contains($0)
@@ -5433,7 +5433,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         let validPanelPullRequests = panelPullRequests.filter { panelId, state in
-            if isRemoteWorkspace, reportedPanelDirectory(panelId: panelId) == nil {
+            if usesRemoteDirectoryProvenance, reportedPanelDirectory(panelId: panelId) == nil {
                 return false
             }
             guard let pullRequestBranch = state.branch?.normalizedSidebarBranchName else {
@@ -8770,7 +8770,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousHostedView = focusedTerminalPanel?.hostedView
         let directory: String? = {
             if let workingDirectory { return workingDirectory }
-            return isRemoteWorkspace ? presentedCurrentDirectory : currentDirectory
+            return usesRemoteDirectoryProvenance ? presentedCurrentDirectory : currentDirectory
         }()
         let trustsAgentDirectory = workingDirectory == nil &&
             focusedPanelId.map { remoteDirectoryReportPanelIds.contains($0) } == true
@@ -11975,7 +11975,7 @@ extension Workspace: BonsplitDelegate {
         if let dir = panelDirectories[panelId] {
             currentDirectory = dir
         }
-        if isRemoteWorkspace, previousCurrentDirectory == currentDirectory {
+        if usesRemoteDirectoryProvenance, previousCurrentDirectory == currentDirectory {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory)
         }
         gitBranch = panelGitBranches[panelId]

@@ -26,7 +26,7 @@ extension Workspace {
         return directories.count == 1 ? directories.first : nil
     }
 
-    private var usesRemoteDirectoryProvenance: Bool {
+    var usesRemoteDirectoryProvenance: Bool {
         isRemoteWorkspace || isRemoteTmuxMirror
     }
 

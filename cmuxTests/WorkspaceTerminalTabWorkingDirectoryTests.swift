@@ -291,6 +291,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(localRereportSnapshot.focusedPanel == nil)
 
         workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "local-main", isDirty: false)
+        workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: "seepine@192.168.5.20")
         #expect(TerminalController.shared.handleSocketLine("report_pwd \(remoteDirectory) --tab=\(workspace.id.uuidString) --panel=\(remotePanelId.uuidString)") == "OK")
         TerminalMutationBus.shared.drainForTesting()
         let postReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
@@ -301,7 +302,6 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         #expect(postLocalRereportSnapshot.currentDirectory == remoteDirectory)
         #expect(postLocalRereportSnapshot.focusedPanel?.directory == remoteDirectory)
     }
-
     @MainActor
     @Test("restored remote ssh cwd remains trusted for the next snapshot")
     func restoredRemoteSSHDirectoryRemainsTrustedForNextSnapshot() throws {
