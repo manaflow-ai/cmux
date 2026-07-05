@@ -412,6 +412,34 @@ final class CmuxConfigWorkspaceActionTests: XCTestCase {
     }
 
     @MainActor
+    func testInlineWorkspaceSurfaceTabBarButtonExecutesOnClick() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.tabs.first)
+        let button = CmuxSurfaceTabBarButton(
+            id: "review-setup",
+            title: "Review Setup",
+            action: .workspace(CmuxWorkspaceDefinition(name: "Review"), restart: nil)
+        )
+        workspace.applySurfaceTabBarButtons(
+            [button],
+            sourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json",
+            terminalCommandSourcePaths: [:],
+            workspaceCommands: [:]
+        )
+
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestCustomAction: "review-setup",
+            inPane: pane
+        )
+
+        XCTAssertEqual(manager.tabs.count, 2, "inline workspace button click should create the workspace")
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Review")
+    }
+
+    @MainActor
     func testInlineWorkspaceActionHonorsIgnoreRestart() throws {
         let manager = TabManager()
         let existingWorkspace = manager.tabs[0]
