@@ -145,6 +145,15 @@ final class RemoteTmuxControlConnection {
     /// stores the size immediately but defers the send to one shot after the size
     /// stops changing. The fired timer is also the clean "size settled" edge that
     /// consumes the one-shot attach redraw kick below.
+    ///
+    /// This timer is a rate limiter, not a correctness dependency: the
+    /// ledger (`lastClientSize` / `lastWindowSizes`) is written synchronously
+    /// before any deferral, dedup makes a late or duplicate send idempotent,
+    /// and the reconnect reseed replays the ledger. Reply-gated coalescing is
+    /// not a substitute: it self-clocks to the control channel's round trip
+    /// (milliseconds locally), which would forward nearly every oscillation
+    /// frame and reinstate the SIGWINCH storm — the oscillation has no
+    /// terminating event to gate on.
     private var clientSizeDebounceTask: Task<Void, Never>?
     private static let clientSizeDebounceMs = 180
 
@@ -156,6 +165,16 @@ final class RemoteTmuxControlConnection {
     /// Gap between the kick's shrink push and its restore push. Must exceed tmux's
     /// pane-resize coalescing (~250 ms), otherwise the two pushes collapse into a
     /// net-zero size change and no SIGWINCH is ever delivered.
+    ///
+    /// This wait has no event-driven substitute: layout recomputation is
+    /// visible to control clients (%layout-change, list-panes) and happens
+    /// immediately, but the pane PTY ioctl — the SIGWINCH this kick exists
+    /// to force — sits behind tmux's internal coalescing timer, which emits
+    /// nothing observable when it expires. Gating the restore on a layout
+    /// publication confirms the wrong fact and can land inside the
+    /// coalescing window on fast links, collapsing the pair to net-zero
+    /// again — and any per-window confirmation predicate can be satisfied
+    /// spuriously by an unrelated window already at the shrunken height.
     private static let attachRedrawKickGapMs = 350
 
     /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
