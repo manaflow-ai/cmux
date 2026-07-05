@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// Discovers a remote host's tmux sessions and mirrors them into cmux windows
 /// and workspaces: the dedicated-window attach (one cmux window per endpoint),
@@ -47,6 +48,34 @@ final class RemoteTmuxMirrorAttachCoordinator {
         self.connectionCoordinator = connectionCoordinator
     }
 
+    /// Warms and confirms the host's shared SSH ControlMaster before a per-session
+    /// `tmux -CC attach` burst (the single shared gate for every bulk-mirror
+    /// entrypoint), so the `ControlMaster=auto` attaches ride a ready master instead
+    /// of racing to create it on a cold first attach (#6732).
+    ///
+    /// Fails closed: an unconfirmed master throws rather than firing the burst into
+    /// the exact cold-master race the gate prevents. Callers invoke this *before*
+    /// creating the dedicated window, so a throw needs no teardown and the user can
+    /// re-attach once the master is warm. The common cold start still returns `true`
+    /// (the warmup's single-creator open succeeds), so only the genuinely-unready
+    /// case is blocked.
+    private func ensureControlMasterReadyForBurst(host: RemoteTmuxHost) async throws {
+        let ready = try await transportRegistry.transport(for: host).ensureMasterReady()
+        // The warmup's SSH work runs in a shared unstructured task and isn't
+        // cancellation-aware, so a caller cancelled meanwhile (e.g. a v2VmCall
+        // timeout) only learns of it here — bail before treating not-ready as a hard
+        // failure and before the caller's next irreversible step.
+        try Task.checkCancellation()
+        guard ready else {
+            // Log the non-sensitive connection hash, not the SSH destination (which
+            // can carry a username / internal host / IP) — keeps collected diagnostics clean.
+            RemoteTmuxController.logger.warning("remote-tmux: ControlMaster not confirmed ready [\(host.connectionHash, privacy: .public)]; aborting attach burst")
+            // `.unreachable` already means "the SSH master could not be opened"; its
+            // localized "host unreachable: %@" message takes the destination as detail.
+            throw RemoteTmuxError.unreachable(host.destination)
+        }
+    }
+
     /// Opens a NEW cmux window dedicated to `host` and mirrors every tmux session
     /// on it 1:1 (each session a workspace, each window a tab). This keeps remote
     /// work in its own window so the user's local windows are untouched.
@@ -93,26 +122,20 @@ final class RemoteTmuxMirrorAttachCoordinator {
         // prompt). A key/agent host — or one with an already-live master — succeeds
         // here and mirrors directly, with no interactive step, so it also works from
         // non-tty callers (scripts). A host that needs interactive auth fails here
-        // (BatchMode can't prompt); classify that and hand back the interactive
-        // `ssh` argv so the `cmux ssh-tmux` CLI authenticates in the user's terminal
-        // and retries — the retry then rides the now-open master. `transport.run()`
-        // creates the control-socket dir, so the returned auth `ssh` can open the
-        // master. No window has been created yet — nothing to tear down here. Both
-        // discovery calls (including the create-then-relist for an empty server) are
-        // inside the catch so an auth failure on either is classified uniformly.
+        // (BatchMode can't prompt); classify recoverable stderr via
+        // ``RemoteTmuxSSHTransport/indicatesInteractiveRetryWillHelp`` and hand back
+        // the interactive `ssh` argv so the `cmux ssh-tmux` CLI authenticates in the
+        // user's terminal and retries on the now-open master. `transport.run()` creates
+        // the control-socket dir, so the returned auth `ssh` can open the master. No
+        // window has been created yet — nothing to tear down here. Both discovery calls
+        // (including the create-then-relist for an empty server) are inside the catch so
+        // a recoverable failure on any preflight/discovery command is classified uniformly.
         let sessions: [RemoteTmuxSession]
         do {
-            var discovered = try await transportRegistry.transport(for: host).listSessions()
-            if discovered.isEmpty {
-                // A reachable server with zero sessions: create one so the window
-                // is useful. (An unreachable host throws from listSessions.)
-                _ = try? await transportRegistry.transport(for: host).runTmux(["new-session", "-d"])
-                discovered = try await transportRegistry.transport(for: host).listSessions()
-            }
-            sessions = discovered
+            sessions = try await transportRegistry.transport(for: host).discoverMirrorSessions(createIfEmpty: true)
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
-               RemoteTmuxSSHTransport.indicatesAuthRequired(stderr) {
+               RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr) {
                 return .authRequired(sshArgv: host.interactiveAuthInvocation())
             }
             throw error
@@ -134,6 +157,11 @@ final class RemoteTmuxMirrorAttachCoordinator {
         // probe could otherwise land here after the caller already received a timeout
         // and open an orphaned dedicated window (with live SSH/tmux behind it).
         try Task.checkCancellation()
+
+        // Warm + confirm the shared ControlMaster before creating the window and
+        // firing the attach burst below. Doing it pre-window means a not-ready
+        // failure (or cancellation) throws here and leaks no orphaned window.
+        try await ensureControlMasterReadyForBurst(host: host)
 
         let windowId = appDelegate.createMainWindow(shouldActivate: activateWindow)
         guard let manager = appDelegate.environment.windowRegistry.tabManagerFor(windowId: windowId) else {
@@ -184,7 +212,10 @@ final class RemoteTmuxMirrorAttachCoordinator {
         guard let tabManager = AppDelegate.shared?.tabManager else {
             throw RemoteTmuxError.unreachable("app not ready")
         }
-        let sessions = try await transportRegistry.transport(for: host).listSessions()
+        let sessions = try await transportRegistry.transport(for: host).discoverMirrorSessions(createIfEmpty: false)
+        // Confirm the shared ControlMaster before the per-session attach burst, so
+        // concurrent `ControlMaster=auto` attaches don't race to create it (#6732).
+        try await ensureControlMasterReadyForBurst(host: host)
         for session in sessions {
             // One session failing to attach must not abort mirroring the rest.
             do {

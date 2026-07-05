@@ -25,6 +25,11 @@ actor RemoteTmuxSSHTransport {
     private let sshExecutablePath: String
     private let controlPersistSeconds: Int
 
+    /// In-flight shared-master warmup, if any. ``ensureMasterReady()`` funnels every
+    /// concurrent caller through this single task so the master is opened at most
+    /// once even though the actor is reentrant across awaits (see that method).
+    private var readinessTask: Task<Bool, Error>?
+
     /// - Parameters:
     ///   - host: the remote destination.
     ///   - sshExecutablePath: the local `ssh` binary (overridable for tests).
@@ -60,6 +65,89 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxSessionListParser.parse(result.stdout)
     }
 
+    /// Probes the remote tmux client version via `tmux -V`.
+    ///
+    /// - Returns: the parsed version, or `nil` when `tmux -V` succeeds but its
+    ///   output has no `<major>.<minor>` (a dev/distro build like `tmux master`),
+    ///   which callers treat as "unknown, allow".
+    /// - Throws: ``RemoteTmuxError/commandFailed`` when the command itself fails
+    ///   (e.g. auth required, or `tmux` not installed) so the caller's existing
+    ///   auth/no-server classification still applies.
+    func tmuxClientVersion() async throws -> RemoteTmuxVersion? {
+        let result = try await run(["tmux", "-V"])
+        guard result.succeeded else {
+            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        return RemoteTmuxVersion.parse(result.stdout)
+    }
+
+    /// Probes the running tmux server version via the server's `#{version}` format.
+    private func tmuxServerVersionProbe() async throws -> (serverExists: Bool, version: RemoteTmuxVersion?) {
+        let result = try await runTmux(["display-message", "-p", "#{version}"])
+        guard result.succeeded else {
+            if Self.indicatesNoServer(result.stderr) { return (serverExists: false, version: nil) }
+            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        if let version = RemoteTmuxVersion.parseServerFormat(result.stdout) {
+            return (serverExists: true, version: version)
+        }
+        return (serverExists: true, version: nil)
+    }
+
+    /// Probes the live-subscription capability directly when server version text
+    /// is unparseable. New tmux recognizes `-B` but may fail with "no current
+    /// client" outside control mode; old tmux rejects the flag itself.
+    private func serverSupportsRefreshClientSubscriptions() async throws -> Bool {
+        let result = try await runTmux(["refresh-client", "-B", "cmux_probe::#{version}"])
+        if result.succeeded { return true }
+        if Self.indicatesRefreshClientSubscriptionUnsupported(result.stderr) { return false }
+        if Self.indicatesRefreshClientNeedsCurrentClient(result.stderr) { return true }
+        throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+    }
+
+    /// Asserts that the remote server supports live mirroring.
+    ///
+    /// Call this before any `tmux -CC` control stream can launch. An unparseable
+    /// running-server version falls back to a direct `refresh-client -B`
+    /// capability probe so dev/distro builds are treated consistently with the
+    /// cold-start path while old servers still fail before attach.
+    /// When no server is running, pass `true` only for paths that will create one;
+    /// those paths gate on the tmux client binary that will become the new server.
+    func assertMinimumTmuxVersion(checkClientWhenNoServer: Bool) async throws {
+        let serverProbe = try await tmuxServerVersionProbe()
+        if serverProbe.serverExists {
+            guard let version = serverProbe.version else {
+                if try await serverSupportsRefreshClientSubscriptions() {
+                    return
+                }
+                throw RemoteTmuxError.unsupportedTmux(detected: RemoteTmuxError.unknownVersionDisplayName)
+            }
+            try Self.assertSupportedTmuxVersion(version)
+            return
+        }
+        guard checkClientWhenNoServer else { return }
+        if let version = try await tmuxClientVersion() {
+            try Self.assertSupportedTmuxVersion(version)
+        }
+    }
+
+    private static func assertSupportedTmuxVersion(_ version: RemoteTmuxVersion) throws {
+        if !version.meetsMinimum {
+            throw RemoteTmuxError.unsupportedTmux(detected: version.displayString)
+        }
+    }
+
+    /// Asserts that the remote server supports live mirroring, then discovers sessions.
+    func discoverMirrorSessions(createIfEmpty: Bool) async throws -> [RemoteTmuxSession] {
+        try await assertMinimumTmuxVersion(checkClientWhenNoServer: createIfEmpty)
+        var sessions = try await listSessions()
+        if sessions.isEmpty, createIfEmpty {
+            _ = try? await runTmux(["new-session", "-d"])
+            sessions = try await listSessions()
+        }
+        return sessions
+    }
+
     /// Runs a `tmux <args…>` command on the remote host and returns its result.
     @discardableResult
     func runTmux(_ args: [String]) async throws -> RemoteTmuxCommandResult {
@@ -72,12 +160,19 @@ actor RemoteTmuxSSHTransport {
     /// login shell re-splits the result, so each remote token is single-quoted
     /// here; otherwise whitespace inside an argument (e.g. the tabs in a
     /// `list-sessions -F` format string) would be word-split on the remote.
+    /// A leading literal `tmux` is the `runTmux(_:)` contract and selects the
+    /// remote tmux resolver; other commands are treated as explicit remote argv.
     @discardableResult
     func run(_ remoteArgs: [String]) async throws -> RemoteTmuxCommandResult {
         try host.ensureControlSocketDirectory()
-        let remoteCommand = remoteArgs
-            .map { RemoteTmuxHost.shellSingleQuoted($0) }
-            .joined(separator: " ")
+        let remoteCommand: String
+        if remoteArgs.first == "tmux" {
+            remoteCommand = RemoteTmuxHost.tmuxRemoteCommand(arguments: Array(remoteArgs.dropFirst()))
+        } else {
+            remoteCommand = remoteArgs
+                .map { RemoteTmuxHost.shellSingleQuoted($0) }
+                .joined(separator: " ")
+        }
         // `--` ends ssh option parsing so a destination beginning with `-`
         // (e.g. `-oProxyCommand=…`) can never be consumed as an ssh option.
         let sshArgs =
@@ -100,6 +195,7 @@ actor RemoteTmuxSSHTransport {
         createIfMissing: Bool
     ) async throws -> [String]? {
         do {
+            try await assertMinimumTmuxVersion(checkClientWhenNoServer: createIfMissing)
             let existing = try await runTmux(["has-session", "-t", sessionName])
             if existing.succeeded {
                 return nil
@@ -122,7 +218,7 @@ actor RemoteTmuxSSHTransport {
             return nil
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
-               Self.indicatesAuthRequired(stderr) {
+               Self.indicatesInteractiveRetryWillHelp(stderr) {
                 return host.interactiveAuthInvocation()
             }
             throw error
@@ -130,13 +226,92 @@ actor RemoteTmuxSSHTransport {
     }
 
     /// Classifies a failed BatchMode tmux probe: returns the interactive `ssh`
-    /// argv when stderr indicates the host needs interactive auth, otherwise `nil`.
+    /// argv when stderr indicates an interactive retry will help, otherwise `nil`.
     private func authRequiredAttachArgv(result: RemoteTmuxCommandResult) -> [String]? {
         guard !result.succeeded,
-              Self.indicatesAuthRequired(result.stderr) else {
+              Self.indicatesInteractiveRetryWillHelp(result.stderr) else {
             return nil
         }
         return host.interactiveAuthInvocation()
+    }
+
+    /// Opens the shared SSH ControlMaster (if it isn't already up) and confirms it
+    /// accepts multiplexed sessions, so the burst of `tmux -CC attach` connections
+    /// the controller fires next — each `ControlMaster=auto`
+    /// (``RemoteTmuxHost/controlModeArguments``) — rides a *ready* master instead of
+    /// all racing to create one at the same `ControlPath`.
+    ///
+    /// On a cold first attach with many sessions, that creation race makes
+    /// all-but-one connection fail with "ControlSocket … already exists, disabling
+    /// multiplexing", so only one or two sessions mirror (#6732). Even discovery
+    /// (which opens the master implicitly) leaves a brief background hand-off window
+    /// where the socket exists but isn't yet accepting sessions; `ssh -O check` is
+    /// the authoritative "ready now" signal that closes it.
+    ///
+    /// Idempotent: returns `true` at once when a master is already live (warm path);
+    /// otherwise opens it exactly once with `run(["true"])` — a single connection
+    /// can't lose the creation race — and then confirms with one authoritative
+    /// `ssh -O check` (a non-multiplexed fallback can make `run` succeed without a
+    /// live master, so the open's exit code is not trusted). A single mux-socket
+    /// query, never a timer or poll. Returns `false` only when readiness can't be
+    /// confirmed; the controller fails closed on `false` (aborts the burst rather
+    /// than racing the cold master).
+    ///
+    /// Single-flight: the actor is reentrant across `await`, so two concurrent
+    /// bulk-mirror callers for the same host (e.g. a dedicated-window attach and a
+    /// `remote.tmux.mirror` socket call) could otherwise both observe no master and
+    /// both open it, recreating the race. Every caller shares one in-flight
+    /// ``readinessTask``; the check-create-store below is a single synchronous actor
+    /// step (no `await` between them), so only one caller becomes the creator.
+    ///
+    /// Not cancellation-aware by itself: the shared warmup is unstructured and
+    /// bounded by `ConnectTimeout`, so a cancelled caller awaits its completion
+    /// rather than tearing it down for the others. Callers that must bail re-check
+    /// `Task.checkCancellation()` after this — as the controller does before
+    /// creating the dedicated window.
+    @discardableResult
+    func ensureMasterReady() async throws -> Bool {
+        if let existing = readinessTask {
+            return try await existing.value
+        }
+        let task = Task { try await self.performMasterReady() }
+        readinessTask = task
+        defer { readinessTask = nil }
+        return try await task.value
+    }
+
+    /// The actual warmup, run exactly once per ``readinessTask`` (see
+    /// ``ensureMasterReady()`` for the single-flight + readiness rationale).
+    private func performMasterReady() async throws -> Bool {
+        try? host.ensureControlSocketDirectory()
+        if try await masterIsRunning() { return true }
+        // Warm the shared master once, then confirm. The open's exit code is not
+        // trusted (a non-multiplexed fallback can make `run` exit 0 with no live
+        // master — see the doc comment); the post-open `ssh -O check` is authoritative.
+        _ = try? await run(["true"])
+        return try await masterIsRunning()
+    }
+
+    /// Whether the shared ControlMaster is live and accepting sessions, via the
+    /// local `ssh -O check` control command. `-O check` hits the LOCAL control
+    /// socket only (identified by `ControlPath`), so it never opens a network
+    /// connection and returns in milliseconds.
+    ///
+    /// Propagates `CancellationError` (so a cancelled ``ensureMasterReady()`` aborts
+    /// rather than mis-reading the cancellation as "no master"); collapses only
+    /// ordinary launch/socket failures to `false`.
+    private func masterIsRunning() async throws -> Bool {
+        do {
+            let result = try await Self.runProcess(
+                executable: sshExecutablePath,
+                arguments: ["-O", "check", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]
+            )
+            return result.succeeded
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return false
+        }
     }
 
     /// Tears down the shared SSH master (e.g. when the user removes a host).
@@ -208,6 +383,37 @@ actor RemoteTmuxSSHTransport {
         return lowered.contains("no server running")
             || lowered.contains("no sessions")
             || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
+    }
+
+    static func indicatesRefreshClientSubscriptionUnsupported(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        let tokens = lowered.split { character in
+            !(character.isLetter || character.isNumber || character == "-")
+        }.map(String.init)
+        let mentionsBFlag = tokens.enumerated().contains { index, token in
+            if token == "-b" || token == "--b" { return true }
+            guard token == "b" else { return false }
+            if index > 0, tokens[index - 1] == "flag" || tokens[index - 1] == "option" {
+                return true
+            }
+            if index > 1, tokens[index - 1] == "--" {
+                let optionNoun = tokens[index - 2]
+                return optionNoun == "flag" || optionNoun == "option"
+            }
+            return false
+        }
+        let rejectsOption = lowered.contains("unknown flag")
+            || lowered.contains("unknown option")
+            || lowered.contains("invalid option")
+            || lowered.contains("illegal option")
+        return mentionsBFlag && rejectsOption
+    }
+
+    static func indicatesRefreshClientNeedsCurrentClient(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("no current client")
+            || lowered.contains("not a client")
+            || lowered.contains("not a control client")
     }
 
     /// Whether a failed non-interactive (`BatchMode=yes`) connect failed because
