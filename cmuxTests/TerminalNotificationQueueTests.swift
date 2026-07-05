@@ -520,10 +520,13 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let surfaceB = UUID()
         let keyA = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceA, kind: .shellActivity)
         let keyB = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceB, kind: .shellActivity)
+        // Same surface as keyA, different kind: must not cross-coalesce.
+        let keyC = TerminalMutationReplaceKey(tabId: tabId, surfaceId: surfaceA, kind: .gitBranch)
 
         var applied: [String] = []
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyA) { applied.append("a1") }
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyB) { applied.append("b1") }
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyC) { applied.append("c1") }
         // Non-keyed mutations must never be replaced.
         TerminalMutationBus.shared.enqueueMainActorMutation { applied.append("plain") }
         TerminalMutationBus.shared.enqueueReplacingMainActorMutation(replaceKey: keyA) { applied.append("a2") }
@@ -532,8 +535,8 @@ final class TerminalNotificationQueueTests: XCTestCase {
         TerminalMutationBus.shared.drainForTesting()
 
         // keyA coalesces to its newest closure at its latest enqueue position;
-        // keyB and the plain mutation are untouched and keep enqueue order.
-        XCTAssertEqual(applied, ["b1", "plain", "a3"])
+        // keyB, keyC, and the plain mutation are untouched in enqueue order.
+        XCTAssertEqual(applied, ["b1", "c1", "plain", "a3"])
     }
 
     private func makeSocketPath(_ name: String) -> String {

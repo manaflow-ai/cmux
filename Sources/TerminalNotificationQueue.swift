@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 fileprivate struct QueuedTerminalNotificationKey: Hashable, Sendable {
@@ -28,14 +29,13 @@ fileprivate struct TerminalSocketMutationEntry {
     let performReplaceKey: TerminalMutationReplaceKey?
 }
 
-/// Identity for last-write-wins `.perform` mutations: a fresh enqueue with the
-/// same key removes the still-pending superseded entry (the notification
-/// coalescing pattern below, applied to scheduled state mutations). This keeps
-/// `pending` bounded at one entry per key for hot socket telemetry even while
-/// the main actor is blocked and cannot drain.
+/// Identity for last-write-wins `.perform` mutations: a fresh enqueue removes
+/// the pending same-key entry, bounding `pending` at one entry per key even
+/// while the main actor is blocked and cannot drain.
 struct TerminalMutationReplaceKey: Hashable, Sendable {
     enum Kind: Hashable, Sendable {
-        case shellActivity
+        case shellActivity, gitBranch, directory, tty
+        case portsKick(PortScanKickReason)
     }
 
     let tabId: UUID
@@ -233,12 +233,10 @@ final class TerminalMutationBus: @unchecked Sendable {
         scheduleDrain()
     }
 
-    /// Last-write-wins variant of `enqueueMainActorMutation`: removes any
-    /// still-pending mutation with the same `replaceKey` before appending, so
-    /// repeated reports for one target keep at most one pending entry no
-    /// matter how long the main actor goes without draining. Apply order for
-    /// the surviving entry follows its (new) enqueue position, matching the
-    /// notification coalescing semantics above.
+    /// Last-write-wins `enqueueMainActorMutation`: drops any still-pending
+    /// mutation with the same `replaceKey` before appending, so the survivor
+    /// applies at its new enqueue position (the notification coalescing
+    /// semantics above, for `.perform` mutations).
     nonisolated func enqueueReplacingMainActorMutation(
         replaceKey: TerminalMutationReplaceKey,
         _ mutation: @escaping @MainActor () -> Void
