@@ -387,6 +387,37 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.terminalPanel(for: localPanel.id)?.requestedWorkingDirectory == nil)
         #expect(workspace.allowsLocalDirectoryFallback(panelId: localPanel.id))
         #expect(manager.gitProbeDirectory(for: workspace, panelId: localPanel.id) == nil)
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [localPanel.id]) == [])
+    }
+
+    @MainActor
+    @Test("reported cwd re-trusts guarded remote agent panels")
+    func reportedDirectoryRetrustsGuardedRemoteAgentPanels() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        workspace.disconnectRemoteConnection()
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+
+        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: agentPanel.id, directory: remoteDirectory)
+        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
     }
 
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {

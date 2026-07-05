@@ -108,8 +108,9 @@ extension Workspace {
         if let directory = effectivePanelDirectory(panelId: panelId) {
             return directory
         }
-        guard allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
-        guard panelId == focusedPanelId else { return nil }
+        guard !usesRemoteDirectoryProvenance,
+              allowsLocalDirectoryFallback(panelId: panelId),
+              panelId == focusedPanelId else { return nil }
         return normalizedSidebarDirectory(currentDirectory)
     }
 
