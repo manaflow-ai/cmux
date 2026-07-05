@@ -4725,7 +4725,8 @@ final class Workspace: Identifiable, ObservableObject {
             let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard existingDirectory.isEmpty else { return false }
         }
-        let establishesRemoteProvenance = source.establishesRemoteProvenance && isRemoteTerminalSurface(panelId)
+        let establishesRemoteProvenance = source.establishesRemoteProvenance &&
+            (isRemoteTerminalSurface(panelId) || isRemoteTmuxMirror)
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
         if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId)

@@ -48,7 +48,7 @@ extension TabManager: SidebarGitHosting {
 
     func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
-        return workspace.remoteDirectoryReportPanelIds.contains(panelId) || workspace.isRemoteTmuxMirror
+        return workspace.remoteDirectoryReportPanelIds.contains(panelId)
     }
 
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
