@@ -15,6 +15,7 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
     func localTerminalInRemoteWorkspacePresentsRequestedDirectoryBeforeLiveReport() throws {
         let localDirectory = "/Users/alice/development"
         let localTerminalDirectory = "/Users/alice/local-tools"
+        let remoteDirectory = "/home/seepine/workspace"
         let sshCommand = "ssh seepine@192.168.5.20"
         let workspace = Workspace(
             workingDirectory: localDirectory,
@@ -24,6 +25,9 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
         #expect(workspace.presentedCurrentDirectory == nil)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+        #expect(workspace.trustedRemoteCurrentDirectory == remoteDirectory)
 
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let localPanel = try #require(workspace.newTerminalSurface(
@@ -37,6 +41,7 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.allowsLocalDirectoryFallback(panelId: localPanel.id))
         #expect(workspace.effectivePanelDirectory(panelId: localPanel.id) == localTerminalDirectory)
         #expect(workspace.presentedCurrentDirectory == localTerminalDirectory)
+        #expect(workspace.trustedRemoteCurrentDirectory == nil)
         #expect(workspace.sidebarFilesystemDirectoriesInDisplayOrder(orderedPanelIds: [localPanel.id]) == [
             localTerminalDirectory,
         ])
@@ -56,10 +61,12 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(!workspace.allowsLocalDirectoryFallback(panelId: panelId))
         #expect(workspace.reportedPanelDirectory(panelId: panelId) == nil)
         #expect(workspace.presentedCurrentDirectory == nil)
+        #expect(workspace.remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: panelId) == nil)
 
         workspace.updateRemotePanelDirectory(panelId: panelId, directory: remoteDirectory)
         #expect(workspace.reportedPanelDirectory(panelId: panelId) == remoteDirectory)
         #expect(workspace.presentedCurrentDirectory == remoteDirectory)
+        #expect(workspace.remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: panelId) == remoteDirectory)
     }
 
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {

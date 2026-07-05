@@ -7091,8 +7091,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// The directory a new tab (`new-window`) should inherit in a remote-tmux
-    /// mirror: strictly the source tab's last-reported `#{pane_current_path}`
-    /// (`panelDirectories[sourcePanelId]`), or nil when the remote has not
+    /// mirror: strictly the source tab's trusted `#{pane_current_path}`
+    /// (`reportedPanelDirectory(panelId:)`), or nil when the remote has not
     /// reported one yet.
     ///
     /// It must not use ``resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory:sourcePanelId:)``:
@@ -7100,10 +7100,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// workspace is seeded from the local workspace and so can be a local
     /// filesystem path. A local path is meaningless on the remote host — as
     /// `new-window -c` it would open the tab somewhere other than the active
-    /// tab's directory. Only `panelDirectories[sourcePanelId]`, fed by the tab's
-    /// remote cwd reports, is a correct remote-side source.
+    /// tab's directory. Only a trusted remote cwd report is a correct remote-side
+    /// source.
     func remoteTmuxNewWindowWorkingDirectory(forSourcePanelId sourcePanelId: UUID?) -> String? {
-        Self.normalizedTerminalWorkingDirectory(sourcePanelId.flatMap { panelDirectories[$0] })
+        sourcePanelId.flatMap { reportedPanelDirectory(panelId: $0) }
     }
 
     /// Placement for a remote-tmux mirror `new-window` request.

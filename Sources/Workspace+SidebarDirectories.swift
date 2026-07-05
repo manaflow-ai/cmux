@@ -9,9 +9,12 @@ extension Workspace {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private var reportedRemoteCurrentDirectory: String? {
+    private func reportedRemoteCurrentDirectory(allowLocalFallback: Bool) -> String? {
         if let focusedPanelId {
-            if let directory = effectivePanelDirectory(panelId: focusedPanelId) {
+            let directory = allowLocalFallback
+                ? effectivePanelDirectory(panelId: focusedPanelId)
+                : reportedPanelDirectory(panelId: focusedPanelId)
+            if let directory {
                 return directory
             }
             if terminalPanel(for: focusedPanelId) != nil {
@@ -24,6 +27,14 @@ extension Workspace {
         guard reportedDirectories.count == activeRemotePanelIds.count else { return nil }
         let directories = Set(reportedDirectories)
         return directories.count == 1 ? directories.first : nil
+    }
+
+    private var reportedRemoteCurrentDirectory: String? {
+        reportedRemoteCurrentDirectory(allowLocalFallback: true)
+    }
+
+    var trustedRemoteCurrentDirectory: String? {
+        reportedRemoteCurrentDirectory(allowLocalFallback: false)
     }
 
     var usesRemoteDirectoryProvenance: Bool {
