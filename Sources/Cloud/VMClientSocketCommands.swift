@@ -133,6 +133,14 @@ extension TerminalController {
     /// Handles `aiAccounts.*` socket methods backing `cmux ai-accounts`.
     /// OAuth credential files are read here in the app process so the CLI only
     /// sends provider/options; API-key providers may carry an explicit key.
+    ///
+    /// Trust model (conscious decision): the control socket is same-user
+    /// trusted. A socket caller can already exfiltrate any user-readable file
+    /// through existing verbs (`send` types arbitrary commands into a shell
+    /// pane), and this upload only goes to the signed-in user's own team
+    /// tenant using app-held auth. Reading the files app-side keeps secrets
+    /// out of CLI argv and socket payloads; moving the reads to the caller
+    /// would push credentials through more process boundaries, not fewer.
     nonisolated func socketWorkerAIAccountsResponse(
         method: String,
         id: Any?,
