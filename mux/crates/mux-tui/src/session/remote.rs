@@ -272,19 +272,26 @@ impl RemoteSession {
     pub fn request(&self, mut cmd: Value) -> anyhow::Result<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
-        let (tx, rx) = channel();
-        self.pending.lock().unwrap().insert(id, tx);
-
         let mut line = serde_json::to_vec(&cmd)?;
         line.push(b'\n');
-        {
-            let mut writer = self.writer.lock().unwrap();
-            writer.write_all(&line)?;
+
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(id, tx);
+        if let Err(err) = self.writer.lock().unwrap().write_all(&line) {
+            self.pending.lock().unwrap().remove(&id);
+            return Err(err.into());
         }
 
-        let response = rx
-            .recv_timeout(Duration::from_secs(10))
-            .map_err(|_| anyhow::anyhow!("session did not respond"))?;
+        let response = match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(response) => response,
+            Err(_) => {
+                // Drop the pending entry so a half-open session does not
+                // accumulate abandoned senders (and a late response is
+                // not delivered to a receiver nobody holds).
+                self.pending.lock().unwrap().remove(&id);
+                anyhow::bail!("session did not respond")
+            }
+        };
         if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
         } else {
