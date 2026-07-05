@@ -242,7 +242,7 @@ extension Workspace {
 
     func reportedPanelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
         guard let branch = panelGitBranches[panelId] else { return nil }
-        if usesRemoteDirectoryProvenance, reportedPanelDirectory(panelId: panelId) == nil { return nil }
+        if usesRemoteDirectoryProvenance, effectivePanelDirectory(panelId: panelId) == nil { return nil }
         return branch
     }
 

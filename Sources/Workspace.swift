@@ -5432,7 +5432,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         let validPanelPullRequests = panelPullRequests.filter { panelId, state in
-            if usesRemoteDirectoryProvenance, reportedPanelDirectory(panelId: panelId) == nil {
+            if usesRemoteDirectoryProvenance, effectivePanelDirectory(panelId: panelId) == nil {
                 return false
             }
             guard let pullRequestBranch = state.branch?.normalizedSidebarBranchName else {

@@ -288,6 +288,41 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
     }
 
+    @MainActor
+    @Test("local fallback panels in remote workspaces keep sidebar git metadata")
+    func localFallbackPanelsInRemoteWorkspacesKeepSidebarGitMetadata() throws {
+        let localDirectory = "/Users/alice/development"
+        let localPanelDirectory = "/Users/alice/local-tools"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: localPanelDirectory,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        workspace.panelDirectories.removeValue(forKey: localPanel.id)
+        workspace.updatePanelGitBranch(panelId: localPanel.id, branch: "local-main", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: localPanel.id,
+            number: 7,
+            label: "#7",
+            url: try #require(URL(string: "https://example.com/pr/7")),
+            status: .open
+        )
+
+        #expect(workspace.reportedPanelDirectory(panelId: localPanel.id) == nil)
+        #expect(workspace.effectivePanelDirectory(panelId: localPanel.id) == localPanelDirectory)
+        #expect(workspace.reportedPanelGitBranch(panelId: localPanel.id)?.branch == "local-main")
+        #expect(workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [localPanel.id]).map(\.branch) == ["local-main"])
+        #expect(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [localPanel.id]).map(\.label) == ["#7"])
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
