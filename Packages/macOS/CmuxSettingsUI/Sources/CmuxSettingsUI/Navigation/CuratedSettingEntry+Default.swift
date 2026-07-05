@@ -197,6 +197,27 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .automation, id: "port-base", title: "Port Base", synonyms: "automation.portBase cmux_port start first base env environment variable"),
             .init(section: .automation, id: "port-range", title: "Port Range Size", synonyms: "automation.portRange cmux_port_end range size count env ports"),
 
+            // Computer Use
+            .init(
+                section: .computerUse,
+                id: "driver-path",
+                title: String(localized: "settings.computerUse.driver.path", defaultValue: "Driver Path"),
+                paths: ["computerUse.driverPath"],
+                synonyms: "computerUse.driverPath cua driver binary executable path mcp no daemon relaunch"
+            ),
+            .init(
+                section: .computerUse,
+                id: "accessibility",
+                title: String(localized: "settings.computerUse.accessibility.title", defaultValue: "Accessibility"),
+                synonyms: "accessibility permission privacy grant trusted input click keyboard mouse system settings"
+            ),
+            .init(
+                section: .computerUse,
+                id: "screen-recording",
+                title: String(localized: "settings.computerUse.screenRecording.title", defaultValue: "Screen Recording"),
+                synonyms: "screen recording screen capture permission privacy grant relaunch system settings"
+            ),
+
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),

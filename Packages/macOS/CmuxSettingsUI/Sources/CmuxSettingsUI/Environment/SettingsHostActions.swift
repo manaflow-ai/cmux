@@ -1,5 +1,96 @@
 import Foundation
 
+/// The source that resolved a `cua-driver` binary candidate.
+public enum ComputerUseDriverSource: String, CaseIterable, Sendable, Equatable {
+    /// `computerUse.driverPath` from cmux.json.
+    case setting
+    /// The `CMUX_CUA_DRIVER_PATH` environment variable.
+    case environment
+    /// The app bundle helper location.
+    case bundleHelper
+    /// The standalone `/Applications/CuaDriver.app` install location.
+    case applications
+}
+
+/// System Settings privacy pane anchors used by Computer Use permission rows.
+public enum ComputerUsePrivacyPaneAnchor: Sendable, Equatable {
+    /// Accessibility permission pane.
+    case accessibility
+    /// Screen Recording permission pane.
+    case screenRecording
+}
+
+/// Snapshot rendered by the Computer Use settings section.
+public struct ComputerUseHostState: Sendable, Equatable {
+    /// Driver process state projected from the host-owned manager.
+    public enum DriverState: Sendable, Equatable {
+        /// No binary was found in any configured source.
+        case notFound
+        /// A binary is available, but no process is running.
+        case stopped
+        /// The host is launching the process and performing the MCP handshake.
+        case starting
+        /// The process completed the handshake.
+        case running(pid: Int32, serverName: String?, serverVersion: String?, toolCount: Int)
+        /// The process could not start or exited unexpectedly.
+        case failed(String)
+    }
+
+    /// A successfully resolved binary.
+    public struct ResolvedDriver: Sendable, Equatable {
+        /// Absolute path to the executable.
+        public let path: String
+        /// Source that provided the path.
+        public let source: ComputerUseDriverSource
+
+        /// Creates a resolved driver descriptor.
+        public init(path: String, source: ComputerUseDriverSource) {
+            self.path = path
+            self.source = source
+        }
+    }
+
+    /// Current driver process state.
+    public let driverState: DriverState
+    /// Resolved binary, or `nil` when no candidate exists.
+    public let resolvedDriver: ResolvedDriver?
+    /// Candidate sources checked in resolution order.
+    public let triedSources: [ComputerUseDriverSource]
+    /// Whether Accessibility is currently granted.
+    public let accessibilityGranted: Bool
+    /// Whether Screen Recording is currently granted.
+    public let screenRecordingGranted: Bool
+    /// Whether the user has requested Screen Recording in this app run.
+    public let screenRecordingRequested: Bool
+
+    /// Creates a Computer Use settings snapshot.
+    public init(
+        driverState: DriverState,
+        resolvedDriver: ResolvedDriver?,
+        triedSources: [ComputerUseDriverSource],
+        accessibilityGranted: Bool,
+        screenRecordingGranted: Bool,
+        screenRecordingRequested: Bool
+    ) {
+        self.driverState = driverState
+        self.resolvedDriver = resolvedDriver
+        self.triedSources = triedSources
+        self.accessibilityGranted = accessibilityGranted
+        self.screenRecordingGranted = screenRecordingGranted
+        self.screenRecordingRequested = screenRecordingRequested
+    }
+
+    /// Empty preview/default state.
+    public static let unavailable = ComputerUseHostState(
+        driverState: .notFound,
+        resolvedDriver: nil,
+        triedSources: ComputerUseDriverSource.allCases,
+        accessibilityGranted: false,
+        screenRecordingGranted: false,
+        screenRecordingRequested: false
+    )
+}
+
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
 /// opening the user's editor on cmux.json, sending feedback, posting
@@ -163,11 +254,36 @@ public protocol SettingsHostActions: AnyObject {
     /// Runs host-owned live-refresh side effects after the package resets every
     /// catalog-backed setting.
     func resetAllSettingsSideEffects()
+
+    /// Returns the current Computer Use driver and permission snapshot.
+    func computerUseState() async -> ComputerUseHostState
+
+    /// Starts the host-owned cua-driver process.
+    func startCuaDriver() async
+
+    /// Stops the host-owned cua-driver process.
+    func stopCuaDriver() async
+
+    /// Requests Accessibility permission from the OS.
+    func requestAccessibilityAccess() async
+
+    /// Requests Screen Recording permission from the OS.
+    func requestScreenRecordingAccess() async
+
+    /// Opens a macOS privacy pane for Computer Use permissions.
+    func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor)
 }
 
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    func computerUseState() async -> ComputerUseHostState { .unavailable }
+    func startCuaDriver() async {}
+    func stopCuaDriver() async {}
+    func requestAccessibilityAccess() async {}
+    func requestScreenRecordingAccess() async {}
+    func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor) {}
 
     func openMobilePairingWindow() {}
 

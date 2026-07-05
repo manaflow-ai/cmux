@@ -458,6 +458,7 @@
 		C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */; };
 		C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */; };
 		C1713002C1713002C1713002 /* CommandPaletteShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */; };
+		C0A735510000000000000006 /* ComputerUseSectionStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735510000000000000005 /* ComputerUseSectionStateTests.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
 		C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */; };
@@ -470,6 +471,10 @@
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
+		C0A735500000000000000002 /* CuaDriverBinaryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735500000000000000001 /* CuaDriverBinaryResolver.swift */; };
+		C0A735510000000000000002 /* CuaDriverBinaryResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735510000000000000001 /* CuaDriverBinaryResolverTests.swift */; };
+		C0A735500000000000000004 /* CuaDriverManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735500000000000000003 /* CuaDriverManager.swift */; };
+		C0A735510000000000000004 /* CuaDriverManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735510000000000000003 /* CuaDriverManagerTests.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
 		C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00010000000000000002 /* CustomSidebarPanel.swift */; };
 		C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00090000000000000002 /* CustomSidebarPanelView.swift */; };
@@ -1057,6 +1062,7 @@
 		F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */; };
 		A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 		C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000D /* SystemCommandRunner.swift */; };
+		C0A735500000000000000006 /* SystemPermissionsChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A735500000000000000005 /* SystemPermissionsChecker.swift */; };
 		FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */; };
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
@@ -1774,6 +1780,7 @@
 		C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSettingsToggleTests.swift; sourceTree = "<group>"; };
 		C1713005C1713005C1713005 /* CommandPaletteShortcutCustomizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteShortcutCustomizationTests.swift; sourceTree = "<group>"; };
 		C1713001C1713001C1713001 /* CommandPaletteShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CommandPaletteShortcutRouting.swift; sourceTree = "<group>"; };
+		C0A735510000000000000005 /* ComputerUseSectionStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseSectionStateTests.swift; sourceTree = "<group>"; };
 		3023B1013023B1013023B101 /* ConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSettingsView.swift; sourceTree = "<group>"; };
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AuthCommandPalette.swift"; sourceTree = "<group>"; };
@@ -1786,6 +1793,10 @@
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
+		C0A735500000000000000001 /* CuaDriverBinaryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverBinaryResolver.swift; sourceTree = "<group>"; };
+		C0A735510000000000000001 /* CuaDriverBinaryResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuaDriverBinaryResolverTests.swift; sourceTree = "<group>"; };
+		C0A735500000000000000003 /* CuaDriverManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/CuaDriverManager.swift; sourceTree = "<group>"; };
+		C0A735510000000000000003 /* CuaDriverManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuaDriverManagerTests.swift; sourceTree = "<group>"; };
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
 		C57B00010000000000000002 /* CustomSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanel.swift; sourceTree = "<group>"; };
 		C57B00090000000000000002 /* CustomSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanelView.swift; sourceTree = "<group>"; };
@@ -2358,6 +2369,7 @@
 		F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift"; sourceTree = "<group>"; };
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000D /* SystemCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommandRunner.swift; sourceTree = "<group>"; };
+		C0A735500000000000000005 /* SystemPermissionsChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUse/SystemPermissionsChecker.swift; sourceTree = "<group>"; };
 		65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemWideHotkeyShortcutPolicyTests.swift; sourceTree = "<group>"; };
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
@@ -3474,6 +3486,9 @@
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
+				C0A735500000000000000001 /* CuaDriverBinaryResolver.swift */,
+				C0A735500000000000000003 /* CuaDriverManager.swift */,
+				C0A735500000000000000005 /* SystemPermissionsChecker.swift */,
 				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
 				F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */,
 				A5001611 /* SessionPersistence.swift */,
@@ -3913,6 +3928,9 @@
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
 				C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */,
 				C0DEF4120000000000000002 /* CommandPaletteSettingsToggleTests.swift */,
+				C0A735510000000000000001 /* CuaDriverBinaryResolverTests.swift */,
+				C0A735510000000000000003 /* CuaDriverManagerTests.swift */,
+				C0A735510000000000000005 /* ComputerUseSectionStateTests.swift */,
 				606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */,
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
@@ -4685,6 +4703,8 @@
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
+				C0A735500000000000000002 /* CuaDriverBinaryResolver.swift in Sources */,
+				C0A735500000000000000004 /* CuaDriverManager.swift in Sources */,
 				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
 				C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */,
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,
@@ -5063,6 +5083,7 @@
 				F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */,
 				A5001303 /* SurfaceSearchOverlay.swift in Sources */,
 				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
+				C0A735500000000000000006 /* SystemPermissionsChecker.swift in Sources */,
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
@@ -5476,7 +5497,10 @@
 				A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
 				C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */,
 				C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
+				C0A735510000000000000006 /* ComputerUseSectionStateTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
+				C0A735510000000000000002 /* CuaDriverBinaryResolverTests.swift in Sources */,
+				C0A735510000000000000004 /* CuaDriverManagerTests.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
 				DE71CE000000000000000002 /* DeviceRegistryClientTests.swift in Sources */,

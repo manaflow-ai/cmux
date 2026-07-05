@@ -23,6 +23,8 @@ enum SettingsSearchAliasIndex {
             return localized("settings.search.alias.section.betaFeatures", defaultValue: "beta experimental unstable preview feed dock right sidebar")
         case .automation:
             return localized("settings.search.alias.section.automation", defaultValue: "api cli control socket mcp agents hooks ports")
+        case .computerUse:
+            return localized("settings.search.alias.section.computerUse", defaultValue: "computer use cua driver accessibility screen recording capture mcp tools")
         case .browser:
             return localized("settings.search.alias.section.browser", defaultValue: "web webview address bar omnibar links urls embedded default browser")
         case .browserImport:
@@ -141,6 +143,9 @@ enum SettingsSearchAliasIndex {
         "automation:kiro-notification-level": localized("settings.search.alias.setting.automation.kiro-notification-level", defaultValue: "automation.kiroNotificationLevel kiro cli notification verbosity minimal standard verbose tool events"),
         "automation:port-base": localized("settings.search.alias.setting.automation.port-base", defaultValue: "automation.portBase cmux_port start first base env environment variable"),
         "automation:port-range": localized("settings.search.alias.setting.automation.port-range", defaultValue: "automation.portRange cmux_port_end range size count env ports"),
+        "computerUse:driver-path": localized("settings.search.alias.setting.computerUse.driver-path", defaultValue: "computerUse.driverPath cua driver binary executable path mcp no daemon relaunch"),
+        "computerUse:accessibility": localized("settings.search.alias.setting.computerUse.accessibility", defaultValue: "accessibility permission privacy grant trusted input click keyboard mouse system settings"),
+        "computerUse:screen-recording": localized("settings.search.alias.setting.computerUse.screen-recording", defaultValue: "screen recording screen capture permission privacy grant relaunch system settings"),
         "browser:enable-browser": localized("settings.search.alias.setting.browser.enable-browser", defaultValue: "browser.enabled enable disable webview embedded browser tabs links"),
         "browser:search-engine": localized("settings.search.alias.setting.browser.search-engine", defaultValue: "browser.defaultSearchEngine browser.customSearchEngineName browser.customSearchEngineURLTemplate omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         "browser:search-suggestions": localized("settings.search.alias.setting.browser.search-suggestions", defaultValue: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),

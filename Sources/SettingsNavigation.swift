@@ -11,6 +11,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case customSidebars
     case betaFeatures
     case automation
+    case computerUse
     case browser
     case browserImport
     case globalHotkey
@@ -45,6 +46,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .computerUse:
+            return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:
@@ -84,6 +87,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "exclamationmark.triangle"
         case .automation:
             return "wand.and.sparkles"
+        case .computerUse:
+            return "cursorarrow.click.2"
         case .browser:
             return "globe"
         case .browserImport:
@@ -123,6 +128,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
+        case .computerUse:
+            return "\(title) cua driver accessibility screen recording mcp tools permissions"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -432,6 +439,9 @@ enum SettingsSearchIndex {
         setting(.automation, "kiro-notification-level", String(localized: "settings.automation.kiro.notificationLevel", defaultValue: "Kiro Notification Level"), "agent hooks notifications verbosity tool events"),
         setting(.automation, "port-base", String(localized: "settings.automation.portBase", defaultValue: "Port Base"), "CMUX_PORT start"),
         setting(.automation, "port-range", String(localized: "settings.automation.portRange", defaultValue: "Port Range Size"), "CMUX_PORT_END workspace ports"),
+        setting(.computerUse, "driver-path", String(localized: "settings.computerUse.driver.path", defaultValue: "Driver Path"), "computerUse.driverPath cua driver binary executable path mcp"),
+        setting(.computerUse, "accessibility", String(localized: "settings.computerUse.accessibility.title", defaultValue: "Accessibility"), "accessibility permission privacy grant system settings"),
+        setting(.computerUse, "screen-recording", String(localized: "settings.computerUse.screenRecording.title", defaultValue: "Screen Recording"), "screen recording capture permission privacy grant system settings relaunch"),
         setting(.browser, "search-engine", String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"), "address bar query google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider"),
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
@@ -563,6 +573,7 @@ enum SettingsSearchIndex {
         "automation.kiroNotificationLevel": settingID(for: .automation, idSuffix: "kiro-notification-level"),
         "automation.portBase": settingID(for: .automation, idSuffix: "port-base"),
         "automation.portRange": settingID(for: .automation, idSuffix: "port-range"),
+        "computerUse.driverPath": settingID(for: .computerUse, idSuffix: "driver-path"),
         "browser.enabled": settingID(for: .browser, idSuffix: "enable-browser"),
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.customSearchEngineName": settingID(for: .browser, idSuffix: "search-engine"),
