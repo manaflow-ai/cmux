@@ -64,6 +64,20 @@ import Testing
         #expect(content.body == "Shell needs approval")
     }
 
+    @Test func permissionBodyRedactsSecretsInCommandDetail() throws {
+        let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
+            hookEventName: .permissionRequest,
+            source: "claude",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"API_TOKEN=sk-abc123 ./deploy.sh"}"#,
+            workspaceTitle: nil
+        ))
+
+        #expect(!content.body.contains("sk-abc123"))
+        #expect(content.body.contains("<redacted-secret>"))
+        #expect(content.body.hasPrefix("Allow Bash: "))
+    }
+
     @Test func questionBodyUsesFirstQuestionText() throws {
         let content = try #require(NotificationBannerComposer.composeFeedNotificationContent(
             hookEventName: .askUserQuestion,

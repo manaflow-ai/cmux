@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 struct NotificationBannerContent: Equatable, Sendable {
@@ -85,10 +86,13 @@ enum NotificationBannerComposer {
             title = fallbackTitle
         }
 
+        // Feed bodies quote raw tool input (shell commands, question text),
+        // which can embed tokens or URL credentials. Native banners escape the
+        // app (Notification Center, lock screen), so scrub before composing.
         return NotificationBannerContent(
             title: title,
             subtitle: [sourceDisplayName, kind].compactMap(notificationBannerNonEmpty).joined(separator: " · "),
-            body: body
+            body: feedNotificationBodyScrubber.scrub(body)
         )
     }
 
@@ -119,6 +123,10 @@ enum NotificationBannerComposer {
         return true
     }
 }
+
+/// Redacts secrets, URL credentials, emails, and home paths from feed banner
+/// bodies before they reach OS notification surfaces. Pure and Sendable.
+private nonisolated let feedNotificationBodyScrubber = SentryScrubber()
 
 private nonisolated func feedNotificationSourceDisplayName(_ source: String) -> String {
     RestorableAgentKind(rawValue: source)?.displayName
