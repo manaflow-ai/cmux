@@ -4721,13 +4721,12 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
-        let isConnectedRemoteLiveReport = source == .liveReport && isRemoteTerminalReport && remoteConnectionState == .connected
-        if source == .liveReport, isRemoteTerminalReport, !isConnectedRemoteLiveReport {
+        if source == .liveReport, isRemoteTerminalReport {
             let existingDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard existingDirectory.isEmpty else { return false }
         }
         let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
-            isConnectedRemoteLiveReport || (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror))
+            (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror))
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
         if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId); remoteDirectoryTrustRequiredPanelIds.insert(panelId)

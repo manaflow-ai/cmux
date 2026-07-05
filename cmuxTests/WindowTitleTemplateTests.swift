@@ -275,7 +275,7 @@ struct WindowTitleTemplateTests {
         #expect(window.title == "[cmux:01234567]")
 
         workspace.applyRemoteConnectionStateUpdate(.connected, detail: nil, target: "seepine@192.168.5.20")
-        #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: remoteDirectory))
+        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
         #expect(window.title == "[cmux:01234567] \(remoteDirectory)")
 
         workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory)
