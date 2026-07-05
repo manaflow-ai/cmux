@@ -136,6 +136,40 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
         }
     }
 
+    /// Per-node chrome, both folds, computed in ONE bottom-up pass per
+    /// `frames()` call. Placement previously re-ran the recursive
+    /// ``chromePx(of:padW:padH:)`` for every child at every level, walking
+    /// each subtree once per ancestor — superlinear on pane count. Threading
+    /// this tree through ``place`` keeps the whole derivation linear.
+    private struct ChromeTree {
+        /// ``chromePx``'s width fold with `(padW: surfacePadWidthPx, padH: 0)`.
+        let width: Int
+        /// ``chromePx``'s height fold with `(padW: 0, padH: surfacePadHeightPx)`.
+        let height: Int
+        let children: [ChromeTree]
+    }
+
+    private func chromeTree(of node: RemoteTmuxLayoutNode) -> ChromeTree {
+        switch node.content {
+        case .pane:
+            return ChromeTree(width: surfacePadWidthPx, height: surfacePadHeightPx, children: [])
+        case let .horizontal(children):
+            let kids = children.map { chromeTree(of: $0) }
+            return ChromeTree(
+                width: kids.reduce(0) { $0 + $1.width },
+                height: kids.map(\.height).max() ?? 0,
+                children: kids
+            )
+        case let .vertical(children):
+            let kids = children.map { chromeTree(of: $0) }
+            return ChromeTree(
+                width: kids.map(\.width).max() ?? 0,
+                height: kids.reduce(0) { $0 + $1.height },
+                children: kids
+            )
+        }
+    }
+
     /// The exact frames an assigned layout occupies inside a container, computed
     /// as integer-device-pixel EDGE RAILS (each edge is the rounded cumulative
     /// spend, so per-pane error never accumulates) and returned in points.
@@ -180,7 +214,8 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
             )
         }
         place(
-            layout, in: containerPx, cellOrigin: (x: layout.x, y: layout.y),
+            layout, chrome: chromeTree(of: layout),
+            in: containerPx, cellOrigin: (x: layout.x, y: layout.y),
             paneFrames: &paneFrames, dividers: &dividers
         )
         return RemoteTmuxMirrorFrames(
@@ -202,6 +237,7 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
     /// mis-places every pane the moment tmux grows new kinds of chrome.
     private func place(
         _ node: RemoteTmuxLayoutNode,
+        chrome: ChromeTree,
         in region: CGRect,
         cellOrigin: (x: Int, y: Int),
         paneFrames: inout [Int: CGRect],
@@ -216,7 +252,7 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
             // gap spends exactly the cells the offsets declare.
             var cursor = region.minX
             var cursorCellX = cellOrigin.x
-            for child in children {
+            for (index, child) in children.enumerated() {
                 let gapCells = max(0, child.x - cursorCellX)
                 if gapCells > 0 {
                     let gapEnd = min(cursor + CGFloat(gapCells * cellWidthPx), region.maxX)
@@ -226,8 +262,8 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                     cursor = gapEnd
                     cursorCellX = child.x
                 }
-                let chrome = Self.chromePx(of: child, padW: surfacePadWidthPx, padH: 0).width
-                let spend = CGFloat(child.width * cellWidthPx + chrome)
+                let childChrome = chrome.children[index]
+                let spend = CGFloat(child.width * cellWidthPx + childChrome.width)
                 let next = (cursor + spend).rounded()
                 // A child can also sit BELOW its declared row inside this
                 // region (its own title row under pane-border-status): band
@@ -255,7 +291,8 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                     height: region.maxY - childTop
                 )
                 place(
-                    child, in: childRegion, cellOrigin: (x: child.x, y: child.y),
+                    child, chrome: childChrome,
+                    in: childRegion, cellOrigin: (x: child.x, y: child.y),
                     paneFrames: &paneFrames, dividers: &dividers
                 )
                 cursor = next
@@ -264,7 +301,7 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
         case .vertical(let children):
             var cursor = region.minY
             var cursorCellY = cellOrigin.y
-            for child in children {
+            for (index, child) in children.enumerated() {
                 let gapCells = max(0, child.y - cursorCellY)
                 if gapCells > 0 {
                     let gapEnd = min(cursor + CGFloat(gapCells * cellHeightPx), region.maxY)
@@ -274,12 +311,8 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                     cursor = gapEnd
                     cursorCellY = child.y
                 }
-                let chrome = Self.chromePx(
-                    of: child,
-                    padW: 0,
-                    padH: surfacePadHeightPx
-                ).height
-                let spend = CGFloat(child.height * cellHeightPx + chrome)
+                let childChrome = chrome.children[index]
+                let spend = CGFloat(child.height * cellHeightPx + childChrome.height)
                 let next = (cursor + spend).rounded()
                 // Same +1 device px as the horizontal rails (see above).
                 let childRegion = CGRect(
@@ -288,7 +321,8 @@ struct RemoteTmuxMirrorGeometry: Equatable, Sendable {
                     height: min(next + 1, region.maxY) - cursor
                 )
                 place(
-                    child, in: childRegion, cellOrigin: (x: child.x, y: child.y),
+                    child, chrome: childChrome,
+                    in: childRegion, cellOrigin: (x: child.x, y: child.y),
                     paneFrames: &paneFrames, dividers: &dividers
                 )
                 cursor = next

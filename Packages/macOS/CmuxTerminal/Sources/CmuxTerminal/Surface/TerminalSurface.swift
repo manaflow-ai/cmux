@@ -180,6 +180,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// geometry so listeners calibrate from exactly what was applied instead
     /// of re-querying the live surface later.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
+    /// Fires when the runtime surface becomes live (same moment as the
+    /// `terminalSurfaceDidBecomeReady` notification, but a direct per-surface
+    /// callback). A surface whose view is created already AT its final size
+    /// never applies a resize, so `onManualSizeApplied` never fires for it —
+    /// readiness is the one event guaranteed to happen exactly once for
+    /// every surface, which is what a one-time size claim must ride.
+    @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
     /// A manual size was applied while the view was outside any window, so
     /// the `onManualSizeApplied` report was skipped. The report is state,
     /// not an edge: flushed by ``flushPendingManualSizeReportIfAttached()``
