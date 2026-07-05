@@ -1,91 +1,98 @@
-import XCTest
+import Testing
 @testable import CMUXAgentLaunch
 
-final class AgentLaunchCaptureTrustTests: XCTestCase {
-    func testExactKindMatchIsTrusted() {
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "codex"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("Claude", kind: "claude"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("pi", kind: "pi"))
+@Suite
+struct AgentLaunchCaptureTrustTests {
+    private let trust = AgentLaunchCaptureTrust()
+
+    @Test func exactKindMatchIsTrusted() {
+        #expect(trust.launcherDescribesKind("codex", kind: "codex"))
+        #expect(trust.launcherDescribesKind("Claude", kind: "claude"))
+        #expect(trust.launcherDescribesKind("pi", kind: "pi"))
     }
 
-    func testAbsentLauncherIsTrusted() {
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind(nil, kind: "codex"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("  ", kind: "codex"))
+    @Test func absentLauncherIsTrusted() {
+        #expect(trust.launcherDescribesKind(nil, kind: "codex"))
+        #expect(trust.launcherDescribesKind("  ", kind: "codex"))
     }
 
-    func testWrapperLaunchersDescribeTheirKind() {
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "claude"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("codexTeams", kind: "codex"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omo", kind: "opencode"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omx", kind: "opencode"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omc", kind: "opencode"))
-        XCTAssertTrue(AgentLaunchCaptureTrust.launcherDescribesKind("omp", kind: "pi"))
+    @Test func wrapperLaunchersDescribeTheirKind() {
+        #expect(trust.launcherDescribesKind("claudeTeams", kind: "claude"))
+        #expect(trust.launcherDescribesKind("codexTeams", kind: "codex"))
+        #expect(trust.launcherDescribesKind("omo", kind: "opencode"))
+        #expect(trust.launcherDescribesKind("omx", kind: "opencode"))
+        #expect(trust.launcherDescribesKind("omc", kind: "opencode"))
+        #expect(trust.launcherDescribesKind("omp", kind: "pi"))
     }
 
-    func testCrossAgentLauncherIsDistrusted() {
-        XCTAssertFalse(AgentLaunchCaptureTrust.launcherDescribesKind("claude", kind: "codex"))
-        XCTAssertFalse(AgentLaunchCaptureTrust.launcherDescribesKind("codex", kind: "claude"))
-        XCTAssertFalse(AgentLaunchCaptureTrust.launcherDescribesKind("claudeTeams", kind: "codex"))
-        XCTAssertFalse(AgentLaunchCaptureTrust.launcherDescribesKind("omo", kind: "codex"))
+    @Test func crossAgentLauncherIsDistrusted() {
+        #expect(!trust.launcherDescribesKind("claude", kind: "codex"))
+        #expect(!trust.launcherDescribesKind("codex", kind: "claude"))
+        #expect(!trust.launcherDescribesKind("claudeTeams", kind: "codex"))
+        #expect(!trust.launcherDescribesKind("omo", kind: "codex"))
     }
 
-    func testShellWrapperArgvDetection() {
-        XCTAssertTrue(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["sh", "-c", "eval x"]))
-        XCTAssertTrue(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/bin/zsh", "-lc", "codex"]))
-        XCTAssertTrue(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/bin/zsh", "-lic", "codex"]))
-        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/usr/local/bin/codex", "--yolo"]))
-        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper([]))
-        // An agent that merely shares a shell's basename must stay trusted.
-        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["/Users/alice/.local/bin/fish", "--resume", "x"]))
-        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["sh"]))
-        // `--chrome` is a long option, not a shell command-string flag.
-        XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["zsh", "--chrome"]))
+    @Test func shellWrapperArgvDetection() {
+        #expect(trust.argvLooksLikeShellWrapper(["sh", "-c", "eval x"]))
+        #expect(trust.argvLooksLikeShellWrapper(["/bin/zsh", "-lc", "codex"]))
+        #expect(trust.argvLooksLikeShellWrapper(["/bin/zsh", "-lic", "codex"]))
+        #expect(trust.argvLooksLikeShellWrapper(["bash", "--noprofile", "--norc", "-c", "claude"]))
+        #expect(trust.argvLooksLikeShellWrapper(["bash", "-l", "-c", "exec codex"]))
+        #expect(trust.argvLooksLikeShellWrapper(["zsh", "-i", "-c", "exec claude"]))
+        #expect(trust.argvLooksLikeShellWrapper(["bash", "--noprofile", "--norc"]))
+        #expect(trust.argvLooksLikeShellWrapper(["bash", "-o", "pipefail", "-c", "exec claude"]))
+        #expect(!trust.argvLooksLikeShellWrapper(["/usr/local/bin/codex", "--yolo"]))
+        #expect(!trust.argvLooksLikeShellWrapper([]))
+        #expect(!trust.argvLooksLikeShellWrapper(["/Users/alice/.local/bin/fish", "--resume", "x"]))
+        #expect(!trust.argvLooksLikeShellWrapper(["sh"]))
+        #expect(!trust.argvLooksLikeShellWrapper(["zsh", "--chrome"]))
+        #expect(!trust.argvLooksLikeShellWrapper(["zsh", "/path/to/agent-wrapper", "-c", "config"]))
     }
 
-    func testPIDProcessMetadataMustMatchHookKind() {
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+    @Test func pidProcessMetadataMustMatchHookKind() {
+        #expect(
+            trust.nativeProcessDescribesKind(
                 processName: "codex",
                 arguments: ["/opt/homebrew/bin/codex", "--sandbox", "workspace-write"],
                 kind: "codex"
             )
         )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+        #expect(
+            trust.nativeProcessDescribesKnownAgent(
                 processName: "codex",
                 arguments: ["/opt/homebrew/bin/codex", "--sandbox", "workspace-write"]
             )
         )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+        #expect(
+            trust.nativeProcessDescribesKind(
                 processName: "node",
                 arguments: ["node", "/Users/alice/.claude/local/claude.js"],
                 kind: "claude"
             )
         )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+        #expect(
+            trust.nativeProcessDescribesKind(
                 processName: "grok-macos-aarch64",
                 arguments: ["/Users/alice/.local/bin/grok-macos-aarch64", "-r", "session"],
                 kind: "grok"
             )
         )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+        #expect(
+            trust.nativeProcessDescribesKind(
                 processName: "kiro-cli",
                 arguments: ["/Users/alice/.cargo/bin/kiro-cli", "chat"],
                 kind: "kiro"
             )
         )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+        #expect(
+            trust.nativeProcessDescribesKind(
                 processName: "acme-agent",
                 arguments: ["/Users/alice/bin/acme-agent", "--session", "native-session"],
                 kind: "acme-agent"
             )
         )
-        XCTAssertFalse(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+        #expect(
+            !trust.nativeProcessDescribesKind(
                 processName: "cmux DEV",
                 arguments: [
                     "/tmp/cmux-tests/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
@@ -94,15 +101,15 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
                 kind: "codex"
             )
         )
-        XCTAssertFalse(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+        #expect(
+            !trust.nativeProcessDescribesKind(
                 processName: "codex",
                 arguments: ["/opt/homebrew/bin/codex"],
                 kind: "claude"
             )
         )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+        #expect(
+            trust.nativeProcessDescribesKind(
                 processName: "agy",
                 arguments: ["/usr/local/bin/agy"],
                 kind: "antigravity"

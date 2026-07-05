@@ -156,6 +156,18 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_startup_input_available"] as? Bool == true)
     }
 
+    @Test func testSessionsListPreservesSameKindShellWrapperLaunchEnvironmentForStartupInput() throws {
+        let hugeCodexHome = "/tmp/" + String(repeating: "codex-home-", count: 100)
+        let session = try sessionsListDiagnosticSession(
+            launcher: "codex",
+            executablePath: "/bin/bash",
+            arguments: ["/bin/bash", "--noprofile", "--norc"],
+            environment: ["CODEX_HOME": hugeCodexHome]
+        )
+        #expect(session["fork_supported"] as? Bool == true)
+        #expect(session["fork_startup_input_available"] as? Bool == false)
+    }
+
     @Test func testSessionsListCountsCodexWrapperRenderingForStartupInput() throws {
         let session = try sessionsListDiagnosticSession(
             launcher: "codex",

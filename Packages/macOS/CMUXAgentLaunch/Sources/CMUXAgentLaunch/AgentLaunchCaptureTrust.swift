@@ -1,7 +1,6 @@
 import Foundation
 
-/// Decides whether a captured agent launch command can be trusted for the agent
-/// kind it is stored under.
+/// Decides whether captured agent launch metadata can be trusted for a stored agent kind.
 ///
 /// `CMUX_AGENT_LAUNCH_*` is exported into the agent's process environment by the
 /// cmux launch wrappers and therefore leaks to every descendant process: an agent
@@ -9,36 +8,60 @@ import Foundation
 /// codex, …) inherits the ANCESTOR's launch capture. A hook that stores that
 /// capture verbatim poisons resume/fork for the session — the rendered command
 /// runs the wrong binary with the wrong flags.
-public enum AgentLaunchCaptureTrust {
+public struct AgentLaunchCaptureTrust: Sendable, Equatable {
     /// Wrapper launchers that legitimately differ from the hook kind they launch.
-    private static let wrapperLaunchersByKind: [String: Set<String>] = [
-        "claude": ["claudeteams"],
-        "codex": ["codexteams"],
-        "opencode": ["omo", "omx", "omc"],
-        "pi": ["omp"],
-    ]
+    private let wrapperLaunchersByKind: [String: Set<String>]
+    private let nativeProcessAliasesByKind: [String: Set<String>]
+    private let shellExecutableBasenames: Set<String>
 
-    private static let nativeProcessAliasesByKind: [String: Set<String>] = [
-        "antigravity": ["agy"],
-        "claude": ["claude"],
-        "codex": ["codex"],
-        "codebuddy": ["codebuddy"],
-        "copilot": ["copilot"],
-        "cursor": ["cursor-agent", "cursor"],
-        "factory": ["droid", "factory"],
-        "gemini": ["gemini"],
-        "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
-        "kiro": ["kiro", "kiro-cli"],
-        "omp": ["omp"],
-        "opencode": ["opencode", "omo", "omx", "omc"],
-        "pi": ["pi", "omp"],
-        "qoder": ["qodercli", "qoder"],
-        "rovodev": ["rovodev", "rovo", "rovo-dev"],
-    ]
+    /// Creates a launch-capture trust policy with cmux's built-in agent and shell aliases.
+    public init() {
+        wrapperLaunchersByKind = [
+            "claude": ["claudeteams"],
+            "codex": ["codexteams"],
+            "opencode": ["omo", "omx", "omc"],
+            "pi": ["omp"],
+        ]
+
+        nativeProcessAliasesByKind = [
+            "antigravity": ["agy"],
+            "claude": ["claude"],
+            "codex": ["codex"],
+            "codebuddy": ["codebuddy"],
+            "copilot": ["copilot"],
+            "cursor": ["cursor-agent", "cursor"],
+            "factory": ["droid", "factory"],
+            "gemini": ["gemini"],
+            "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+            "kiro": ["kiro", "kiro-cli"],
+            "omp": ["omp"],
+            "opencode": ["opencode", "omo", "omx", "omc"],
+            "pi": ["pi", "omp"],
+            "qoder": ["qodercli", "qoder"],
+            "rovodev": ["rovodev", "rovo", "rovo-dev"],
+        ]
+
+        shellExecutableBasenames = [
+            "bash",
+            "csh",
+            "dash",
+            "fish",
+            "ksh",
+            "login",
+            "sh",
+            "tcsh",
+            "zsh",
+        ]
+    }
 
     /// True when `launcher` plausibly describes a launch of agent `kind`.
+    ///
     /// A nil/empty launcher is trusted: hooks fall back to their own kind.
-    public static func launcherDescribesKind(_ launcher: String?, kind: String) -> Bool {
+    /// - Parameters:
+    ///   - launcher: The captured launcher label, if any.
+    ///   - kind: The agent kind that owns the captured session.
+    /// - Returns: Whether the launcher belongs to the supplied kind.
+    public func launcherDescribesKind(_ launcher: String?, kind: String) -> Bool {
         guard let launcher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines),
               !launcher.isEmpty else {
             return true
@@ -51,24 +74,52 @@ public enum AgentLaunchCaptureTrust {
         return wrapperLaunchersByKind[normalizedKind]?.contains(normalizedLauncher) == true
     }
 
+    /// True when `executable` is a known shell or login executable, not an agent binary.
+    /// - Parameter executable: The captured executable path or argv token.
+    /// - Returns: Whether the executable basename matches a known shell.
+    public func executableLooksLikeShell(_ executable: String?) -> Bool {
+        guard let executable = executable?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !executable.isEmpty else {
+            return false
+        }
+        let basename = (executable as NSString).lastPathComponent
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            .lowercased()
+        return shellExecutableBasenames.contains(basename)
+    }
+
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,
     /// `zsh -lc …`) rather than an agent launch. This happens when the
     /// launch-capture PID fallback resolves to the hook's own dispatch shell
     /// instead of the agent process. Requires both a shell argv[0] basename and
-    /// a command-string flag, so an agent that merely shares a shell's name
-    /// (e.g. a wrapper script named `fish`) is not misclassified.
-    public static func argvLooksLikeShellWrapper(_ arguments: [String]) -> Bool {
-        guard let argv0 = arguments.first?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !argv0.isEmpty else {
+    /// shell dispatcher/profile-startup flags, so an agent that merely shares a
+    /// shell's name (e.g. a wrapper script named `fish`) is not misclassified.
+    /// - Parameter arguments: The captured process argv, including argv[0].
+    /// - Returns: Whether argv is a shell command-string dispatcher.
+    public func argvLooksLikeShellWrapper(_ arguments: [String]) -> Bool {
+        guard executableLooksLikeShell(arguments.first) else { return false }
+        var sawShellStartupOnlyFlag = false
+        var index = arguments.index(after: arguments.startIndex)
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if shellCommandStringFlag(argument) {
+                return true
+            }
+            if shellStartupOnlyFlag(argument) {
+                sawShellStartupOnlyFlag = true
+                index = arguments.index(after: index)
+                continue
+            }
+            if shellOptionConsumesNextValue(argument), arguments.index(after: index) < arguments.endIndex {
+                index = arguments.index(index, offsetBy: 2)
+                continue
+            }
             return false
         }
-        let name = (argv0 as NSString).lastPathComponent.lowercased()
-        let shells: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "csh", "tcsh", "ksh"]
-        guard shells.contains(name) else { return false }
-        guard arguments.count >= 2 else { return false }
-        // A combined short option whose letters are shell mode flags and that
-        // includes `c` (-c, -lc, -ic, -lic, …): the command-string form.
-        let flag = arguments[1]
+        return sawShellStartupOnlyFlag
+    }
+
+    private func shellCommandStringFlag(_ flag: String) -> Bool {
         guard flag.hasPrefix("-"), !flag.hasPrefix("--") else { return false }
         let letters = flag.dropFirst()
         return !letters.isEmpty
@@ -76,10 +127,37 @@ public enum AgentLaunchCaptureTrust {
             && letters.allSatisfy { "cilms".contains($0) }
     }
 
+    private func shellStartupOnlyFlag(_ flag: String) -> Bool {
+        switch flag {
+        case "--no-config", "--no-rcs", "--noprofile", "--norc":
+            return true
+        default:
+            guard flag.hasPrefix("-"), !flag.hasPrefix("--") else { return false }
+            let letters = flag.dropFirst()
+            return !letters.isEmpty
+                && !letters.contains("c")
+                && letters.allSatisfy { "ilms".contains($0) }
+        }
+    }
+
+    private func shellOptionConsumesNextValue(_ flag: String) -> Bool {
+        switch flag {
+        case "-o", "+o", "-O", "+O", "--init-file", "--rcfile":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// True when PID-derived process metadata describes the same native agent as
     /// the hook kind. This keeps unrelated parents, including Xcode test hosts
     /// and the cmux app executable, from becoming persisted resume commands.
-    public static func nativeProcessDescribesKind(
+    /// - Parameters:
+    ///   - processName: The process name reported by the system, if any.
+    ///   - arguments: The captured process argv.
+    ///   - kind: The hook kind that owns the session.
+    /// - Returns: Whether the process metadata describes the hook kind.
+    public func nativeProcessDescribesKind(
         processName: String?,
         arguments: [String]?,
         kind: String
@@ -95,7 +173,12 @@ public enum AgentLaunchCaptureTrust {
         }
     }
 
-    public static func nativeProcessDescribesKnownAgent(
+    /// True when PID-derived process metadata describes any built-in agent.
+    /// - Parameters:
+    ///   - processName: The process name reported by the system, if any.
+    ///   - arguments: The captured process argv.
+    /// - Returns: Whether the metadata matches a known agent alias.
+    public func nativeProcessDescribesKnownAgent(
         processName: String?,
         arguments: [String]
     ) -> Bool {
@@ -105,7 +188,7 @@ public enum AgentLaunchCaptureTrust {
         }
     }
 
-    private static func nativeProcessDescriptors(
+    private func nativeProcessDescriptors(
         processName: String?,
         arguments: [String]
     ) -> Set<String> {
@@ -140,7 +223,7 @@ public enum AgentLaunchCaptureTrust {
         return descriptors
     }
 
-    private static func normalizedAgentName(_ value: String?) -> String? {
+    private func normalizedAgentName(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
             return nil
@@ -148,7 +231,7 @@ public enum AgentLaunchCaptureTrust {
         return value.lowercased()
     }
 
-    private static func processBasename(_ value: String?) -> String? {
+    private func processBasename(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
             return nil

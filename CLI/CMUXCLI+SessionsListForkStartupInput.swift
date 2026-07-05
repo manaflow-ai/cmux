@@ -57,12 +57,18 @@ extension CMUXCLI {
         agent: String,
         record: ClaudeHookSessionRecord
     ) -> AgentHookLaunchCommandRecord? {
+        let launchCaptureTrust = AgentLaunchCaptureTrust()
         guard let launchCommand = record.launchCommand,
-              AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: agent),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+              launchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: agent) else {
             return nil
         }
-        return launchCommand
+        guard launchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+            return launchCommand
+        }
+        var sanitized = launchCommand
+        sanitized.executablePath = nil
+        sanitized.arguments = []
+        return sanitized
     }
 
     func sessionsListWorkingDirectoryPrefixed(_ command: String, workingDirectory: String?) -> String {

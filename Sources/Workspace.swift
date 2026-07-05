@@ -363,10 +363,14 @@ extension Workspace {
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
+        let snapshotResumeBinding = Self.resumeBindingForSessionSnapshot(
+            resumeBinding,
+            restorableAgent: restorableAgent
+        )
         let compatibleIndexedRestorableAgent = restorableAgent.flatMap {
             Self.restorableAgentForSessionRestore(
                 $0,
-                resumeBinding: resumeBinding
+                resumeBinding: snapshotResumeBinding
             )
         }
         if restorableAgent != nil, compatibleIndexedRestorableAgent == nil {
@@ -390,12 +394,12 @@ extension Workspace {
         let effectiveHibernationState = hibernationState.flatMap { state in
             Self.restorableAgentForSessionRestore(
                 state.agent,
-                resumeBinding: resumeBinding
+                resumeBinding: snapshotResumeBinding
             ) == nil ? nil : state
         }
         let effectiveRestorableAgent = Self.restorableAgentForSessionRestore(
             effectiveHibernationState?.agent ?? restoredAgentSnapshotsByPanelId[panelId],
-            resumeBinding: resumeBinding
+            resumeBinding: snapshotResumeBinding
         )
 
         let panelTitle = panelTitle(panelId: panelId)
@@ -475,7 +479,7 @@ extension Workspace {
                 }
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
-                resumeBinding,
+                snapshotResumeBinding,
                 autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
@@ -521,7 +525,7 @@ extension Workspace {
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
                 },
-                resumeBinding: resumeBinding,
+                resumeBinding: snapshotResumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -686,9 +690,9 @@ extension Workspace {
         // thread. Fall back to a fresh load only when the cache has not loaded yet (the
         // brief window after launch before the first refresh completes; the cache is
         // prewarmed at launch so this is rare). A cached entry at most one refresh stale
-        // is acceptable here because restore prefers the always-fresh in-memory
-        // resumeBinding and only consults this agent snapshot when no binding exists, so
-        // cmux-launched agents reopen correctly regardless of cache freshness.
+        // is acceptable here because restore reconciles stale resume bindings against
+        // fresher launch snapshots, so cmux-launched agents reopen correctly regardless
+        // of cache freshness.
         let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
@@ -897,7 +901,12 @@ extension Workspace {
         _ binding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?
     ) -> SurfaceResumeBindingSnapshot? {
-        guard let binding, binding.isAgentHookBinding, let restorableAgent else {
+        guard let binding else { return nil }
+        if binding.isAgentHookBinding,
+           shouldPreferRestorableAgentSnapshot(restorableAgent, over: binding) {
+            return nil
+        }
+        guard binding.isAgentHookBinding, let restorableAgent else {
             return binding
         }
         guard binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == restorableAgent.sessionId else {
@@ -922,6 +931,83 @@ extension Workspace {
             return binding
         }
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
+    }
+
+    nonisolated private static func resumeBindingForSessionSnapshot(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        restorableAgent: SessionRestorableAgentSnapshot?
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let binding else { return nil }
+        if binding.isAgentHookBinding,
+           shouldPreferRestorableAgentSnapshot(restorableAgent, over: binding) {
+            return nil
+        }
+        return binding
+    }
+
+    nonisolated private static func shouldPreferRestorableAgentSnapshot(
+        _ restorableAgent: SessionRestorableAgentSnapshot?,
+        over binding: SurfaceResumeBindingSnapshot
+    ) -> Bool {
+        guard let restorableAgent else {
+            return false
+        }
+        guard let bindingKindValue = normalizedResumeBindingValue(binding.kind),
+              let bindingKind = RestorableAgentKind(rawValue: bindingKindValue),
+              bindingKind == restorableAgent.kind else {
+            return false
+        }
+        guard commandLooksLikePoisonedShellResumeBinding(binding.command, kind: bindingKind) else { return false }
+        guard restorableAgent.resumeCommand != nil else { return false }
+
+        if normalizedResumeBindingValue(binding.checkpointId) == restorableAgent.sessionId {
+            return true
+        }
+        guard let capturedAt = restorableAgent.launchCommand?.capturedAt else {
+            return false
+        }
+        return capturedAt > binding.updatedAt
+    }
+
+    nonisolated private static func commandLooksLikePoisonedShellResumeBinding(
+        _ command: String,
+        kind: RestorableAgentKind
+    ) -> Bool {
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command).map(\.value)
+        for index in words.indices where Self.tokenLooksLikeShellExecutable(words[index]) {
+            let tail = words[words.index(after: index)...]
+            if tail.first.map(Self.isPoisonedShellResumeVerb) == true {
+                return true
+            }
+            if let wrapperToken = tail.first,
+               Self.wrapperTokenLooksLikeAgentResumeLauncher(wrapperToken, kind: kind),
+               tail.dropFirst().first.map(Self.isPoisonedShellResumeVerb) == true {
+                return true
+            }
+        }
+        return false
+    }
+
+    nonisolated private static func tokenLooksLikeShellExecutable(_ token: String) -> Bool {
+        Self.poisonedShellBindingLaunchCaptureTrust.executableLooksLikeShell(token)
+    }
+
+    nonisolated private static func isPoisonedShellResumeVerb(_ token: String) -> Bool {
+        token == "--resume" || token == "resume"
+    }
+
+    nonisolated private static func wrapperTokenLooksLikeAgentResumeLauncher(
+        _ token: String,
+        kind: RestorableAgentKind
+    ) -> Bool {
+        switch kind {
+        case .claude:
+            return token == "claude-teams"
+        case .codex:
+            return token == "codex-teams"
+        default:
+            return false
+        }
     }
 
     nonisolated private static func restorableAgentForSessionRestore(
@@ -2237,6 +2323,8 @@ final class Workspace: Identifiable, ObservableObject {
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
+
+    private nonisolated static let poisonedShellBindingLaunchCaptureTrust = AgentLaunchCaptureTrust()
 
     let id: UUID
     /// When this workspace instance came into existence in this app session
