@@ -14,7 +14,7 @@ struct SidebarTabDragPayloadProviderTests {
     @Test @MainActor
     func providerFulfillsDataRepresentationWhileMainActorIsSynchronouslyWaiting() throws {
         let workspaceId = UUID()
-        let provider = SidebarTabDragPayload.provider(for: workspaceId)
+        let provider = SidebarTabDragPayload(tabId: workspaceId).provider()
         let completion = DispatchSemaphore(value: 0)
         let resultBox = SidebarTabDragPayloadProviderResultBox()
 
