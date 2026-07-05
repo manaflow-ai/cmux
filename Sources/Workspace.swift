@@ -4759,6 +4759,24 @@ final class Workspace: Identifiable, ObservableObject {
         recordAgentLifecycleChange(panelId: panelId)
     }
 
+    /// On un-hibernation, re-apply `.idle` to the pane's agent lifecycle keys rather than
+    /// clearing them. The planner only ever hibernates a pane whose resolved lifecycle is
+    /// `.idle` (the sole state that `allowsHibernation`), and those `.idle` entries survive
+    /// hibernation in `agentLifecycleStatesByPanelId`. Resuming brings the session back at
+    /// an idle prompt, so keeping it `.idle` leaves it eligible to hibernate again on idle
+    /// time. Clearing to `.unknown` (the prior behavior) stranded restored agents as
+    /// non-idle until a fresh Stop hook fired, so they never re-hibernated. The resumed
+    /// agent's own hooks overwrite this to `.running`/`.needsInput` the moment it works.
+    func restoreAgentLifecycleToIdleAfterResume(panelId: UUID) {
+        guard let keys = agentLifecycleStatesByPanelId[panelId]?.keys, !keys.isEmpty else {
+            return
+        }
+        for key in Array(keys) {
+            agentLifecycleStatesByPanelId[panelId]?[key] = .idle
+        }
+        recordAgentLifecycleChange(panelId: panelId)
+    }
+
     func clearAllAgentLifecycleStates() {
         let panelIds = Array(agentLifecycleStatesByPanelId.keys)
         guard !panelIds.isEmpty else { return }
@@ -4845,7 +4863,7 @@ final class Workspace: Identifiable, ObservableObject {
                 : .manualResumeAvailable
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
-        clearAgentLifecycleStates(panelId: panelId)
+        restoreAgentLifecycleToIdleAfterResume(panelId: panelId)
         AgentHibernationController.shared.recordTerminalFocus(workspaceId: id, panelId: panelId)
         if focus {
             focusPanel(panelId)
