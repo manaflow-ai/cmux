@@ -799,6 +799,8 @@
       "exampleConfig": "Eksempelkonfigurasjon",
       "metaTitle": "Konfigurasjon",
       "schemaDescriptions": {
+        "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
+        "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "automation": {
           "ampIntegration": "Aktiver cmux-integrasjonskroker for Amp. Når deaktivert, forblir den medfølgende programtillegget inaktivt uten å måtte fjernes.",
           "suppressSubagentNotifications": "Undertrykk synlige fullføringsvarsler og statusendringer fra innebygde Codex- eller Claude-underagenter, samtidig som hendelsene deres beholdes i Feed-telemetri.",
@@ -1617,9 +1619,9 @@
       "kittyBuiltFor": "Rask, skriptbar, funksjonsrik",
       "weztermBuiltFor": "GPU-terminal med innebygd multiplexer",
       "tmuxBuiltFor": "Multiplexing inne i enhver terminal",
-      "cmuxBody": "En nativ macOS-terminal bygget på libghostty, bygget for tre ting: multitasking, organisering og programmerbarhet. Den vertikale sidestolpen grupperer arbeidet i arbeidsområder, der hvert viser sin git-gren, mappe, porter og den siste linjen med agentens utdata, slik at du kan kjøre mange ting samtidig uten å miste oversikten. Paneler ringer når en agent trenger oppmerksomhet. Hver handling er skriptbar gjennom en CLI og en Unix-socket, og det finnes en innebygd nettleser du kan styre programmatisk. Det finnes til og med en iOS-følgeapp for å holde øye med terminalene dine fra telefonen. Best hvis du sjonglerer flere oppgaver eller AI-kodeagenter og vil ha dem organisert og automatiserbare uten en multiplexer-konfigurasjon.",
+      "cmuxBody": "cmux er en innebygd macOS-terminal bygget på Ghosttys terminalmotor, libghostty. Det betyr at terminalrutenettet arver Ghosttys styrker: rask GPU-gjengivelse, svært god font- og fargegjengivelse, moderne terminalkompatibilitet og dine eksisterende Ghostty-temaer, fonter, farger og markørinnstillinger. cmux legger til laget Ghostty med vilje ikke prøver å være: vertikale arbeidsområder, delte paneler, varslingsringer, git/port/agent-kontekst i sidefeltet, en skriptbar CLI og Unix-socket, en programmerbar nettleser og en iOS-følgeapp. Velg cmux når du vil ha terminalgjengivelse i Ghostty-kvalitet pluss organisering og automatisering for mange oppgaver eller AI-kodeagenter.",
       "ghosttyTitle": "Ghostty",
-      "ghosttyBody": "Den raske, GPU-akselererte terminalen hvis motor, libghostty, driver cmux. Hvis du vil ha ett enkelt, rent terminalvindu med utmerket gjengivelse og ingenting av arbeidsområde- eller automatiseringslaget, er Ghostty utmerket på egen hånd.",
+      "ghosttyBody": "Ghostty er den raske native terminalen hvis motor, libghostty, driver cmux. Sammenlignet med eldre CPU-gjengitte terminaler og tyngre Electron-lignende terminaler er Ghosttys styrker GPU-gjengivelse med lav latens, skarp font- og fargehåndtering, sterk terminalkompatibilitet, enkel filbasert konfigurasjon og ingen krav om skykonto. Hvis du vil ha ett rent terminalvindu med disse gjengivelsesfordelene og uten arbeidsområde- eller automatiseringslag, er Ghostty utmerket alene. Hvis du vil ha de samme Ghostty-gjengivelsesfordelene pluss arbeidsområder, varsler, scripting og agentorkestrering, bruk cmux.",
       "iterm2Title": "iTerm2",
       "iterm2Body": "Den modne, uendelig konfigurerbare macOS-terminalen. Dype profiler, triggere og tmux-integrasjon. Det trygge valget hvis du vil ha maksimalt med funksjoner og ikke orkestrerer mange oppgaver samtidig.",
       "warpTitle": "Warp",
