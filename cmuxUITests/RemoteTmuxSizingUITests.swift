@@ -792,18 +792,19 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         }
         guard wrote else { return nil }
         var buffer = [UInt8](repeating: 0, count: 8192)
-        var accumulator = ""
+        var accumulator = Data()
         let deadline = Date().addingTimeInterval(65)
         while Date() < deadline {
             let count = Darwin.read(fd, &buffer, buffer.count)
             guard count > 0 else { break }
-            if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                accumulator.append(chunk)
-                if let newline = accumulator.firstIndex(of: "\n") {
-                    return String(accumulator[..<newline])
-                }
+            accumulator.append(contentsOf: buffer[0..<count])
+            if let newline = accumulator.firstIndex(of: UInt8(ascii: "\n")) {
+                return String(decoding: accumulator[..<newline], as: UTF8.self)
             }
         }
-        return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
+        return accumulator.isEmpty
+            ? nil
+            : String(decoding: accumulator, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
