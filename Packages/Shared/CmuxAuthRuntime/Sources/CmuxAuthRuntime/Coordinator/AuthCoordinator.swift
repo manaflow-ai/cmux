@@ -111,8 +111,18 @@ public final class AuthCoordinator {
     @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var abandonedTokenTouchingPhaseIDs: Set<UUID> = []
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
+    /// How long a timed-out token phase whose task never finishes stays gated
+    /// before the gate reopens anyway. Bounds the worst case where a wedged,
+    /// cancellation-ignoring Stack SDK call would otherwise block token
+    /// acquisition for every session until the app restarts (issue #6311).
+    @ObservationIgnored var tokenTouchingHardExpiryNanoseconds: UInt64 = 90_000_000_000
+    /// Hard-expired token tasks that may still ignore cancellation. Keeping one
+    /// abandoned task allows a recovery retry; refusing more bounds retained
+    /// Swift tasks if the provider never cooperates.
+    @ObservationIgnored var maxAbandonedTokenTouchingPhases = 1
     @ObservationIgnored var isCapturingSignOutCredentials = false
     @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
 

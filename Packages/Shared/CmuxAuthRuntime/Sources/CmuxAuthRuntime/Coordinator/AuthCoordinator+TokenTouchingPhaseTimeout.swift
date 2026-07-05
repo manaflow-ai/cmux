@@ -42,6 +42,7 @@ extension AuthCoordinator {
                     self?.timedOutTokenTouchingPhaseStates[phase] = nil
                 }
                 self?.activeTokenTouchingPhases[phaseID] = nil
+                self?.abandonedTokenTouchingPhaseIDs.remove(phaseID)
             }
         }
         activeTokenTouchingPhases[phaseID] = AuthTrackedTokenWork(
@@ -122,16 +123,46 @@ extension AuthCoordinator {
 
     private func gateTokenTouchingPhase(_ phase: AuthPhase, id: UUID) {
         guard activeTokenTouchingPhases[id] != nil else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
         timedOutTokenTouchingPhaseStates[phase] = AuthPhaseTimedOutState(
             id: id,
-            expiresAt: DispatchTime.now().uptimeNanoseconds &+ tokenTouchingTimedOutResetNanoseconds
+            expiresAt: now &+ tokenTouchingTimedOutResetNanoseconds,
+            hardExpiresAt: now &+ tokenTouchingHardExpiryNanoseconds
         )
     }
 
     private func expireTimedOutTokenTouchingPhaseIfNeeded(_ phase: AuthPhase) {
         guard let timedOut = timedOutTokenTouchingPhaseStates[phase] else { return }
-        guard DispatchTime.now().uptimeNanoseconds >= timedOut.expiresAt else { return }
-        guard activeTokenTouchingPhases[timedOut.id] == nil else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard now >= timedOut.expiresAt else { return }
+        // Normal path: reopen once the previous timed-out phase task has
+        // finished unwinding, so a slow-but-honest cancellation does not start a
+        // second concurrent token operation.
+        if activeTokenTouchingPhases[timedOut.id] == nil {
+            timedOutTokenTouchingPhaseStates[phase] = nil
+            return
+        }
+        // Safety net: a Stack SDK call that hangs and ignores cancellation never
+        // lets the previous phase task finish, which would keep this phase — and
+        // therefore token acquisition for every session — gated forever. Reopen
+        // once the bounded hard window elapses so the next caller can retry,
+        // matching AuthPhaseTimeoutRegistry's time-based recovery (#6311).
+        //
+        // Detach one wedged task from coordinator-owned active work before
+        // reopening, otherwise repeated hard-expiry retries would retain an
+        // unbounded chain of never-finishing tasks. If that detached task also
+        // never completes, keep the phase gated after the current retry until
+        // cleanup frees the abandoned slot. The detached task still runs its own
+        // stale-completion guard if it ever resumes, so a late SDK token write
+        // cannot survive a newer session/sign-in transition.
+        guard let hardExpiresAt = timedOut.hardExpiresAt, now >= hardExpiresAt else { return }
+        guard abandonedTokenTouchingPhaseIDs.count < maxAbandonedTokenTouchingPhases else {
+            return
+        }
+        if let work = activeTokenTouchingPhases.removeValue(forKey: timedOut.id) {
+            work.cancel()
+            abandonedTokenTouchingPhaseIDs.insert(timedOut.id)
+        }
         timedOutTokenTouchingPhaseStates[phase] = nil
     }
 
@@ -140,10 +171,16 @@ extension AuthCoordinator {
         signOutEpoch: UInt64,
         storeWriteHighWater: UInt64
     ) async throws {
-        guard signOutEpoch != self.signOutEpoch else { return }
-        await waitForSignOutCredentialCapture()
-        guard tokenStoreWriteHighWater == storeWriteHighWater else {
-            throw CancellationError()
+        let signOutBeganAfterPhaseStart = signOutEpoch != self.signOutEpoch
+        let sessionMovedAfterPhaseStart = generation != sessionGeneration
+        let tokenStoreOwnerMovedAfterPhaseStart = tokenStoreWriteHighWater != storeWriteHighWater
+        guard signOutBeganAfterPhaseStart
+            || sessionMovedAfterPhaseStart
+            || tokenStoreOwnerMovedAfterPhaseStart else {
+            return
+        }
+        if signOutBeganAfterPhaseStart {
+            await waitForSignOutCredentialCapture()
         }
         let refreshTokenAfterOperation = await client.refreshToken()
         var clearedStaleRefreshToken = false
@@ -152,7 +189,8 @@ extension AuthCoordinator {
             await client.clearLocalSession(ifRefreshTokenMatches: refreshTokenAfterOperation)
             clearedStaleRefreshToken = await client.refreshToken() == nil
         }
-        guard generation == sessionGeneration,
+        guard !signOutBeganAfterPhaseStart,
+              generation == sessionGeneration,
               tokenStoreWriteHighWater == storeWriteHighWater else {
             if clearedStaleRefreshToken, isAuthenticated {
                 clearAuthState(preservePendingCode: true)
