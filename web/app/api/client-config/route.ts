@@ -1,6 +1,7 @@
 import { checkRateLimit } from "@vercel/firewall";
 import { NextResponse } from "next/server";
 
+import "../../env";
 import { readBoundedJsonObject } from "../../../services/apns/routePolicy";
 import {
   CLIENT_CONFIG_FLAGS_TIMEOUT_MS,
