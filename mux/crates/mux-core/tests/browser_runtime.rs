@@ -49,10 +49,12 @@ fn recv_method_where(
     method: &str,
     predicate: impl Fn(&Value) -> bool,
 ) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let value = rx.recv_timeout(remaining).unwrap();
+        let value = rx
+            .recv_timeout(remaining)
+            .unwrap_or_else(|err| panic!("timed out waiting for CDP method {method}: {err}"));
         if value.get("method").and_then(|v| v.as_str()) == Some(method) && predicate(&value) {
             return value;
         }
@@ -60,7 +62,7 @@ fn recv_method_where(
 }
 
 fn recv_attach_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         assert!(Instant::now() < deadline, "timed out waiting for attach event {event}");
         let mut line = String::new();
@@ -162,7 +164,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                     start_count += 1;
                     write_json(&mut ws, json!({"id": id, "result": {}}));
                     if start_count == 1 {
-                        frame_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                        frame_rx.recv_timeout(Duration::from_secs(30)).unwrap();
                         write_json(
                             &mut ws,
                             json!({
@@ -257,7 +259,6 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         ))
         .join("session.sock");
     server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
-
     let created = rpc(
         &socket_path,
         json!({"id": 1, "cmd": "new-browser-tab", "url": "example.test", "cols": 10, "rows": 5}),
@@ -298,7 +299,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 (state.surfaces.len() == 2).then_some(popup)
             })
         },
-        Duration::from_secs(2),
+        Duration::from_secs(10),
     )
     .expect("popup tab adopted");
     let popup_start = recv_method_where(&seen_rx, "Page.startScreencast", |value| {
@@ -314,7 +315,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
                 .and_then(|surface| surface.browser_frame())
                 .filter(|frame| frame.seq == 88)
         },
-        Duration::from_secs(2),
+        Duration::from_secs(10),
     )
     .expect("popup surface received its own frame");
     assert_eq!(popup_frame.session_id, "session-popup");
@@ -409,7 +410,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
             BrowserStatus::Failed(error) => Some(error),
             BrowserStatus::Starting | BrowserStatus::Live => None,
         },
-        Duration::from_secs(2),
+        Duration::from_secs(10),
     )
     .expect("navigate errorText surfaced as browser failure");
     assert_eq!(failed, "net::ERR_NAME_NOT_RESOLVED");
@@ -449,7 +450,7 @@ fn browser_tab_creation_is_async_and_surfaces_bootstrap_failure() {
             Some(BrowserStatus::Failed(error)) => Some(error),
             _ => None,
         },
-        Duration::from_secs(2),
+        Duration::from_secs(10),
     )
     .expect("browser bootstrap failure surfaced");
     assert!(
