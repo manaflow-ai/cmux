@@ -73,7 +73,7 @@ extension TerminalController {
                         groupId: targetGroupID,
                         placement: .end
                     )
-                    guard workspace.groupId == targetGroupID else {
+                    guard tabManager.tabs.first(where: { $0.id == workspaceID })?.groupId == targetGroupID else {
                         mutationError = .err(
                             code: "invalid_request",
                             message: controlWorkspaceGroupStrings().workspaceIsOtherGroupAnchor,
