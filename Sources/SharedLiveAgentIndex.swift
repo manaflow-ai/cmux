@@ -26,6 +26,7 @@ final class SharedLiveAgentIndex {
     private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
+    private let processIsRunningProvider: @MainActor (Int) -> Bool
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
@@ -36,11 +37,17 @@ final class SharedLiveAgentIndex {
         },
         dateProvider: @escaping @MainActor () -> Date = {
             Date()
+        },
+        processIsRunningProvider: @escaping @MainActor (Int) -> Bool = { processId in
+            guard processId > 0, processId <= Int(Int32.max) else { return false }
+            let result = Darwin.kill(pid_t(processId), 0)
+            return result == 0 || errno == EPERM
         }
     ) {
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
+        self.processIsRunningProvider = processIsRunningProvider
     }
 
     deinit {
@@ -59,15 +66,25 @@ final class SharedLiveAgentIndex {
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         guard hasCompletedForkAvailabilityProbe,
-              !isForkAvailabilityRefreshInFlight else {
+              !isForkAvailabilityRefreshInFlight,
+              let index else {
             return nil
         }
-        return index?.snapshot(workspaceId: workspaceId, panelId: panelId)
+        guard cachedLiveProcessIDsAreRunning(index.processIDs(workspaceId: workspaceId, panelId: panelId)) else {
+            return nil
+        }
+        return index.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
-    func prepareForkAvailabilityProbe() -> Bool {
+    func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID) -> Bool {
         scheduleRefreshIfStale()
         guard !isForkAvailabilityRefreshInFlight else {
+            return false
+        }
+        guard let index,
+              index.snapshot(workspaceId: workspaceId, panelId: panelId) != nil,
+              cachedLiveProcessIDsAreRunning(index.processIDs(workspaceId: workspaceId, panelId: panelId)) else {
+            requestForkAvailabilityRefresh()
             return false
         }
         guard hasFreshForkAvailabilityProbe else {
@@ -187,6 +204,13 @@ final class SharedLiveAgentIndex {
 
     private var isForkAvailabilityRefreshInFlight: Bool {
         refreshTask != nil || forkAvailabilityRefreshTask != nil
+    }
+
+    private func cachedLiveProcessIDsAreRunning(_ processIDs: Set<Int>) -> Bool {
+        for processID in processIDs {
+            guard processIsRunningProvider(processID) else { return false }
+        }
+        return true
     }
 
     private func handleHookStoreChange() {

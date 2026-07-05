@@ -323,7 +323,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         await sharedIndex.refreshForkAvailabilityNow()
-        #expect(sharedIndex.prepareForkAvailabilityProbe())
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId))
         #expect(
             sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId
                 == sessionId
@@ -331,16 +331,62 @@ struct WorkspaceForkConversationContextMenuTests {
 
         now.withLock { $0 = Date(timeIntervalSince1970: 30) }
         #expect(
-            sharedIndex.prepareForkAvailabilityProbe(),
+            sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
             "A completed fork probe should stay usable for the normal cache window without another process scan."
         )
 
         now.withLock { $0 = Date(timeIntervalSince1970: 61) }
         #expect(
-            !sharedIndex.prepareForkAvailabilityProbe(),
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
             "Fork availability must fail closed while the shared index is refreshing."
         )
         #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+    }
+
+    @Test
+    func forkAvailabilityProbeRefreshesMissingPanelSnapshotInsideCacheWindow() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-live-agent-missing-probe-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(
+            at: root.appendingPathComponent(".cmuxterm", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                SharedLiveAgentIndexLoader(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    processSnapshotProvider: {
+                        CmuxTopProcessSnapshot(
+                            processes: [],
+                            sampledAt: now.withLock { $0 },
+                            includesProcessDetails: true
+                        )
+                    },
+                    capturedAtProvider: { now.withLock { $0 }.timeIntervalSince1970 },
+                    processArgumentsProvider: { _ in nil }
+                )
+                .loadResultSynchronously()
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: {
+                now.withLock { $0 }
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow()
+        now.withLock { $0 = Date(timeIntervalSince1970: 30) }
+        #expect(
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: UUID(), panelId: UUID()),
+            "A missing panel snapshot should trigger an off-main refresh even inside the cache window."
+        )
     }
 
     @Test
