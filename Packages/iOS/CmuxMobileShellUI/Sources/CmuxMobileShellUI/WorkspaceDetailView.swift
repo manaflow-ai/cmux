@@ -172,7 +172,7 @@ struct WorkspaceDetailView: View {
                 .truncationMode(.tail)
                 .foregroundStyle(TerminalPalette.foreground)
         } else {
-            WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
+            WorkspaceToolbarTitleView(title: terminalHeaderTitle, subtitle: nil)
         }
     }
     #endif

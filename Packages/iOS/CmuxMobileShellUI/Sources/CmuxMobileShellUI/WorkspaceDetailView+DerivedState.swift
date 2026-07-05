@@ -8,9 +8,8 @@ extension WorkspaceDetailView {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
-    var selectedToolbarSubtitle: String? {
-        guard let selectedTerminalID = store.selectedTerminalID else { return nil }
-        return workspace.terminals.first { $0.id == selectedTerminalID }?.name
+    var terminalHeaderTitle: String {
+        workspace.terminalHeaderTitle(selectedTerminalID: store.selectedTerminalID)
     }
 
     var terminalTopPadding: CGFloat { 4 }
