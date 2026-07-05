@@ -58,7 +58,7 @@ pub fn transmit_png(surface: SurfaceId, data_b64: &str) -> Vec<u8> {
     for (idx, chunk) in chunks.iter().enumerate() {
         let more = usize::from(idx + 1 < chunks.len());
         let header = if idx == 0 {
-            format!("{ESC}_Ga=T,f=100,i={id},q=2,m={more};")
+            format!("{ESC}_Ga=t,f=100,i={id},q=2,m={more};")
         } else {
             format!("{ESC}_Gq=2,m={more};")
         };
