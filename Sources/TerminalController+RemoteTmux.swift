@@ -335,11 +335,9 @@ extension TerminalController {
             let out = Pipe(), err = Pipe()
             proc.standardOutput = out
             proc.standardError = err
-            try proc.run()
-            // Drain BOTH pipes on GCD readability handlers and wait for both
+            // Drain BOTH pipes on GCD readability handlers and require both
             // EOFs before finalizing: every append happens on the handler
-            // queue before its EOF signal, so no chunk can race the join —
-            // and no cooperative-pool thread parks in a blocking read.
+            // queue before its EOF signal, so no chunk can race the join.
             let drained = DispatchGroup()
             let stdoutBuffer = OSAllocatedUnfairLock(initialState: Data())
             let stderrBuffer = OSAllocatedUnfairLock(initialState: Data())
@@ -358,12 +356,27 @@ extension TerminalController {
                     }
                 }
             }
-            drained.wait()
-            proc.waitUntilExit()
+            // This closure runs as an async Task on the cooperative pool, so
+            // it must suspend — never park — while the subprocess runs: exit
+            // arrives via terminationHandler (installed before run() so a
+            // fast exit cannot be missed) and the EOF join via the group's
+            // notify, in place of waitUntilExit()/wait().
+            let status: Int32 = try await withCheckedThrowingContinuation { continuation in
+                proc.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
+                do {
+                    try proc.run()
+                } catch {
+                    proc.terminationHandler = nil
+                    continuation.resume(throwing: error)
+                }
+            }
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                drained.notify(queue: .global()) { continuation.resume() }
+            }
             let stdout = stdoutBuffer.withLock { String(data: $0, encoding: .utf8) ?? "" }
             let stderr = stderrBuffer.withLock { String(data: $0, encoding: .utf8) ?? "" }
             return [
-                "exit": Int(proc.terminationStatus),
+                "exit": Int(status),
                 "stdout": stdout,
                 "stderr": stderr,
             ]

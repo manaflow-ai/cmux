@@ -480,11 +480,16 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         // @probe_alive pane option as its first act) so scenarios never
         // start measuring before the probes are actually running — on an
         // overloaded runner the send-keys above can take seconds to land.
+        // Gate on the pane COUNT as well as the flags: tmux(_:) trims
+        // trailing newlines, so a final pane whose @probe_alive is still
+        // unset would otherwise vanish from the split and allSatisfy would
+        // pass with that probe not yet running.
+        let expectedProbePaneCount = panes.split(separator: "\n").count
         let aliveDeadline = Date().addingTimeInterval(15)
         while Date() < aliveDeadline {
             guard let flags = tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{@probe_alive}"]) else { return }
             let perPane = flags.components(separatedBy: "\n")
-            if !perPane.isEmpty, perPane.allSatisfy({ $0 == "1" }) { return }
+            if perPane.count == expectedProbePaneCount, perPane.allSatisfy({ $0 == "1" }) { return }
             Thread.sleep(forTimeInterval: 0.2)
         }
     }
