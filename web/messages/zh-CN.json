@@ -1778,10 +1778,10 @@
       "intro": "开发人员为 AI 编码代理选择终端或工作区的重点比较。当您需要本机 macOS 性能、可见的多任务处理、通知环、Cmd+Shift+U 和 Cmd+Control+U 等键盘快捷键，并且不锁定一个代理运行时时，cmux 是最强的。",
       "pages": {
         "bestTerminalForAgents": {
-          "metaTitle": "2026 年 AI 编码代理最佳终端 - cmux",
+          "metaTitle": "2026 年面向 AI 编码代理的最佳终端和代理工作区 - cmux",
           "metaDescription": "比较 cmux、Conductor、Superset、Cursor、Devin、VS Code、Zed、Warp、Ghostty、iTerm2、Kitty、Alacritty、WezTerm、tmux、OpenCode、Herdr 和其他用于运行 AI 编码代理的工具。",
-          "title": "2026年AI编码代理最佳终端",
-          "intro": "对于编码代理来说，最好的终端是能够使许多长时间运行的会话保持可见、响应灵敏且易于控制的终端。 cmux 是由整天通过多个代理执行多项任务的人构建的：原生 Swift/AppKit 性能、垂直工作区、通知环、用于最新未读工作的 Cmd+Shift+U、用于循环未读工作的 Cmd+Control+U 以及可编程 CLI。",
+          "title": "2026 年面向 AI 编码代理的最佳终端和代理工作区",
+          "intro": "最适合编码代理的终端或代理工作区，是能让大量长时间运行的会话保持可见、响应迅速且易于控制的工具。cmux 由整天并行处理大量代理的人构建，提供原生 Swift/AppKit 性能、纵向工作区、通知环、跳到最新未读的 Cmd+Shift+U、将当前项标记为最旧未读并跳到下一个未读项的 Cmd+Control+U，以及可编程 CLI。",
           "summaryTitle": "简短回答",
           "summaryBody": "如果您想要一个可以监督许多代理的本机 macOS 终端，而无需强制使用新的代理、编辑器、云运行时或信用系统，请选择 cmux。如果您需要任务编排和内置审核流程，请选择代理工作区。如果您主要一次运行一个代理，请选择经典终端。",
           "table": {
@@ -1848,9 +1848,9 @@
               ],
               [
                 "经",
-                "被管理产品中的AI终端功能",
-                "内置和外部代理工作流程",
-                "开源客户端加托管产品服务"
+                "代理式终端加云端编排",
+                "Warp Agent、Oz，以及自带 CLI 代理",
+                "开源客户端绑定到托管的 Warp/Oz 服务"
               ],
               [
                 "幽灵般的",
@@ -1901,7 +1901,7 @@
             },
             {
               "title": "负载下的性能",
-              "body": "cmux 是一个基于 libghostty 而不是 Electron 构建的原生 Swift/AppKit 应用程序。当您让许多终端、浏览器和代理全天保持活动状态时，这一点很重要，因为更少的 UI 开销会为执行实际工作的代理和开发服务器留下更多的 CPU 和内存。"
+              "body": "cmux 是基于 libghostty 构建的原生 Swift/AppKit 应用，而不是 Electron。这让它拥有原生 Mac UI 和基于 Ghostty 的终端渲染，同时将编排层与你在其中运行的代理、测试运行器、浏览器和开发服务器分离。"
             },
             {
               "title": "键盘优先监督",
@@ -1909,7 +1909,7 @@
             },
             {
               "title": "工作树支持是一种原始支持，而不是产品盒",
-              "body": "内置工作树支持肯定是有限的，因为真正的团队在不同的地方有后端和前端存储库、设置脚本、远程机器、无 git 项目以及偶尔的代码到主流程。 cmux 保持可编程，因此 Claude Code、Codex、自定义命令和存储库脚本可以构建您的代码库实际需要的工作空间。"
+              "body": "内置 worktree 支持对于前后端仓库拆分、设置脚本、远程机器、非 Git 项目或 code-to-main 流程的团队可能过窄。cmux 保持可编程，因此 Claude Code、Codex、自定义命令和仓库脚本可以创建适合你代码库的工作区形态。"
             }
           ],
           "faqTitle": "FAQ",
@@ -1926,7 +1926,7 @@
           "title": "cmux 与 Alacritty",
           "intro": "Alacritty 是一个快速、跨平台的 OpenGL 终端仿真器，具有精心设计的精简功能集。 cmux 是一个基于 libghostty 构建的本机 macOS 终端和浏览器工作区，用于运行许多具有通知环、未读快捷方式和可编程应用程序控制的 AI 编码代理。",
           "summaryTitle": "快捷终端 vs 代理监管终端",
-          "summaryBody": "当您想要一个最小的高性能终端并计划使用 shell 工具组装其余部分时，请使用 Alacritty。当您需要本机 macOS 性能以及可视工作区、Cmd+Shift+U、Cmd+Control+U、浏览器窗格、通知和用于代理繁重工作的套接字 API 时，请使用 cmux。",
+          "summaryBody": "如果你想要一个极简、高性能的终端，并打算用 Alacritty 配置、alacritty msg、shell 工具或多路复用器组合其余部分，请使用 Alacritty。如果你想要原生 macOS 性能，以及可见工作区、Cmd+Shift+U、Cmd+Control+U、浏览器窗格、通知和面向代理密集工作的 socket API，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -1957,12 +1957,12 @@
               [
                 "注意力模型",
                 "通知环、未读徽章、Cmd+Shift+U、Cmd+Control+U",
-                "无论您在终端上编写什么脚本"
+                "视觉铃、铃声命令和外部通知脚本"
               ],
               [
                 "自动化",
                 "CLI、Unix 套接字 API、浏览器自动化、挂钩",
-                "终端配置加上外部程序"
+                "配置、键盘/鼠标绑定、alacritty msg IPC 和外部程序"
               ],
               [
                 "最适合",
@@ -2003,9 +2003,9 @@
         },
         "cmuxVsConductor": {
           "metaTitle": "cmux 与编码代理的 Conductor - cmux",
-          "metaDescription": "比较 cmux 和 Conductor 以运行多个编码代理、本机终端性能、隔离工作区、审查流程和锁定。",
+          "metaDescription": "比较 cmux 和 Conductor 在运行多个编码代理、原生终端性能、隔离工作区、评审流程和工作流灵活性方面的差异。",
           "title": "cmux 与 Conductor",
-          "intro": "Conductor 是一款 Mac 应用程序，用于在隔离的工作区中运行编码代理，并提供围绕代理工作的任务设置、差异和审核流程。 cmux 是一个本机终端和浏览器工作区，用于监督您已使用的任何 CLI 代理、shell、浏览器、开发服务器或脚本。",
+          "intro": "Conductor 是一款 Mac 应用，包含早期访问的 Conductor Cloud，用于在隔离工作区中运行编码代理，并围绕代理工作提供任务设置、diff 和评审流程。cmux 是原生终端和浏览器工作区，用于监督你已经在使用的任何 CLI 代理、shell、浏览器、开发服务器或脚本。",
           "summaryTitle": "代理任务工作区与终端控制平面",
           "summaryBody": "当您需要具有独立副本和审阅界面的打包代理任务工作流程时，请使用 Conductor。如果您需要一个免费的开源本机终端，可以在一个可编程工作区中运行 Claude Code、Codex、OpenCode、Gemini CLI、Aider、脚本、SSH、浏览器和开发服务器，请使用 cmux。",
           "table": {
@@ -2023,7 +2023,7 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "Mac 应用；桌面技术栈未公开明确说明"
+                "Mac 应用；官方文档没有说明完整桌面技术栈，而公开的创始人帖子描述为 Tauri、Rust 后端和原生 Mac 渲染器"
               ],
               [
                 "代理模式",
@@ -2033,7 +2033,7 @@
               [
                 "源模型",
                 "免费开源 GPL 应用程序",
-                "具有第三方开源组件的专有产品"
+                "带有第三方开源组件的免费专有产品"
               ],
               [
                 "组织",
@@ -2055,7 +2055,7 @@
           "sections": [
             {
               "title": "cmux 比一种代理工作流程更广泛",
-              "body": "当作业运行多个独立的编码代理任务时，Conductor 非常引人注目。 cmux 保留了该用例，然后添加了 Gemini CLI、Aider、Amp、普通 shell、SSH、浏览器、本地服务和任何未来的 CLI，而无需更改终端原语。"
+              "body": "当任务是运行多个隔离的编码代理任务时，Conductor 很有吸引力。cmux 覆盖这种工作的终端监督层，同时也能运行 Gemini CLI、Aider、Amp、普通 shell、SSH、浏览器、本地服务和其他 CLI 工具，而不改变终端这一基础单元。"
             },
             {
               "title": "本机终端性能整天都很重要",
@@ -2070,8 +2070,8 @@
               "body": "cmux CLI 和套接字 API 可以创建工作区、分割窗格、发送输入、读取终端屏幕、捕获屏幕截图和驱动浏览器窗格。这使得团队可以在终端顶部构建自己的类似指挥的流程。"
             },
             {
-              "title": "内置工作树总是达到上限",
-              "body": "有些团队在不同的地方有后端和前端存储库。有些不使用 Git。有些人希望直接在 main 上快速进行本地工作。 cmux 遵循 cmux 的禅宗：公开原语，然后让开发人员和代理探索工作流搜索空间，而不是强制使用一个内置工作树模型。"
+              "title": "Git worktree 优先模型并不适合所有工作流",
+              "body": "Conductor 文档中的工作区模型基于 Git：每个工作区映射到一个分支和 Git worktree。有些团队的后端和前端仓库位于不同位置，有些工作流并非 Git 优先，有些本地检查需要直接从现有 checkout 运行。cmux 暴露终端、浏览器、工作区和 socket 基础能力，让开发者和代理自己组合这些工作流。"
             }
           ],
           "faqTitle": "FAQ",
@@ -2084,11 +2084,11 @@
         },
         "multipleClaudeAgents": {
           "metaTitle": "如何并行运行多个 Claude Code 代理 - cmux",
-          "metaDescription": "与 cmux 工作区、通知环、垂直选项卡和键盘快捷键并行运行多个 Claude Code、Codex、OpenCode 和其他 CLI 代理会话。",
+          "metaDescription": "使用 cmux 工作区、纵向标签、未读导航，以及由 hooks、OSC 转义序列或 cmux notify 驱动的通知环，并行运行多个 Claude Code、Codex、OpenCode 和其他 CLI 代理会话。",
           "title": "如何并行运行多个 Claude Code 代理",
           "intro": "并行 Claude 代码工作需要隔离、可见性以及快速查找需要输入的会话的方法。对于 Codex、OpenCode、Gemini CLI、Aider、Amp、Cursor CLI 以及任何在 shell 中运行的代理来说也是如此。 cmux 为每个任务提供了一个可见的工作区，并在会话并行运行时保持会话的可读性。",
           "summaryTitle": "安全的并行代理工作流程",
-          "summaryBody": "为每个任务创建一个分支、工作树、签出、存储库文件夹或自定义工作区，在 cmux 中打开每一个，正常运行代理，然后使用通知环和未读快捷方式来查看需要您的会话。 Claude Code、Codex 和 OpenCode 仍为代理； cmux 处理监督表面。",
+          "summaryBody": "为每个任务创建一个分支、worktree、checkout、仓库文件夹或自定义工作区，在 cmux 中打开它们，照常运行代理，然后使用来自 hooks、OSC 或 cmux notify 的未读快捷键和 cmux 通知来查看需要你处理的会话。Claude Code、Codex 和 OpenCode 仍然是代理；cmux 负责监督界面。",
           "table": {
             "headers": [
               "方法",
@@ -2125,7 +2125,7 @@
                 "cmux 克劳德团队",
                 "队友会话的本机窗格映射",
                 "强的",
-                "没有隐藏 tmux 窗格的 Claude 队友模式"
+                "使用原生 cmux 分屏而不是 tmux/iTerm2 窗格的 Claude Code 代理团队"
               ]
             ]
           },
@@ -2136,11 +2136,11 @@
             },
             {
               "title": "使用通知环作为审阅队列",
-              "body": "当 Claude Code、Codex、OpenCode 或其他代理完成或要求输入时，cmux 会将窗格标记为未读并响铃。 Cmd+Shift+U 跳转到最新的未读窗格。 Cmd+Control+U 循环未读工作，同时保持未读状态，这在多个代理同时完成时非常有用。"
+              "body": "当代理通过 hooks、OSC 99/777 或 cmux notify 发出 cmux 通知时，cmux 会将工作区标记为未读并给窗格加上环。Cmd+Shift+U 跳到最新未读项。Cmd+Control+U 将当前项标记为最旧未读，并跳到下一个最新未读项，这在多个代理同时完成时很有用。"
             },
             {
               "title": "保持每个代理不变",
-              "body": "cmux 不会取代 Claude Code、Codex 或 OpenCode，也不会代理它们的请求。您可以使用现有帐户和设置运行相同的 CLI，因此不会锁定特定于 cmux 的代理运行时。"
+              "body": "cmux 不会替代 Claude Code、Codex 或 OpenCode。你继续用现有账号和设置运行相同 CLI，cmux 则在终端会话周围添加工作区、通知和 socket 自动化。"
             },
             {
               "title": "在合适的时候使用队友模式",
@@ -2149,15 +2149,15 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux 会自动创建 Git 工作树吗？",
-          "faqA1": "cmux 可以编写脚本来围绕分支、工作树、多存储库、no-git、代码到主流程或远程开发流程创建工作区。关键是您的工作流程应该是您自己的，因为任何产品中的内置工作树支持都保证比真实的代码库更窄。",
+          "faqA1": "默认不会。cmux 可以通过脚本围绕你的分支、worktree、多仓库、无 Git、code-to-main 或远程开发流程创建工作区，因此你可以保留适合项目的仓库设置。",
           "faqQ2": "Claude Code 和 Codex 可以并行运行吗？",
           "faqA2": "是的。 cmux 与代理无关，因此 Claude Code、Codex、OpenCode 和其他 CLI 代理可以同时在单独的工作区中运行。",
           "faqQ3": "对于并行代理来说，什么捷径最重要？",
-          "faqA3": "Cmd+Shift+U 是核心监督快捷键，因为它会将您直接带到等待决策的代理处。当您想要循环未读工作而不清除未读状态时，Cmd+Control+U 非常有用。"
+          "faqA3": "Cmd+Shift+U 是核心监督快捷键，因为它会跳到最新未读项。当你想将当前项标记为最旧未读并跳到下一个最新未读项时，Cmd+Control+U 很有用。"
         },
         "cmuxVsSuperset": {
           "metaTitle": "cmux 与 AI 编码代理的 Superset — cmux",
-          "metaDescription": "比较 cmux 和 Superset 的并行编码代理、本机性能、代理锁定、组织和可编程性。",
+          "metaDescription": "比较 cmux 和 Superset 在并行编码代理、原生终端性能、代理灵活性、组织方式和可编程性方面的差异。",
           "title": "cmux 与 Superset",
           "intro": "cmux 和 Superset 都可以帮助开发人员运行多个编码代理。区别在于产品形状：Superset 是具有工作树编排功能的代理工作区，而 cmux 是为监督任何 CLI 代理而构建的本机终端和浏览器。",
           "summaryTitle": "按工作流程选择",
@@ -2177,7 +2177,7 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "使用 xterm.js 和 node-pty 的 Electron/React 桌面应用"
+                "使用 @xterm/xterm 和 node-pty 的 Electron/React 桌面应用"
               ],
               [
                 "运行时",
@@ -2187,7 +2187,7 @@
               [
                 "代理模式",
                 "任何 CLI 代理，无 cmux 运行时锁定",
-                "托管工作区内有许多 CLI 代理"
+                "Superset 管理工作区中的任意 CLI 代理"
               ],
               [
                 "源模型",
@@ -2202,7 +2202,7 @@
               [
                 "可编程性",
                 "CLI、Unix 套接字 API、浏览器自动化、挂钩",
-                "产品级编排"
+                "面向工作区和代理编排的 CLI beta、MCP、SDK 和自动化"
               ],
               [
                 "最适合",
@@ -2218,7 +2218,7 @@
             },
             {
               "title": "高并发时本机性能很重要",
-              "body": "运行许多代理已经占用大量 CPU 和内存。 cmux 使用 Swift/AppKit 和 libghostty，因此终端表面保持轻量级，而代理进程、编译器和开发服务器消耗它们所需的资源。"
+              "body": "运行许多代理本身就会消耗大量 CPU 和内存。cmux 使用 Swift/AppKit 和 libghostty，因此它的终端 UI 避免了 Electron 开销，而代理进程、编译器和开发服务器使用各自的资源。"
             },
             {
               "title": "关注的是产品表面",
@@ -2226,28 +2226,28 @@
             },
             {
               "title": "可编程性是逃生口",
-              "body": "cmux 通过 CLI 和套接字 API 公开工作区、窗格、屏幕读取、屏幕截图和浏览器自动化。这使得高级用户可以在之上构建自己的编排，而不是等待一个产品工作流程适合。"
+              "body": "cmux 通过 CLI 和 socket API 暴露工作区、窗格、屏幕读取、截图和浏览器自动化。Superset 也有用于工作区和代理编排的 CLI/MCP/SDK 接口；cmux 的区别在于终端和浏览器窗格本身是可脚本化的。"
             },
             {
               "title": "工作树支持从来都不是普遍的",
-              "body": "内置工作树管理器非常有用，直到您的存储库形状变得奇怪为止：拆分后端/前端存储库、生成的设置步骤、没有 Git、远程主机或想要直接在 main 上编码的团队。 cmux 保持终端原始可编程性，因此 Claude Code、Codex、脚本和自定义命令可以创建您需要的确切工作空间形状。"
+              "body": "当每个任务都能清晰映射到一个分支时，内置 worktree 管理器很有用。cmux 更贴近终端，因此 Claude Code、Codex、脚本和自定义命令可以处理不适合产品工作区模型的仓库布局、非 Git 目录、SSH 会话或一次性设置路径。"
             }
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux 是 Superset 的替代品吗？",
-          "faqA1": "这取决于您使用 Superset 的目的。 cmux 取代了终端监督层，而 Superset 包含了更加固执己见的任务和工作树工作流程。",
+          "faqA1": "这取决于你如何使用 Superset。cmux 可以替代终端监督层，而 Superset 包含更有主张的任务和 worktree 工作流。",
           "faqQ2": "cmux 可以运行相同的代理吗？",
           "faqA2": "是的。 cmux 直接运行 CLI 代理，包括 Claude Code、Codex、OpenCode、Gemini CLI、Aider、Amp 和 Cursor CLI。",
           "faqQ3": "如果 Superset 有工作树，为什么还要选择 cmux？",
-          "faqA3": "如果您优先考虑的是本机终端性能、键盘驱动的多任务处理、无代理锁定以及可适应您自己的工作流程的可编程界面，请选择 cmux。"
+          "faqA3": "如果你的优先级是原生终端性能、键盘驱动的多任务、编辑器中立的终端工作流，以及可按自身工作流调整的可脚本化终端/浏览器界面，请选择 cmux。"
         },
         "cmuxVsCursor": {
           "metaTitle": "cmux 与 AI 编码代理的 Cursor — cmux",
-          "metaDescription": "比较 cmux 和 Cursor 的代理工作流程、终端监管、编辑器集成、本机 macOS 性能和锁定。",
+          "metaDescription": "比较 cmux 和 Cursor 在代理工作流、终端监督、编辑器集成、原生 macOS 性能和工作流灵活性方面的差异。",
           "title": "cmux 与光标",
           "intro": "Cursor是一个人工智能编辑器和代理平台。 cmux 是用于运行您选择的代理和工具的本机终端和浏览器。许多开发人员同时使用这两种工具：光标用于编辑，cmux 用于监督终端代理。",
           "summaryTitle": "不同层数",
-          "summaryBody": "当您希望在编辑器中使用 AI 时，请使用光标。当您需要一个免费的开源终端来运行和监视 CLI 代理、开发服务器、SSH 会话和浏览器检查而不将工作流绑定到一个编辑器或托管运行时时，请使用 cmux。",
+          "summaryBody": "如果你想要编辑器内 AI、Cursor CLI、浏览器工具或云代理，请使用 Cursor。如果你想要一个免费开源终端来运行和监控 CLI 代理、开发服务器、SSH 会话和浏览器检查，而不让某个编辑器、账号或云代理运行时成为每个工作流的中心，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -2258,32 +2258,32 @@
               [
                 "主表面",
                 "终端、浏览器、工作区、拆分",
-                "编辑器、聊天、托管代理"
+                "编辑器、CLI、代理工作区、浏览器和云代理"
               ],
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "源自 VS Code 的 Electron 编辑器"
+                "基于 VS Code 的桌面编辑器；VS Code 使用 Electron"
               ],
               [
                 "代理商选择",
                 "任何 CLI 代理",
-                "以光标为中心的人工智能工作流程以及集成"
+                "覆盖编辑器、CLI、云端和集成的 Cursor Agent"
               ],
               [
-                "锁定",
-                "带上你自己的代理和钥匙",
-                "光标帐户、计划和平台功能"
+                "工作流中心",
+                "自带终端代理和密钥",
+                "Cursor 账号、套餐、编辑器、CLI 和云功能"
               ],
               [
                 "源模型",
                 "免费开源 GPL 应用程序",
-                "闭源编辑器产品"
+                "基于 VS Code 代码库的专有 Cursor 产品"
               ],
               [
                 "性能简介",
                 "本机 Swift/AppKit 终端",
-                "编辑器和托管代理套件"
+                "跨平台编辑器加本地和云端代理界面"
               ],
               [
                 "最适合",
@@ -2340,22 +2340,22 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "云平台加源自 VS Code 的 Devin Desktop"
+                "Devin Cloud 加 VS Code 分叉 Devin Desktop"
               ],
               [
                 "工作在哪里进行",
                 "您的 Mac、shell、存储库和开发环境",
-                "Devin 平台和互联团队工具"
+                "Devin Cloud VM，以及本地 Devin CLI 和 Devin Local"
               ],
               [
                 "源模型",
                 "免费开源 GPL 应用程序",
-                "封闭式托管代理平台"
+                "专有 Cognition 服务和桌面软件"
               ],
               [
                 "代理商选择",
                 "任何 CLI 代理或 shell 工具",
-                "以 Devin 为中心的代理工作流程"
+                "Devin Cloud、Devin Local、Devin CLI 和 ACP 兼容代理"
               ],
               [
                 "人工审核",
@@ -2376,11 +2376,11 @@
             },
             {
               "title": "引入多个代理而不是一个平台",
-              "body": "您可以为一项任务运行 Claude Code，为另一项任务运行 Codex，为第三项任务运行 OpenCode，以及它们旁边的普通 shell 命令。 cmux 使监管层独立于代理供应商。"
+              "body": "你可以让 Claude Code 处理一个任务、Codex 处理另一个任务、OpenCode 处理第三个任务，并把普通 shell 命令放在它们旁边。cmux 将监督层保留在你的终端和浏览器工作区中，而不是 Devin 应用和云工作流中。"
             },
             {
               "title": "本地工作保持快速且可检查",
-              "body": "对于许多任务，最高效的循环仍然是本地循环：编辑、运行、检查、询问另一个代理、打开浏览器，并在差异准备好时推送。 cmux 在 Mac 上保留该循环，而不是将每个决策移至云任务队列中。"
+              "body": "对于许多任务，最高效的循环仍然是本地的：编辑、运行、检查、询问另一个代理、打开浏览器，并在 diff 准备好后 push。cmux 将这个循环保留在你的 Mac 上，而不是把每个任务都变成托管的 Devin Cloud 会话。"
             },
             {
               "title": "并发下的本机 Mac 性能",
@@ -2393,11 +2393,11 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux 会取代 Devin 吗？",
-          "faqA1": "不。Devin 是一名托管人工智能软件工程师。 cmux 是围绕您直接运行的代理和工具的本地终端和浏览器工作区。",
+          "faqA1": "不是。Devin 涵盖云端委派和本地代理辅助。cmux 是围绕你直接运行的代理和工具的本地终端和浏览器工作区。",
           "faqQ2": "我可以将 cmux 与 Devin Desktop 或 Windsurf 结合使用吗？",
           "faqA2": "是的。 cmux 可以位于任何编辑器或桌面代理界面旁边，同时监督 CLI 代理、shell、测试和浏览器检查。",
           "faqQ3": "为什么将 cmux 与 Devin 进行比较？",
-          "faqA3": "两者都解决了多代理开发问题，但在不同的层面上。 cmux是本地控制平面； Devin是一个委托代理平台。"
+          "faqA3": "两者都涉及多代理开发，但位于不同层。cmux 是终端和浏览器控制平面；Devin 涵盖云端委派、本地代理和 VS Code 分叉 IDE 命令中心。"
         },
         "cmuxVsIterm2": {
           "metaTitle": "cmux 与 iTerm2 用于 AI 编码代理 - cmux",
@@ -2426,7 +2426,7 @@
               [
                 "代理可见性",
                 "垂直工作区、最新输出、分支和端口元数据",
-                "手动选项卡、窗口、分割和配置文件"
+                "标签、窗口、分屏、配置文件、shell 集成和状态栏"
               ],
               [
                 "渲染引擎",
@@ -2436,12 +2436,12 @@
               [
                 "注意力模型",
                 "通知铃声、Cmd+Shift+U、Cmd+Control+U",
-                "终端通知和手动扫描"
+                "OSC 通知、标记和提醒、触发器通知、会话搜索"
               ],
               [
                 "自动化",
                 "CLI、Unix 套接字 API、浏览器自动化、挂钩",
-                "终端功能、脚本、触发器和配置文件"
+                "Python API、已弃用的 AppleScript、触发器、配置文件和 tmux 集成"
               ],
               [
                 "最适合",
@@ -2456,8 +2456,8 @@
               "body": "终端选项卡不知道哪个代理被阻止，它拥有哪个分支，或者它启动了哪个开发服务器。 cmux 将该上下文放在侧边栏中，并使等待窗格易于查找。"
             },
             {
-              "title": "浏览器窗格是工作流程的一部分",
-              "body": "代理工作通常以目视检查、日志、本地预览和屏幕截图结束。 cmux 可以将浏览器窗格保留在终端旁边，并通过同一控制界面公开浏览器自动化。"
+              "title": "浏览器自动化是工作流的一部分",
+              "body": "iTerm2 也有浏览器配置文件。cmux 的区别在于，浏览器窗格可以通过与工作区和终端相同的 CLI 和 socket 工作流寻址，并提供 DOM 交互、截图、控制台和错误日志、cookie、存储以及 JavaScript 求值命令。"
             },
             {
               "title": "键盘快捷键吸引注意力",
@@ -2478,7 +2478,7 @@
           "faqQ2": "cmux 可以运行正常的 shell 工作吗？",
           "faqA2": "是的。 cmux 仍然是一个终端，因此 shell、SSH、脚本、测试、包管理器和本地服务正常运行。",
           "faqQ3": "除了制表符和分割之外，cmux 还添加了什么？",
-          "faqA3": "cmux 添加了工作区元数据、通知环、未读导航、浏览器界面以及围绕代理密集型工作流程设计的套接字 API。"
+          "faqA3": "cmux 添加了代理工作区元数据、通知环、未读导航、可通过 socket 寻址的浏览器界面，以及围绕代理密集工作流设计的 socket API。"
         },
         "cmuxVsKitty": {
           "metaTitle": "cmux 与 Kitty 的 AI 编码代理 - cmux",
@@ -2502,7 +2502,7 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "原生编译的 GPU 终端模拟器，不是 Electron/Tauri"
+                "用 C、Python 和 Go 编写的 OpenGL 渲染终端模拟器，不是 Electron 或 Tauri 应用"
               ],
               [
                 "渲染引擎",
@@ -2512,17 +2512,17 @@
               [
                 "代理可见性",
                 "垂直工作区、最新输出、分支和端口元数据",
-                "手动窗口、选项卡、布局和 shell 脚本"
+                "窗口、标签、布局、会话、kittens 和远程控制脚本"
               ],
               [
                 "注意力模型",
                 "通知环、未读徽章、Cmd+Shift+U、Cmd+Control+U",
-                "终端通知和自定义设置"
+                "OSC 99 桌面通知和 kitten notify，并用自定义脚本处理未读工作流"
               ],
               [
                 "浏览器工作流程",
                 "具有自动化功能的内置浏览器窗格",
-                "外部浏览器工作流程"
+                "通过操作系统/默认处理器打开 URL；没有内置浏览器窗格或 DOM 自动化"
               ],
               [
                 "最适合",
@@ -2567,7 +2567,7 @@
           "title": "cmux 与 Herdr",
           "intro": "Herdr 是一个开源终端本地代理多路复用器，它在您已使用的终端内运行，并且可以通过 SSH 保持真实窗格的活动。 cmux 是一款基于 libghostty 构建的 GPL 许可的本机 macOS 应用程序，具有垂直工作区、通知环、浏览器窗格和用于本地代理工作流程的套接字 API。",
           "summaryTitle": "本机 Mac 应用程序与终端本机多路复用器",
-          "summaryBody": "如果想在任何终端里使用类似 tmux 的代理复用器，尤其是通过 SSH 或小屏幕使用，选择 Herdr。如果想要带 libghostty 渲染、应用级工作区、内置浏览器自动化、通知环、Cmd+Shift+U、Cmd+Control+U 和可编程本地控制的原生 Mac 终端应用，选择 cmux。很多工作流会同时使用两者：Herdr 跑在 SSH 会话里，cmux 作为 Mac 侧宿主包住它。",
+          "summaryBody": "如果你想在任何终端内，尤其是通过 SSH 或在小屏幕上使用 tmux 风格的代理多路复用器，请使用 Herdr。如果你想要一款原生 Mac 终端应用，提供 libghostty 渲染、应用级工作区、内置浏览器自动化、通知环、Cmd+Shift+U、Cmd+Control+U 和可编程本地控制，请使用 cmux。一个实际搭配是在 SSH 会话中运行 Herdr，并让 cmux 作为 Mac 端宿主包住它。",
           "table": {
             "headers": [
               "维度",
@@ -2583,7 +2583,7 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "Rust 终端原生二进制，不是 Electron/Tauri 桌面应用"
+                "单个 Rust 终端原生二进制文件，不是 GUI 桌面应用或 Electron 包装器"
               ],
               [
                 "运行时模型",
@@ -2620,7 +2620,7 @@
           "sections": [
             {
               "title": "Herdr 住在你的航站楼内",
-              "body": "Herdr 最强的主张是可移植性：在服务器上运行，分离，重新连接，并让真实终端 pane 保持存活。很多开发者会在从 cmux 打开的 SSH 会话里运行 Herdr，这是很好的组合：Herdr 让远程 pane 持久存在，cmux 则在 SSH 工作区外提供 Mac 侧原生应用、浏览器 pane、通知和未读快捷键。"
+              "body": "你可以在从 cmux 打开的 SSH 会话中运行 Herdr：Herdr 保持远程窗格持久存在，而 cmux 在 SSH 工作区周围提供 Mac 端原生应用、浏览器窗格、通知和未读快捷键。"
             },
             {
               "title": "cmux 拥有本机桌面表面",
@@ -2645,11 +2645,11 @@
         },
         "cmuxVsOpencode": {
           "metaTitle": "cmux 与 AI 编码代理的 OpenCode - cmux",
-          "metaDescription": "比较 cmux 和 OpenCode 的终端 AI 编码、开源代理、多会话工作、本机终端监控和可编程工作流程。",
+          "metaDescription": "比较 cmux 和 OpenCode 在终端 AI 编码、开源编码代理、多会话工作、原生终端监督和可编程工作流方面的差异。",
           "title": "cmux 与 OpenCode",
           "intro": "OpenCode 是一种开源编码代理，可在终端、桌面和 IDE 界面中使用。 cmux 是本机终端和浏览器工作区，OpenCode 和其他 CLI 代理可以在其中并行运行。",
           "summaryTitle": "代理与代理工作区",
-          "summaryBody": "需要开源编码代理时使用 OpenCode。需要原生 macOS 工作区来同时监督 OpenCode、Claude Code、Codex CLI、Codex 应用和 IDE 扩展工作流、Gemini CLI、Aider、Amp、Cursor CLI 以及普通 shell 工作时使用 cmux。",
+          "summaryBody": "如果你想要开源编码代理，请使用 OpenCode。如果你想要一个原生 macOS 工作区来一起监督 OpenCode、Claude Code、Codex CLI、Gemini CLI、Aider、Amp、Cursor CLI 和普通 shell 工作流，并并排容纳独立的 Codex 应用和 IDE 扩展工作流，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -2680,7 +2680,7 @@
               [
                 "可编程性",
                 "cmux CLI、Unix 套接字 API、浏览器自动化",
-                "OpenCode CLI、配置、SDK 和代理工具"
+                "OpenCode CLI、配置、SDK 和自定义工具"
               ],
               [
                 "最适合",
@@ -2757,7 +2757,7 @@
               [
                 "注意力模型",
                 "通知环、未读徽章、Cmd+Shift+U、Cmd+Control+U",
-                "手动状态行和 shell 定制"
+                "activity、silence 和 bell 的状态栏提醒，加上 hooks 和 shell 自定义"
               ],
               [
                 "最适合",
@@ -2777,7 +2777,7 @@
             },
             {
               "title": "cmux 带来了自己的基于 Ghostty 的渲染器",
-              "body": "tmux 取决于它周围的终端模拟器。 cmux 是终端应用程序，使用 libghostty 进行现代 GPU 加速渲染、终端图形支持和 Ghostty 风格的视觉配置。"
+              "body": "tmux 依赖它周围的终端模拟器。cmux 本身就是终端应用，使用 libghostty 实现流畅的 GPU 加速渲染和 Ghostty 风格的视觉配置。"
             },
             {
               "title": "原生 UI 降低审核摩擦",
@@ -2785,7 +2785,7 @@
             },
             {
               "title": "套接字 API 是应用程序级自动化",
-              "body": "tmux 可在终端内编写脚本。 cmux 还公开终端周围的应用程序：工作区、浏览器窗格、屏幕读取、屏幕截图和通知元数据。"
+              "body": "tmux 对终端多路复用具有很深的脚本能力。cmux 还暴露终端周围的应用能力：工作区、浏览器窗格、屏幕读取、截图和通知元数据。"
             }
           ],
           "faqTitle": "FAQ",
@@ -2802,7 +2802,7 @@
           "title": "cmux 与 VS Code",
           "intro": "VS Code 是一个具有代理工作流程的通用编辑器和扩展平台。 cmux 是一个 GPL 许可的本机 macOS 终端和浏览器工作区，用于在任何编辑器（包括 VS Code）旁边监督 shell 本机代理。",
           "summaryTitle": "编辑器平台与终端控制平面",
-          "summaryBody": "当您需要在编辑器内进行编辑、扩展和代理帮助时，请使用 VS Code。当您希望 Claude Code、Codex、OpenCode、Gemini CLI、开发服务器、SSH、脚本和浏览器检查在基于 libghostty 的终端工作区中可见时，请使用 cmux，并为未读工作提供通知环和键盘快捷键。",
+          "summaryBody": "如果你想在 VS Code 中使用编辑、扩展、内置代理会话以及代理/浏览器工具，请使用 VS Code。如果你想让 Claude Code、Codex、OpenCode、Gemini CLI、开发服务器、SSH、脚本和浏览器检查在基于 libghostty 的终端工作区中保持可见，并带有用于未读工作的通知环和键盘快捷键，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -2823,12 +2823,12 @@
               [
                 "源模型",
                 "免费开源 GPL 应用程序",
-                "OSS代码是MIT； Microsoft VS Code 发行版拥有 Microsoft 产品许可"
+                "Code - OSS 是 MIT；Microsoft VS Code 是加入 Microsoft 专有定制并受 Microsoft 产品许可证约束的发行版"
               ],
               [
                 "代理工作流程",
                 "可见工作区中的任何 CLI 代理或 shell 工具",
-                "编辑器集成的代理和扩展"
+                "内置 VS Code 代理、Copilot CLI/云端/第三方代理类型、浏览器工具和扩展"
               ],
               [
                 "注意力模型",
@@ -2838,7 +2838,7 @@
               [
                 "浏览器工作流程",
                 "具有套接字自动化功能的内置浏览器窗格",
-                "编辑器预览、扩展和外部浏览器流程"
+                "集成浏览器、Live Preview/HTML 预览、浏览器调试、代理浏览器工具和外部浏览器流程"
               ],
               [
                 "最适合",
@@ -2854,7 +2854,7 @@
             },
             {
               "title": "终端代理需要终端状态",
-              "body": "Claude Code、Codex、OpenCode 和类似的 CLI 花费大量时间运行命令、测试和工具。 cmux 通过侧边栏中的分支、目录、端口、最新输出和未读元数据使该工作保持可见。"
+              "body": "Claude Code、Codex、OpenCode 和类似 CLI 会把大量时间花在运行命令、测试和工具上。cmux 在侧边栏显示分支、目录、端口、最新通知文本和未读元数据，让这些工作保持可见。"
             },
             {
               "title": "通知是为多任务处理而设计的",
@@ -2869,22 +2869,22 @@
           "faqQ1": "cmux 会取代 VS Code 吗？",
           "faqA1": "不。cmux 是一个终端和浏览器工作区。它与 VS Code 或任何其他编辑器一起工作得很好。",
           "faqQ2": "VS Code 是开源的吗？",
-          "faqA2": "Code OSS 存储库已获得 MIT 许可。 Microsoft VS Code 发行版具有 Microsoft 产品许可和其他发行版详细信息。",
+          "faqA2": "Code - OSS 仓库采用 MIT 许可证。Microsoft Visual Studio Code 是 Code - OSS 的发行版，包含 Microsoft 专有定制，并受 Microsoft 产品许可证约束。",
           "faqQ3": "为什么将 cmux 与 VS Code 结合使用？",
           "faqA3": "当您的代理工作跨越终端、浏览器、脚本、SSH、本地服务和多个存储库，并且您希望该工作流在编辑器外部可见时，请使用 cmux。"
         },
         "cmuxVsWindsurf": {
           "metaTitle": "cmux 与 Windsurf 和 Devin 桌面 - cmux",
-          "metaDescription": "将 cmux 与 Windsurf 和 Devin Desktop 进行比较，以实现 AI 编码工作流程、终端代理监督、IDE 代理、多代理组织和锁定。",
+          "metaDescription": "比较 cmux 与 Devin Desktop（原 Windsurf）在 IDE 代理、终端代理监督、多代理组织、浏览器检查和可编程工作流方面的差异。",
           "title": "cmux 与 Windsurf",
-          "intro": "Windsurf 已迁移到 Devin Desktop，这是一个带有代理命令中心的 IDE 基础。 cmux 是一个本机终端和浏览器工作区，位于任何编辑器旁边，并监督您选择的 CLI 代理和工具。",
+          "intro": "Windsurf 现在是 Devin Desktop，基于 Windsurf 的 IDE 基础构建，并带有用于管理代理的 Agent Command Center。cmux 是位于任何编辑器旁边的原生终端和浏览器工作区，用于监督你选择的 CLI 代理和工具。",
           "summaryTitle": "IDE 代理表面与终端代理表面",
-          "summaryBody": "当您想要在 IDE 中进行代理编码时，请使用 Windsurf 或 Devin Desktop。当您需要一个用于终端代理、shell、测试、本地服务器、浏览器、SSH 和多个编辑器的免费开源终端控制平面时，请使用 cmux。",
+          "summaryBody": "如果你想在 IDE 内进行代理式编码，请使用 Devin Desktop（原 Windsurf）。如果你想要一个免费开源的终端控制平面，用于终端代理、shell、测试、本地服务器、浏览器检查、SSH 和多个编辑器，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
               "多路复用器",
-              "风帆冲浪 / Devin 桌面"
+              "Devin Desktop（原 Windsurf）"
             ],
             "rows": [
               [
@@ -2895,7 +2895,7 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "源自 VS Code 的 Devin Desktop 编辑器"
+                "使用 VS Code 界面和 Open VSX 扩展的 Devin Desktop IDE"
               ],
               [
                 "编辑器锁定",
@@ -2905,17 +2905,17 @@
               [
                 "源模型",
                 "免费开源 GPL 应用程序",
-                "闭源编辑器谱系"
+                "带有 VS Code OSS 风格编辑器界面的专有 Devin Desktop 服务"
               ],
               [
                 "代理商选择",
                 "任何 CLI 代理或 shell 命令",
-                "Devin 和 IDE 集成代理工作流程"
+                "Devin Desktop 内的 Devin、Cascade 和 ACP 兼容代理"
               ],
               [
                 "组织",
                 "垂直工作区、未读环、分支和端口元数据",
-                "空间、看板、IDE 项目和代理管理"
+                "Spaces、Kanban 视图、本地和云端代理管理"
               ],
               [
                 "最适合",
@@ -2939,7 +2939,7 @@
             },
             {
               "title": "可编程性让工作流程由您掌控",
-              "body": "cmux CLI 和套接字 API 允许团队围绕现有工具创建自定义命令、挂钩、工作区流程、终端检查、浏览器自动化和屏幕截图。"
+              "body": "cmux CLI 和 socket API 让团队围绕现有工具创建工作区、分割窗格、发送输入、读取屏幕、截图并驱动浏览器窗格。"
             }
           ],
           "faqTitle": "FAQ",
@@ -2956,7 +2956,7 @@
           "title": "cmux 与 Zed",
           "intro": "Zed 是一款快速的开源代码编辑器，具有协作和人工智能功能。 cmux 是 GPL 许可的本机 macOS 终端和浏览器工作区，用于在 Zed 或任何其他编辑器旁边监督 shell 本机代理。",
           "summaryTitle": "快速编辑器与终端代理工作区",
-          "summaryBody": "当您需要快速协作编辑器时，请使用 Zed。当您希望 Claude Code、Codex、OpenCode、Gemini CLI、测试运行程序、开发服务器、SSH 和浏览器检查在带有通知环、Cmd+Shift+U、Cmd+Control+U 和可编写脚本的套接字 API 的基于 libghostty 的终端应用程序中可见时，请使用 cmux。",
+          "summaryBody": "如果你想要一个快速开源编辑器，并带有协作、集成 AI、ACP External Agents 和 Terminal Threads，请使用 Zed。如果你想让 Claude Code、Codex、OpenCode、Gemini CLI、测试运行器、开发服务器、SSH 和浏览器检查在基于 libghostty 的终端应用中保持可见，并带有通知环、Cmd+Shift+U、Cmd+Control+U 和可脚本化 socket API，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -2972,22 +2972,22 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "Rust/GPUI 原生编辑器，不是 Electron/Tauri"
+                "Rust/GPUI GPU 加速桌面编辑器，不是 Electron/Tauri"
               ],
               [
                 "源模型",
                 "免费开源 GPL 应用程序",
-                "开源编辑器"
+                "开源；主要为 GPL-3.0-or-later，标明的组件使用 Apache-2.0"
               ],
               [
                 "代理工作流程",
                 "可见终端工作区中的任何 CLI 代理或 shell 工具",
-                "编辑器集成的 AI 工作流程"
+                "编辑器内的 Zed Agent、ACP External Agents 和终端支撑的 agent threads"
               ],
               [
                 "终端引擎",
                 "基于 libghostty 构建，用于终端渲染",
-                "编辑器终端和编辑器 UI"
+                "以内置 Alacritty 为后端的终端模拟器"
               ],
               [
                 "注意力模型",
@@ -3029,11 +3029,11 @@
         },
         "cmuxVsWarp": {
           "metaTitle": "cmux 与 AI 编码代理的 Warp — cmux",
-          "metaDescription": "比较 cmux 和 Warp 的终端 AI 工作流程、代理监督、本机 macOS 性能、可编程性和锁定。",
+          "metaDescription": "比较 cmux 和 Warp 在终端 AI 工作流、代理监督、原生 macOS 性能、本地可编程性和云代理编排方面的差异。",
           "title": "cmux 与 Warp",
-          "intro": "Warp是一款人工智能增强的终端产品。 cmux 是一个围绕许多编码代理会话构建的本机 macOS 终端，具有垂直工作区、通知环和可编写脚本的套接字。",
+          "intro": "Warp 是从终端构建的开源代理式开发环境，带有内置代理、第三方 CLI 代理支持和 Oz 云工作流。cmux 是围绕大量本地编码代理会话构建的原生 macOS 终端，带有纵向工作区、通知环和可脚本化 socket。",
           "summaryTitle": "AI终端 vs 坐席监管终端",
-          "summaryBody": "当您需要人工智能功能、云代理工作流程和托管终端产品时，Warp 最为强大。当您想要为已使用的 CLI 代理提供 GPL 许可、本地优先、基于 libghostty 的本机终端、通知环、Cmd+Shift+U、Cmd+Control+U 以及一个有组织的、可编程的位置来运行其中许多代理时，cmux 是最强的。",
+          "summaryBody": "如果你想要带有内置代理、第三方 CLI 代理支持、云端运行和 Oz 自动化的代理式开发环境，Warp 更擅长。如果你想要一个 GPL 许可、本地优先、基于 libghostty 的原生 Mac 终端，用来运行你已经使用的 CLI 代理，并带有通知环、Cmd+Shift+U、Cmd+Control+U、浏览器窗格和可编程 socket，cmux 更擅长。",
           "table": {
             "headers": [
               "维度",
@@ -3049,17 +3049,17 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "开源终端客户端；不是 Electron/Tauri 外壳"
+                "开源 AGPL 客户端；官方文档描述为跨平台 Rust + GPU 渲染代码库"
               ],
               [
                 "渲染引擎",
                 "基于 libghostty 构建，用于终端渲染",
-                "Warp 终端客户端渲染"
+                "Rust + GPU 渲染终端客户端"
               ],
               [
                 "代理商选择",
                 "任何基于 shell 的代理",
-                "变形产品工作流程"
+                "Warp Agent，以及 Claude Code、Codex、Gemini CLI、OpenCode 等受支持的第三方 CLI 代理"
               ],
               [
                 "源模型",
@@ -3069,12 +3069,12 @@
               [
                 "组织",
                 "垂直工作区、通知环、Cmd+Shift+U、Cmd+Control+U",
-                "终端选项卡、拆分、通知和 Warp 工作流程"
+                "纵向标签、分屏、代理元数据、通知和 Warp/Oz 工作流"
               ],
               [
                 "可编程性",
                 "Unix 套接字、CLI、浏览器自动化",
-                "变形特定功能"
+                "Oz CLI/API/SDK、settings.toml 和 Warp/Oz 自动化；没有文档化的等同于 cmux 本地应用 socket 加浏览器自动化的能力"
               ],
               [
                 "最适合",
@@ -3089,7 +3089,7 @@
               "body": "编码代理花费大量时间运行测试、提出问题和等待审核。 cmux 使这些会话保持可见，使需要注意的窗格响铃，并让您可以通过键盘跳过未读的工作。"
             },
             {
-              "title": "无代理锁定",
+              "title": "本地 shell 代理灵活性",
               "body": "cmux 不关心哪个 CLI 拥有该窗格。您可以在一个工作区中运行 Claude Code，在另一个工作区中运行 Codex，在第三个工作区中运行 OpenCode，并在所有工作区旁边运行普通 shell 命令。"
             },
             {
@@ -3103,7 +3103,7 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux 是像 Warp 一样的 AI 终端吗？",
-          "faqA1": "cmux是AI代理的终端，而不是嵌入终端的AI助手。",
+          "faqA1": "Warp 是带有内置代理和云工作流的代理式开发环境。cmux 是用于监督基于 shell 的 AI 代理的本地 Mac 终端，而不是嵌入终端的 AI 助手。",
           "faqQ2": "我可以同时使用 Warp 和 cmux 吗？",
           "faqA2": "是的。使用适合每项任务的终端。当许多座席会话需要组织和注意力跟踪时，cmux 最为强大。",
           "faqQ3": "为什么选择 cmux 作为编码代理？",
@@ -3115,7 +3115,7 @@
           "title": "cmux 与 WezTerm",
           "intro": "WezTerm 是一款 GPU 加速的跨平台终端仿真器和多路复用器。 cmux 是基于 libghostty 构建的本机 macOS 终端和浏览器工作区，添加了代理感知工作区、通知环、未读键盘导航和 Unix 套接字 API。",
           "summaryTitle": "跨平台终端多路复用器与 Mac 代理控制台",
-          "summaryBody": "当您需要强大的跨平台终端和多路复用器时，请使用 WezTerm。当您在 Mac 上本地工作、运行许多编码代理并需要通知环、Cmd+Shift+U、Cmd+Control+U、浏览器窗格、侧边栏元数据和可编程应用程序控制时，请使用 cmux。",
+          "summaryBody": "如果你想要强大的跨平台终端、Lua 配置和终端/mux 自动化，请使用 WezTerm。如果你在 Mac 上本地工作，运行许多编码代理，并想要通知环、Cmd+Shift+U、Cmd+Control+U、浏览器窗格、侧边栏元数据和应用级 socket 控制，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -3136,7 +3136,7 @@
               [
                 "渲染引擎",
                 "基于 libghostty 构建，用于现代 GPU 加速终端渲染",
-                "WezTerm 终端渲染器和多路复用器"
+                "带内置 mux 的 GPU 加速终端渲染器"
               ],
               [
                 "组织",
@@ -3151,7 +3151,7 @@
               [
                 "浏览器工作流程",
                 "具有自动化功能的内置浏览器窗格",
-                "外部浏览器工作流程"
+                "用于链接和 Web 检查的外部浏览器"
               ],
               [
                 "最适合",
@@ -3184,7 +3184,7 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "WezTerm 可以运行 AI 编码代理吗？",
-          "faqA1": "是的。 WezTerm 可以像任何终端一样运行 CLI 代理。 cmux 添加了特定于代理的组织、未读状态、通知环和浏览器自动化。",
+          "faqA1": "可以。WezTerm 可以像任何终端一样运行 CLI 代理，并通过其 CLI 自动化终端窗格。cmux 在这些终端旁边添加代理专用未读状态、通知环、侧边栏元数据和浏览器自动化。",
           "faqQ2": "为什么在 macOS 上选择 cmux？",
           "faqA2": "当您的瓶颈是跨多个本地代理执行多任务并且您希望终端应用程序本身跟踪注意力时，请选择 cmux。",
           "faqQ3": "WezTerm 什么时候是更好的选择？",
@@ -3196,7 +3196,7 @@
           "title": "cmux vs Ghostty",
           "intro": "Ghostty 是一个快速的终端模拟器。 cmux 是一个基于 libghostty 构建的独立本机 macOS 应用程序，添加了工作区、垂直选项卡、通知环、浏览器窗格以及用于编码代理工作流程的套接字 API。",
           "summaryTitle": "相同的渲染引擎系列，不同的工作",
-          "summaryBody": "当您想要一个集中的通用终端时，请使用 Ghostty。当您希望在代理工作区中呈现相同的 libghostty 终端并具有组织、通知环、Cmd+Shift+U、Cmd+Control+U、浏览器窗格以及许多编码代理会话的自动化时，请使用 cmux。",
+          "summaryBody": "如果你想要专注的终端模拟器，请使用 Ghostty。如果你想在代理工作区中使用 libghostty 渲染，并拥有持久未读状态、浏览器窗格，以及让代理创建窗格、读取终端、截图并驱动 Web 检查的 Unix socket，请使用 cmux。",
           "table": {
             "headers": [
               "维度",
@@ -3212,12 +3212,12 @@
               [
                 "桌面技术栈",
                 "基于 libghostty 构建的原生 Swift/AppKit macOS 应用",
-                "围绕 libghostty 构建的原生终端应用"
+                "带有共享 Zig 核心和 libghostty 的原生 SwiftUI macOS 应用"
               ],
               [
                 "渲染",
                 "基于 libghostty 构建",
-                "幽灵般的终端引擎"
+                "macOS 上 Metal，Linux 上 OpenGL，共享 Ghostty/libghostty 终端核心"
               ],
               [
                 "组织",
@@ -3227,19 +3227,19 @@
               [
                 "代理关注",
                 "通知铃声、Cmd+Shift+U、Cmd+Control+U",
-                "终端通知和手动标签扫描"
+                "桌面通知、标签、分屏和 AppleScript；没有文档化的 cmux 式未读环或浏览器窗格"
               ],
               [
                 "自动化",
                 "cmux CLI、套接字 API、浏览器自动化",
-                "终端配置和 shell 工具"
+                "用于终端窗口、标签、分屏和输入的 AppleScript 与 Shortcuts"
               ]
             ]
           },
           "sections": [
             {
               "title": "cmux 不是 Ghostty 分支",
-              "body": "cmux 使用 libghostty 作为渲染引擎，类似于本机应用程序使用 WebKit 进行 Web 视图的方式。 Ghostty 仍然拥有自己的终端； cmux 是一款不同的应用程序，旨在处理代理繁重的工作流程。"
+              "body": "Ghostty 是优秀的终端模拟器，现在也提供用于终端自动化的 AppleScript。cmux 针对代理工作流更进一步：终端控制、工作区状态、通知、截图和浏览器窗格通过一个 CLI/socket 界面暴露，因此代理无需离开工作区即可运行命令并验证 Web 应用。"
             },
             {
               "title": "垂直工作空间可以更好地适应座席人员",
@@ -3247,7 +3247,7 @@
             },
             {
               "title": "通知变为可导航状态",
-              "body": "桌面通知消失。 cmux 在应用程序中保持未读状态，使窗格响铃，并允许您使用 Cmd+Shift+U 跳转到最新的等待会话，或使用 Cmd+Control+U 循环未读工作。"
+              "body": "桌面通知清除后很容易错过。cmux 将未读状态保留在应用内，给窗格加环，在侧边栏标记，并让 Cmd+Shift+U 跳到最新未读会话。"
             },
             {
               "title": "自动化延伸到外壳之外",

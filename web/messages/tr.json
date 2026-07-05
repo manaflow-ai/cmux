@@ -1778,10 +1778,10 @@
       "intro": "AI kodlama aracıları için bir terminal veya çalışma alanı seçen geliştiricilere yönelik odaklı karşılaştırmalar. cmux, yerel macOS performansı, görünür çoklu görev, bildirim halkaları, Cmd+Shift+U ve Cmd+Control+U gibi klavye kısayolları ve tek bir aracı çalışma zamanına bağlı kalmamak istediğinizde en güçlüsüdür.",
       "pages": {
         "bestTerminalForAgents": {
-          "metaTitle": "AI kodlama aracıları için 2026'daki en iyi terminal - cmux",
+          "metaTitle": "2026'da AI kodlama aracıları için en iyi terminaller ve aracı çalışma alanları - cmux",
           "metaDescription": "cmux, Conductor, Superset, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, Kitty, Alacritty, WezTerm, karşılaştırın tmux, OpenCode, Herdr ve AI kodlama aracılarını çalıştırmak için diğer araçlar.",
-          "title": "2026'da AI kodlama aracıları için en iyi terminal",
-          "intro": "Kodlama aracıları için en iyi terminal, uzun süredir devam eden oturumların çoğunu görünür, duyarlı ve kontrol edilmesi kolay tutan terminaldir. cmux gün boyunca birçok aracı aracılığıyla çoklu görev yapan kişiler tarafından oluşturulmuştur: yerel Swift/AppKit performansı, dikey çalışma alanları, bildirim halkaları, en son okunmamış işler için Cmd+Shift+U, okunmamış işleri döngüye almak için Cmd+Control+U ve programlanabilir bir CLI.",
+          "title": "2026'da AI kodlama aracıları için en iyi terminaller ve aracı çalışma alanları",
+          "intro": "Aracıları kodlamak için en iyi terminal veya aracı çalışma alanı, uzun süredir devam eden oturumların çoğunu görünür, duyarlı ve kontrol edilmesi kolay tutandır. cmux, gün boyunca birçok aracı aracılığıyla çoklu görev yapan kişiler tarafından oluşturulmuştur: yerel Swift/AppKit performansı, dikey çalışma alanları, bildirim halkaları, en son okunmamış öğe için Cmd+Shift+U, mevcut en eski okunmamış öğeyi işaretlemek ve bir sonraki okunmamış öğeye atlamak için Cmd+Control+U ve programlanabilir bir CLI.",
           "summaryTitle": "Kısa cevap",
           "summaryBody": "Yeni bir aracı, düzenleyici, bulut çalışma zamanı veya kredi sistemini zorlamadan birçok aracıyı denetleyebilen yerel bir macOS terminali istiyorsanız cmux seçeneğini seçin. Görev düzenleme ve yerleşik inceleme akışları istiyorsanız bir aracı çalışma alanı seçin. Çoğunlukla aynı anda bir temsilci çalıştırıyorsanız klasik bir terminal seçin.",
           "table": {
@@ -1848,9 +1848,9 @@
               ],
               [
                 "Warp",
-                "Yönetilen bir üründeki AI terminal özellikleri",
-                "Yerleşik ve harici aracı iş akışları",
-                "Açık kaynak istemci artı yönetilen ürün hizmetleri"
+                "Ajan terminali artı bulut orkestrasyonu",
+                "Warp Agent, Oz ve kendi CLI temsilcilerinizi getirin",
+                "Yönetilen Warp/Oz hizmetlerine bağlı açık kaynaklı istemci"
               ],
               [
                 "Ghostty",
@@ -1901,7 +1901,7 @@
             },
             {
               "title": "Yük altında performans",
-              "body": "cmux, Electron değil, libghostty üzerine kurulu yerel bir Swift/AppKit uygulamasıdır. Birçok terminali, tarayıcıyı ve aracıyı tüm gün canlı tuttuğunuzda bu önemlidir, çünkü daha az kullanıcı arayüzü yükü, gerçek işi yapan aracılar ve geliştirici sunucuları için daha fazla CPU ve bellek bırakır."
+              "body": "cmux, Electron değil, libghostty üzerine kurulu yerel bir Swift/AppKit uygulamasıdır. Bu, ona yerel bir Mac kullanıcı arayüzü ve Ghostty tabanlı terminal oluşturma olanağı sağlarken, düzenleme katmanını içinde çalıştırdığınız aracılardan, test çalıştırıcılarından, tarayıcılardan ve geliştirme sunucularından ayrı tutar."
             },
             {
               "title": "Klavye öncelikli denetim",
@@ -1909,7 +1909,7 @@
             },
             {
               "title": "Worktree desteği bir ürün kutusu değil, ilkel bir destektir",
-              "body": "Gerçek ekiplerin farklı yerlerde arka uç ve ön uç depoları, kurulum komut dosyaları, uzak makineler, no-git projeleri ve ara sıra code-to-main akışları olduğundan yerleşik worktree desteğinin sınırlı olacağı garanti edilir. cmux programlanabilir kalır, böylece Claude Code, Codex, özel komutlar ve repo komut dosyaları kod tabanınızın gerçekte ihtiyaç duyduğu çalışma alanı şeklini oluşturabilir."
+              "body": "Yerleşik çalışma ağacı desteği, bölünmüş ön uç/arka uç depoları, kurulum komut dosyaları, uzak makineler, git gerektirmeyen projeler veya koddan ana akışa sahip ekipler için çok dar olabilir. cmux programlanabilir kalır; böylece Claude Code, Codex, özel komutlar ve repo komut dosyaları, kod tabanınızın ihtiyaç duyduğu çalışma alanını şekillendirebilir."
             }
           ],
           "faqTitle": "SSS",
@@ -1926,7 +1926,7 @@
           "title": "cmux ve Alacritty",
           "intro": "Alacritty, kasıtlı olarak sade özelliklere sahip, hızlı, platformlar arası bir OpenGL terminal emülatörüdür. cmux, bildirim halkaları, okunmamış kısayollar ve programlanabilir uygulama kontrolü ile birçok AI kodlama aracısını çalıştırmak için libghostty üzerine kurulmuş yerel bir macOS terminali ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "Hızlı terminal ve temsilci denetim terminali karşılaştırması",
-          "summaryBody": "Minimal, yüksek performanslı bir terminal istediğinizde ve geri kalanını kabuk araçlarıyla birleştirmeyi planladığınızda Alacritty kullanın. Yerel macOS performansının yanı sıra görünür çalışma alanları, Cmd+Shift+U, Cmd+Control+U, tarayıcı bölmeleri, bildirimler ve aracı ağırlıklı işler için bir API soketi istediğinizde cmux kullanın.",
+          "summaryBody": "Minimal, yüksek performanslı bir terminal istediğinizde ve geri kalanını Alacritty yapılandırması, alacritty msg, kabuk araçları veya bir çoklayıcı ile oluşturmayı planladığınızda Alacritty'yi kullanın. Yerel macOS performansının yanı sıra görünür çalışma alanları, Cmd+Shift+U, Cmd+Control+U, tarayıcı bölmeleri, bildirimler ve aracı ağırlıklı işler için bir API soketi istediğinizde cmux'yi kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -1957,12 +1957,12 @@
               [
                 "Dikkat modeli",
                 "Bildirim zilleri, okunmamış rozetler, Cmd+Shift+U, Cmd+Control+U",
-                "Terminalin etrafında ne yazarsanız yazın"
+                "Görsel zil, zil komutu ve harici bildirim komut dosyaları"
               ],
               [
                 "Otomasyon",
                 "CLI, Unix soket API, tarayıcı otomasyonu, kancalar",
-                "Terminal yapılandırması artı harici programlar"
+                "Yapılandırma, tuş/fare bağlantıları, alacritty msg IPC ve harici programlar"
               ],
               [
                 "En uygun",
@@ -2003,9 +2003,9 @@
         },
         "cmuxVsConductor": {
           "metaTitle": "Kodlama aracıları için cmux ve Conductor - cmux",
-          "metaDescription": "Birden fazla kodlama aracısı çalıştırma, yerel terminal performansı, yalıtılmış çalışma alanları, inceleme akışı ve kilitleme açısından cmux ve Conductor'yi karşılaştırın.",
+          "metaDescription": "Birden çok kodlama aracısını çalıştırma, yerel terminal performansı, yalıtılmış çalışma alanları, inceleme akışı ve iş akışı esnekliği açısından cmux ve Conductor'yi karşılaştırın.",
           "title": "cmux ve Conductor",
-          "intro": "Conductor, kodlama aracılarını yalıtılmış çalışma alanlarında çalıştırmaya yönelik, görev kurulumu, farklar ve aracı çalışması etrafında inceleme akışı içeren bir Mac uygulamasıdır. cmux, halihazırda kullanmakta olduğunuz herhangi bir CLI aracısını, kabuğunu, tarayıcısını, geliştirme sunucusunu veya komut dosyasını denetlemek için kullanılan yerel bir terminal ve tarayıcı çalışma alanıdır.",
+          "intro": "Conductor, kodlama aracılarını izole çalışma alanlarında çalıştırmak için erken erişim Conductor Cloud'ye sahip bir Mac uygulamasıdır; görev kurulumu, farklar ve aracı çalışması etrafında inceleme akışı içerir. cmux, halihazırda kullanmakta olduğunuz herhangi bir CLI aracısını, kabuğunu, tarayıcısını, geliştirme sunucusunu veya komut dosyasını denetlemek için yerel bir terminal ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "Aracı görevi çalışma alanı ve terminal kontrol düzlemi karşılaştırması",
           "summaryBody": "Yalıtılmış kopyalara ve inceleme yüzeylerine sahip paketlenmiş bir aracı görev iş akışı istiyorsanız Conductor kullanın. Claude Code, Codex, OpenCode, Gemini CLI, Aider, komut dosyalarını, SSH, tarayıcıları ve geliştirici sunucularını tek bir programlanabilir çalışma alanında çalıştırabilen ücretsiz, açık kaynaklı bir yerel terminal istiyorsanız cmux kullanın.",
           "table": {
@@ -2023,7 +2023,7 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "Mac uygulaması; masaüstü yığını herkese açık belirtilmemiş"
+                "Mac uygulaması; resmi belgeler tam masaüstü yığınını belirtmezken, genel kurucu gönderileri Rust arka ucu ve yerel Mac oluşturucuyla Tauri'yi tanımlıyor"
               ],
               [
                 "Aracı modeli",
@@ -2033,7 +2033,7 @@
               [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
-                "Üçüncü taraf açık kaynaklı bileşenlere sahip tescilli ürün"
+                "Üçüncü taraf açık kaynaklı bileşenlere sahip ücretsiz tescilli ürün"
               ],
               [
                 "Organizasyon",
@@ -2055,7 +2055,7 @@
           "sections": [
             {
               "title": "cmux tek bir aracı iş akışından daha geniştir",
-              "body": "Conductor, iş birden fazla yalıtılmış kodlama aracısı görevini çalıştırdığında zorlayıcıdır. cmux bu kullanım durumunu korur, ardından terminal ilkelini değiştirmeden Gemini CLI, Aider, Amp, sıradan kabuklar, SSH, tarayıcılar, yerel hizmetler ve gelecekteki herhangi bir CLI ekler."
+              "body": "Conductor, iş birden fazla yalıtılmış kodlama aracısı görevi yürüttüğünde ilgi çekicidir. cmux, bu tarz bir çalışma için terminal denetim katmanını kapsar ve ayrıca terminal temel yapısını değiştirmeden Gemini CLI, Aider, Amp, sıradan kabuklar, SSH, tarayıcılar, yerel hizmetler ve diğer CLI araçlarını da çalıştırır."
             },
             {
               "title": "Yerel terminal performansı tüm gün önemlidir",
@@ -2070,8 +2070,8 @@
               "body": "cmux CLI ve API soketi çalışma alanları oluşturabilir, bölmeleri bölebilir, girdi gönderebilir, terminal ekranlarını okuyabilir, ekran görüntüleri yakalayabilir ve tarayıcı bölmelerini çalıştırabilir. Bu, ekiplerin terminalin üzerinde kendi iletken benzeri akışlarını oluşturmalarına olanak tanır."
             },
             {
-              "title": "Yerleşik worktrees her zaman tavana çarpıyor",
-              "body": "Bazı takımların farklı yerlerde arka uç ve ön uç depoları vardır. Bazıları Git kullanmaz. Bazıları doğrudan ana hat üzerinde hızlı yerel çalışma istiyor. cmux, cmux Zen'ini takip eder: ilkelleri ortaya çıkarın, ardından yerleşik bir worktree modelini zorlamak yerine geliştiricilerin ve aracıların iş akışı arama alanını keşfetmesine izin verin."
+              "title": "Git-worktree-first modeli her iş akışı değildir",
+              "body": "Conductor'nin belgelenmiş çalışma alanı modeli Git desteklidir: her çalışma alanı bir şubeye ve Git çalışma ağacına eşlenir. Bazı ekiplerin farklı yerlerde arka uç ve ön uç depoları vardır, bazı iş akışları Git öncelikli değildir ve bazı yerel kontrollerin doğrudan mevcut bir ödemeden çalıştırılması gerekir. cmux, geliştiricilerin ve aracıların bu iş akışlarını kendileri oluşturabilmesi için terminali, tarayıcıyı, çalışma alanını ve soket temellerini açığa çıkarır."
             }
           ],
           "faqTitle": "SSS",
@@ -2084,11 +2084,11 @@
         },
         "multipleClaudeAgents": {
           "metaTitle": "Birden fazla Claude Code aracısını paralel olarak çalıştırma - cmux",
-          "metaDescription": "Birden fazla Claude Code, Codex, OpenCode ve diğer CLI aracı oturumlarını cmux çalışma alanları, bildirim halkaları, dikey sekmeler ve klavye kısayollarıyla paralel olarak çalıştırın.",
+          "metaDescription": "Birden fazla Claude Code, Codex, OpenCode ve diğer CLI aracı oturumlarını cmux çalışma alanları, dikey sekmeler, okunmamış gezinme ve kancalar, OSC çıkış dizileri veya cmux bildirimi tarafından yönlendirilen bildirim halkaları ile paralel olarak çalıştırın.",
           "title": "Birden fazla Claude Code aracısını paralel olarak çalıştırma",
           "intro": "Paralel Claude Code çalışması izolasyona, görünürlüğe ve girdi gerektiren oturumu bulmanın hızlı bir yoluna ihtiyaç duyar. Aynı durum Codex, OpenCode, Gemini CLI, Aider, Amp, Cursor CLI ve kabukta çalışan herhangi bir aracı için de geçerlidir. cmux her göreve görünür bir çalışma alanı sağlar ve oturumların yan yana çalışırken okunabilir olmasını sağlar.",
           "summaryTitle": "Güvenli paralel aracı iş akışı",
-          "summaryBody": "Görev başına bir dal, worktree, ödeme, repo klasörü veya özel çalışma alanı oluşturun, her birini cmux'de açın, aracıyı normal şekilde çalıştırın, ardından size ihtiyaç duyan oturumları gözden geçirmek için bildirim halkalarını ve okunmamış kısayolları kullanın. Claude Code, Codex ve OpenCode aracı olarak kalır; cmux denetim yüzeyini yönetir.",
+          "summaryBody": "Görev başına bir dal, çalışma ağacı, ödeme, repo klasörü veya özel çalışma alanı oluşturun, her birini cmux'de açın, aracıyı normal şekilde çalıştırın, ardından size ihtiyaç duyan oturumları gözden geçirmek için okunmamış kısayolları ve kancalardan, OSC veya cmux bildiriminden cmux bildirimlerini kullanın. Claude Code, Codex ve OpenCode aracı olarak kalır; cmux denetim yüzeyini yönetir.",
           "table": {
             "headers": [
               "Yaklaşmak",
@@ -2125,7 +2125,7 @@
                 "cmux Claude takımları",
                 "Takım arkadaşı oturumları için yerel bölme eşlemesi",
                 "Güçlü",
-                "Gizli tmux bölmeleri olmayan Claude takım arkadaşı modu"
+                "tmux/iTerm2 bölmeleri yerine yerel cmux bölmelerine sahip Claude Code aracı ekipleri"
               ]
             ]
           },
@@ -2136,11 +2136,11 @@
             },
             {
               "title": "İnceleme kuyruğu olarak bildirim halkalarını kullanın",
-              "body": "Claude Code, Codex, OpenCode veya başka bir temsilci işini bitirdiğinde veya giriş istediğinde, cmux bölmeyi okunmamış olarak işaretler ve çalar. Cmd+Shift+U okunmamış en yeni bölmeye atlar. Cmd+Control+U okunmamış çalışmayı okunmamış halde tutarken döngüye sokar; bu, birkaç aracının aynı anda bitirdiği durumlarda kullanışlıdır."
+              "body": "Bir aracı kancalar, OSC 99/777 veya cmux bildirimi aracılığıyla bir cmux bildirimi gönderdiğinde, cmux çalışma alanını okunmamış olarak işaretler ve bölmeyi çalar. Cmd+Shift+U en son okunmamış öğeye atlar. Cmd+Control+U geçerli öğeyi okunmamış en eski öğe olarak işaretler ve bir sonraki en son okunmamış öğeye atlar; bu, birkaç aracının aynı anda bitirdiği durumlarda kullanışlıdır."
             },
             {
               "title": "Her aracıyı değiştirmeden tutun",
-              "body": "cmux, Claude Code, Codex veya OpenCode'nin yerine geçmez ve onların isteklerinin proxy'sini oluşturmaz. Aynı CLI'leri mevcut hesaplarınız ve ayarlarınızla çalıştırırsınız, böylece cmux'a özgü aracı çalışma zamanına bağlı kalmanız gerekmez."
+              "body": "cmux, Claude Code, Codex veya OpenCode'nin yerini almaz. cmux, terminal oturumuna çalışma alanları, bildirimler ve soket otomasyonu eklerken, aynı CLI'leri mevcut hesaplarınız ve ayarlarınızla çalıştırırsınız."
             },
             {
               "title": "Uygun olduğunda takım arkadaşı modunu kullanın",
@@ -2149,15 +2149,15 @@
           ],
           "faqTitle": "SSS",
           "faqQ1": "cmux, Git worktrees öğesini otomatik olarak oluşturur mu?",
-          "faqA1": "cmux şubeniz, worktree, çoklu depo, no-git, code-to-main veya remote-dev akışınız çevresinde çalışma alanları oluşturmak için komut dosyası yazılabilir. Önemli olan iş akışınızın size ait olması gerektiğidir, çünkü herhangi bir üründeki yerleşik worktree desteğinin gerçek kod tabanlarından daha dar olması garanti edilir.",
+          "faqA1": "Varsayılan olarak değil. cmux, şubeniz, çalışma ağacınız, çoklu deponuz, no-git, ana koddan ana veya uzak geliştirme akışınızın etrafında çalışma alanları oluşturmak için komut dosyası yazılabilir, böylece projenize uygun depo kurulumunu koruyabilirsiniz.",
           "faqQ2": "Claude Code ve Codex yan yana çalışabilir mi?",
           "faqA2": "Evet. cmux aracıdan bağımsızdır, dolayısıyla Claude Code, Codex, OpenCode ve diğer CLI aracıları aynı anda ayrı çalışma alanlarında çalışabilir.",
           "faqQ3": "Paralel aracılar için en önemli kısayol hangisidir?",
-          "faqA3": "Cmd+Shift+U temel denetim kısayoludur çünkü sizi doğrudan karar bekleyen temsilciye götürür. Cmd+Control+U, okunmamış durumu temizlemeden okunmamış çalışmayı döngüye almak istediğinizde kullanışlıdır."
+          "faqA3": "Cmd+Shift+U temel denetim kısayoludur çünkü en son okunmamış öğeye atlar. Cmd+Control+U, geçerli öğeyi okunmamış en eski öğe olarak işaretlemek ve bir sonraki en son okunmamış öğeye atlamak istediğinizde kullanışlıdır."
         },
         "cmuxVsSuperset": {
           "metaTitle": "AI kodlama aracıları için cmux ve Superset — cmux",
-          "metaDescription": "Paralel kodlama aracıları, yerel performans, aracıya bağlılık, organizasyon ve programlanabilirlik açısından cmux ve Superset'yi karşılaştırın.",
+          "metaDescription": "Paralel kodlama aracıları, yerel terminal performansı, aracı esnekliği, organizasyon ve programlanabilirlik açısından cmux ve Superset'yi karşılaştırın.",
           "title": "cmux ve Superset",
           "intro": "cmux ve Superset geliştiricilerin birden fazla kodlama aracısı çalıştırmasına yardımcı olur. Aradaki fark, ürünün şeklidir: Superset, worktree düzenlemesine sahip bir aracı çalışma alanıdır; cmux ise herhangi bir CLI aracısını denetlemek için oluşturulmuş yerel bir terminal ve tarayıcıdır.",
           "summaryTitle": "İş akışına göre seçin",
@@ -2177,7 +2177,7 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "xterm.js ve node-pty kullanan Electron/React masaüstü uygulaması"
+                "@xterm/xterm ve node-pty kullanan Electron/React masaüstü uygulaması"
               ],
               [
                 "Çalışma zamanı",
@@ -2187,7 +2187,7 @@
               [
                 "Aracı modeli",
                 "Herhangi bir CLI aracısı, cmux çalışma zamanı kilitlemesi yok",
-                "Yönetilen bir çalışma alanındaki birçok CLI aracısı"
+                "Superset tarafından yönetilen bir çalışma alanındaki herhangi bir CLI aracısı"
               ],
               [
                 "Kaynak modeli",
@@ -2202,7 +2202,7 @@
               [
                 "Programlanabilirlik",
                 "CLI, Unix soket API, tarayıcı otomasyonu, kancalar",
-                "Ürün düzeyinde orkestrasyon"
+                "Çalışma alanı ve aracı orkestrasyonu için CLI beta, MCP, SDK ve otomasyonlar"
               ],
               [
                 "En uygun",
@@ -2218,7 +2218,7 @@
             },
             {
               "title": "Yüksek eşzamanlılıkta yerel performans önemlidir",
-              "body": "Birçok aracıyı çalıştırmak zaten CPU ve bellek açısından yoğundur. cmux, Swift/AppKit ve libghostty kullanır, böylece aracı işlemler, derleyiciler ve geliştirme sunucuları ihtiyaç duydukları kaynakları tüketirken terminal yüzeyi hafif kalır."
+              "body": "Birçok aracıyı çalıştırmak zaten CPU ve bellek açısından yoğundur. cmux, Swift/AppKit ve libghostty'yi kullanır, böylece terminal kullanıcı arayüzü, aracı işlemleri, derleyiciler ve geliştirme sunucuları kendi kaynaklarını tüketirken Electron yükünü önler."
             },
             {
               "title": "Dikkat bir ürün yüzeyidir",
@@ -2226,28 +2226,28 @@
             },
             {
               "title": "Programlanabilirlik kaçış kapısıdır",
-              "body": "cmux, CLI ve API soketi aracılığıyla çalışma alanlarını, bölmeleri, ekran okumalarını, ekran görüntülerini ve tarayıcı otomasyonunu ortaya çıkarır. Bu, ileri düzey kullanıcıların tek bir ürün iş akışının uymasını beklemek yerine kendi orkestrasyonlarını oluşturmalarına olanak tanır."
+              "body": "cmux, CLI ve API soketi aracılığıyla çalışma alanlarını, bölmeleri, ekran okumalarını, ekran görüntülerini ve tarayıcı otomasyonunu ortaya çıkarır. Superset ayrıca çalışma alanı ve aracı orkestrasyonu için CLI/MCP/SDK yüzeylerine sahiptir; cmux'nin farkı, terminal ve tarayıcı bölmelerinin komut dosyası yazılabilir olmasıdır."
             },
             {
               "title": "Worktree desteği hiçbir zaman evrensel değildir",
-              "body": "Yerleşik worktree yöneticileri, depo şekliniz tuhaflaşana kadar kullanışlıdır: bölünmüş backend/frontend depoları, oluşturulan kurulum adımları, Git yok, uzak ana bilgisayarlar veya doğrudan ana üzerinde kodlama yapmak isteyen bir ekip. cmux terminali ilkel programlanabilir tutar, böylece Claude Code, Codex, komut dosyaları ve özel komutlar ihtiyacınız olan çalışma alanı şeklini tam olarak oluşturabilir."
+              "body": "Yerleşik çalışma ağacı yöneticileri, her görevin bir dalla net bir şekilde eşleştiği durumlarda kullanışlıdır. cmux terminale daha yakın kalır, böylece Claude Code, Codex, komut dosyaları ve özel komutlar repo düzenlerini, Git olmayan dizinleri, SSH oturumlarını veya bir ürün çalışma alanı modeline uymayan tek seferlik kurulum yollarını işleyebilir."
             }
           ],
           "faqTitle": "SSS",
           "faqQ1": "cmux, Superset yerine mi geçiyor?",
-          "faqA1": "Superset'ı ne için kullandığınıza bağlıdır. cmux terminal denetim katmanının yerini alırken, Superset daha düşünceli bir görevi ve worktree iş akışını içerir.",
+          "faqA1": "Superset'yi ne için kullandığınıza bağlıdır. cmux, terminal denetim katmanının yerini alabilir; Superset ise daha odaklı bir görev ve iş ağacı iş akışı içerir.",
           "faqQ2": "cmux aynı aracıları çalıştırabilir mi?",
           "faqA2": "Evet. cmux, Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp ve Cursor CLI dahil olmak üzere CLI aracılarını doğrudan çalıştırır.",
           "faqQ3": "Superset'de worktrees varsa neden cmux seçilir?",
-          "faqA3": "Önceliğiniz yerel terminal performansı, klavye odaklı çoklu görev, aracıya bağımlı kalmama ve kendi iş akışınıza uyarlayabileceğiniz programlanabilir bir yüzey ise cmux seçeneğini seçin."
+          "faqA3": "Önceliğiniz yerel terminal performansı, klavye odaklı çoklu görev, düzenleyiciden bağımsız terminal iş akışları ve kendi iş akışınıza uyarlayabileceğiniz komut dosyası yazılabilir terminal/tarayıcı yüzeyleri ise cmux'yi seçin."
         },
         "cmuxVsCursor": {
           "metaTitle": "AI kodlama aracıları için cmux ve Cursor — cmux",
-          "metaDescription": "Aracı iş akışları, terminal denetimi, düzenleyici entegrasyonu, yerel macOS performansı ve bağlılık için cmux ve Cursor'yi karşılaştırın.",
+          "metaDescription": "Aracı iş akışları, terminal denetimi, düzenleyici entegrasyonu, yerel macOS performansı ve iş akışı esnekliği açısından cmux ve Cursor'yi karşılaştırın.",
           "title": "cmux ve Cursor",
           "intro": "Cursor bir AI düzenleyici ve temsilci platformudur. cmux seçtiğiniz aracıları ve araçları çalıştırmaya yönelik yerel bir terminal ve tarayıcıdır. Birçok geliştirici her ikisini de kullanır: Cursor düzenleme için, cmux terminal aracılarını denetlemek için.",
           "summaryTitle": "Farklı katmanlar",
-          "summaryBody": "Düzenleyicinin içinde AI olmasını istediğinizde Cursor kullanın. Ücretsiz, açık kaynaklı bir terminalin, iş akışını tek bir düzenleyiciye veya barındırılan çalışma zamanına bağlamadan CLI aracılarını, geliştirici sunucularını, SSH oturumlarını ve tarayıcı kontrollerini çalıştırıp izlemesini istiyorsanız cmux kullanın.",
+          "summaryBody": "Düzenleyicinin, Cursor CLI'nin, tarayıcı araçlarının veya bulut aracılarının içinde yapay zeka olmasını istediğinizde Cursor'yi kullanın. Tek bir düzenleyiciyi, hesabı veya bulut aracısı çalışma zamanını her iş akışının merkezi haline getirmeden CLI aracılarını, geliştirici sunucularını, SSH oturumlarını ve tarayıcı kontrollerini çalıştırmak ve izlemek için ücretsiz, açık kaynaklı bir terminal istediğinizde cmux'yi kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -2258,32 +2258,32 @@
               [
                 "Birincil yüzey",
                 "Terminal, tarayıcı, çalışma alanları, bölmeler",
-                "Editör, sohbet, barındırılan temsilciler"
+                "Düzenleyici, CLI, aracı çalışma alanı, tarayıcı ve bulut aracıları"
               ],
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "VS Code türevi Electron editörü"
+                "VS Code tabanlı masaüstü düzenleyici; VS Code, Electron'yi kullanır"
               ],
               [
                 "Temsilci seçimi",
                 "Herhangi bir CLI aracısı",
-                "İmleç merkezli AI iş akışı ve entegrasyonlar"
+                "Düzenleyici, CLI, bulut ve entegrasyonlarda Cursor Agent"
               ],
               [
-                "Kilitlenme",
-                "Kendi temsilcinizi ve anahtarlarınızı getirin",
-                "Cursor hesap, planlar ve platform özellikleri"
+                "İş akışı merkezi",
+                "Kendi terminal aracınızı ve anahtarlarınızı getirin",
+                "Cursor hesabı, planlar, düzenleyici, CLI ve bulut özellikleri"
               ],
               [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
-                "Kapalı kaynak düzenleyici ürünü"
+                "VS Code kod tabanını temel alan tescilli Cursor ürünü"
               ],
               [
                 "Performans profili",
                 "Yerel Swift/AppKit terminali",
-                "Düzenleyici ve barındırılan aracı paketi"
+                "Platformlar arası düzenleyicinin yanı sıra yerel ve bulut aracı yüzeyleri"
               ],
               [
                 "En uygun",
@@ -2340,22 +2340,22 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "VS Code türevi Devin Desktop ile bulut platformu"
+                "Devin Cloud artı VS Code-çatal Devin Desktop"
               ],
               [
                 "İşin yürütüldüğü yer",
                 "Mac, kabuk, depolarınız ve geliştirme ortamınız",
-                "Devin platformu ve bağlantılı ekip araçları"
+                "Devin Cloud VM'lerin yanı sıra yerel Devin CLI ve Devin Local"
               ],
               [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
-                "Kapalı yönetilen aracı platformu"
+                "Tescilli Biliş hizmeti ve masaüstü yazılımı"
               ],
               [
                 "Temsilci seçimi",
                 "Herhangi bir CLI aracısı veya kabuk aracı",
-                "Devin merkezli temsilci iş akışı"
+                "Devin Cloud, Devin Local, Devin CLI ve ACP uyumlu aracılar"
               ],
               [
                 "İnsan incelemesi",
@@ -2376,11 +2376,11 @@
             },
             {
               "title": "Tek bir platform yerine birden fazla temsilci getirin",
-              "body": "Bir görev için Claude Code, bir başka görev için Codex, üçüncüsü için OpenCode ve bunların yanında sıradan kabuk komutlarını çalıştırabilirsiniz. cmux denetim katmanını aracı satıcısından bağımsız tutar."
+              "body": "Bir görev için Claude Code'yi, bir başka görev için Codex'yi, üçüncüsü için OpenCode'yi ve bunların yanında sıradan kabuk komutlarını çalıştırabilirsiniz. cmux, denetim katmanını Devin uygulaması ve bulut iş akışının dışında, terminalinizde ve tarayıcı çalışma alanınızda tutar."
             },
             {
               "title": "Yerel işler hızlı ve denetlenebilir kalır",
-              "body": "Birçok görev için en üretken döngü hala yereldir: düzenleyin, çalıştırın, inceleyin, başka bir temsilciye sorun, tarayıcıyı açın ve fark hazır olduğunda itin. cmux, her kararı bir bulut görev kuyruğuna taşımak yerine bu döngüyü Mac üzerinde tutar."
+              "body": "Birçok görev için en üretken döngü hala yereldir: düzenleyin, çalıştırın, inceleyin, başka bir temsilciye sorun, tarayıcıyı açın ve fark hazır olduğunda itin. cmux, her görevi yönetilen bir Devin Cloud oturumu haline getirmek yerine bu döngüyü Mac'nizde tutar."
             },
             {
               "title": "Eşzamanlılık altında yerel Mac performansı",
@@ -2393,11 +2393,11 @@
           ],
           "faqTitle": "SSS",
           "faqQ1": "cmux, Devin'nin yerini mi alıyor?",
-          "faqA1": "Hayır. Devin yönetilen bir AI yazılım mühendisidir. cmux, doğrudan çalıştırdığınız aracıların ve araçların etrafındaki yerel terminal ve tarayıcı çalışma alanıdır.",
+          "faqA1": "Hayır. Devin, bulut delegasyonu ve yerel temsilci yardımını kapsar. cmux, doğrudan çalıştırdığınız aracıların ve araçların etrafındaki yerel terminal ve tarayıcı çalışma alanıdır.",
           "faqQ2": "cmux'yi Devin Desktop veya Windsurf ile kullanabilir miyim?",
           "faqA2": "Evet. cmux, CLI aracılarını, kabukları, testleri ve tarayıcı kontrollerini denetlerken herhangi bir düzenleyicinin veya masaüstü aracı yüzeyinin yanında oturabilir.",
           "faqQ3": "Neden cmux ile Devin karşılaştırılmalı?",
-          "faqA3": "Her ikisi de çoklu etmen geliştirmeye yöneliktir ancak farklı katmanlardadır. cmux yerel kontrol düzlemidir; Devin yetkilendirilmiş bir temsilci platformudur."
+          "faqA3": "Her ikisi de çoklu etmen geliştirmeye yöneliktir ancak farklı katmanlardadır. cmux bir terminal ve tarayıcı kontrol düzlemidir; Devin, bulut delegasyonunu, yerel aracıları ve VS Code çatallı IDE komuta merkezini kapsar."
         },
         "cmuxVsIterm2": {
           "metaTitle": "AI kodlama aracıları için cmux ve iTerm2 - cmux",
@@ -2426,7 +2426,7 @@
               [
                 "Temsilci görünürlüğü",
                 "Dikey çalışma alanları, en son çıktı, dal ve bağlantı noktası meta verileri",
-                "Manuel sekmeler, pencereler, bölmeler ve profiller"
+                "Sekmeler, pencereler, bölmeler, profiller, kabuk entegrasyonu ve durum çubuğu"
               ],
               [
                 "İşleme motoru",
@@ -2436,12 +2436,12 @@
               [
                 "Dikkat modeli",
                 "Bildirim zilleri, Cmd+Shift+U, Cmd+Control+U",
-                "Terminal bildirimleri ve manuel tarama"
+                "OSC bildirimleri, işaretleri ve uyarıları, bildirimleri tetikleme ve oturum arama"
               ],
               [
                 "Otomasyon",
                 "CLI, Unix soket API, tarayıcı otomasyonu, kancalar",
-                "Terminal özellikleri, komut dosyaları, tetikleyiciler ve profiller"
+                "Python API, kullanımdan kaldırılmış AppleScript, tetikleyiciler, profiller ve tmux entegrasyonu"
               ],
               [
                 "En uygun",
@@ -2456,8 +2456,8 @@
               "body": "Terminal sekmeleri hangi aracının engellendiğini, hangi şubeye sahip olduğunu veya hangi geliştirme sunucusunu başlattığını bilmez. cmux bu bağlamı kenar çubuğuna yerleştirir ve bekleme bölmelerinin bulunmasını kolaylaştırır."
             },
             {
-              "title": "Tarayıcı bölmeleri iş akışının bir parçasıdır",
-              "body": "Temsilcinin işi genellikle görsel kontroller, günlükler, yerel önizlemeler ve ekran görüntüleri ile sona erer. cmux, tarayıcı bölmelerini terminallerin yanında tutabilir ve aynı kontrol yüzeyi aracılığıyla tarayıcı otomasyonunu ortaya çıkarabilir."
+              "title": "Tarayıcı otomasyonu iş akışının bir parçasıdır",
+              "body": "iTerm2 ayrıca tarayıcı profillerine de sahiptir. cmux'nin farkı, tarayıcı bölmelerinin, DOM etkileşimi, ekran görüntüleri, konsol ve hata günlükleri, çerezler, depolama ve JavaScript değerlendirmesi komutları ile çalışma alanları ve terminallerle aynı CLI ve soket iş akışından adreslenebilir olmasıdır."
             },
             {
               "title": "Klavye kısayolları dikkati hedefler",
@@ -2478,7 +2478,7 @@
           "faqQ2": "cmux normal kabuk çalışmasını çalıştırabilir mi?",
           "faqA2": "Evet. cmux hala bir terminal olduğundan kabuklar, SSH, komut dosyaları, testler, paket yöneticileri ve yerel hizmetler normal şekilde çalışır.",
           "faqQ3": "cmux sekmelerin ve bölmelerin ötesinde ne ekler?",
-          "faqA3": "cmux çalışma alanı meta verilerini, bildirim halkalarını, okunmamış gezinmeyi, tarayıcı yüzeylerini ve aracı ağırlıklı iş akışları etrafında tasarlanmış bir API soketini ekler."
+          "faqA3": "cmux, aracı çalışma alanı meta verilerini, bildirim halkalarını, okunmamış gezinmeyi, soket adreslenebilir tarayıcı yüzeylerini ve aracı ağırlıklı iş akışları etrafında tasarlanmış bir soket API ekler."
         },
         "cmuxVsKitty": {
           "metaTitle": "AI kodlama aracıları için cmux ve Kitty - cmux",
@@ -2502,7 +2502,7 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "Native derlenmiş GPU terminal emülatörü, Electron/Tauri değil"
+                "Electron veya Tauri uygulamasıyla değil, C, Python ve Go ile yazılmış OpenGL ile oluşturulmuş terminal emülatörü"
               ],
               [
                 "İşleme motoru",
@@ -2512,17 +2512,17 @@
               [
                 "Temsilci görünürlüğü",
                 "Dikey çalışma alanları, en son çıktı, dal ve bağlantı noktası meta verileri",
-                "Manuel pencereler, sekmeler, düzenler ve kabuk komut dosyaları"
+                "Windows, sekmeler, düzenler, oturumlar, yavru kediler ve uzaktan kumandalı komut dosyaları"
               ],
               [
                 "Dikkat modeli",
                 "Bildirim zilleri, okunmamış rozetler, Cmd+Shift+U, Cmd+Control+U",
-                "Terminal bildirimleri ve özel kurulum"
+                "OSC 99 masaüstü bildirimleri ve kedi bildirimi, okunmamış iş akışları için özel komut dosyası oluşturma özelliğiyle"
               ],
               [
                 "Tarayıcı iş akışı",
                 "Otomasyona sahip yerleşik tarayıcı bölmeleri",
-                "Harici tarayıcı iş akışı"
+                "URL'leri işletim sistemi/varsayılan işleyiciler aracılığıyla açar; yerleşik tarayıcı bölmesi veya DOM otomasyonu yok"
               ],
               [
                 "En uygun",
@@ -2567,7 +2567,7 @@
           "title": "cmux ve Herdr",
           "intro": "Herdr, halihazırda kullandığınız terminalin içinde çalışan ve gerçek bölmeleri SSH üzerinden canlı tutabilen, açık kaynaklı bir terminal-yerel aracı çoklayıcıdır. cmux, dikey çalışma alanları, bildirim halkaları, tarayıcı bölmeleri ve yerel aracı iş akışları için bir API soketi içeren, libghostty üzerine kurulmuş, GPL lisanslı bir yerel macOS uygulamasıdır.",
           "summaryTitle": "Yerel Mac uygulaması ve terminal-yerel çoklayıcı karşılaştırması",
-          "summaryBody": "Özellikle SSH üzerinden veya küçük ekrandan, herhangi bir terminalin içinde tmux benzeri ajan multiplexer istediğinizde Herdr kullanın. libghostty render, uygulama düzeyi workspace’ler, yerleşik tarayıcı otomasyonu, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve programlanabilir yerel kontrol olan native Mac terminal uygulaması istediğinizde cmux kullanın. Birçok iş akışı ikisini birlikte kullanır: SSH oturumunun içinde Herdr, etrafında Mac tarafı host olarak cmux.",
+          "summaryBody": "Herhangi bir terminalin içinde, özellikle SSH üzerinden veya küçük bir ekrandan tmux benzeri bir aracı çoklayıcı istiyorsanız Herdr'yi kullanın. libghostty oluşturma, uygulama düzeyinde çalışma alanları, yerleşik tarayıcı otomasyonu, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve programlanabilir yerel kontrol özelliklerine sahip yerel bir Mac terminal uygulaması istediğinizde cmux'yi kullanın. Pratik bir eşleştirme, bir SSH oturumu içindeki Herdr'dir ve cmux, etrafındaki Mac tarafı ana bilgisayarıdır.",
           "table": {
             "headers": [
               "Boyut",
@@ -2583,7 +2583,7 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "Terminal-native Rust binary, Electron/Tauri masaüstü uygulaması değil"
+                "Tek Rust terminal yerel ikili dosyası, GUI masaüstü uygulaması veya Electron sarmalayıcısı değil"
               ],
               [
                 "Çalışma zamanı modeli",
@@ -2620,7 +2620,7 @@
           "sections": [
             {
               "title": "Herdr terminalinizin içinde yaşıyor",
-              "body": "Herdr’nin en güçlü iddiası taşınabilirliktir: sunucuda çalıştır, ayır, yeniden bağlan ve gerçek terminal pane’lerini canlı tut. Birçok geliştirici Herdr’yi cmux’ten açılan SSH oturumlarının içinde çalıştırır. Bu iyi bir eşleşmedir: Herdr uzak pane’leri kalıcı tutar, cmux ise SSH workspace çevresinde Mac tarafı native uygulamayı, tarayıcı pane’lerini, bildirimleri ve unread kısayollarını verir."
+              "body": "Herdr'yi cmux'den açılan bir SSH oturumunda çalıştırabilirsiniz: Herdr uzak bölmeleri kalıcı tutarken cmux, Mac tarafındaki yerel uygulamayı, tarayıcı bölmelerini, bildirimleri ve SSH çalışma alanı etrafında okunmamış kısayolları sağlar."
             },
             {
               "title": "cmux yerel masaüstü yüzeyinin sahibidir",
@@ -2645,11 +2645,11 @@
         },
         "cmuxVsOpencode": {
           "metaTitle": "AI kodlama aracıları için cmux ve OpenCode - cmux",
-          "metaDescription": "Terminal AI kodlaması, açık kaynak aracıları, çoklu oturum çalışması, yerel terminal denetimi ve programlanabilir iş akışları için cmux ve OpenCode'yi karşılaştırın.",
+          "metaDescription": "Terminal AI kodlaması, açık kaynak kodlama aracısı, çoklu oturum çalışması, yerel terminal denetimi ve programlanabilir iş akışları için cmux ve OpenCode'yi karşılaştırın.",
           "title": "cmux ve OpenCode",
           "intro": "OpenCode terminal, masaüstü ve IDE yüzeylerinde kullanılabilen açık kaynaklı bir kodlama aracısıdır. cmux, OpenCode ve diğer CLI aracılarının yan yana çalışabileceği yerel terminal ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "Temsilci ve temsilci çalışma alanı",
-          "summaryBody": "Açık kaynak bir kodlama ajanı istediğinizde OpenCode kullanın. OpenCode, Claude Code, Codex CLI, Codex uygulaması ve IDE eklentisi iş akışları, Gemini CLI, Aider, Amp, Cursor CLI ve normal shell işleri birlikte denetlenecekse yerel macOS çalışma alanı olarak cmux kullanın.",
+          "summaryBody": "Açık kaynak kodlama aracısı istediğinizde OpenCode'yi kullanın. Ayrı Codex uygulaması ve IDE uzantısı iş akışlarının yanı sıra OpenCode, Claude Code, Codex CLI, Gemini CLI, Aider, Amp, Cursor CLI ve sıradan kabuk iş akışlarını birlikte denetleyebilen yerel bir macOS çalışma alanı istediğinizde cmux kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -2680,7 +2680,7 @@
               [
                 "Programlanabilirlik",
                 "cmux CLI, Unix soket API, tarayıcı otomasyonu",
-                "OpenCode CLI, yapılandırma, SDK ve aracı araçları"
+                "OpenCode CLI, yapılandırma, SDK ve özel araçlar"
               ],
               [
                 "En uygun",
@@ -2757,7 +2757,7 @@
               [
                 "Dikkat modeli",
                 "Bildirim zilleri, okunmamış rozetler, Cmd+Shift+U, Cmd+Control+U",
-                "Manuel durum satırı ve kabuk özelleştirmesi"
+                "Etkinlik, sessizlik ve zillerin yanı sıra kancalar ve kabuk özelleştirmesi için durum satırı uyarıları"
               ],
               [
                 "En uygun",
@@ -2777,7 +2777,7 @@
             },
             {
               "title": "cmux kendi Ghostty tabanlı oluşturucusunu getiriyor",
-              "body": "tmux etrafındaki terminal öykünücüsüne bağlıdır. cmux, modern GPU hızlandırmalı oluşturma, terminal grafik desteği ve Ghostty tarzı görsel yapılandırma için libghostty kullanan terminal uygulamasıdır."
+              "body": "tmux, etrafındaki terminal emülatörüne bağlıdır. cmux, sorunsuz GPU hızlandırmalı işleme ve Ghostty tarzı görsel yapılandırma için libghostty'yi kullanan terminal uygulamasıdır."
             },
             {
               "title": "Yerel kullanıcı arayüzü inceleme sorunlarını azaltır",
@@ -2785,7 +2785,7 @@
             },
             {
               "title": "API soketi uygulama düzeyinde otomasyondur",
-              "body": "tmux terminalin içinde kodlanabilir. cmux ayrıca terminal çevresindeki uygulamayı da açığa çıkarır: çalışma alanları, tarayıcı bölmeleri, ekran okumaları, ekran görüntüleri ve bildirim meta verileri."
+              "body": "tmux, terminal çoğullaması için derinlemesine komut dosyası yazılabilir. cmux ayrıca uygulamayı terminal etrafında da ortaya çıkarır: çalışma alanları, tarayıcı bölmeleri, ekran okumaları, ekran görüntüleri ve bildirim meta verileri."
             }
           ],
           "faqTitle": "SSS",
@@ -2802,7 +2802,7 @@
           "title": "cmux ve VS Code",
           "intro": "VS Code, aracı iş akışlarına sahip genel amaçlı bir düzenleyici ve uzantı platformudur. cmux, VS Code dahil olmak üzere herhangi bir düzenleyicinin yanında yerel kabuk aracılarını denetlemek için GPL lisanslı bir yerel macOS terminali ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "Editör platformu ve terminal kontrol düzlemi",
-          "summaryBody": "Düzenleyicinin içinde düzenleme, uzantılar ve aracı yardımı almak istediğinizde VS Code kullanın. Okunmamış çalışmalar için bildirim halkaları ve klavye kısayolları ile libghostty tabanlı bir terminal çalışma alanında Claude Code, Codex, OpenCode, Gemini CLI, dev sunucuları, SSH, komut dosyaları ve tarayıcı kontrollerinin görünmesini istediğinizde cmux kullanın.",
+          "summaryBody": "VS Code içinde düzenleme, uzantılar, yerleşik aracı oturumları ve aracı/tarayıcı araçlarını istediğinizde VS Code'yi kullanın. Claude Code, Codex, OpenCode, Gemini CLI, geliştirici sunucuları, SSH, komut dosyaları ve tarayıcı kontrollerinin, okunmamış işler için bildirim halkaları ve klavye kısayolları ile libghostty tabanlı bir terminal çalışma alanında görünmesini istediğinizde cmux'yi kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -2823,12 +2823,12 @@
               [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
-                "Code OSS, MIT'dir; Microsoft VS Code dağıtımı Microsoft ürün lisansına sahiptir"
+                "Code - OSS, MIT'dir; Microsoft VS Code, Microsoft ürün lisansı kapsamında Microsoft'a özel özelleştirmelere sahip bir dağıtımdır"
               ],
               [
                 "Temsilci iş akışı",
                 "Görünür çalışma alanlarındaki herhangi bir CLI aracısı veya kabuk aracı",
-                "Editörle entegre aracılar ve uzantılar"
+                "Yerleşik VS Code aracıları, Copilot CLI/bulut/üçüncü taraf aracı türleri, tarayıcı araçları ve uzantıları"
               ],
               [
                 "Dikkat modeli",
@@ -2838,7 +2838,7 @@
               [
                 "Tarayıcı iş akışı",
                 "Soket otomasyonuna sahip yerleşik tarayıcı bölmeleri",
-                "Düzenleyici önizlemeleri, uzantılar ve harici tarayıcı akışı"
+                "Entegre tarayıcı, Canlı Önizleme/HTML önizlemeleri, tarayıcı hata ayıklaması, aracı tarayıcı araçları ve harici tarayıcı akışı"
               ],
               [
                 "En uygun",
@@ -2854,7 +2854,7 @@
             },
             {
               "title": "Terminal aracılarının terminal durumuna ihtiyacı var",
-              "body": "Claude Code, Codex, OpenCode ve benzeri CLI'ler zamanlarının çoğunu komutları, testleri ve araçları çalıştırarak geçirir. cmux bu çalışmayı kenar çubuğunda dal, dizin, bağlantı noktası, en son çıktı ve okunmamış meta verilerle görünür tutar."
+              "body": "Claude Code, Codex, OpenCode ve benzeri CLI'ler zamanlarının çoğunu komutları, testleri ve araçları çalıştırarak geçirir. cmux bu çalışmayı kenar çubuğundaki şube, dizin, bağlantı noktası, en son bildirim metni ve okunmamış meta verilerle görünür tutar."
             },
             {
               "title": "Bildirimler çoklu görev için tasarlanmıştır",
@@ -2869,22 +2869,22 @@
           "faqQ1": "cmux, VS Code'nin yerini mi alıyor?",
           "faqA1": "Hayır. cmux bir terminal ve tarayıcı çalışma alanıdır. VS Code veya başka herhangi bir düzenleyicinin yanında iyi çalışır.",
           "faqQ2": "VS Code açık kaynak mı?",
-          "faqA2": "Code OSS deposu MIT lisanslıdır. Microsoft VS Code dağıtımında Microsoft ürün lisansları ve ek dağıtım ayrıntıları bulunur.",
+          "faqA2": "Code - OSS deposu MIT lisanslıdır. Microsoft Visual Studio Code, Microsoft ürün lisansı kapsamında Microsoft'a özel özelleştirmelere sahip bir Code - OSS dağıtımıdır.",
           "faqQ3": "Neden cmux'yi VS Code ile kullanmalısınız?",
           "faqA3": "Temsilci çalışmanız terminalleri, tarayıcıları, komut dosyalarını, SSH, yerel hizmetleri ve birden fazla depoyu kapsıyorsa ve bu iş akışının düzenleyicinin dışında görünmesini istiyorsanız cmux kullanın."
         },
         "cmuxVsWindsurf": {
           "metaTitle": "cmux ile Windsurf ve Devin Desktop - cmux karşılaştırması",
-          "metaDescription": "cmux'yi AI kodlama iş akışları, terminal aracısı denetimi, IDE aracıları, çoklu aracılı organizasyon ve kilitleme için Windsurf ve Devin Desktop ile karşılaştırın.",
+          "metaDescription": "IDE aracıları, terminal aracı denetimi, çoklu aracı organizasyonu, tarayıcı kontrolleri ve programlanabilir iş akışları için cmux'yi eski adıyla Windsurf olan Devin Desktop ile karşılaştırın.",
           "title": "cmux ve Windsurf",
-          "intro": "Windsurf, aracı komuta merkezine sahip bir IDE temeli olan Devin Desktop'a taşındı. cmux, herhangi bir düzenleyicinin yanında bulunan ve seçtiğiniz CLI aracılarını ve araçlarını denetleyen yerel bir terminal ve tarayıcı çalışma alanıdır.",
+          "intro": "Windsurf artık Devin Desktop'dir ve aracıları yönetmek için bir Ajan Komuta Merkezi ile Windsurf'nin IDE temeli üzerine kurulmuştur. cmux, herhangi bir düzenleyicinin yanında bulunan ve seçtiğiniz CLI aracılarını ve araçlarını denetleyen yerel bir terminal ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "IDE aracı yüzeyi ve terminal aracı yüzeyi",
-          "summaryBody": "Bir IDE içinde aracılı kodlama istediğinizde Windsurf veya Devin Desktop kullanın. Terminal aracıları, kabuklar, testler, yerel sunucular, tarayıcılar, SSH ve birden fazla düzenleyici için ücretsiz, açık kaynaklı bir terminal kontrol düzlemi istediğinizde cmux kullanın.",
+          "summaryBody": "Bir IDE içinde aracılı kodlama istediğinizde, eski adıyla Windsurf olan Devin Desktop'yi kullanın. Terminal aracıları, kabuklar, testler, yerel sunucular, tarayıcı kontrolleri, SSH ve birden fazla düzenleyici için ücretsiz, açık kaynaklı bir terminal kontrol düzlemi istediğinizde cmux'yi kullanın.",
           "table": {
             "headers": [
               "Boyut",
               "cmux",
-              "Windsurf / Devin Desktop"
+              "Devin Desktop (eski adıyla Windsurf)"
             ],
             "rows": [
               [
@@ -2895,7 +2895,7 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "VS Code türevi Devin Desktop editörü"
+                "VS Code arayüzünü ve Open VSX uzantılarını kullanan Devin Desktop IDE"
               ],
               [
                 "Editörün kilitlenmesi",
@@ -2905,17 +2905,17 @@
               [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
-                "Kapalı kaynak editör kökeni"
+                "VS Code OSS tarzı düzenleyici yüzeye sahip tescilli Devin Desktop hizmeti"
               ],
               [
                 "Temsilci seçimi",
                 "Herhangi bir CLI aracısı veya kabuk komutu",
-                "Devin ve IDE ile entegre aracı iş akışı"
+                "Devin Desktop içindeki Devin, Cascade ve ACP uyumlu aracılar"
               ],
               [
                 "Organizasyon",
                 "Dikey çalışma alanları, okunmamış halkalar, dal ve bağlantı noktası meta verileri",
-                "Alanlar, Kanban, IDE projeleri ve aracı yönetimi"
+                "Alanlar, Kanban görünümü, yerel ve bulut aracı yönetimi"
               ],
               [
                 "En uygun",
@@ -2939,7 +2939,7 @@
             },
             {
               "title": "Programlanabilirlik iş akışının size ait olmasını sağlar",
-              "body": "cmux CLI ve API soketi, ekiplerin mevcut araçları etrafında özel komutlar, kancalar, çalışma alanı akışları, terminal kontrolleri, tarayıcı otomasyonu ve ekran görüntüleri oluşturmasına olanak tanır."
+              "body": "cmux CLI ve soket API, ekiplerin çalışma alanları oluşturmasına, bölmeleri bölmesine, giriş göndermesine, ekranları okumasına, ekran görüntüleri yakalamasına ve tarayıcı bölmelerini mevcut araçları etrafında yönlendirmesine olanak tanır."
             }
           ],
           "faqTitle": "SSS",
@@ -2956,7 +2956,7 @@
           "title": "cmux ve Zed",
           "intro": "Zed işbirlikçi ve AI özelliklerine sahip hızlı bir açık kaynak kod düzenleyicisidir. cmux, Zed veya başka herhangi bir düzenleyicinin yanında kabuk yerel aracılarını denetlemek için GPL lisanslı bir yerel macOS terminali ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "Hızlı düzenleyici ve terminal aracısı çalışma alanı karşılaştırması",
-          "summaryBody": "Hızlı, işbirliğine dayalı bir düzenleyici istediğinizde Zed kullanın. Claude Code, Codex, OpenCode, Gemini CLI, test çalıştırıcıları, geliştirme sunucuları, SSH ve bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve komut dosyası oluşturulabilir bir soket API ile libghostty tabanlı bir terminal uygulamasında görünen tarayıcı kontrollerini istediğinizde cmux kullanın.",
+          "summaryBody": "İşbirliği, entegre yapay zeka, ACP Harici Aracılar ve Terminal İş Parçacıkları içeren hızlı bir açık kaynak düzenleyiciye ihtiyacınız olduğunda Zed'yi kullanın. Claude Code, Codex, OpenCode, Gemini CLI, test çalıştırıcıları, geliştirme sunucuları, SSH ve tarayıcı kontrollerinin bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve kodlanabilir bir soket API ile libghostty tabanlı bir terminal uygulamasında görünmesini istediğinizde cmux'yi kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -2972,22 +2972,22 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "Rust/GPUI native editör, Electron/Tauri değil"
+                "Rust/GPUI GPU ile hızlandırılmış masaüstü düzenleyici, Electron/Tauri değil"
               ],
               [
                 "Kaynak modeli",
                 "Ücretsiz ve açık kaynaklı GPL uygulaması",
-                "Açık kaynak düzenleyici"
+                "Açık kaynak; işaretlendiği yerlerde öncelikle Apache-2.0 bileşenlerine sahip GPL-3.0 veya üstü"
               ],
               [
                 "Temsilci iş akışı",
                 "Görünür terminal çalışma alanlarındaki herhangi bir CLI aracısı veya kabuk aracı",
-                "Editörle entegre AI iş akışları"
+                "Düzenleyicinin içindeki Zed Aracısı, ACP Harici Aracıları ve terminal destekli aracı iş parçacıkları"
               ],
               [
                 "Terminal motoru",
                 "Terminal oluşturma için libghostty üzerine oluşturuldu",
-                "Editör terminali ve editör kullanıcı arayüzü"
+                "Arka uç olarak Alacritty'yi kullanan yerleşik terminal emülatörü"
               ],
               [
                 "Dikkat modeli",
@@ -3029,11 +3029,11 @@
         },
         "cmuxVsWarp": {
           "metaTitle": "AI kodlama aracıları için cmux ve Warp — cmux",
-          "metaDescription": "Terminal AI iş akışları, aracı denetimi, yerel macOS performansı, programlanabilirlik ve bağlılık için cmux ve Warp'yi karşılaştırın.",
+          "metaDescription": "Terminal yapay zeka iş akışları, aracı denetimi, yerel macOS performansı, yerel programlanabilirlik ve bulut aracısı düzenlemesi açısından cmux ve Warp'yi karşılaştırın.",
           "title": "cmux ve Warp",
-          "intro": "Warp yapay zekayla geliştirilmiş bir terminal ürünüdür. cmux, dikey çalışma alanları, bildirim halkaları ve komut dosyası oluşturulabilir bir soket ile birçok kodlama aracısı oturumu etrafında oluşturulmuş yerel bir macOS terminalidir.",
+          "intro": "Warp, yerleşik aracılar, üçüncü taraf CLI aracı desteği ve Oz bulut iş akışları içeren bir terminalden oluşturulmuş açık kaynaklı bir aracılı geliştirme ortamıdır. cmux, dikey çalışma alanları, bildirim halkaları ve komut dosyası yazılabilir bir soket ile birçok yerel kodlama aracısı oturumu etrafında oluşturulmuş yerel bir macOS terminalidir.",
           "summaryTitle": "AI terminali ve aracı denetim terminali karşılaştırması",
-          "summaryBody": "Warp, AI özelliklerini, bulut aracısı iş akışlarını ve yönetilen bir terminal ürününü istediğinizde en güçlüsüdür. cmux, halihazırda kullandığınız CLI aracıları için, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U ve bunların çoğunu çalıştırmak için düzenli, programlanabilir bir yer içeren, GPL lisanslı, yerel öncelikli, libghostty tabanlı bir yerel terminal istediğinizde en güçlüsüdür.",
+          "summaryBody": "Yerleşik aracılar, üçüncü taraf CLI aracı desteği, bulut çalıştırmaları ve Oz otomasyonu içeren aracılı bir geliştirme ortamı istediğinizde Warp en güçlüsüdür. Zaten kullandığınız CLI aracıları için bildirim halkaları, Cmd+Shift+U, Cmd+Control+U, tarayıcı bölmeleri ve programlanabilir bir soket ile GPL lisanslı, yerel öncelikli, libghostty tabanlı yerel bir Mac terminali istediğinizde cmux en güçlüsüdür.",
           "table": {
             "headers": [
               "Boyut",
@@ -3049,17 +3049,17 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "Açık kaynak terminal istemcisi; Electron/Tauri shell değil"
+                "Açık kaynaklı AGPL istemcisi; resmi belgelerde platformlar arası Rust + GPU ile oluşturulan kod tabanı açıklanıyor"
               ],
               [
                 "İşleme motoru",
                 "Terminal oluşturma için libghostty üzerine oluşturuldu",
-                "Warp terminal istemcisi oluşturma"
+                "Rust + GPU ile oluşturulan terminal istemcisi"
               ],
               [
                 "Temsilci seçimi",
                 "Herhangi bir kabuk tabanlı aracı",
-                "Warp ürün iş akışı"
+                "Warp Agent artı Claude Code, Codex, Gemini CLI ve OpenCode gibi üçüncü taraf CLI aracılarını destekler"
               ],
               [
                 "Kaynak modeli",
@@ -3069,12 +3069,12 @@
               [
                 "Organizasyon",
                 "Dikey çalışma alanları, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U",
-                "Terminal sekmeleri, bölmeler, bildirimler ve Warp iş akışları"
+                "Dikey sekmeler, bölmeler, aracı meta verileri, bildirimler ve Warp/Oz iş akışları"
               ],
               [
                 "Programlanabilirlik",
                 "Unix soketi, CLI, tarayıcı otomasyonu",
-                "Warp'a özgü özellikler"
+                "Oz CLI/API/SDK, settings.toml ve Warp/Oz otomasyonu; cmux'nin yerel uygulama soketi ve tarayıcı otomasyonunun belgelenmiş eşdeğeri yok"
               ],
               [
                 "En uygun",
@@ -3089,7 +3089,7 @@
               "body": "Kodlama temsilcileri testleri yürütmek, sorular sormak ve incelemeyi beklemek için çok zaman harcıyor. cmux bu oturumları görünür tutar, ilgilenilmesi gereken bölmeleri çalar ve klavyeden okunmamış çalışmalar arasında geçiş yapmanızı sağlar."
             },
             {
-              "title": "Temsilci kilitlemesi yok",
+              "title": "Yerel paravan aracı esnekliği",
               "body": "cmux bölmenin hangi CLI sahibi olduğunu umursamaz. Bir çalışma alanında Claude Code, diğerinde Codex, üçüncüsünde OpenCode ve hepsinin yanında sıradan kabuk komutlarını çalıştırabilirsiniz."
             },
             {
@@ -3103,7 +3103,7 @@
           ],
           "faqTitle": "SSS",
           "faqQ1": "cmux, Warp gibi bir AI terminali midir?",
-          "faqA1": "cmux, terminale gömülü bir AI asistanı yerine AI aracılarına yönelik bir terminaldir.",
+          "faqA1": "Warp, yerleşik aracılara ve bulut iş akışlarına sahip aracılı bir geliştirme ortamıdır. cmux, terminale yerleşik bir AI asistanı yerine kabuk tabanlı AI aracılarını denetlemek için yerel bir Mac terminalidir.",
           "faqQ2": "Warp ve cmux'yi birlikte kullanabilir miyim?",
           "faqA2": "Evet. Her göreve uygun terminali kullanın. cmux, birçok temsilci oturumunun organizasyona ve dikkat takibine ihtiyaç duyduğu durumlarda en güçlüsüdür.",
           "faqQ3": "Kodlama aracıları için neden cmux seçmelisiniz?",
@@ -3115,7 +3115,7 @@
           "title": "cmux ve WezTerm",
           "intro": "WezTerm GPU ile hızlandırılmış bir platformlar arası terminal emülatörü ve çoklayıcıdır. cmux, aracıyı tanıyan çalışma alanları, bildirim halkaları, okunmamış klavye gezintisi ve Unix soketi API ekleyen, libghostty üzerine kurulu yerel bir macOS terminali ve tarayıcı çalışma alanıdır.",
           "summaryTitle": "Platformlar arası terminal çoklayıcı ve Mac aracı konsolu karşılaştırması",
-          "summaryBody": "Güçlü bir platformlar arası terminal ve çoklayıcı istediğinizde WezTerm kullanın. Yerel olarak bir Mac üzerinde çalıştığınızda, birçok kodlama aracısını çalıştırdığınızda ve bildirim halkaları, Cmd+Shift+U, Cmd+Control+U, tarayıcı bölmeleri, kenar çubuğu meta verileri ve programlanabilir uygulama kontrolü istediğinizde cmux kullanın.",
+          "summaryBody": "Güçlü bir platformlar arası terminal, Lua yapılandırması ve terminal/mux otomasyonu istediğinizde WezTerm'yi kullanın. Mac üzerinde yerel olarak çalıştığınızda, birçok kodlama aracısını çalıştırdığınızda ve bildirim halkaları, Cmd+Shift+U, Cmd+Control+U, tarayıcı bölmeleri, kenar çubuğu meta verileri ve uygulama düzeyinde yuva kontrolü istediğinizde cmux'yi kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -3136,7 +3136,7 @@
               [
                 "İşleme motoru",
                 "Modern GPU ile hızlandırılmış terminal oluşturma için libghostty üzerine kurulmuştur",
-                "WezTerm terminal oluşturucu ve çoklayıcı"
+                "Yerleşik mux ile GPU hızlandırmalı terminal oluşturucu"
               ],
               [
                 "Organizasyon",
@@ -3151,7 +3151,7 @@
               [
                 "Tarayıcı iş akışı",
                 "Otomasyona sahip yerleşik tarayıcı bölmeleri",
-                "Harici tarayıcı iş akışı"
+                "Bağlantılar ve web kontrolleri için harici tarayıcı"
               ],
               [
                 "En uygun",
@@ -3184,7 +3184,7 @@
           ],
           "faqTitle": "SSS",
           "faqQ1": "WezTerm, AI kodlama aracılarını çalıştırabilir mi?",
-          "faqA1": "Evet. WezTerm herhangi bir terminal gibi CLI aracılarını çalıştırabilir. cmux aracıya özel organizasyon, okunmamış durum, bildirim halkaları ve tarayıcı otomasyonu ekler.",
+          "faqA1": "Evet. WezTerm, CLI aracılarını herhangi bir terminal gibi çalıştırabilir ve CLI aracılığıyla terminal bölmelerini otomatikleştirebilir. cmux, bu terminallerin yanına aracıya özgü okunmamış durum, bildirim halkaları, kenar çubuğu meta verileri ve tarayıcı otomasyonu ekler.",
           "faqQ2": "Neden macOS üzerinde cmux seçmelisiniz?",
           "faqA2": "Darboğazınız birçok yerel temsilci arasında çoklu görev olduğunda ve terminal uygulamasının kendisinin dikkati izlemesini istediğinizde cmux seçeneğini seçin.",
           "faqQ3": "WezTerm ne zaman daha iyi bir seçimdir?",
@@ -3196,7 +3196,7 @@
           "title": "cmux ve Ghostty",
           "intro": "Ghostty hızlı bir terminal emülatörüdür. cmux, libghostty üzerinde oluşturulmuş, çalışma alanları, dikey sekmeler, bildirim halkaları, tarayıcı bölmeleri ve kodlama aracısı iş akışları için bir API soketi ekleyen ayrı bir yerel macOS uygulamasıdır.",
           "summaryTitle": "Aynı işleme motoru ailesi, farklı iş",
-          "summaryBody": "Odaklanmış genel amaçlı bir terminal istediğinizde Ghostty kullanın. Organizasyon, bildirim halkaları, Cmd+Shift+U, Cmd+Control+U, tarayıcı bölmeleri ve birçok kodlama aracısı oturumu için otomasyon ile bir aracı çalışma alanı içinde aynı libghostty terminal oluşturma işlemini istediğinizde cmux kullanın.",
+          "summaryBody": "Odaklanmış bir terminal emülatörü istediğinizde Ghostty'yi kullanın. libghostty'nin kalıcı okunmamış durumu, tarayıcı bölmeleri ve aracıların bölmeler oluşturmasına, terminalleri okumasına, ekran görüntüleri yakalamasına ve web kontrollerini yönlendirmesine olanak tanıyan bir Unix soketine sahip bir aracı çalışma alanı içinde işlenmesini istediğinizde cmux'yi kullanın.",
           "table": {
             "headers": [
               "Boyut",
@@ -3212,12 +3212,12 @@
               [
                 "Masaüstü yığını",
                 "libghostty üzerine kurulu yerel Swift/AppKit macOS uygulaması",
-                "libghostty etrafında kurulmuş native terminal uygulaması"
+                "Paylaşılan Zig çekirdeği ve libghostty ile yerel SwiftUI macOS uygulaması"
               ],
               [
                 "İşleme",
                 "libghostty üzerine oluşturuldu",
-                "Ghostty terminal motoru"
+                "macOS'de Metal, Linux'ta OpenGL, paylaşılan Ghostty/libghostty terminal çekirdeği"
               ],
               [
                 "Organizasyon",
@@ -3227,19 +3227,19 @@
               [
                 "Temsilcinin dikkati",
                 "Bildirim zilleri, Cmd+Shift+U, Cmd+Control+U",
-                "Terminal bildirimleri ve manuel sekme taraması"
+                "Masaüstü bildirimleri, sekmeler, bölmeler ve AppleScript; belgelenmiş cmux tarzı okunmamış halkalar veya tarayıcı bölmeleri yok"
               ],
               [
                 "Otomasyon",
                 "cmux CLI, soket API, tarayıcı otomasyonu",
-                "Terminal yapılandırması ve kabuk araçları"
+                "Terminal pencereleri, sekmeler, bölmeler ve giriş için AppleScript ve Shortcuts"
               ]
             ]
           },
           "sections": [
             {
               "title": "cmux bir Ghostty çatalı değil",
-              "body": "cmux, yerel uygulamaların web görünümleri için WebKit kullanmasına benzer şekilde, oluşturma motoru olarak libghostty kullanır. Ghostty kendi terminali olarak kalır; cmux, aracıların yoğun olduğu iş akışlarını hedefleyen farklı bir uygulamadır."
+              "body": "Ghostty mükemmel bir terminal emülatörüdür ve artık terminal otomasyonu için AppleScript'ye sahiptir. cmux, aracı iş akışları için daha da ileri gider: terminal kontrolü, çalışma alanı durumu, bildirimler, ekran görüntüleri ve tarayıcı bölmeleri, tek bir CLI/soket yüzeyi aracılığıyla sunulur, böylece bir aracı, çalışma alanından ayrılmadan komutları çalıştırabilir ve bir web uygulamasını doğrulayabilir."
             },
             {
               "title": "Dikey çalışma alanları temsilciler için daha iyi ölçeklenir",
@@ -3247,7 +3247,7 @@
             },
             {
               "title": "Bildirimler gezinilebilir duruma gelir",
-              "body": "Masaüstü bildirimleri kayboluyor. cmux uygulamada okunmamış durumu korur, bölmeyi çalar ve Cmd+Shift+U ile en son bekleme oturumuna atlamanıza veya Cmd+Control+U ile okunmamış çalışmayı döngüye sokmanıza olanak tanır."
+              "body": "Masaüstü bildirimleri temizlendikten sonra gözden kaçırılması kolaydır. cmux okunmamış durumu uygulamanın içinde tutar, bölmeyi çalar, kenar çubuğunu işaretler ve Cmd+Shift+U'nin en son okunmamış oturuma atlamasına olanak tanır."
             },
             {
               "title": "Otomasyon kabuğun dışına ulaşıyor",

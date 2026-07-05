@@ -1778,10 +1778,10 @@
       "intro": "AI 코딩 에이전트용 터미널이나 워크스페이스를 고르는 개발자를 위한 집중 비교입니다. cmux는 네이티브 macOS 성능, 보이는 멀티태스킹, 빠른 키보드 탐색, 특정 에이전트 런타임에 묶이지 않는 점이 강점입니다.",
       "pages": {
         "bestTerminalForAgents": {
-          "metaTitle": "2026년 AI 코딩 에이전트를 위한 최고의 터미널 — cmux",
+          "metaTitle": "2026년 AI 코딩 에이전트를 위한 최고의 터미널과 에이전트 워크스페이스 - cmux",
           "metaDescription": "AI 코딩 에이전트를 실행하는 터미널로 cmux, Superset, Warp, Ghostty, iTerm2, tmux 등을 비교합니다.",
-          "title": "2026년 AI 코딩 에이전트를 위한 최고의 터미널",
-          "intro": "코딩 에이전트에 가장 좋은 터미널은 오래 실행되는 여러 세션을 보이게 유지하고, 반응성 있게, 쉽게 제어하게 해 주는 터미널입니다. cmux는 이 워크플로를 위해 만들어졌습니다. 네이티브 Swift/AppKit 성능, 세로 워크스페이스, 알림 링, 키보드 단축키, 프로그래밍 가능한 CLI를 갖췄습니다.",
+          "title": "2026년 AI 코딩 에이전트를 위한 최고의 터미널과 에이전트 워크스페이스",
+          "intro": "코딩 에이전트에 가장 좋은 터미널 또는 에이전트 워크스페이스는 오래 실행되는 여러 세션을 잘 보이게, 빠르게 반응하게, 쉽게 제어하게 해 주는 도구입니다. cmux는 하루 종일 여러 에이전트를 병렬로 다루는 사람들이 만들었습니다. 네이티브 Swift/AppKit 성능, 세로 워크스페이스, 알림 링, 최신 읽지 않음 항목으로 이동하는 Cmd+Shift+U, 현재 항목을 가장 오래된 읽지 않음으로 표시하고 다음 읽지 않음 항목으로 이동하는 Cmd+Control+U, 프로그래밍 가능한 CLI를 제공합니다.",
           "summaryTitle": "짧은 답",
           "summaryBody": "새 에이전트, 에디터, 클라우드 런타임, 크레딧 시스템을 강제하지 않으면서 많은 에이전트를 감독할 수 있는 네이티브 macOS 터미널을 원한다면 cmux를 선택하세요. 작업 오케스트레이션과 내장 리뷰 흐름을 원한다면 에이전트 워크스페이스를 선택하세요. 대부분 한 번에 에이전트 하나만 실행한다면 전통적인 터미널이면 충분합니다.",
           "table": {
@@ -1848,9 +1848,9 @@
               ],
               [
                 "Warp",
-                "관리형 제품 안의 AI 터미널 기능",
-                "내장 및 외부 에이전트 워크플로",
-                "오픈 소스 클라이언트와 관리형 제품 서비스"
+                "에이전트형 터미널과 클라우드 오케스트레이션",
+                "Warp Agent, Oz, 가져온 CLI 에이전트",
+                "오픈 소스 클라이언트가 관리형 Warp/Oz 서비스에 묶임"
               ],
               [
                 "Ghostty",
@@ -1901,7 +1901,7 @@
             },
             {
               "title": "부하가 걸릴 때의 성능",
-              "body": "cmux는 Electron이 아니라 libghostty 위에 구축된 네이티브 Swift/AppKit 앱입니다. 많은 터미널, 브라우저, 에이전트를 하루 종일 열어 둘 때 UI 오버헤드가 작을수록 실제 작업을 하는 에이전트와 dev server에 더 많은 CPU와 메모리를 남길 수 있습니다."
+              "body": "cmux는 libghostty 위에 구축된 네이티브 Swift/AppKit 앱이며 Electron이 아닙니다. 그래서 네이티브 Mac UI와 Ghostty 기반 터미널 렌더링을 제공하면서, 오케스트레이션 계층을 그 안에서 실행하는 에이전트, 테스트 러너, 브라우저, 개발 서버와 분리합니다."
             },
             {
               "title": "키보드 우선 감독",
@@ -1909,7 +1909,7 @@
             },
             {
               "title": "Worktree 지원은 제품 상자가 아니라 primitive",
-              "body": "내장 worktree 지원은 실제 팀에서 금방 한계에 닿습니다. backend와 frontend repo가 다른 위치에 있고, setup script, remote machine, no-git project, 가끔은 main에 바로 작업하는 흐름도 있기 때문입니다. cmux는 programmable 상태를 유지해 Claude Code, Codex, custom command, repo script가 코드베이스에 맞는 workspace 형태를 만들 수 있게 합니다."
+              "body": "내장 worktree 지원은 프런트엔드와 백엔드 저장소가 나뉜 팀, 설정 스크립트, 원격 머신, Git을 쓰지 않는 프로젝트, code-to-main 흐름에는 너무 좁을 수 있습니다. cmux는 계속 프로그래밍 가능하므로 Claude Code, Codex, 사용자 지정 명령, 저장소 스크립트가 코드베이스에 맞는 워크스페이스 형태를 만들 수 있습니다."
             }
           ],
           "faqTitle": "FAQ",
@@ -1926,7 +1926,7 @@
           "title": "cmux 대 Alacritty",
           "intro": "Alacritty는 의도적으로 간결한 기능 세트를 갖춘 빠른 ​​크로스 플랫폼 OpenGL 터미널 에뮬레이터입니다. cmux는 알림 링, 읽지 않은 바로가기 및 프로그래밍 가능한 앱 제어를 통해 많은 AI 코딩 에이전트를 실행하기 위해 libghostty를 기반으로 구축된 기본 macOS 터미널 및 브라우저 작업 공간입니다.",
           "summaryTitle": "빠른 터미널과 에이전트 감독 터미널",
-          "summaryBody": "최소한의 고성능 터미널을 원하고 나머지는 쉘 도구로 조립하려는 경우 Alacritty를 사용하십시오. 기본 macOS 성능과 눈에 보이는 작업 공간, Cmd+Shift+U, Cmd+Control+U, 브라우저 창, 알림 및 에이전트가 많이 사용되는 작업을 위한 소켓 API를 원하는 경우 cmux를 사용하세요.",
+          "summaryBody": "최소 구성의 고성능 터미널을 원하고 나머지는 Alacritty 설정, alacritty msg, 셸 도구, 멀티플렉서로 구성하려면 Alacritty를 사용하세요. 네이티브 macOS 성능에 보이는 워크스페이스, Cmd+Shift+U, Cmd+Control+U, 브라우저 패널, 알림, 에이전트 중심 작업을 위한 소켓 API가 필요하면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
@@ -1957,12 +1957,12 @@
               [
                 "주목 모델",
                 "알림 벨소리, 읽지 않은 배지, Cmd+Shift+U, Cmd+Control+U",
-                "터미널 주변에서 스크립트를 작성하는 모든 것"
+                "시각적 벨, 벨 명령, 외부 알림 스크립트"
               ],
               [
                 "오토메이션",
                 "CLI, Unix 소켓 API, 브라우저 자동화, 후크",
-                "터미널 구성과 외부 프로그램"
+                "설정, 키/마우스 바인딩, alacritty msg IPC, 외부 프로그램"
               ],
               [
                 "최적의 핏",
@@ -2003,9 +2003,9 @@
         },
         "cmuxVsConductor": {
           "metaTitle": "코딩 에이전트의 경우 cmux 및 Conductor - cmux",
-          "metaDescription": "여러 코딩 에이전트 실행, 기본 터미널 성능, 격리된 작업 공간, 검토 흐름 및 잠금 기능에 대해 cmux와 Conductor를 비교해 보세요.",
+          "metaDescription": "여러 코딩 에이전트 실행, 네이티브 터미널 성능, 격리된 워크스페이스, 리뷰 흐름, 워크플로 유연성 측면에서 cmux와 Conductor를 비교합니다.",
           "title": "cmux 대 Conductor",
-          "intro": "Conductor는 에이전트 작업에 대한 작업 설정, 비교 및 ​​검토 흐름을 통해 격리된 작업 공간에서 코딩 에이전트를 실행하기 위한 Mac 앱입니다. cmux는 이미 사용 중인 CLI 에이전트, 셸, 브라우저, 개발 서버 또는 스크립트를 감독하기 위한 기본 터미널 및 브라우저 작업 공간입니다.",
+          "intro": "Conductor는 초기 액세스 Conductor Cloud를 포함한 Mac 앱으로, 격리된 워크스페이스에서 코딩 에이전트를 실행하고 에이전트 작업 주변에 작업 설정, diff, 리뷰 흐름을 제공합니다. cmux는 이미 사용하는 CLI 에이전트, 셸, 브라우저, 개발 서버, 스크립트를 감독하는 네이티브 터미널 및 브라우저 워크스페이스입니다.",
           "summaryTitle": "에이전트 작업 작업 공간과 터미널 제어 플레인",
           "summaryBody": "격리된 복사본과 검토 화면이 포함된 패키지화된 에이전트 작업 워크플로를 원할 경우 Conductor를 사용하세요. 프로그래밍 가능한 하나의 작업 공간에서 Claude Code, Codex, OpenCode, Gemini CLI, Aider, 스크립트, SSH, 브라우저 및 개발 서버를 실행할 수 있는 무료 오픈 소스 기본 터미널을 원하는 경우 cmux를 사용하세요.",
           "table": {
@@ -2023,7 +2023,7 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "Mac 앱, 데스크톱 스택은 공개적으로 명시되지 않음"
+                "Mac 앱. 공식 문서는 전체 데스크톱 스택을 명시하지 않지만, 공개된 창업자 게시물은 Tauri, Rust 백엔드, 네이티브 Mac 렌더러를 설명함"
               ],
               [
                 "에이전트 모델",
@@ -2033,7 +2033,7 @@
               [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
-                "타사 오픈 소스 구성 요소가 포함된 독점 제품"
+                "서드파티 오픈 소스 구성 요소가 포함된 무료 독점 제품"
               ],
               [
                 "조직",
@@ -2055,7 +2055,7 @@
           "sections": [
             {
               "title": "cmux는 하나의 에이전트 워크플로보다 더 광범위합니다.",
-              "body": "Conductor는 작업이 여러 개의 격리된 코딩 에이전트 작업을 실행할 때 강력합니다. cmux는 해당 사용 사례를 유지한 다음 터미널 프리미티브를 변경하지 않고 Gemini CLI, Aider, Amp, 일반 쉘, SSH, 브라우저, 로컬 서비스 및 향후 CLI를 추가합니다."
+              "body": "여러 격리된 코딩 에이전트 작업을 실행하는 것이 목적이라면 Conductor는 매력적입니다. cmux는 그런 작업의 터미널 감독 계층을 다루면서 Gemini CLI, Aider, Amp, 일반 셸, SSH, 브라우저, 로컬 서비스, 기타 CLI 도구도 터미널 기본 단위를 바꾸지 않고 실행합니다."
             },
             {
               "title": "기본 터미널 성능은 하루 종일 중요합니다.",
@@ -2070,8 +2070,8 @@
               "body": "cmux CLI 및 소켓 API는 작업 공간을 만들고, 창을 분할하고, 입력을 보내고, 터미널 화면을 읽고, 스크린샷을 캡처하고, 브라우저 창을 구동할 수 있습니다. 이를 통해 팀은 터미널 위에 지휘자와 같은 자체 흐름을 구축할 수 있습니다."
             },
             {
-              "title": "내장된 작업 트리는 항상 한계에 도달합니다.",
-              "body": "일부 팀은 서로 다른 위치에 백엔드 및 프런트엔드 저장소를 보유하고 있습니다. 일부는 Git을 사용하지 않습니다. 일부는 메인에서 직접 빠른 로컬 작업을 원합니다. cmux는 cmux의 Zen을 따릅니다. 기본 요소를 노출한 다음 개발자와 에이전트가 하나의 내장 작업 트리 모델을 강제하는 대신 워크플로 검색 공간을 탐색할 수 있도록 합니다."
+              "title": "Git worktree 우선 모델이 모든 워크플로는 아닙니다",
+              "body": "Conductor의 문서화된 워크스페이스 모델은 Git 기반입니다. 각 워크스페이스는 브랜치와 Git worktree에 매핑됩니다. 어떤 팀은 백엔드와 프런트엔드 저장소가 서로 다른 위치에 있고, 어떤 워크플로는 Git 우선이 아니며, 어떤 로컬 검사는 기존 체크아웃에서 직접 실행해야 합니다. cmux는 터미널, 브라우저, 워크스페이스, 소켓 기본 단위를 노출하므로 개발자와 에이전트가 이런 워크플로를 직접 조합할 수 있습니다."
             }
           ],
           "faqTitle": "FAQ",
@@ -2084,11 +2084,11 @@
         },
         "multipleClaudeAgents": {
           "metaTitle": "여러 Claude Code 에이전트를 병렬로 실행하는 방법 — cmux",
-          "metaDescription": "cmux 워크스페이스, 알림 링, 세로 탭, 키보드 단축키로 여러 Claude Code 세션을 병렬 실행합니다.",
+          "metaDescription": "cmux 워크스페이스, 세로 탭, 읽지 않음 탐색, hooks, OSC 이스케이프 시퀀스, cmux notify로 구동되는 알림 링을 사용해 여러 Claude Code, Codex, OpenCode 및 기타 CLI 에이전트 세션을 병렬로 실행합니다.",
           "title": "여러 Claude Code 에이전트를 병렬로 실행하는 방법",
           "intro": "병렬 Claude Code 작업에는 격리, 가시성, 입력이 필요한 세션을 빠르게 찾는 방법이 필요합니다. cmux는 각 작업에 보이는 워크스페이스를 주고 Claude 세션을 나란히 실행해도 읽기 쉽게 유지합니다.",
           "summaryTitle": "안전한 병렬 워크플로",
-          "summaryBody": "작업마다 브랜치나 worktree를 만들고, 각각을 자체 cmux 워크스페이스에서 열고, Claude Code를 평소처럼 실행한 다음 알림 링과 읽지 않음 단축키로 확인이 필요한 세션을 리뷰하세요. Claude는 에이전트로 남고 cmux는 감독 화면을 담당합니다.",
+          "summaryBody": "작업마다 브랜치, worktree, 체크아웃, 저장소 폴더 또는 사용자 지정 워크스페이스를 하나 만들고, 각각을 cmux에서 열어 에이전트를 평소처럼 실행한 뒤, hooks, OSC, cmux notify에서 온 읽지 않음 단축키와 cmux 알림으로 확인이 필요한 세션을 리뷰하세요. Claude Code, Codex, OpenCode는 그대로 에이전트이고, cmux는 감독 화면을 담당합니다.",
           "table": {
             "headers": [
               "방식",
@@ -2125,7 +2125,7 @@
                 "cmux claude-teams",
                 "teammate 세션을 네이티브 패널로 매핑",
                 "강함",
-                "숨겨진 tmux 패널 없이 Claude teammate mode 사용"
+                "tmux/iTerm2 패널 대신 네이티브 cmux 분할을 쓰는 Claude Code 에이전트 팀"
               ]
             ]
           },
@@ -2136,11 +2136,11 @@
             },
             {
               "title": "알림 링을 리뷰 큐로 사용",
-              "body": "Claude가 끝났거나 입력을 요청하면 cmux는 패널을 읽지 않음으로 표시하고 링을 울립니다. 최신 읽지 않음으로 이동하는 단축키는 병렬 작업을 탭 찾기가 아니라 리뷰 큐로 바꿉니다."
+              "body": "에이전트가 hooks, OSC 99/777 또는 cmux notify를 통해 cmux 알림을 내보내면 cmux는 워크스페이스를 읽지 않음으로 표시하고 패널에 링을 표시합니다. Cmd+Shift+U는 최신 읽지 않음 항목으로 이동합니다. Cmd+Control+U는 현재 항목을 가장 오래된 읽지 않음으로 표시하고 다음 최신 읽지 않음으로 이동합니다. 여러 에이전트가 동시에 끝날 때 유용합니다."
             },
             {
               "title": "Claude Code를 그대로 유지",
-              "body": "cmux는 Claude Code를 대체하거나 요청을 프록시하지 않습니다. 기존 계정과 설정으로 같은 Claude CLI를 실행하므로 cmux 전용 에이전트 런타임에 묶이지 않습니다."
+              "body": "cmux는 Claude Code, Codex, OpenCode를 대체하지 않습니다. 기존 계정과 설정으로 같은 CLI를 실행하고, cmux가 워크스페이스, 알림, 소켓 자동화를 터미널 세션 주변에 추가합니다."
             },
             {
               "title": "맞을 때 teammate mode 사용",
@@ -2149,15 +2149,15 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux가 Git worktree를 자동으로 만들나요?",
-          "faqA1": "cmux는 브랜치나 worktree 흐름에 맞춰 워크스페이스를 만들도록 스크립트할 수 있고, CLI/socket API로 팀 설정을 자동화할 수 있습니다. 비교 페이지는 보이는 감독 레이어에 초점을 맞춥니다.",
+          "faqA1": "기본적으로는 아닙니다. cmux는 브랜치, worktree, 다중 저장소, Git 없음, code-to-main, 원격 개발 흐름 주변에 워크스페이스를 만들도록 스크립팅할 수 있으므로 프로젝트에 맞는 저장소 구성을 유지할 수 있습니다.",
           "faqQ2": "Claude Code와 Codex를 나란히 실행할 수 있나요?",
           "faqA2": "네. cmux는 에이전트에 무관하므로 Claude Code, Codex, OpenCode 및 다른 CLI 에이전트를 별도 워크스페이스에서 동시에 실행할 수 있습니다.",
           "faqQ3": "병렬 에이전트에서 가장 중요한 단축키는 무엇인가요?",
-          "faqA3": "최신 읽지 않음으로 이동이 핵심 감독 단축키입니다. 결정이 필요한 에이전트로 바로 이동하기 때문입니다."
+          "faqA3": "Cmd+Shift+U는 최신 읽지 않음 항목으로 이동하므로 핵심 감독 단축키입니다. Cmd+Control+U는 현재 항목을 가장 오래된 읽지 않음으로 표시하고 다음 최신 읽지 않음 항목으로 이동하고 싶을 때 유용합니다."
         },
         "cmuxVsSuperset": {
           "metaTitle": "AI 코딩 에이전트를 위한 cmux vs Superset — cmux",
-          "metaDescription": "병렬 코딩 에이전트, 네이티브 성능, 에이전트 락인, 정리, 프로그래밍 가능성 측면에서 cmux와 Superset을 비교합니다.",
+          "metaDescription": "병렬 코딩 에이전트, 네이티브 터미널 성능, 에이전트 유연성, 정리, 프로그래밍 가능성 측면에서 cmux와 Superset을 비교합니다.",
           "title": "cmux vs Superset",
           "intro": "cmux와 Superset은 모두 개발자가 둘 이상의 코딩 에이전트를 실행하도록 돕습니다. 차이는 제품 형태입니다. Superset은 worktree 오케스트레이션이 있는 에이전트 워크스페이스이고, cmux는 모든 CLI 에이전트를 감독하기 위한 네이티브 터미널 및 브라우저입니다.",
           "summaryTitle": "워크플로에 따라 선택",
@@ -2177,7 +2177,7 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "xterm.js와 node-pty를 쓰는 Electron/React 데스크톱 앱"
+                "@xterm/xterm과 node-pty를 사용하는 Electron/React 데스크톱 앱"
               ],
               [
                 "런타임",
@@ -2187,7 +2187,7 @@
               [
                 "에이전트 모델",
                 "모든 CLI 에이전트, cmux 런타임 락인 없음",
-                "관리형 워크스페이스 안의 여러 CLI 에이전트"
+                "Superset 관리 워크스페이스 안의 모든 CLI 에이전트"
               ],
               [
                 "소스 모델",
@@ -2202,7 +2202,7 @@
               [
                 "프로그래밍 가능성",
                 "CLI, Unix socket API, 브라우저 자동화, hooks",
-                "제품 수준 오케스트레이션"
+                "워크스페이스 및 에이전트 오케스트레이션용 CLI 베타, MCP, SDK, 자동화"
               ],
               [
                 "가장 적합",
@@ -2218,7 +2218,7 @@
             },
             {
               "title": "고동시성에서는 네이티브 성능이 중요",
-              "body": "많은 에이전트를 실행하는 것 자체가 이미 CPU와 메모리를 많이 씁니다. cmux는 Swift/AppKit과 libghostty를 사용해 터미널 화면을 가볍게 유지하고, 에이전트 프로세스, 컴파일러, dev server가 필요한 리소스를 쓰게 합니다."
+              "body": "많은 에이전트를 실행하는 것 자체가 이미 CPU와 메모리를 많이 씁니다. cmux는 Swift/AppKit과 libghostty를 사용하므로 터미널 UI가 Electron 오버헤드를 피하고, 에이전트 프로세스, 컴파일러, 개발 서버가 각자의 리소스를 사용합니다."
             },
             {
               "title": "주의도 제품 화면",
@@ -2226,28 +2226,28 @@
             },
             {
               "title": "프로그래밍 가능성은 탈출구",
-              "body": "cmux는 CLI와 socket API를 통해 워크스페이스, 패널, 화면 읽기, 스크린샷, 브라우저 자동화를 노출합니다. 고급 사용자는 하나의 제품 워크플로에 맞추지 않고 그 위에 자신만의 오케스트레이션을 만들 수 있습니다."
+              "body": "cmux는 워크스페이스, 패널, 화면 읽기, 스크린샷, 브라우저 자동화를 CLI와 소켓 API로 노출합니다. Superset에도 워크스페이스와 에이전트 오케스트레이션을 위한 CLI/MCP/SDK 표면이 있습니다. cmux의 차이는 터미널과 브라우저 패널 자체가 스크립팅 가능하다는 점입니다."
             },
             {
               "title": "Worktree 지원은 결코 보편적이지 않음",
-              "body": "내장 worktree manager는 repo 형태가 복잡해지기 전까지만 유용합니다. backend/frontend repo 분리, generated setup step, Git 없음, remote host, main에서 바로 작업하려는 팀 같은 경우가 있습니다. cmux는 terminal primitive를 programmable하게 유지해 Claude Code, Codex, script, custom command가 필요한 workspace 형태를 정확히 만들 수 있게 합니다."
+              "body": "내장 worktree 관리자는 모든 작업이 브랜치에 깔끔하게 매핑될 때 유용합니다. cmux는 터미널에 더 가깝게 남아 있으므로 Claude Code, Codex, 스크립트, 사용자 지정 명령이 제품 워크스페이스 모델에 맞지 않는 저장소 구조, Git이 아닌 디렉터리, SSH 세션, 일회성 설정 경로를 처리할 수 있습니다."
             }
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux는 Superset 대체품인가요?",
-          "faqA1": "Superset을 무엇에 쓰는지에 따라 다릅니다. cmux는 터미널 감독 레이어를 대체하고, Superset은 더 의견이 강한 작업 및 worktree 워크플로를 포함합니다.",
+          "faqA1": "Superset을 무엇에 쓰는지에 따라 다릅니다. cmux는 터미널 감독 계층을 대체할 수 있고, Superset은 더 의견이 강한 작업 및 worktree 워크플로를 포함합니다.",
           "faqQ2": "cmux가 같은 에이전트를 실행할 수 있나요?",
           "faqA2": "네. cmux는 Claude Code, Codex, OpenCode, Gemini CLI, Aider, Amp, Cursor CLI를 포함한 CLI 에이전트를 직접 실행합니다.",
           "faqQ3": "Superset에 worktree가 있는데 왜 cmux를 선택하나요?",
-          "faqA3": "네이티브 터미널 성능, 키보드 기반 멀티태스킹, 에이전트 락인 없음, 자신의 워크플로에 맞출 수 있는 프로그래밍 가능한 화면이 우선이라면 cmux를 선택하세요."
+          "faqA3": "네이티브 터미널 성능, 키보드 중심 멀티태스킹, 편집기에 중립적인 터미널 워크플로, 자신의 워크플로에 맞게 조정할 수 있는 스크립팅 가능한 터미널/브라우저 표면이 우선이라면 cmux를 선택하세요."
         },
         "cmuxVsCursor": {
           "metaTitle": "AI 코딩 에이전트를 위한 cmux vs Cursor — cmux",
-          "metaDescription": "에이전트 워크플로, 터미널 감독, 에디터 통합, 네이티브 macOS 성능, 락인 측면에서 cmux와 Cursor를 비교합니다.",
+          "metaDescription": "에이전트 워크플로, 터미널 감독, 편집기 통합, 네이티브 macOS 성능, 워크플로 유연성 측면에서 cmux와 Cursor를 비교합니다.",
           "title": "cmux vs Cursor",
           "intro": "Cursor는 AI 에디터이자 에이전트 플랫폼입니다. cmux는 선택한 에이전트와 도구를 실행하는 네이티브 터미널 및 브라우저입니다. 많은 개발자는 편집에는 Cursor를, 터미널 에이전트 감독에는 cmux를 함께 씁니다.",
           "summaryTitle": "서로 다른 레이어",
-          "summaryBody": "에디터 안에서 AI를 원한다면 Cursor를 쓰세요. 하나의 에디터나 호스팅 런타임에 묶이지 않고 CLI 에이전트, dev server, SSH 세션, 브라우저 검사를 실행하고 모니터링하려면 cmux를 쓰세요.",
+          "summaryBody": "편집기 안의 AI, Cursor CLI, 브라우저 도구, 클라우드 에이전트를 원하면 Cursor를 사용하세요. 하나의 편집기, 계정 또는 클라우드 에이전트 런타임을 모든 워크플로의 중심으로 삼지 않고 CLI 에이전트, 개발 서버, SSH 세션, 브라우저 검사를 실행하고 모니터링할 무료 오픈 소스 터미널을 원하면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
@@ -2258,32 +2258,32 @@
               [
                 "주요 화면",
                 "터미널, 브라우저, 워크스페이스, 분할",
-                "에디터, 채팅, 호스팅 에이전트"
+                "편집기, CLI, 에이전트 워크스페이스, 브라우저, 클라우드 에이전트"
               ],
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "VS Code 기반 Electron 에디터"
+                "VS Code 기반 데스크톱 편집기. VS Code는 Electron을 사용함"
               ],
               [
                 "에이전트 선택",
                 "모든 CLI 에이전트",
-                "Cursor 중심 AI 워크플로와 통합"
+                "편집기, CLI, 클라우드, 통합 전반의 Cursor Agent"
               ],
               [
-                "락인",
-                "자신의 에이전트와 키 사용",
-                "Cursor 계정, 요금제, 플랫폼 기능"
+                "워크플로 중심",
+                "자신의 터미널 에이전트와 키 가져오기",
+                "Cursor 계정, 요금제, 편집기, CLI, 클라우드 기능"
               ],
               [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
-                "폐쇄형 에디터 제품"
+                "VS Code 코드베이스를 기반으로 한 독점 Cursor 제품"
               ],
               [
                 "성능 프로필",
                 "네이티브 Swift/AppKit 터미널",
-                "에디터 및 호스팅 에이전트 suite"
+                "크로스 플랫폼 편집기와 로컬 및 클라우드 에이전트 표면"
               ],
               [
                 "가장 적합",
@@ -2340,22 +2340,22 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "클라우드 플랫폼 및 VS Code 기반 Devin Desktop"
+                "Devin Cloud와 VS Code 포크 Devin Desktop"
               ],
               [
                 "작업이 실행되는 곳",
                 "Mac, 셸, 저장소 및 개발 환경",
-                "Devin 플랫폼 및 연결된 팀 도구"
+                "Devin Cloud VM, 로컬 Devin CLI 및 Devin Local"
               ],
               [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
-                "폐쇄형 관리 에이전트 플랫폼"
+                "독점 Cognition 서비스와 데스크톱 소프트웨어"
               ],
               [
                 "에이전트 선택",
                 "모든 CLI 에이전트 또는 셸 도구",
-                "Devin 중심 에이전트 워크플로우"
+                "Devin Cloud, Devin Local, Devin CLI, ACP 호환 에이전트"
               ],
               [
                 "사람의 검토",
@@ -2376,11 +2376,11 @@
             },
             {
               "title": "하나의 플랫폼 대신 여러 에이전트를 활용하세요",
-              "body": "한 작업에는 Claude Code를, 다른 작업에는 Codex를, 세 번째 작업에는 OpenCode를 실행하고 그 옆에는 일반 셸 명령을 실행할 수 있습니다. cmux는 감독 계층을 에이전트 공급업체로부터 독립적으로 유지합니다."
+              "body": "한 작업에는 Claude Code, 다른 작업에는 Codex, 세 번째 작업에는 OpenCode를 실행하고 그 옆에 일반 셸 명령을 둘 수 있습니다. cmux는 감독 계층을 Devin 앱과 클라우드 워크플로 밖의 터미널 및 브라우저 워크스페이스에 둡니다."
             },
             {
               "title": "현지 작업이 빠르고 검사 가능하게 유지됩니다.",
-              "body": "많은 작업에서 가장 생산적인 루프는 여전히 로컬입니다. 즉, 편집, 실행, 검사, 다른 에이전트에게 요청, 브라우저 열기, diff가 준비되면 푸시 등이 있습니다. cmux는 모든 결정을 클라우드 작업 대기열로 이동하는 대신 Mac에 해당 루프를 유지합니다."
+              "body": "많은 작업에서 가장 생산적인 루프는 여전히 로컬입니다. 편집하고, 실행하고, 확인하고, 다른 에이전트에게 묻고, 브라우저를 열고, diff가 준비되면 push합니다. cmux는 모든 작업을 관리형 Devin Cloud 세션으로 만들지 않고 그 루프를 Mac에 유지합니다."
             },
             {
               "title": "동시성에서 기본 Mac 성능",
@@ -2393,11 +2393,11 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux는 Devin를 대체합니까?",
-          "faqA1": "아니요. Devin는 관리형 AI 소프트웨어 엔지니어입니다. cmux는 직접 실행하는 에이전트 및 도구 주변의 로컬 터미널 및 브라우저 작업 공간입니다.",
+          "faqA1": "아니요. Devin은 클라우드 위임과 로컬 에이전트 지원을 모두 포함합니다. cmux는 직접 실행하는 에이전트와 도구 주변의 로컬 터미널 및 브라우저 워크스페이스입니다.",
           "faqQ2": "Devin Desktop 또는 Windsurf와 함께 cmux를 사용할 수 있나요?",
           "faqA2": "예. cmux는 CLI 에이전트, 셸, 테스트 및 브라우저 확인을 감독하는 동안 모든 편집기 또는 데스크톱 에이전트 표면 옆에 있을 수 있습니다.",
           "faqQ3": "cmux와 Devin를 비교하는 이유는 무엇입니까?",
-          "faqA3": "둘 다 다중 에이전트 개발을 다루지만 계층이 다릅니다. cmux는 로컬 제어 평면입니다. Devin는 위임된 에이전트 플랫폼입니다."
+          "faqA3": "둘 다 멀티 에이전트 개발을 다루지만 계층이 다릅니다. cmux는 터미널 및 브라우저 제어 평면입니다. Devin은 클라우드 위임, 로컬 에이전트, VS Code 포크 IDE 명령 센터를 아우릅니다."
         },
         "cmuxVsIterm2": {
           "metaTitle": "AI 코딩 에이전트에 대한 cmux 및 iTerm2 - cmux",
@@ -2426,7 +2426,7 @@
               [
                 "상담원 가시성",
                 "수직 작업 공간, 최신 출력, 지점 및 포트 메타데이터",
-                "수동 탭, 창, 분할 및 프로필"
+                "탭, 창, 분할, 프로필, 셸 통합, 상태 표시줄"
               ],
               [
                 "렌더링 엔진",
@@ -2436,12 +2436,12 @@
               [
                 "주목 모델",
                 "알림 링, Cmd+Shift+U, Cmd+Control+U",
-                "터미널 알림 및 수동 검색"
+                "OSC 알림, marks와 alerts, 트리거 알림, 세션 검색"
               ],
               [
                 "오토메이션",
                 "CLI, Unix 소켓 API, 브라우저 자동화, 후크",
-                "터미널 기능, 스크립팅, 트리거 및 프로필"
+                "Python API, 사용 중단된 AppleScript, 트리거, 프로필, tmux 통합"
               ],
               [
                 "최적의 핏",
@@ -2456,8 +2456,8 @@
               "body": "터미널 탭은 어떤 에이전트가 차단되었는지, 어떤 브랜치를 소유하고 있는지, 어떤 개발 서버를 시작했는지 알 수 없습니다. cmux는 해당 컨텍스트를 사이드바에 배치하고 대기 창을 쉽게 찾을 수 있도록 합니다."
             },
             {
-              "title": "브라우저 창은 워크플로의 일부입니다.",
-              "body": "상담원 작업은 시각적 확인, 로그, 로컬 미리보기, 스크린샷으로 끝나는 경우가 많습니다. cmux는 브라우저 창을 터미널 옆에 유지하고 동일한 제어 표면을 통해 브라우저 자동화를 노출할 수 있습니다."
+              "title": "브라우저 자동화는 워크플로의 일부입니다",
+              "body": "iTerm2에도 브라우저 프로필이 있습니다. cmux의 차이는 브라우저 패널을 워크스페이스 및 터미널과 같은 CLI 및 소켓 워크플로에서 주소 지정할 수 있고, DOM 상호작용, 스크린샷, 콘솔 및 오류 로그, 쿠키, 스토리지, JavaScript 평가 명령을 제공한다는 점입니다."
             },
             {
               "title": "관심을 끌기 위한 키보드 단축키",
@@ -2478,7 +2478,7 @@
           "faqQ2": "cmux는 정상적인 쉘 작업을 실행할 수 있습니까?",
           "faqA2": "예. cmux는 여전히 터미널이므로 쉘, SSH, 스크립트, 테스트, 패키지 관리자 및 로컬 서비스가 정상적으로 실행됩니다.",
           "faqQ3": "cmux는 탭과 분할 외에 무엇을 추가합니까?",
-          "faqA3": "cmux는 작업 공간 메타데이터, 알림 링, 읽지 않은 탐색, 브라우저 표면 및 에이전트가 많은 워크플로를 중심으로 설계된 소켓 API를 추가합니다."
+          "faqA3": "cmux는 에이전트 워크스페이스 메타데이터, 알림 링, 읽지 않음 탐색, 소켓으로 주소 지정 가능한 브라우저 표면, 에이전트 중심 워크플로를 위해 설계된 소켓 API를 추가합니다."
         },
         "cmuxVsKitty": {
           "metaTitle": "AI 코딩 에이전트에 대한 cmux 및 Kitty - cmux",
@@ -2502,7 +2502,7 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "네이티브 컴파일 GPU 터미널 에뮬레이터, Electron/Tauri 아님"
+                "C, Python, Go로 작성된 OpenGL 렌더링 터미널 에뮬레이터이며 Electron이나 Tauri 앱이 아님"
               ],
               [
                 "렌더링 엔진",
@@ -2512,17 +2512,17 @@
               [
                 "상담원 가시성",
                 "수직 작업 공간, 최신 출력, 지점 및 포트 메타데이터",
-                "수동 창, 탭, 레이아웃 및 쉘 스크립트"
+                "창, 탭, 레이아웃, 세션, kittens, 원격 제어 스크립팅"
               ],
               [
                 "주목 모델",
                 "알림 벨소리, 읽지 않은 배지, Cmd+Shift+U, Cmd+Control+U",
-                "터미널 알림 및 사용자 정의 설정"
+                "OSC 99 데스크톱 알림과 kitten notify, 읽지 않음 워크플로를 위한 사용자 지정 스크립팅"
               ],
               [
                 "브라우저 작업흐름",
                 "자동화 기능이 내장된 브라우저 창",
-                "외부 브라우저 워크플로우"
+                "OS/기본 핸들러를 통해 URL을 엽니다. 내장 브라우저 패널이나 DOM 자동화는 없습니다"
               ],
               [
                 "최적의 핏",
@@ -2567,7 +2567,7 @@
           "title": "cmux 대 Herdr",
           "intro": "Herdr는 이미 사용하고 있는 터미널 내부에서 실행되고 SSH를 통해 실제 창을 활성 상태로 유지할 수 있는 오픈 소스 터미널 네이티브 에이전트 멀티플렉서입니다. cmux는 libghostty를 기반으로 구축된 GPL 라이선스 네이티브 macOS 앱으로, 수직 작업 공간, 알림 링, 브라우저 창 및 로컬 에이전트 워크플로우를 위한 소켓 API를 갖추고 있습니다.",
           "summaryTitle": "네이티브 Mac 앱과 터미널 네이티브 멀티플렉서",
-          "summaryBody": "특히 SSH나 작은 화면에서 어떤 터미널 안에서도 tmux 같은 에이전트 멀티플렉서를 원하면 Herdr를 쓰세요. libghostty 렌더링, 앱 수준 워크스페이스, 내장 브라우저 자동화, 알림 링, Cmd+Shift+U, Cmd+Control+U, 프로그래밍 가능한 로컬 제어가 있는 네이티브 Mac 터미널 앱을 원하면 cmux를 쓰세요. 많은 워크플로는 둘 다 씁니다. SSH 세션 안에는 Herdr, 그 주변의 Mac 쪽 호스트는 cmux입니다.",
+          "summaryBody": "어떤 터미널 안에서든, 특히 SSH나 작은 화면에서 tmux 같은 에이전트 멀티플렉서를 원하면 Herdr을 사용하세요. libghostty 렌더링, 앱 수준 워크스페이스, 내장 브라우저 자동화, 알림 링, Cmd+Shift+U, Cmd+Control+U, 프로그래밍 가능한 로컬 제어를 갖춘 네이티브 Mac 터미널 앱을 원하면 cmux를 사용하세요. 실용적인 조합은 SSH 세션 안의 Herdr을 cmux가 Mac 쪽 호스트로 감싸는 방식입니다.",
           "table": {
             "headers": [
               "차원",
@@ -2583,7 +2583,7 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "Rust 터미널 네이티브 바이너리, Electron/Tauri 데스크톱 앱 아님"
+                "단일 Rust 터미널 네이티브 바이너리이며 GUI 데스크톱 앱이나 Electron 래퍼가 아님"
               ],
               [
                 "런타임 모델",
@@ -2620,7 +2620,7 @@
           "sections": [
             {
               "title": "Herdr는 터미널 내부에 있습니다.",
-              "body": "Herdr의 가장 강한 주장은 휴대성입니다. 서버에서 실행하고, 분리하고, 다시 연결해 실제 터미널 pane을 계속 살려둘 수 있습니다. 많은 개발자가 cmux에서 연 SSH 세션 안에서 Herdr를 실행합니다. 좋은 조합입니다. Herdr는 원격 pane을 지속시키고, cmux는 SSH 워크스페이스 주변에 Mac 쪽 네이티브 앱, 브라우저 pane, 알림, unread 단축키를 제공합니다."
+              "body": "cmux에서 연 SSH 세션 안에서 Herdr을 실행할 수 있습니다. Herdr은 원격 패널을 지속시키고, cmux는 SSH 워크스페이스 주변에 Mac 쪽 네이티브 앱, 브라우저 패널, 알림, 읽지 않음 단축키를 제공합니다."
             },
             {
               "title": "cmux는 기본 데스크탑 표면을 소유하고 있습니다.",
@@ -2645,11 +2645,11 @@
         },
         "cmuxVsOpencode": {
           "metaTitle": "AI 코딩 에이전트에 대한 cmux 및 OpenCode - cmux",
-          "metaDescription": "터미널 AI 코딩, 오픈 소스 에이전트, 다중 세션 작업, 기본 터미널 감독 및 프로그래밍 가능한 워크플로에 대해 cmux 및 OpenCode를 비교해 보세요.",
+          "metaDescription": "터미널 AI 코딩, 오픈 소스 코딩 에이전트, 다중 세션 작업, 네이티브 터미널 감독, 프로그래밍 가능한 워크플로 측면에서 cmux와 OpenCode를 비교합니다.",
           "title": "cmux 대 OpenCode",
           "intro": "OpenCode는 터미널, 데스크톱 및 IDE 표면에서 사용할 수 있는 오픈 소스 코딩 에이전트입니다. cmux는 OpenCode 및 기타 CLI 에이전트가 나란히 실행될 수 있는 기본 터미널 및 브라우저 작업 공간입니다.",
           "summaryTitle": "상담원 및 상담원 작업 영역",
-          "summaryBody": "OpenCode는 오픈 소스 코딩 에이전트가 필요할 때 쓰세요. cmux는 OpenCode, Claude Code, Codex CLI, Codex 앱과 IDE 확장 워크플로, Gemini CLI, Aider, Amp, Cursor CLI, 일반 셸 작업을 함께 감독하는 네이티브 macOS 워크스페이스가 필요할 때 쓰세요.",
+          "summaryBody": "오픈 소스 코딩 에이전트를 원하면 OpenCode를 사용하세요. OpenCode, Claude Code, Codex CLI, Gemini CLI, Aider, Amp, Cursor CLI, 일반 셸 워크플로를 함께 감독하고 별도의 Codex 앱 및 IDE 확장 워크플로도 나란히 둘 수 있는 네이티브 macOS 워크스페이스를 원하면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
@@ -2680,7 +2680,7 @@
               [
                 "프로그래밍 가능성",
                 "cmux CLI, Unix 소켓 API, 브라우저 자동화",
-                "OpenCode CLI, 구성, SDK 및 에이전트 도구"
+                "OpenCode CLI, 설정, SDK, 사용자 지정 도구"
               ],
               [
                 "최적의 핏",
@@ -2757,7 +2757,7 @@
               [
                 "주목 모델",
                 "알림 벨소리, 읽지 않은 배지, Cmd+Shift+U, Cmd+Control+U",
-                "수동 상태 표시줄 및 쉘 사용자 정의"
+                "activity, silence, bell에 대한 상태 줄 알림, hooks, 셸 사용자 지정"
               ],
               [
                 "최적의 핏",
@@ -2777,7 +2777,7 @@
             },
             {
               "title": "cmux는 자체 Ghostty 기반 렌더러를 제공합니다.",
-              "body": "tmux는 주변 터미널 에뮬레이터에 따라 다릅니다. cmux는 최신 GPU 가속 렌더링, 터미널 그래픽 지원 및 Ghostty 스타일 시각적 구성을 위해 libghostty를 사용하는 터미널 앱입니다."
+              "body": "tmux는 주변 터미널 에뮬레이터에 의존합니다. cmux는 터미널 앱 자체이며, libghostty를 사용해 부드러운 GPU 가속 렌더링과 Ghostty 스타일 시각 설정을 제공합니다."
             },
             {
               "title": "기본 UI로 검토 마찰 감소",
@@ -2785,7 +2785,7 @@
             },
             {
               "title": "소켓 API는 앱 수준 자동화입니다.",
-              "body": "tmux는 터미널 내부에서 스크립트가 가능합니다. cmux는 또한 작업 공간, 브라우저 창, 화면 읽기, 스크린샷, 알림 메타데이터 등 터미널 주변에 앱을 노출합니다."
+              "body": "tmux는 터미널 멀티플렉싱에 대해 깊이 스크립팅 가능합니다. cmux는 터미널 주변의 앱도 노출합니다. 워크스페이스, 브라우저 패널, 화면 읽기, 스크린샷, 알림 메타데이터입니다."
             }
           ],
           "faqTitle": "FAQ",
@@ -2802,7 +2802,7 @@
           "title": "cmux 대 VS Code",
           "intro": "VS Code는 에이전트 워크플로우를 갖춘 범용 편집기이자 확장 플랫폼입니다. cmux는 VS Code를 포함한 모든 편집기 옆에 있는 셸 네이티브 에이전트를 감독하기 위한 GPL 라이선스 네이티브 macOS 터미널 및 브라우저 작업 공간입니다.",
           "summaryTitle": "편집기 플랫폼과 터미널 제어 평면",
-          "summaryBody": "편집기 내에서 편집, 확장, 상담원 도움말을 원할 때 VS Code를 사용하세요. 읽지 않은 작업에 대한 알림 링 및 키보드 단축키와 함께 Claude Code, Codex, OpenCode, Gemini CLI, 개발 서버, SSH, 스크립트 및 브라우저 검사를 libghostty 기반 터미널 작업 공간에 표시하려면 cmux를 사용하세요.",
+          "summaryBody": "VS Code 안에서 편집, 확장, 내장 에이전트 세션, 에이전트/브라우저 도구를 원하면 VS Code를 사용하세요. Claude Code, Codex, OpenCode, Gemini CLI, 개발 서버, SSH, 스크립트, 브라우저 검사를 읽지 않음 작업용 알림 링과 키보드 단축키가 있는 libghostty 기반 터미널 워크스페이스에서 보이게 하려면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
@@ -2823,12 +2823,12 @@
               [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
-                "Code OSS는 MIT입니다. Microsoft VS Code 배포판에는 Microsoft 제품 라이선스가 있습니다."
+                "Code - OSS는 MIT. Microsoft VS Code는 Microsoft 제품 라이선스 아래 Microsoft 전용 사용자 지정이 포함된 배포판"
               ],
               [
                 "상담사 워크플로",
                 "보이는 작업 공간에 있는 모든 CLI 에이전트 또는 셸 도구",
-                "편집기 통합 에이전트 및 확장 프로그램"
+                "내장 VS Code 에이전트, Copilot CLI/클라우드/서드파티 에이전트 유형, 브라우저 도구, 확장"
               ],
               [
                 "주목 모델",
@@ -2838,7 +2838,7 @@
               [
                 "브라우저 작업흐름",
                 "소켓 자동화 기능이 내장된 브라우저 창",
-                "편집기 미리보기, 확장 프로그램 및 외부 브라우저 흐름"
+                "통합 브라우저, Live Preview/HTML 미리보기, 브라우저 디버깅, 에이전트 브라우저 도구, 외부 브라우저 흐름"
               ],
               [
                 "최적의 핏",
@@ -2854,7 +2854,7 @@
             },
             {
               "title": "터미널 에이전트에는 터미널 상태가 필요합니다.",
-              "body": "Claude Code, Codex, OpenCode 및 유사한 CLI는 명령, 테스트 및 도구를 실행하는 데 많은 시간을 소비합니다. cmux는 사이드바의 브랜치, 디렉터리, 포트, 최신 출력 및 읽지 않은 메타데이터를 통해 해당 작업을 계속 표시합니다."
+              "body": "Claude Code, Codex, OpenCode 및 비슷한 CLI는 많은 시간을 명령, 테스트, 도구 실행에 씁니다. cmux는 브랜치, 디렉터리, 포트, 최신 알림 텍스트, 읽지 않음 메타데이터를 사이드바에 표시해 그 작업을 보이게 유지합니다."
             },
             {
               "title": "알림은 멀티태스킹을 위해 설계되었습니다",
@@ -2869,22 +2869,22 @@
           "faqQ1": "cmux는 VS Code를 대체합니까?",
           "faqA1": "아니요. cmux는 터미널 및 브라우저 작업 공간입니다. VS Code 또는 다른 편집기와 함께 잘 작동합니다.",
           "faqQ2": "VS Code는 오픈 소스인가요?",
-          "faqA2": "Code OSS 저장소는 MIT 라이센스가 있습니다. Microsoft VS Code 배포에는 Microsoft 제품 라이선스 및 추가 배포 세부 정보가 포함되어 있습니다.",
+          "faqA2": "Code - OSS 저장소는 MIT 라이선스입니다. Microsoft Visual Studio Code는 Code - OSS의 배포판이며, Microsoft 제품 라이선스 아래 Microsoft 전용 사용자 지정이 포함되어 있습니다.",
           "faqQ3": "VS Code와 함께 cmux를 사용하는 이유는 무엇입니까?",
           "faqA3": "에이전트 작업이 터미널, 브라우저, 스크립트, SSH, 로컬 서비스 및 여러 저장소에 걸쳐 있고 해당 워크플로를 편집기 외부에 표시하려는 경우 cmux를 사용하세요."
         },
         "cmuxVsWindsurf": {
           "metaTitle": "cmux 대 Windsurf 및 Devin Desktop-cmux",
-          "metaDescription": "AI 코딩 워크플로, 터미널 에이전트 감독, IDE 에이전트, 다중 에이전트 구성 및 잠금에 대해 cmux를 Windsurf 및 Devin Desktop와 비교하세요.",
+          "metaDescription": "IDE 에이전트, 터미널 에이전트 감독, 멀티 에이전트 정리, 브라우저 검사, 프로그래밍 가능한 워크플로 측면에서 cmux와 이전 Windsurf인 Devin Desktop을 비교합니다.",
           "title": "cmux 대 Windsurf",
-          "intro": "Windsurf는 에이전트 명령 센터가 있는 IDE 기반인 Devin Desktop로 이전되었습니다. cmux는 모든 편집자 옆에 위치하며 사용자가 선택한 CLI 에이전트 및 도구를 감독하는 기본 터미널 및 브라우저 작업 공간입니다.",
+          "intro": "Windsurf는 이제 Devin Desktop이며, 에이전트 관리를 위한 Agent Command Center가 있는 Windsurf의 IDE 기반 위에 구축되었습니다. cmux는 어떤 편집기 옆에도 둘 수 있는 네이티브 터미널 및 브라우저 워크스페이스로, 사용자가 선택한 CLI 에이전트와 도구를 감독합니다.",
           "summaryTitle": "IDE 에이전트 표면과 터미널 에이전트 표면",
-          "summaryBody": "IDE 내에서 에이전트 코딩을 원할 경우 Windsurf 또는 Devin Desktop를 사용하세요. 터미널 에이전트, 셸, 테스트, 로컬 서버, 브라우저, SSH 및 여러 편집기를 위한 무료 오픈 소스 터미널 제어 플레인을 원할 경우 cmux를 사용하세요.",
+          "summaryBody": "IDE 안에서 에이전트형 코딩을 원하면 이전 Windsurf인 Devin Desktop을 사용하세요. 터미널 에이전트, 셸, 테스트, 로컬 서버, 브라우저 검사, SSH, 여러 편집기를 위한 무료 오픈 소스 터미널 제어 평면을 원하면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
               "cmux",
-              "Windsurf / Devin Desktop"
+              "Devin Desktop(이전 Windsurf)"
             ],
             "rows": [
               [
@@ -2895,7 +2895,7 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "VS Code 기반 Devin Desktop 에디터"
+                "VS Code 인터페이스와 Open VSX 확장을 사용하는 Devin Desktop IDE"
               ],
               [
                 "편집자 잠금",
@@ -2905,17 +2905,17 @@
               [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
-                "비공개 소스 편집자 계보"
+                "VS Code OSS 스타일 편집기 표면을 갖춘 독점 Devin Desktop 서비스"
               ],
               [
                 "에이전트 선택",
                 "모든 CLI 에이전트 또는 셸 명령",
-                "Devin 및 IDE 통합 에이전트 워크플로"
+                "Devin Desktop 안의 Devin, Cascade, ACP 호환 에이전트"
               ],
               [
                 "조직",
                 "수직 작업 공간, 읽지 않은 링, 분기 및 포트 메타데이터",
-                "Spaces, Kanban, IDE 프로젝트 및 에이전트 관리"
+                "Spaces, Kanban 보기, 로컬 및 클라우드 에이전트 관리"
               ],
               [
                 "최적의 핏",
@@ -2939,7 +2939,7 @@
             },
             {
               "title": "프로그래밍 기능으로 워크플로우를 나만의 것으로 유지",
-              "body": "cmux CLI 및 소켓 API를 사용하면 팀이 기존 도구에 대한 사용자 정의 명령, 후크, 작업 공간 흐름, 터미널 확인, 브라우저 자동화 및 스크린샷을 만들 수 있습니다."
+              "body": "cmux CLI와 소켓 API를 통해 팀은 기존 도구 주변에 워크스페이스 생성, 패널 분할, 입력 전송, 화면 읽기, 스크린샷 캡처, 브라우저 패널 제어를 만들 수 있습니다."
             }
           ],
           "faqTitle": "FAQ",
@@ -2956,7 +2956,7 @@
           "title": "cmux 대 Zed",
           "intro": "Zed는 협업 및 AI 기능을 갖춘 빠른 ​​오픈 소스 코드 편집기입니다. cmux는 Zed 또는 다른 편집기 옆에 있는 셸 네이티브 에이전트를 감독하기 위한 GPL 라이선스 네이티브 macOS 터미널 및 브라우저 작업 공간입니다.",
           "summaryTitle": "빠른 편집기와 터미널 에이전트 작업 공간",
-          "summaryBody": "빠른 협업 편집기를 원할 경우 Zed를 사용하세요. Claude Code, Codex, OpenCode, Gemini CLI, 테스트 실행기, 개발 서버, SSH 및 브라우저 검사를 알림 링, Cmd+Shift+U, Cmd+Control+U 및 스크립트 가능한 소켓 API가 있는 libghostty 기반 터미널 앱에 표시하려면 cmux를 사용하세요.",
+          "summaryBody": "협업, 통합 AI, ACP External Agents, Terminal Threads를 갖춘 빠른 오픈 소스 편집기를 원하면 Zed를 사용하세요. Claude Code, Codex, OpenCode, Gemini CLI, 테스트 러너, 개발 서버, SSH, 브라우저 검사를 알림 링, Cmd+Shift+U, Cmd+Control+U, 스크립팅 가능한 소켓 API가 있는 libghostty 기반 터미널 앱에서 보이게 하려면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
@@ -2972,22 +2972,22 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "Rust/GPUI 네이티브 에디터, Electron/Tauri 아님"
+                "Rust/GPUI GPU 가속 데스크톱 편집기이며 Electron/Tauri가 아님"
               ],
               [
                 "소스 모델",
                 "무료 오픈 소스 GPL 앱",
-                "오픈소스 편집기"
+                "오픈 소스. 주로 GPL-3.0-or-later이며 표시된 구성 요소는 Apache-2.0"
               ],
               [
                 "상담사 워크플로",
                 "보이는 터미널 작업 공간에 있는 모든 CLI 에이전트 또는 셸 도구",
-                "편집자 통합 AI 워크플로우"
+                "편집기 안의 Zed Agent, ACP External Agents, 터미널 기반 agent threads"
               ],
               [
                 "터미널 엔진",
                 "터미널 렌더링을 위해 libghostty 기반",
-                "에디터 터미널 및 에디터 UI"
+                "Alacritty를 백엔드로 사용하는 내장 터미널 에뮬레이터"
               ],
               [
                 "주목 모델",
@@ -3029,11 +3029,11 @@
         },
         "cmuxVsWarp": {
           "metaTitle": "AI 코딩 에이전트를 위한 cmux vs Warp — cmux",
-          "metaDescription": "터미널 AI 워크플로, 에이전트 감독, 네이티브 macOS 성능, 프로그래밍 가능성, 락인 측면에서 cmux와 Warp를 비교합니다.",
+          "metaDescription": "터미널 AI 워크플로, 에이전트 감독, 네이티브 macOS 성능, 로컬 프로그래밍 가능성, 클라우드 에이전트 오케스트레이션 측면에서 cmux와 Warp를 비교합니다.",
           "title": "cmux vs Warp",
-          "intro": "Warp는 AI 강화 터미널 제품입니다. cmux는 많은 코딩 에이전트 세션을 중심으로 만든 네이티브 macOS 터미널이며, 세로 워크스페이스, 알림 링, 스크립트 가능한 socket을 제공합니다.",
+          "intro": "Warp는 터미널에서 출발한 오픈 소스 에이전트형 개발 환경으로, 내장 에이전트, 서드파티 CLI 에이전트 지원, Oz 클라우드 워크플로를 제공합니다. cmux는 여러 로컬 코딩 에이전트 세션을 중심으로 만든 네이티브 macOS 터미널이며, 세로 워크스페이스, 알림 링, 스크립팅 가능한 소켓을 갖추고 있습니다.",
           "summaryTitle": "AI 터미널 vs 에이전트 감독 터미널",
-          "summaryBody": "터미널 제품에 통합된 AI 기능을 원한다면 Warp가 강합니다. 이미 CLI 에이전트를 쓰고 있고 여러 에이전트를 실행할 네이티브, 정리된, 프로그래밍 가능한 장소가 필요하다면 cmux가 강합니다.",
+          "summaryBody": "내장 에이전트, 서드파티 CLI 에이전트 지원, 클라우드 실행, Oz 자동화가 있는 에이전트형 개발 환경을 원하면 Warp가 강합니다. 이미 사용하는 CLI 에이전트를 위한 GPL 라이선스, 로컬 우선, libghostty 기반 네이티브 Mac 터미널에 알림 링, Cmd+Shift+U, Cmd+Control+U, 브라우저 패널, 프로그래밍 가능한 소켓이 필요하면 cmux가 강합니다.",
           "table": {
             "headers": [
               "차원",
@@ -3049,17 +3049,17 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "오픈 소스 터미널 클라이언트, Electron/Tauri 셸 아님"
+                "오픈 소스 AGPL 클라이언트. 공식 문서는 크로스 플랫폼 Rust + GPU 렌더링 코드베이스라고 설명함"
               ],
               [
                 "렌더링 엔진",
                 "터미널 렌더링을 위해 libghostty 기반",
-                "Warp 터미널 클라이언트 렌더링"
+                "Rust + GPU 렌더링 터미널 클라이언트"
               ],
               [
                 "에이전트 선택",
                 "모든 shell 기반 에이전트",
-                "Warp 제품 워크플로"
+                "Warp Agent와 Claude Code, Codex, Gemini CLI, OpenCode 같은 지원 서드파티 CLI 에이전트"
               ],
               [
                 "소스 모델",
@@ -3069,12 +3069,12 @@
               [
                 "정리",
                 "세로 워크스페이스, 알림 링, 읽지 않음 이동",
-                "터미널 탭과 Warp 워크플로"
+                "세로 탭, 분할, 에이전트 메타데이터, 알림, Warp/Oz 워크플로"
               ],
               [
                 "프로그래밍 가능성",
                 "Unix socket, CLI, 브라우저 자동화",
-                "Warp 전용 기능"
+                "Oz CLI/API/SDK, settings.toml, Warp/Oz 자동화. cmux의 로컬 앱 소켓 및 브라우저 자동화와 동등한 문서화된 기능은 없음"
               ],
               [
                 "가장 적합",
@@ -3089,7 +3089,7 @@
               "body": "코딩 에이전트는 테스트를 실행하고, 질문하고, 리뷰를 기다리는 시간이 많습니다. cmux는 그 세션들을 보이게 유지하고 주의가 필요한 세션을 표시합니다."
             },
             {
-              "title": "에이전트 락인 없음",
+              "title": "로컬 셸 에이전트 유연성",
               "body": "cmux는 어떤 CLI가 패널을 소유하는지 신경 쓰지 않습니다. 한 워크스페이스에는 Claude Code, 다른 곳에는 Codex, 세 번째에는 OpenCode를 실행하고 일반 shell 명령도 함께 둘 수 있습니다."
             },
             {
@@ -3103,7 +3103,7 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "cmux는 Warp 같은 AI 터미널인가요?",
-          "faqA1": "cmux는 터미널에 내장된 AI assistant가 아니라 AI 에이전트를 위한 터미널입니다.",
+          "faqA1": "Warp는 내장 에이전트와 클라우드 워크플로가 있는 에이전트형 개발 환경입니다. cmux는 터미널에 내장된 AI 어시스턴트가 아니라 셸 기반 AI 에이전트를 감독하기 위한 로컬 Mac 터미널입니다.",
           "faqQ2": "Warp와 cmux를 함께 사용할 수 있나요?",
           "faqA2": "네. 각 작업에 맞는 터미널을 쓰세요. 많은 에이전트 세션에 정리와 주의 추적이 필요할 때 cmux가 가장 강합니다.",
           "faqQ3": "코딩 에이전트에 cmux를 선택하는 이유는 무엇인가요?",
@@ -3115,7 +3115,7 @@
           "title": "cmux 대 WezTerm",
           "intro": "WezTerm는 GPU 가속 크로스 플랫폼 터미널 에뮬레이터 및 멀티플렉서입니다. cmux는 에이전트 인식 작업 영역, 알림 링, 읽지 않은 키보드 탐색 및 Unix 소켓 API를 추가하는 libghostty를 기반으로 구축된 기본 macOS 터미널 및 브라우저 작업 영역입니다.",
           "summaryTitle": "크로스 플랫폼 터미널 멀티플렉서와 ​​Mac 에이전트 콘솔",
-          "summaryBody": "강력한 크로스 플랫폼 터미널과 멀티플렉서를 원할 경우 WezTerm를 사용하세요. Mac에서 로컬로 작업하고, 많은 코딩 에이전트를 실행하고, 알림 링, Cmd+Shift+U, Cmd+Control+U, 브라우저 창, 사이드바 메타데이터 및 프로그래밍 가능한 앱 제어가 필요한 경우 cmux를 사용하세요.",
+          "summaryBody": "강력한 크로스 플랫폼 터미널, Lua 설정, 터미널/mux 자동화를 원하면 WezTerm을 사용하세요. Mac에서 로컬로 작업하고 여러 코딩 에이전트를 실행하며 알림 링, Cmd+Shift+U, Cmd+Control+U, 브라우저 패널, 사이드바 메타데이터, 앱 수준 소켓 제어를 원하면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
@@ -3136,7 +3136,7 @@
               [
                 "렌더링 엔진",
                 "최신 GPU 가속 터미널 렌더링을 위해 libghostty를 기반으로 구축",
-                "WezTerm 터미널 렌더러 및 멀티플렉서"
+                "내장 mux가 있는 GPU 가속 터미널 렌더러"
               ],
               [
                 "조직",
@@ -3151,7 +3151,7 @@
               [
                 "브라우저 작업흐름",
                 "자동화 기능이 내장된 브라우저 창",
-                "외부 브라우저 워크플로우"
+                "링크와 웹 검사용 외부 브라우저"
               ],
               [
                 "최적의 핏",
@@ -3184,7 +3184,7 @@
           ],
           "faqTitle": "FAQ",
           "faqQ1": "WezTerm는 AI 코딩 에이전트를 실행할 수 있나요?",
-          "faqA1": "예. WezTerm는 다른 터미널처럼 CLI 에이전트를 실행할 수 있습니다. cmux는 에이전트별 구성, 읽지 않은 상태, 알림 링 및 브라우저 자동화를 추가합니다.",
+          "faqA1": "예. WezTerm은 다른 터미널처럼 CLI 에이전트를 실행할 수 있고 CLI로 터미널 패널을 자동화할 수 있습니다. cmux는 그 터미널 옆에 에이전트별 읽지 않음 상태, 알림 링, 사이드바 메타데이터, 브라우저 자동화를 추가합니다.",
           "faqQ2": "macOS에서 cmux를 선택하는 이유는 무엇입니까?",
           "faqA2": "병목 현상이 여러 로컬 에이전트에서 멀티태스킹되고 터미널 앱 자체가 주의를 추적하도록 하려면 cmux를 선택하십시오.",
           "faqQ3": "WezTerm는 언제 더 나은 선택입니까?",
@@ -3196,7 +3196,7 @@
           "title": "cmux vs Ghostty",
           "intro": "Ghostty는 빠른 터미널 에뮬레이터입니다. cmux는 libghostty 위에 구축된 별도의 네이티브 macOS 앱이며, 코딩 에이전트 워크플로를 위해 워크스페이스, 세로 탭, 알림 링, 브라우저 패널, socket API를 더합니다.",
           "summaryTitle": "같은 렌더링 엔진 계열, 다른 역할",
-          "summaryBody": "집중된 범용 터미널을 원한다면 Ghostty를 쓰세요. Ghostty급 터미널 렌더링에 많은 코딩 에이전트 세션을 위한 정리, 알림, 자동화를 더하고 싶다면 cmux를 쓰세요.",
+          "summaryBody": "집중된 터미널 에뮬레이터를 원하면 Ghostty를 사용하세요. 지속적인 읽지 않음 상태, 브라우저 패널, 에이전트가 패널 생성, 터미널 읽기, 스크린샷 캡처, 웹 검사 실행을 할 수 있게 하는 Unix 소켓이 있는 에이전트 워크스페이스 안에서 libghostty 렌더링을 원하면 cmux를 사용하세요.",
           "table": {
             "headers": [
               "차원",
@@ -3212,12 +3212,12 @@
               [
                 "데스크톱 스택",
                 "libghostty 기반 네이티브 Swift/AppKit macOS 앱",
-                "libghostty 중심으로 만든 네이티브 터미널 앱"
+                "공유 Zig 코어와 libghostty를 갖춘 네이티브 SwiftUI macOS 앱"
               ],
               [
                 "렌더링",
                 "libghostty 위에 구축",
-                "Ghostty 터미널 엔진"
+                "macOS에서는 Metal, Linux에서는 OpenGL, 공유 Ghostty/libghostty 터미널 코어"
               ],
               [
                 "정리",
@@ -3227,19 +3227,19 @@
               [
                 "에이전트 주의",
                 "알림 링과 읽지 않음 탐색",
-                "터미널 알림만"
+                "데스크톱 알림, 탭, 분할, AppleScript. cmux식 읽지 않음 링이나 브라우저 패널은 문서화되어 있지 않음"
               ],
               [
                 "자동화",
                 "cmux CLI, socket API, 브라우저 자동화",
-                "터미널 설정과 shell 도구"
+                "터미널 창, 탭, 분할, 입력을 위한 AppleScript와 Shortcuts"
               ]
             ]
           },
           "sections": [
             {
               "title": "cmux는 Ghostty fork가 아님",
-              "body": "cmux는 네이티브 앱이 web view에 WebKit을 쓰는 것처럼 libghostty를 렌더링 엔진으로 사용합니다. Ghostty는 독립된 터미널로 남고, cmux는 에이전트가 많은 워크플로를 겨냥한 별도 앱입니다."
+              "body": "Ghostty는 훌륭한 터미널 에뮬레이터이며 이제 터미널 자동화를 위한 AppleScript도 제공합니다. cmux는 에이전트 워크플로를 위해 더 나아가 터미널 제어, 워크스페이스 상태, 알림, 스크린샷, 브라우저 패널을 하나의 CLI/소켓 표면으로 노출합니다. 그래서 에이전트는 워크스페이스를 떠나지 않고 명령을 실행하고 웹 앱을 검증할 수 있습니다."
             },
             {
               "title": "세로 워크스페이스는 에이전트에 더 잘 확장됨",
@@ -3247,7 +3247,7 @@
             },
             {
               "title": "알림이 탐색 가능한 상태가 됨",
-              "body": "데스크톱 알림은 사라집니다. cmux는 앱 안에 읽지 않음 상태를 보관하고, 패널에 링을 표시하며, 키보드로 최신 대기 세션으로 이동하게 합니다."
+              "body": "데스크톱 알림은 사라진 뒤 놓치기 쉽습니다. cmux는 읽지 않음 상태를 앱 안에 유지하고, 패널에 링을 표시하고, 사이드바에 표시하며, Cmd+Shift+U로 최신 읽지 않음 세션으로 이동하게 해 줍니다."
             },
             {
               "title": "자동화가 shell 밖까지 도달",

@@ -32,7 +32,7 @@ const englishOnlyPages = [
 ] as const;
 
 const comparePageTitles = {
-  bestTerminalForAgents: "Best terminal for AI coding agents",
+  bestTerminalForAgents: "Best terminals and agent workspaces for AI coding agents",
   cmuxVsAlacritty: "cmux vs Alacritty",
   cmuxVsConductor: "cmux vs Conductor",
   cmuxVsCursor: "cmux vs Cursor",
@@ -237,7 +237,7 @@ export function buildLlmsText(origin: string): string {
     "",
     "## Comparisons and buying guides",
     "",
-    "- [Best terminal for AI coding agents](https://cmux.com/compare/best-terminal-for-ai-coding-agents): compares cmux, Conductor, Superset, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, tmux, Kitty, Alacritty, WezTerm, OpenCode, Herdr, and other tools for agent-heavy workflows.",
+    "- [Best terminals and agent workspaces for AI coding agents](https://cmux.com/compare/best-terminal-for-ai-coding-agents): compares cmux, Conductor, Superset, Cursor, Devin, VS Code, Zed, Warp, Ghostty, iTerm2, tmux, Kitty, Alacritty, WezTerm, OpenCode, Herdr, and other tools for agent-heavy workflows.",
     "- [cmux vs Alacritty](https://cmux.com/compare/cmux-vs-alacritty): native macOS agent supervision versus a fast cross-platform OpenGL terminal emulator.",
     "- [cmux vs Conductor](https://cmux.com/compare/cmux-vs-conductor): native terminal/browser supervision versus a Mac app for running Claude Code, Codex, Cursor, and OpenCode in isolated workspaces.",
     "- [cmux vs Cursor](https://cmux.com/compare/cmux-vs-cursor): terminal agent supervision beside any editor versus an AI editor and hosted agent platform.",
