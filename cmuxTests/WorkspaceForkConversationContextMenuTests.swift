@@ -295,7 +295,6 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
-        let processScopeFingerprint = OSAllocatedUnfairLock(initialState: Set<String>())
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 let sampledAt = now.withLock { $0 }
@@ -320,9 +319,6 @@ struct WorkspaceForkConversationContextMenuTests {
             },
             dateProvider: {
                 now.withLock { $0 }
-            },
-            processScopeFingerprintProvider: {
-                processScopeFingerprint.withLock { $0 }
             }
         )
 
@@ -333,18 +329,11 @@ struct WorkspaceForkConversationContextMenuTests {
                 == sessionId
         )
 
-        now.withLock { $0 = Date(timeIntervalSince1970: 2) }
+        now.withLock { $0 = Date(timeIntervalSince1970: 0.5) }
         #expect(
             sharedIndex.prepareForkAvailabilityProbe(),
-            "A completed fork probe should not expire solely because the old 1s window elapsed."
+            "A fresh completed fork probe should stay usable without another process scan."
         )
-
-        processScopeFingerprint.withLock { $0 = ["workspace|panel|pid"] }
-        #expect(
-            !sharedIndex.prepareForkAvailabilityProbe(),
-            "Fork availability must revalidate when the cmux-scoped process fingerprint changes."
-        )
-        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
 
         now.withLock { $0 = Date(timeIntervalSince1970: 61) }
         #expect(

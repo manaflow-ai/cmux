@@ -17,6 +17,7 @@ final class SharedLiveAgentIndex {
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
+    private static let forkAvailabilityProbeTTL: TimeInterval = 1.0
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -26,7 +27,6 @@ final class SharedLiveAgentIndex {
     private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
-    private let processScopeFingerprintProvider: @MainActor () -> Set<String>
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
@@ -37,17 +37,11 @@ final class SharedLiveAgentIndex {
         },
         dateProvider: @escaping @MainActor () -> Date = {
             Date()
-        },
-        processScopeFingerprintProvider: @escaping @MainActor () -> Set<String> = {
-            SharedLiveAgentIndexLoader.processScopeFingerprint(
-                from: CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
-            )
         }
     ) {
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
-        self.processScopeFingerprintProvider = processScopeFingerprintProvider
     }
 
     deinit {
@@ -77,12 +71,7 @@ final class SharedLiveAgentIndex {
         guard !isForkAvailabilityRefreshInFlight else {
             return false
         }
-        let currentProcessScopeFingerprint = processScopeFingerprintProvider()
-        if currentProcessScopeFingerprint != processScopeFingerprint {
-            requestForkAvailabilityRefresh()
-            return false
-        }
-        guard hasCompletedForkAvailabilityProbe else {
+        guard hasFreshForkAvailabilityProbe else {
             requestForkAvailabilityRefresh()
             return false
         }
@@ -160,7 +149,9 @@ final class SharedLiveAgentIndex {
         }.value
         guard !Task.isCancelled else { return }
         let loadedAt = dateProvider()
-        if forcePublish || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint {
+        if forcePublish
+            || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
+            || result.processScopeFingerprint != processScopeFingerprint {
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
@@ -186,8 +177,9 @@ final class SharedLiveAgentIndex {
         self.processScopeFingerprint = processScopeFingerprint
     }
 
-    private var hasCompletedForkAvailabilityProbe: Bool {
-        forkAvailabilityProbeCompletedAt != nil
+    private var hasFreshForkAvailabilityProbe: Bool {
+        guard let forkAvailabilityProbeCompletedAt else { return false }
+        return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
     }
 
     private var isForkAvailabilityRefreshInFlight: Bool {
