@@ -43,7 +43,7 @@ struct RemoteTmuxMirrorLifecycleTests {
         controller.detach(host: host, sessionName: "dev")
 
         #expect(!manager.tabs.contains { $0.id == mirrorWorkspace.id })
-        #expect(manager.tabs.count >= 1)
+        #expect(manager.tabs.count == 1)
         #expect(manager.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(connection.exited)
     }
