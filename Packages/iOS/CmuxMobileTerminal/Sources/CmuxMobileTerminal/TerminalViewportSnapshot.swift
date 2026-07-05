@@ -41,3 +41,4 @@ struct TerminalViewportSnapshot {
     }
 }
 #endif
+
