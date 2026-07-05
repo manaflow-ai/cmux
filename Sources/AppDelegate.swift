@@ -7511,7 +7511,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let beforeIds = workspaceGroupTarget.map { _ in Set(context.tabManager.tabs.map(\.id)) }
         var asyncObserverId: UUID?
-        let onExecuted: (() -> Void)? = (action.workspaceCommandName == nil && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
+        // Named workspace commands and inline workspace actions both create a
+        // workspace, so both must retire the throwaway initial workspace.
+        let actionCreatesWorkspace = action.workspaceCommandName != nil
+            || action.action.inlineWorkspace != nil
+        let onExecuted: (() -> Void)? = (!actionCreatesWorkspace && workspaceGroupTarget == nil) ? nil : { [weak self, weak context] in
             if let context,
                let workspaceGroupTarget,
                let beforeIds {
@@ -7537,7 +7541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 }
             }
-            if action.workspaceCommandName != nil {
+            if actionCreatesWorkspace {
                 self?.closeInitialWorkspaceIfNeeded(
                     initialWorkspaceId: initialWorkspaceId,
                     in: context

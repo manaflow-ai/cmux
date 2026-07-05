@@ -1904,6 +1904,24 @@ final class SharedLiveAgentIndex: ObservableObject {
         startReload()
     }
 
+    /// Force the cache to reflect the hook store as of now and await it. For
+    /// user-initiated flows (e.g. "Save Workspace as Action") that must not
+    /// read a cold or stale cache. Skips the reload only when one just landed,
+    /// so a warm watcher-driven cache stays instant.
+    func waitForFreshIndex() async {
+        ensureWatchingHookStoreDirectory()
+        if let inFlight = refreshTask {
+            await inFlight.value
+        }
+        if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.minEventReloadInterval {
+            return
+        }
+        startReload()
+        if let started = refreshTask {
+            await started.value
+        }
+    }
+
     private func startReload() {
         deferredReloadTask?.cancel()
         deferredReloadTask = nil
@@ -3177,6 +3195,17 @@ final class Workspace: Identifiable, ObservableObject {
                             button: button,
                             builtInAction: nil,
                             workspaceCommand: workspaceCommand,
+                            terminalCommandSourcePath: nil
+                        )
+                    )
+                }
+                if button.action.inlineWorkspace != nil {
+                    return (
+                        button.id,
+                        SurfaceTabBarExecutableButton(
+                            button: button,
+                            builtInAction: nil,
+                            workspaceCommand: nil,
                             terminalCommandSourcePath: nil
                         )
                     )

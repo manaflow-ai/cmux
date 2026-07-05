@@ -54,8 +54,27 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
-        let snapshot = workspace.captureConfigActionSnapshot()
         let globalConfigPath = cmuxConfigStore.globalConfigPath
+        // Capture reads the live agent index; refresh it first so running
+        // agents aren't silently dropped from the saved action when the
+        // cache is cold or stale.
+        Task { @MainActor [weak self, weak workspace, weak window] in
+            await SharedLiveAgentIndex.shared.waitForFreshIndex()
+            guard let self, let workspace, let window else { return }
+            self.presentSaveWorkspaceActionDialog(
+                workspace: workspace,
+                globalConfigPath: globalConfigPath,
+                window: window
+            )
+        }
+    }
+
+    private func presentSaveWorkspaceActionDialog(
+        workspace: Workspace,
+        globalConfigPath: String,
+        window: NSWindow
+    ) {
+        let snapshot = workspace.captureConfigActionSnapshot()
 
         let alert = NSAlert()
         alert.messageText = String(
