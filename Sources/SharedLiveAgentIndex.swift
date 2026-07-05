@@ -12,10 +12,12 @@ final class SharedLiveAgentIndex {
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var forkAvailabilityProbeCompletedAt: Date?
+    private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
+    private static let processScopeFingerprintCacheAge: TimeInterval = 0.25
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -38,7 +40,7 @@ final class SharedLiveAgentIndex {
             Date()
         },
         processScopeFingerprintProvider: @escaping @MainActor () -> Set<String> = {
-            []
+            Self.currentProcessScopeFingerprint()
         }
     ) {
         self.indexLoader = indexLoader
@@ -71,6 +73,14 @@ final class SharedLiveAgentIndex {
 
     func prepareForkAvailabilityProbe() -> Bool {
         scheduleRefreshIfStale()
+        guard !isForkAvailabilityRefreshInFlight else {
+            return false
+        }
+        let currentProcessScopeFingerprint = processScopeFingerprintProvider()
+        if currentProcessScopeFingerprint != processScopeFingerprint {
+            requestForkAvailabilityRefresh()
+            return false
+        }
         guard hasCompletedForkAvailabilityProbe else {
             requestForkAvailabilityRefresh()
             return false
@@ -110,6 +120,7 @@ final class SharedLiveAgentIndex {
                 self.forkAvailabilityProbeCompletedAt = self.dateProvider()
             }
             self.forkAvailabilityRefreshTask = nil
+            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -124,6 +135,7 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             await self.reload(forcePublish: true)
             self.refreshTask = nil
+            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -151,27 +163,31 @@ final class SharedLiveAgentIndex {
         }.value
         guard !Task.isCancelled else { return }
         let loadedAt = dateProvider()
+        let processScopeFingerprint = processScopeFingerprintProvider()
         if forcePublish || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint {
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
-                liveAgentProcessFingerprint: result.liveAgentProcessFingerprint
+                liveAgentProcessFingerprint: result.liveAgentProcessFingerprint,
+                processScopeFingerprint: processScopeFingerprint
             )
         } else {
             self.loadedAt = loadedAt
+            self.processScopeFingerprint = processScopeFingerprint
         }
     }
 
     private func applyReloadedIndex(
         _ newIndex: RestorableAgentSessionIndex,
         loadedAt: Date,
-        liveAgentProcessFingerprint: Set<String>
+        liveAgentProcessFingerprint: Set<String>,
+        processScopeFingerprint: Set<String>
     ) {
         index = newIndex
         self.loadedAt = loadedAt
         self.forkAvailabilityProbeCompletedAt = loadedAt
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
-        NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+        self.processScopeFingerprint = processScopeFingerprint
     }
 
     private var hasCompletedForkAvailabilityProbe: Bool {
@@ -180,6 +196,28 @@ final class SharedLiveAgentIndex {
 
     private var isForkAvailabilityRefreshInFlight: Bool {
         refreshTask != nil || forkAvailabilityRefreshTask != nil
+    }
+
+    private static func currentProcessScopeFingerprint() -> Set<String> {
+        processScopeFingerprint(
+            from: CmuxTopProcessSnapshot.captureCached(
+                includeProcessDetails: false,
+                maximumAge: processScopeFingerprintCacheAge
+            )
+        )
+    }
+
+    private static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
+        Set(snapshot.cmuxScopedProcesses().map { process in
+            [
+                process.cmuxWorkspaceID?.uuidString ?? "",
+                process.cmuxSurfaceID?.uuidString ?? "",
+                String(process.pid),
+                String(process.parentPID),
+                process.name,
+                process.path ?? ""
+            ].joined(separator: "|")
+        })
     }
 
     private func handleHookStoreChange() {
