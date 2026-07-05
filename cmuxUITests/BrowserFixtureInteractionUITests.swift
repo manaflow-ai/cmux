@@ -18,6 +18,9 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     private var diagnosticsPath = ""
     private var launchTag = ""
     private(set) var app: XCUIApplication?
+    /// Workspace id of the most recent `openBrowserSurface`/`openFixture`, so
+    /// tests can enumerate its tabs via `browser.tab.list`.
+    private(set) var lastWorkspaceID = ""
 
     override func setUp() {
         super.setUp()
@@ -41,6 +44,11 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 
     // MARK: - Launch
 
+    /// Subclass hooks for extra launch configuration (defaults registered via
+    /// NSArgumentDomain, capture-sink env keys, ...).
+    var extraLaunchArguments: [String] { [] }
+    var extraLaunchEnvironment: [String: String] { [:] }
+
     @discardableResult
     func launchApp() throws -> XCUIApplication {
         let app = XCUIApplication()
@@ -49,6 +57,7 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
+        app.launchArguments += extraLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
@@ -56,11 +65,19 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        // The UI-test host is frequently backgrounded (activation is best-effort
+        // on CI, see below), which marks the browser split "hidden" and lets the
+        // hidden-webview discarder tear down the WKWebView mid-eval — surfacing
+        // as "completion handler no longer reachable". Keep it alive for tests.
+        app.launchEnvironment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] = "false"
         // Debug launches require a tag outside reload.sh; provide one in UITests so CI
         // does not fail with "Application ... does not have a process ID".
         app.launchEnvironment["CMUX_TAG"] = launchTag
         if let path = ProcessInfo.processInfo.environment["PATH"], !path.isEmpty {
             app.launchEnvironment["PATH"] = path
+        }
+        for (key, value) in extraLaunchEnvironment {
+            app.launchEnvironment[key] = value
         }
         self.app = app
         // On headless CI runners (no GUI session), XCUIApplication.launch()
@@ -91,6 +108,12 @@ class BrowserFixtureSocketTestCase: XCTestCase {
 
     /// Sends one V2 request and returns the raw response envelope
     /// (`{"id":…,"ok":…,"result"/"error":…}`), or nil if the socket did not answer.
+    /// Falls back to the `nc -U` transport when the in-process Darwin client
+    /// cannot connect (see `controlSocketCommandViaNetcat`), matching
+    /// `BrowserPaneNavigationKeybindUITests`, and finally to the bundled CLI
+    /// binary: some hosts refuse unix-socket connects from the UI-test runner
+    /// and its child processes entirely, while a full `cmux rpc` invocation
+    /// (the same client real users script with) connects fine.
     func socketEnvelope(
         method: String,
         params: [String: Any],
@@ -102,6 +125,70 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             "params": params,
         ]
         return ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendJSON(request)
+            ?? controlSocketJSONViaNetcat(request, socketPath: socketPath, responseTimeout: responseTimeout)
+            ?? socketEnvelopeViaBundledCLI(method: method, params: params, responseTimeout: responseTimeout)
+    }
+
+    /// Runs `cmux rpc <method> <json>` from the app bundle the UI test built,
+    /// pointed at this test's socket. Returns a synthesized success envelope
+    /// (the CLI exits non-zero on `ok: false` responses and transport errors).
+    private func socketEnvelopeViaBundledCLI(
+        method: String,
+        params: [String: Any],
+        responseTimeout: TimeInterval
+    ) -> [String: Any]? {
+        guard let cli = Self.bundledCLIPath(),
+              JSONSerialization.isValidJSONObject(params),
+              let paramsData = try? JSONSerialization.data(withJSONObject: params),
+              let paramsJSON = String(data: paramsData, encoding: .utf8) else {
+            return nil
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: cli)
+        process.arguments = ["rpc", method, paramsJSON]
+        var environment = ProcessInfo.processInfo.environment
+        for key in environment.keys where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        // Honor the caller's timeout budget on the fallback path too; the CLI
+        // otherwise uses its own default (CLI/cmux.swift responseTimeoutSeconds).
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = String(max(1.0, responseTimeout))
+        process.environment = environment
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return nil
+        }
+        return ["ok": true, "result": result]
+    }
+
+    /// Locates `Contents/Resources/bin/cmux` inside the app the test target
+    /// built, starting from the test bundle's products directory.
+    private static func bundledCLIPath() -> String? {
+        // …/Build/Products/Debug/cmuxUITests-Runner.app/PlugIns/cmuxUITests.xctest
+        var productsDir = URL(fileURLWithPath: Bundle(for: BrowserFixtureSocketTestCase.self).bundlePath)
+        for _ in 0..<3 { productsDir.deleteLastPathComponent() }
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: productsDir.path)) ?? []
+        for entry in entries where entry.hasSuffix(".app") {
+            let cli = productsDir
+                .appendingPathComponent(entry)
+                .appendingPathComponent("Contents/Resources/bin/cmux")
+                .path
+            if FileManager.default.isExecutableFile(atPath: cli) {
+                return cli
+            }
+        }
+        return nil
     }
 
     /// Sends one V2 request, asserts `ok == true`, and returns `result`.
@@ -157,6 +244,7 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             file: file,
             line: line
         )
+        lastWorkspaceID = workspaceID
         let sourceSurfaceID = try XCTUnwrap(
             workspace["surface_id"] as? String,
             "workspace.create returned no surface_id: \(workspace)",
@@ -200,14 +288,101 @@ class BrowserFixtureSocketTestCase: XCTestCase {
             file: file,
             line: line
         )
-        try socketResult(
-            method: "browser.wait",
-            params: ["surface_id": surfaceID, "load_state": "complete", "timeout_ms": 10_000],
-            responseTimeout: 16.0,
+        // Assert readiness, but poll through the cold-start content-process
+        // transient (an eval can return "completion handler no longer
+        // reachable" while the web content process respawns on a fresh app),
+        // so this keeps its diagnostic value for callers that act right after
+        // openFixture without a separate waitForSelector gate.
+        try waitForCondition(
+            ["surface_id": surfaceID, "load_state": "complete"],
+            describedAs: "load_state=complete",
             file: file,
             line: line
         )
         return surfaceID
+    }
+
+    /// Polls a `browser.wait` condition through the transient js_error the
+    /// first browser interaction of a freshly launched app can hit, failing
+    /// only when the deadline passes with the condition still unmet.
+    func waitForCondition(
+        _ waitParams: [String: Any],
+        describedAs description: String,
+        timeout: TimeInterval = 15.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        var params = waitParams
+        params["timeout_ms"] = 3_000
+        var lastEnvelope: [String: Any]?
+        while Date() < deadline {
+            let envelope = socketEnvelope(method: "browser.wait", params: params, responseTimeout: 6.0)
+            lastEnvelope = envelope
+            if (envelope?["ok"] as? Bool) == true { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+        XCTFail(
+            "browser.wait(\(description)) timed out. last=\(String(describing: lastEnvelope))",
+            file: file,
+            line: line
+        )
+    }
+
+    /// Returns the tab URLs currently open in `lastWorkspaceID`.
+    func openTabURLs(file: StaticString = #filePath, line: UInt = #line) throws -> [String] {
+        let result = try socketResult(
+            method: "browser.tab.list",
+            params: ["workspace_id": lastWorkspaceID],
+            file: file,
+            line: line
+        )
+        let tabs = result["tabs"] as? [[String: Any]] ?? []
+        return tabs.compactMap { $0["url"] as? String }
+    }
+
+    /// Polls until a workspace tab's URL contains `needle`, proving an embedded
+    /// tab was created (the affirmative outcome for "stayed embedded" tests).
+    @discardableResult
+    func waitForEmbeddedTab(
+        urlContaining needle: String,
+        timeout: TimeInterval = 10.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if (try openTabURLs(file: file, line: line)).contains(where: { $0.contains(needle) }) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        }
+        return false
+    }
+
+    /// Waits for a selector to resolve before interacting, polling through two
+    /// cold-start transients that hit the first browser interaction of a
+    /// freshly launched app:
+    ///  - `load_state` "complete" can fire a beat before the fixture DOM is
+    ///    queryable, so a bare wait races the load; and
+    ///  - the web-content process is still spinning up, so an eval can come
+    ///    back "Completion handler ... no longer reachable" (the handler is
+    ///    dropped when the content process is replaced). Both are transient:
+    ///    re-issue until the element resolves or the deadline passes.
+    func waitForSelector(
+        _ selector: String,
+        surfaceID: String,
+        timeout: TimeInterval = 15.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        try waitForCondition(
+            ["surface_id": surfaceID, "selector": selector],
+            describedAs: "selector \(selector)",
+            timeout: timeout,
+            file: file,
+            line: line
+        )
     }
 
     // MARK: - Read-only page state (browser.eval is for assertions only)
@@ -281,9 +456,25 @@ class BrowserFixtureSocketTestCase: XCTestCase {
                 for candidate in self.socketCandidates() {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
                     if ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping") == "PONG" {
+                        NSLog("BrowserFixtureSocketTestCase readiness via in-process client: %@", candidate)
                         self.socketPath = candidate
                         return true
                     }
+                    if self.controlSocketCommandViaNetcat("ping", socketPath: candidate) == "PONG" {
+                        NSLog("BrowserFixtureSocketTestCase readiness via nc fallback: %@", candidate)
+                        self.socketPath = candidate
+                        return true
+                    }
+                }
+                // The in-process client (and nc) can fail to connect on some
+                // hosts even while the app's own sanity probe proves the
+                // listener is bound and answering; accept that probe.
+                let diagnostics = self.loadDiagnostics()
+                if self.controlSocketDiagnosticsReportReady(diagnostics),
+                   let expectedPath = diagnostics["socketExpectedPath"], !expectedPath.isEmpty {
+                    NSLog("BrowserFixtureSocketTestCase readiness via app diagnostics only: %@", expectedPath)
+                    self.socketPath = expectedPath
+                    return true
                 }
                 return false
             }
@@ -378,7 +569,11 @@ class BrowserFixtureSocketTestCase: XCTestCase {
                     Darwin.connect(fd, sockaddrPtr, addrLen)
                 }
             }
-            guard connected == 0 else { return nil }
+            guard connected == 0 else {
+                let err = errno
+                NSLog("ControlSocketClient connect failed path=%@ errno=%d (%@)", path, err, String(cString: strerror(err)))
+                return nil
+            }
 
             let payload = Array((line + "\n").utf8)
             let wrote = payload.withUnsafeBytes { rawBuffer in

@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>external-open routing fixture</title></head>
+<body>
+  <h1 id="marker-routing">external-open routing fixture</h1>
+  <p><a id="matched-link" href="http://127.0.0.1:8397/matched">matched host link</a></p>
+  <p><a id="unmatched-link" href="external-open-target.html">unmatched local link</a></p>
+  <p><button id="popup-button" onclick="window.open('http://127.0.0.1:8397/popup')">scripted popup to matched host</button></p>
+  <form id="post-form" method="post" action="http://127.0.0.1:8397/post" target="_blank">
+    <input type="hidden" name="secret" value="body-must-survive">
+    <button id="post-submit" type="submit">post to matched host</button>
+  </form>
+</body>
+</html>
