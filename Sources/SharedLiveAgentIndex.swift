@@ -58,7 +58,12 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
-        index?.hasLiveProcess(workspaceId: workspaceId, panelId: panelId) ?? false
+        let cachedProcessIDs = index?.processIDs(workspaceId: workspaceId, panelId: panelId) ?? []
+        guard !cachedProcessIDs.isEmpty else { return false }
+        let scopedProcessIDs = CmuxTopProcessSnapshot
+            .captureCached(includeProcessDetails: false, maximumAge: 1)
+            .pids(forCMUXSurfaceID: panelId)
+        return !cachedProcessIDs.isDisjoint(with: scopedProcessIDs)
     }
 
     func prepareForkAvailabilityProbe() -> Bool {
