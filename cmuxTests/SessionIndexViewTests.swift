@@ -168,6 +168,11 @@ final class SessionIndexViewTests: XCTestCase {
         XCTAssertTrue(inner.hasPrefix(AgentResumeArgv.codexWrapperShellExecutableToken), inner)
         XCTAssertEqual(
             inner,
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-123 -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
+        )
+        XCTAssertFalse(inner.contains("check_for_update_on_startup=false"), inner)
+        XCTAssertEqual(
+            Self.unwrapPortableShellCommand(entry.resumeExecutionCommandWithCwd ?? ""),
             "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-123 -c check_for_update_on_startup=false -m gpt-5.5 --dangerously-bypass-approvals-and-sandbox -c model_reasoning_effort=high"
         )
         XCTAssertFalse(
@@ -199,7 +204,7 @@ final class SessionIndexViewTests: XCTestCase {
         let inner = Self.unwrapPortableShellCommand(command)
         XCTAssertEqual(
             inner,
-            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-managed -c check_for_update_on_startup=false -a on-request"
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-session-managed -a on-request"
         )
         XCTAssertFalse(
             inner.contains("-s managed"),
@@ -224,7 +229,7 @@ final class SessionIndexViewTests: XCTestCase {
         )
         XCTAssertEqual(
             Self.unwrapPortableShellCommand(readOnly.resumeCommand ?? ""),
-            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -c check_for_update_on_startup=false -a untrusted -s read-only"
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-ro -a untrusted -s read-only"
         )
 
         let dangerFullAccess = makeEntry(
@@ -240,7 +245,7 @@ final class SessionIndexViewTests: XCTestCase {
         )
         XCTAssertEqual(
             Self.unwrapPortableShellCommand(dangerFullAccess.resumeCommand ?? ""),
-            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -c check_for_update_on_startup=false -m gpt-5.5 -a never -s danger-full-access"
+            "\(AgentResumeArgv.codexWrapperShellExecutableToken) resume codex-dfa -m gpt-5.5 -a never -s danger-full-access"
         )
     }
 

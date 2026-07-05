@@ -300,19 +300,25 @@ struct SessionEntry: Identifiable, Hashable {
     /// Shell command that resumes this session in a new terminal, with the agent's
     /// known per-session settings injected as CLI flags.
     var resumeCommand: String? {
-        resumeCommandWithCwd
+        resumeCommandWithCwd(includeCodexUpdateCheckSuppression: false)
     }
 
-    /// Shell command that resumes this session after guarding the launch directory.
-    var resumeCommandWithCwd: String? {
-        guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
+    /// Shell command used by cmux-owned resume actions.
+    var resumeExecutionCommandWithCwd: String? {
+        resumeCommandWithCwd(includeCodexUpdateCheckSuppression: true)
+    }
+
+    private func resumeCommandWithCwd(includeCodexUpdateCheckSuppression: Bool) -> String? {
+        guard let command = resumeCommandWithoutWorkingDirectory(
+            includeCodexUpdateCheckSuppression: includeCodexUpdateCheckSuppression
+        ) else { return nil }
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
         return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
-    private var resumeCommandWithoutWorkingDirectory: String? {
+    private func resumeCommandWithoutWorkingDirectory(includeCodexUpdateCheckSuppression: Bool) -> String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
             // Route through the wrapper resolver token so a manually-resumed claude session
@@ -348,7 +354,10 @@ struct SessionEntry: Identifiable, Hashable {
             // user's own shell (fish/csh included), so the rendered command is
             // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
             // `resumeCommandWithCwd`. https://github.com/manaflow-ai/cmux/issues/5639
-            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)"]
+            if includeCodexUpdateCheckSuppression {
+                parts.append(AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " "))
+            }
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
