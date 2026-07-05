@@ -295,6 +295,12 @@ final class RemoteTmuxSessionMirror {
                 })
             }
         )
+        // The window can already be zoomed when its first topology publish
+        // arrives (attached to a session zoomed before connect): init seeds
+        // only the base tree, so apply the full update to adopt
+        // visibleLayout/zoomed too. Reconciling the identical base layout
+        // again is a no-op (same structure signature, equal tree).
+        mirror.apply(window: window)
         windowMirrorByWindowId[windowId] = mirror
         workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: panelId)
         // The window mirror now owns client sizing for this window (it sends
