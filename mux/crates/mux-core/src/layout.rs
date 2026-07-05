@@ -15,10 +15,6 @@ impl Rect {
     pub fn contains(&self, x: u16, y: u16) -> bool {
         x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
     }
-
-    fn center(&self) -> (i32, i32) {
-        (self.x as i32 + self.width as i32 / 2, self.y as i32 + self.height as i32 / 2)
-    }
 }
 
 #[derive(Debug, Default)]
@@ -35,34 +31,100 @@ impl LayoutResult {
         self.panes.iter().find(|(_, r)| r.contains(x, y)).map(|(id, _)| *id)
     }
 
-    /// The nearest pane in a direction from `from`, judged by center
-    /// distance among panes whose span overlaps perpendicular to the
-    /// direction of travel.
+    /// Best pane in a direction from `from`, matching the cmux app's
+    /// bonsplit neighbor heuristic: greater perpendicular overlap wins,
+    /// then smaller axial gap. No wraparound.
     pub fn neighbor(&self, from: PaneId, dx: i32, dy: i32) -> Option<PaneId> {
-        let from_rect = self.rect_of(from)?;
-        let (fx, fy) = from_rect.center();
-        self.panes
-            .iter()
-            .filter(|(id, _)| *id != from)
-            .filter(|(_, r)| {
-                let (cx, cy) = r.center();
-                if dx != 0 {
-                    (cx - fx) * dx > 0
-                } else {
-                    (cy - fy) * dy > 0
-                }
-            })
-            .min_by_key(|(_, r)| {
-                let (cx, cy) = r.center();
-                // Weight travel axis normally, cross axis heavily.
-                if dx != 0 {
-                    (cx - fx).abs() + (cy - fy).abs() * 4
-                } else {
-                    (cy - fy).abs() + (cx - fx).abs() * 4
-                }
-            })
-            .map(|(id, _)| *id)
+        directional_neighbor(&self.panes, from, dx, dy)
     }
+}
+
+pub fn directional_neighbor(
+    panes: &[(PaneId, Rect)],
+    from: PaneId,
+    dx: i32,
+    dy: i32,
+) -> Option<PaneId> {
+    let cur = panes.iter().find(|(id, _)| *id == from).map(|(_, rect)| *rect)?;
+    let direction = if dx < 0 {
+        Direction::Left
+    } else if dx > 0 {
+        Direction::Right
+    } else if dy < 0 {
+        Direction::Up
+    } else if dy > 0 {
+        Direction::Down
+    } else {
+        return None;
+    };
+    panes
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(_, (id, rect))| *id != from && rect.width > 0 && rect.height > 0)
+        .filter_map(|(order, (id, rect))| {
+            direction.score(cur, rect).map(|score| (order, id, score))
+        })
+        .min_by_key(|(order, _, score)| (std::cmp::Reverse(score.overlap), score.distance, *order))
+        .map(|(_, id, _)| id)
+}
+
+#[derive(Clone, Copy)]
+enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+#[derive(Clone, Copy)]
+struct NeighborScore {
+    overlap: u16,
+    distance: u16,
+}
+
+impl Direction {
+    fn score(self, cur: Rect, cand: Rect) -> Option<NeighborScore> {
+        let (overlap, distance) = match self {
+            Direction::Left => {
+                let cur_min = cur.x;
+                let cand_max = cand.x.saturating_add(cand.width);
+                if cand_max > cur_min {
+                    return None;
+                }
+                (overlap_len(cur.y, cur.height, cand.y, cand.height), cur_min - cand_max)
+            }
+            Direction::Right => {
+                let cur_max = cur.x.saturating_add(cur.width);
+                if cand.x < cur_max {
+                    return None;
+                }
+                (overlap_len(cur.y, cur.height, cand.y, cand.height), cand.x - cur_max)
+            }
+            Direction::Up => {
+                let cur_min = cur.y;
+                let cand_max = cand.y.saturating_add(cand.height);
+                if cand_max > cur_min {
+                    return None;
+                }
+                (overlap_len(cur.x, cur.width, cand.x, cand.width), cur_min - cand_max)
+            }
+            Direction::Down => {
+                let cur_max = cur.y.saturating_add(cur.height);
+                if cand.y < cur_max {
+                    return None;
+                }
+                (overlap_len(cur.x, cur.width, cand.x, cand.width), cand.y - cur_max)
+            }
+        };
+        (overlap > 0).then_some(NeighborScore { overlap, distance })
+    }
+}
+
+fn overlap_len(a_start: u16, a_len: u16, b_start: u16, b_len: u16) -> u16 {
+    let start = a_start.max(b_start);
+    let end = a_start.saturating_add(a_len).min(b_start.saturating_add(b_len));
+    end.saturating_sub(start)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,5 +413,89 @@ mod tests {
         assert_eq!(layout.neighbor(3, 0, -1), Some(2));
         assert_eq!(layout.neighbor(2, -1, 0), Some(1));
         assert_eq!(layout.neighbor(1, -1, 0), None);
+    }
+
+    fn r(x: u16, y: u16, width: u16, height: u16) -> Rect {
+        Rect { x, y, width, height }
+    }
+
+    fn dir(panes: &[(PaneId, Rect)], from: PaneId, dx: i32, dy: i32) -> Option<PaneId> {
+        directional_neighbor(panes, from, dx, dy)
+    }
+
+    #[test]
+    fn directional_focus_user_reported_layout_prefers_tall_top_by_overlap() {
+        let panes = vec![
+            (1, r(0, 0, 40, 30)),
+            (2, r(40, 0, 40, 18)),
+            (3, r(40, 18, 20, 12)),
+            (4, r(60, 18, 20, 12)),
+        ];
+        assert_eq!(dir(&panes, 1, 1, 0), Some(2));
+    }
+
+    #[test]
+    fn directional_focus_equal_overlap_nearest_wins() {
+        let panes = vec![(1, r(10, 0, 10, 10)), (2, r(0, 0, 5, 10)), (3, r(2, 0, 5, 10))];
+        assert_eq!(dir(&panes, 1, -1, 0), Some(3));
+    }
+
+    #[test]
+    fn directional_focus_zero_overlap_excluded() {
+        let panes = vec![(1, r(0, 0, 10, 10)), (2, r(10, 10, 10, 5))];
+        assert_eq!(dir(&panes, 1, 1, 0), None);
+    }
+
+    #[test]
+    fn directional_focus_edge_half_plane_noops() {
+        let panes = vec![(1, r(0, 0, 10, 10)), (2, r(2, 0, 3, 10))];
+        assert_eq!(dir(&panes, 1, 1, 0), None);
+        assert_eq!(dir(&panes, 1, -1, 0), None);
+    }
+
+    #[test]
+    fn directional_focus_up_down_symmetry() {
+        let panes = vec![(1, r(0, 10, 10, 10)), (2, r(0, 0, 10, 10)), (3, r(0, 20, 10, 10))];
+        assert_eq!(dir(&panes, 1, 0, -1), Some(2));
+        assert_eq!(dir(&panes, 1, 0, 1), Some(3));
+    }
+
+    #[test]
+    fn directional_focus_single_pane_noop() {
+        let panes = vec![(1, r(0, 0, 10, 10))];
+        assert_eq!(dir(&panes, 1, 1, 0), None);
+        assert_eq!(dir(&panes, 1, 0, 1), None);
+    }
+
+    #[test]
+    fn directional_focus_nested_grid_greatest_overlap_wins_over_nearest() {
+        let panes = vec![(1, r(0, 0, 30, 30)), (2, r(30, 0, 5, 8)), (3, r(40, 0, 10, 30))];
+        assert_eq!(dir(&panes, 1, 1, 0), Some(3));
+    }
+
+    #[test]
+    fn directional_focus_round_trip_left_right_when_geometry_allows() {
+        let panes = vec![(1, r(0, 0, 30, 20)), (2, r(30, 0, 30, 20))];
+        assert_eq!(dir(&panes, 1, 1, 0), Some(2));
+        assert_eq!(dir(&panes, 2, -1, 0), Some(1));
+    }
+
+    #[test]
+    fn directional_focus_round_trip_up_down_when_geometry_allows() {
+        let panes = vec![(1, r(0, 0, 30, 10)), (2, r(0, 10, 30, 10))];
+        assert_eq!(dir(&panes, 1, 0, 1), Some(2));
+        assert_eq!(dir(&panes, 2, 0, -1), Some(1));
+    }
+
+    #[test]
+    fn directional_focus_touching_edges_are_candidates() {
+        let panes = vec![(1, r(0, 0, 10, 10)), (2, r(10, 0, 10, 10))];
+        assert_eq!(dir(&panes, 1, 1, 0), Some(2));
+    }
+
+    #[test]
+    fn directional_focus_ignores_zero_size_panes() {
+        let panes = vec![(1, r(0, 0, 10, 10)), (2, r(10, 0, 0, 10)), (3, r(12, 0, 10, 10))];
+        assert_eq!(dir(&panes, 1, 1, 0), Some(3));
     }
 }

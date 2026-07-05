@@ -179,6 +179,60 @@ def render_style_snapshot(data, rows=30, cols=100):
         x = min(cols - 1, x + 1)
     return grid
 
+def render_text_snapshot(data, rows=30, cols=100):
+    chars = [[" " for _ in range(cols)] for _ in range(rows)]
+    x = y = 0
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if b == 0x1b and i + 1 < len(data) and data[i + 1] == ord("["):
+            j = i + 2
+            while j < len(data) and not (0x40 <= data[j] <= 0x7e):
+                j += 1
+            if j >= len(data):
+                break
+            params = data[i + 2:j].decode("ascii", "ignore")
+            final = chr(data[j])
+            if final in ("H", "f"):
+                parts = [p for p in params.split(";") if p and not p.startswith("?")]
+                row = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else 1
+                col = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else 1
+                y = max(0, min(rows - 1, row - 1))
+                x = max(0, min(cols - 1, col - 1))
+            elif final == "K":
+                for xx in range(x, cols):
+                    chars[y][xx] = " "
+            elif final == "J":
+                for yy in range(y, rows):
+                    start = x if yy == y else 0
+                    for xx in range(start, cols):
+                        chars[yy][xx] = " "
+            i = j + 1
+            continue
+        if b == 0x0d:
+            x = 0
+            i += 1
+            continue
+        if b == 0x0a:
+            y = min(rows - 1, y + 1)
+            i += 1
+            continue
+        if b < 0x20:
+            i += 1
+            continue
+        step = 1
+        if b >= 0x80:
+            if b & 0xE0 == 0xC0:
+                step = 2
+            elif b & 0xF0 == 0xE0:
+                step = 3
+            elif b & 0xF8 == 0xF0:
+                step = 4
+        chars[y][x] = data[i : i + step].decode("utf-8", "replace")
+        x = min(cols - 1, x + 1)
+        i += step
+    return "\n".join("".join(row) for row in chars)
+
 deadline = time.time() + 15
 while not os.path.exists(SOCK) and time.time() < deadline:
     drain(0.2)
@@ -276,6 +330,8 @@ PY
 os.write(fd, inner_osc_query.replace("\n", "\r").encode())
 wait_screen_contains(surface_id, "1313/1414/1515")
 print("inner OSC 11 query receives seeded background ok")
+os.write(fd, b"\x03")
+drain(0.4)
 
 # Drag-select the marker text: press, drag, release (SGR mouse, 1-based).
 # Pane content starts at column 24 (sidebar 22 + left border 1; SGR
@@ -296,6 +352,9 @@ osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
 assert osc52, "no OSC 52 clipboard write after drag-select"
 copied = base64.b64decode(osc52[-1]).decode()
 assert "smoke-marker-ok" in copied, repr(copied)
+assert "Copied" in render_text_snapshot(output), output[-1200:]
+drain(1.7)
+assert "Copied" not in render_text_snapshot(output), output[-1200:]
 print("drag-select -> OSC52 clipboard copy ok")
 
 os.write(fd, b"clear; for i in $(seq -w 0 80); do printf 'sel-line-%s\\n' \"$i\"; done\r")
@@ -355,6 +414,15 @@ reordered = [t["surface"] for t in left_pane["tabs"]]
 assert reordered == [tab_order[2], tab_order[0], tab_order[1]], (tab_order, reordered, screen0)
 print("tab drag reorder within pane ok")
 
+os.write(fd, b"\x1b[<0;24;1M\x1b[<32;42;1M\x1b[<0;42;1m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+left_pane = panes_by_id[left_pane["id"]]
+end_reordered = [t["surface"] for t in left_pane["tabs"]]
+assert end_reordered == [tab_order[0], tab_order[1], tab_order[2]], (tab_order, end_reordered, screen0)
+print("tab drag past last chip inserts at end ok")
+
 moving_surface = left_pane["tabs"][0]["surface"]
 os.write(fd, b"\x1b[<0;27;1M\x1b[<32;63;1M\x1b[<0;63;1m")
 drain(1.0)
@@ -363,6 +431,18 @@ panes_by_id = {p["id"]: p for p in screen0["panes"]}
 assert moving_surface not in [t["surface"] for t in panes_by_id[left_pane["id"]]["tabs"]], screen0
 assert moving_surface in [t["surface"] for t in panes_by_id[right_pane["id"]]["tabs"]], screen0
 print("tab drag to another pane ok")
+
+left_pane = panes_by_id[left_pane["id"]]
+right_pane = panes_by_id[right_pane["id"]]
+content_surface = left_pane["tabs"][0]["surface"]
+right_before = [t["surface"] for t in right_pane["tabs"]]
+os.write(fd, b"\x1b[<0;27;1M\x1b[<32;82;8M\x1b[<0;82;8m")
+drain(1.0)
+screen0 = active_screen(tree()[0])
+panes_by_id = {p["id"]: p for p in screen0["panes"]}
+right_after = [t["surface"] for t in panes_by_id[right_pane["id"]]["tabs"]]
+assert right_after == right_before + [content_surface], (right_before, right_after, screen0)
+print("tab drag to pane content appends ok")
 
 # Split via socket while TUI is attached.
 new = rpc({"id": 6, "cmd": "split", "pane": panes[0]["id"], "dir": "down"})
@@ -451,6 +531,7 @@ os.write(fd, b"\x1b[<2;2;6M\x1b[<2;2;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename workspace" in text, text[-800:]
+assert "Copy workspace id" in text, text[-800:]
 assert "┌" in text, text[-800:]
 styles = render_style_snapshot(output)
 overlap = styles[6][2]  # item 1: non-selected menu row over the active workspace subtitle row.
@@ -467,21 +548,32 @@ os.write(fd, b"\x1b[<2;81;6M\x1b[<2;81;6m")
 drain(0.8)
 text = output.decode("utf-8", "replace")
 assert "Rename tab" in text, text[-800:]
+assert "Copy tab id" in text, text[-800:]
+assert "Copy pane id" in text, text[-800:]
 assert "Close tab" in text, text[-800:]
 assert "┌" in text, text[-800:]
 assert "[ OK ⏎ ]" not in text, text[-800:]
-os.write(fd, b"\x1b")  # close menu
-drain(0.4)
+output = b""
+os.write(fd, b"\x1b[<34;81;7M\x1b[<2;81;7m")
+drain(0.8)
+osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
+assert osc52, "no OSC 52 clipboard write after menu copy"
+copied_id = base64.b64decode(osc52[-1]).decode()
+assert re.fullmatch(r"[0-9a-z]{6}", copied_id), copied_id
+assert f"Copied {copied_id}" in render_text_snapshot(output), output[-1200:]
+drain(1.7)
+assert f"Copied {copied_id}" not in render_text_snapshot(output), output[-1200:]
+print("right-click menu copy tab id -> OSC52 clipboard copy ok")
 
-# Right-press, drag to another row, and release activates that row. Row 2
-# is "New tab", so total tab count increases.
+# Right-press, drag to another row, and release activates that row. New tab
+# is below the copy-id rows, so total tab count increases.
 tabs_before = sum(
     len(p["tabs"])
     for w in tree()
     for s in w["screens"]
     for p in s["panes"]
 )
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;7M\x1b[<2;81;7m")
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;9M\x1b[<2;81;9m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])
@@ -527,8 +619,8 @@ tabs_before = sum(
     for s in w["screens"]
     for p in s["panes"]
 )
-# "Close tab" sits one row lower since "New browser tab" joined the menu.
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;11M\x1b[<2;81;11m")
+# "Close tab" sits below the copy-id and split rows.
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;13M\x1b[<2;81;13m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])

@@ -2,6 +2,7 @@
 //! mirrored surface terminals (VT replay + live stream).
 
 use std::collections::HashMap;
+use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -11,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base64::Engine;
-use ghostty_vt::{Callbacks, Terminal};
+use ghostty_vt::{Callbacks, RenderState, Terminal};
 use mux_core::{DefaultColors, MuxEvent, Rgb, SurfaceId, SurfaceKind};
 use serde_json::{json, Value};
 
@@ -319,6 +320,63 @@ impl RemoteSession {
         *self.tree.lock().unwrap() = tree.clone();
         Ok(tree)
     }
+}
+
+impl Drop for RemoteSession {
+    fn drop(&mut self) {
+        let Ok(dir) = std::env::var("CMUX_MUX_DEBUG_MIRROR_DUMP") else {
+            return;
+        };
+        let _ = fs::create_dir_all(&dir);
+        for surface in self.surfaces.lock().unwrap().values() {
+            let path = Path::new(&dir).join(format!("mirror-{}.txt", surface.id));
+            let _ = fs::write(path, dump_mirror(surface));
+        }
+    }
+}
+
+fn dump_mirror(surface: &RemoteSurface) -> String {
+    let mut out = String::new();
+    let mut term = surface.term.lock().unwrap();
+    let cols = term.cols();
+    let rows = term.rows();
+    let scrollbar = term.scrollbar();
+    let offset = scrollbar.map(|sb| sb.offset).unwrap_or(0);
+    let total = scrollbar.map(|sb| sb.total).unwrap_or(rows as u64);
+    out.push_str(&format!(
+        "surface={} cols={} rows={} scrollback_offset={} scrollback_total={}\n",
+        surface.id, cols, rows, offset, total
+    ));
+
+    let Ok(mut rs) = RenderState::new() else {
+        return out;
+    };
+    if rs.update(&mut term).is_err() {
+        return out;
+    }
+    let _ = rs.walk_rows(|row, _, cells| {
+        let mut line = String::new();
+        let mut inverse = false;
+        for cell in cells {
+            if cell.inverse && !inverse {
+                line.push('\u{ab}');
+                inverse = true;
+            } else if !cell.inverse && inverse {
+                line.push('\u{bb}');
+                inverse = false;
+            }
+            if cell.text.is_empty() {
+                line.push(' ');
+            } else {
+                line.push_str(&cell.text);
+            }
+        }
+        if inverse {
+            line.push('\u{bb}');
+        }
+        out.push_str(&format!("{row:03}: {line}\n"));
+    });
+    out
 }
 
 fn hex_color(color: Rgb) -> String {

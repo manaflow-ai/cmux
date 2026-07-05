@@ -20,6 +20,7 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-mux","session":"main",...}}
 //! ```
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -32,8 +33,8 @@ use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
 use crate::{
-    AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId, SplitDir, SurfaceId,
-    SurfaceKind, WorkspaceId,
+    assign_short_ids, AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId,
+    SplitDir, SurfaceId, SurfaceKind, WorkspaceId,
 };
 
 pub const PROTOCOL_VERSION: u32 = 6;
@@ -318,18 +319,20 @@ fn node_json(node: &Node) -> Value {
     }
 }
 
-fn pane_json(state: &State, id: PaneId) -> Value {
+fn pane_json(state: &State, id: PaneId, short_ids: &HashMap<u64, String>) -> Value {
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
     };
     json!({
         "id": id,
+        "short_id": short_ids.get(&id).cloned().unwrap_or_default(),
         "name": pane.name,
         "active_tab": pane.active_tab,
         "tabs": pane.tabs.iter().map(|sid| {
             let surface = state.surfaces.get(sid);
             json!({
                 "surface": sid,
+                "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
                 "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
                 "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
                 "name": surface.and_then(|s| s.name()),
@@ -344,28 +347,48 @@ fn pane_json(state: &State, id: PaneId) -> Value {
     })
 }
 
-fn screen_json(state: &State, screen: &Screen, active: bool) -> Value {
+fn screen_json(
+    state: &State,
+    screen: &Screen,
+    active: bool,
+    short_ids: &HashMap<u64, String>,
+) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     json!({
         "id": screen.id,
+        "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
         "active": active,
         "active_pane": screen.active_pane,
         "layout": node_json(&screen.root),
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id)).collect::<Vec<_>>(),
+        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids)).collect::<Vec<_>>(),
     })
 }
 
 fn workspaces_json(state: &State) -> Value {
+    let ids = state
+        .workspaces
+        .iter()
+        .flat_map(|ws| {
+            let mut ids = vec![ws.id];
+            for screen in &ws.screens {
+                ids.push(screen.id);
+                screen.root.pane_ids(&mut ids);
+            }
+            ids
+        })
+        .chain(state.surfaces.keys().copied());
+    let short_ids = assign_short_ids(ids);
     json!({
         "workspaces": state.workspaces.iter().enumerate().map(|(i, ws)| {
             json!({
                 "id": ws.id,
+                "short_id": short_ids.get(&ws.id).cloned().unwrap_or_default(),
                 "name": ws.name,
                 "active": i == state.active_workspace,
                 "screens": ws.screens.iter().enumerate().map(|(s, screen)| {
-                    screen_json(state, screen, s == ws.active_screen)
+                    screen_json(state, screen, s == ws.active_screen, &short_ids)
                 }).collect::<Vec<_>>(),
             })
         }).collect::<Vec<_>>(),
