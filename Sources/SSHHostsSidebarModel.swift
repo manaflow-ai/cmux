@@ -54,6 +54,9 @@ final class SSHHostsSidebarModel {
 
     /// Scans `~/.ssh/config` off the main actor and returns the aliases
     /// sorted for display.
+    #if compiler(>=6.2)
+    @concurrent
+    #endif
     private nonisolated static func scanHostAliases() async -> [String] {
         let scanner = SSHConfigHostAliasScanner(homeDirectory: NSHomeDirectory())
         return scanner.hostAliases(inConfigAtPath: scanner.defaultUserConfigPath)
