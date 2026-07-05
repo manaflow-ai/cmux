@@ -2,7 +2,80 @@ import os, pty, select, socket, json, time, sys, signal, subprocess, re
 
 BIN = os.environ.get("CMUX_MUX_BIN", "target/debug/cmux-mux")
 SESSION = f"smoke-{os.getpid()}"
-SOCK = os.path.join(os.environ.get("TMPDIR", "/tmp"), f"cmux-mux-{os.getuid()}", f"{SESSION}.sock")
+SOCK = None
+CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
+
+def fallback_socket_path():
+    base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
+    return os.path.join(base, f"cmux-mux-{os.getuid()}", f"{SESSION}.sock")
+
+def wait_for_control_socket(server, seconds=15):
+    deadline = time.time() + seconds
+    output = []
+    assert server.stdout is not None
+    while time.time() < deadline:
+        if server.poll() is not None:
+            rest = server.stdout.read() or ""
+            if rest:
+                output.append(rest)
+            break
+        wait = min(0.1, max(0.0, deadline - time.time()))
+        readable, _, _ = select.select([server.stdout], [], [], wait)
+        if not readable:
+            continue
+        line = server.stdout.readline()
+        if not line:
+            continue
+        output.append(line)
+        match = CONTROL_SOCKET_RE.search(line.strip())
+        if match:
+            path = match.group(1)
+            socket_deadline = time.time() + 5
+            while time.time() < socket_deadline:
+                if os.path.exists(path):
+                    return path
+                if server.poll() is not None:
+                    break
+                time.sleep(0.05)
+            raise AssertionError(f"control socket line found but socket missing at {path}")
+
+    fallback = fallback_socket_path()
+    if os.path.exists(fallback):
+        print("control socket line not seen; using fallback", fallback)
+        return fallback
+    raise AssertionError(
+        "headless server socket missing; expected startup line or fallback at "
+        + fallback
+        + "; output:\n"
+        + "".join(output)[-2000:]
+    )
+
+def stop_process(process):
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+def discover_socket_path():
+    probe = subprocess.Popen(
+        [BIN, "--headless", "--session", SESSION],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    path = None
+    try:
+        path = wait_for_control_socket(probe)
+        return path
+    finally:
+        stop_process(probe)
+        if path and os.path.exists(path):
+            os.unlink(path)
 
 def rpc(cmd):
     s = socket.socket(socket.AF_UNIX)
@@ -33,11 +106,13 @@ def send_prefix_t_until_tab_count(count):
         drain(0.8)
     raise AssertionError(last)
 
+SOCK = discover_socket_path()
+
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
     os.environ.pop("NO_COLOR", None)
-    os.execv(BIN, [BIN, "--session", SESSION])
+    os.execv(BIN, [BIN, "--session", SESSION, "--socket", SOCK])
 
 # Set a real window size
 import fcntl, termios, struct
