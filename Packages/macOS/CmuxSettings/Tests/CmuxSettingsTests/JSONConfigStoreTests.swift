@@ -208,6 +208,98 @@ struct JSONConfigStoreTests {
         #expect(app?["appearance"] as? String == "dark")
         #expect(await store.value(for: key) == "dark")
     }
+
+    @Test func writesThroughRelativeSymlinkDestination() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-settings-symlink-\(UUID().uuidString)", isDirectory: true)
+        let repoDir = tempDir.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let targetURL = repoDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try Data("{}".utf8).write(to: targetURL)
+
+        let linkURL = tempDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createSymbolicLink(
+            atPath: linkURL.path,
+            withDestinationPath: "repo/cmux.json"
+        )
+
+        let store = JSONConfigStore(fileURL: linkURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "")
+        try await store.set("dark", for: key)
+
+        let linkAttributes = try FileManager.default.attributesOfItem(atPath: linkURL.path)
+        #expect(linkAttributes[.type] as? FileAttributeType == .typeSymbolicLink)
+
+        let targetData = try Data(contentsOf: targetURL)
+        let parsed = try JSONSerialization.jsonObject(with: targetData) as? [String: Any]
+        let app = parsed?["app"] as? [String: Any]
+        #expect(app?["appearance"] as? String == "dark")
+        #expect(await store.value(for: key) == "dark")
+    }
+
+    @Test func writesThroughDanglingSymlinkCreatesTarget() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-settings-symlink-\(UUID().uuidString)", isDirectory: true)
+        let repoDir = tempDir.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let targetURL = repoDir.appendingPathComponent("cmux.json", isDirectory: false)
+        let linkURL = tempDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        let store = JSONConfigStore(fileURL: linkURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "")
+        try await store.set("dark", for: key)
+
+        let linkAttributes = try FileManager.default.attributesOfItem(atPath: linkURL.path)
+        #expect(linkAttributes[.type] as? FileAttributeType == .typeSymbolicLink)
+
+        #expect(FileManager.default.fileExists(atPath: targetURL.path))
+        let targetAttributes = try FileManager.default.attributesOfItem(atPath: targetURL.path)
+        #expect(targetAttributes[.type] as? FileAttributeType == .typeRegular)
+
+        let targetData = try Data(contentsOf: targetURL)
+        let parsed = try JSONSerialization.jsonObject(with: targetData) as? [String: Any]
+        let app = parsed?["app"] as? [String: Any]
+        #expect(app?["appearance"] as? String == "dark")
+        #expect(await store.value(for: key) == "dark")
+    }
+
+    @Test func writesThroughSymlinkChainToFinalTarget() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-settings-symlink-\(UUID().uuidString)", isDirectory: true)
+        let repoDir = tempDir.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let targetURL = repoDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try Data("{}".utf8).write(to: targetURL)
+
+        let midURL = tempDir.appendingPathComponent("mid.json", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: midURL, withDestinationURL: targetURL)
+
+        let linkURL = tempDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: midURL)
+
+        let store = JSONConfigStore(fileURL: linkURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "")
+        try await store.set("dark", for: key)
+
+        let linkAttributes = try FileManager.default.attributesOfItem(atPath: linkURL.path)
+        #expect(linkAttributes[.type] as? FileAttributeType == .typeSymbolicLink)
+
+        let midAttributes = try FileManager.default.attributesOfItem(atPath: midURL.path)
+        #expect(midAttributes[.type] as? FileAttributeType == .typeSymbolicLink)
+
+        let targetData = try Data(contentsOf: targetURL)
+        let parsed = try JSONSerialization.jsonObject(with: targetData) as? [String: Any]
+        let app = parsed?["app"] as? [String: Any]
+        #expect(app?["appearance"] as? String == "dark")
+        #expect(await store.value(for: key) == "dark")
+    }
 }
 
 private func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async -> T) async -> T {
