@@ -237,16 +237,29 @@ extension TerminalController {
     /// applied model state disagreeing with the dedupe cache until the next
     /// running/prompt cycle. Recording where the bus drains keeps record
     /// order identical to apply order, as the serialized pre-worker-lane
-    /// path guaranteed. The shell integration's own _CMUX_SHELL_ACTIVITY_LAST
-    /// dedupe already rate-limits reports, so the extra enqueue per
-    /// duplicate is cheap.
+    /// path guaranteed.
+    ///
+    /// Boundedness: the worker lane replies without waiting for main, so a
+    /// client can keep reporting while the main actor is blocked and unable
+    /// to drain. The replace-key enqueue below keeps at most ONE pending
+    /// shell-state mutation per (workspace, panel) — a fresh report replaces
+    /// the superseded pending one (last-write-wins; only the final state is
+    /// observable once main unblocks). This is a strictly tighter bound than
+    /// the pre-worker-lane path, which enqueued every state CHANGE. The CAS
+    /// at drain time stays authoritative for publish/skip.
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
         let fastPathState = socketFastPathState
-        TerminalMutationBus.shared.enqueueMainActorMutation {
+        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
+            replaceKey: TerminalMutationReplaceKey(
+                tabId: scope.workspaceID,
+                surfaceId: scope.panelID,
+                kind: .shellActivity
+            )
+        ) {
             guard fastPathState.shouldPublishShellActivity(
                 workspaceId: scope.workspaceID,
                 panelId: scope.panelID,

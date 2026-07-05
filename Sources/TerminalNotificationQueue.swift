@@ -25,6 +25,22 @@ fileprivate struct TerminalSocketMutationEntry {
     let mutation: TerminalSocketMutation
     let notificationGeneration: UInt64?
     let notificationCoalescingKey: TerminalNotificationCoalescingKey?
+    let performReplaceKey: TerminalMutationReplaceKey?
+}
+
+/// Identity for last-write-wins `.perform` mutations: a fresh enqueue with the
+/// same key removes the still-pending superseded entry (the notification
+/// coalescing pattern below, applied to scheduled state mutations). This keeps
+/// `pending` bounded at one entry per key for hot socket telemetry even while
+/// the main actor is blocked and cannot drain.
+struct TerminalMutationReplaceKey: Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
+        case shellActivity
+    }
+
+    let tabId: UUID
+    let surfaceId: UUID
+    let kind: Kind
 }
 
 fileprivate struct TerminalNotificationCoalescingKey: Hashable {
@@ -146,7 +162,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: sequence,
             mutation: .deliverNotification(notification),
             notificationGeneration: generation,
-            notificationCoalescingKey: coalescingKey
+            notificationCoalescingKey: coalescingKey,
+            performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
@@ -182,7 +199,8 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
@@ -202,7 +220,39 @@ final class TerminalMutationBus: @unchecked Sendable {
             sequence: nextSequence,
             mutation: mutation,
             notificationGeneration: nil,
-            notificationCoalescingKey: nil
+            notificationCoalescingKey: nil,
+            performReplaceKey: nil
+        ))
+        shouldScheduleDrain = !drainScheduled
+        if shouldScheduleDrain {
+            drainScheduled = true
+        }
+        lock.unlock()
+
+        guard shouldScheduleDrain else { return }
+        scheduleDrain()
+    }
+
+    /// Last-write-wins variant of `enqueueMainActorMutation`: removes any
+    /// still-pending mutation with the same `replaceKey` before appending, so
+    /// repeated reports for one target keep at most one pending entry no
+    /// matter how long the main actor goes without draining. Apply order for
+    /// the surviving entry follows its (new) enqueue position, matching the
+    /// notification coalescing semantics above.
+    nonisolated func enqueueReplacingMainActorMutation(
+        replaceKey: TerminalMutationReplaceKey,
+        _ mutation: @escaping @MainActor () -> Void
+    ) {
+        let shouldScheduleDrain: Bool
+        lock.lock()
+        pending.removeAll { $0.performReplaceKey == replaceKey }
+        nextSequence &+= 1
+        pending.append(TerminalSocketMutationEntry(
+            sequence: nextSequence,
+            mutation: .perform(mutation),
+            notificationGeneration: nil,
+            notificationCoalescingKey: nil,
+            performReplaceKey: replaceKey
         ))
         shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain {
