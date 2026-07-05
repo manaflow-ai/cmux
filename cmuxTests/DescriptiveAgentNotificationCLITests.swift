@@ -43,6 +43,57 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(notify.hasSuffix("|c=turn-complete;p=0;a=codex"), notify)
     }
 
+    func testPromptSubmitWithoutPromptClearsSavedPromptForCompletionBanner() throws {
+        let context = try makeClaudeHookContext(name: "codex-prompt-clear")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-prompt-clear-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let firstPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Refactor the parser"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertEqual(firstPrompt.status, 0, firstPrompt.stderr)
+
+        let firstStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertEqual(firstStop.status, 0, firstStop.stderr)
+
+        // A second prompt-submit with no extractable prompt must clear the
+        // saved prompt: the next completion banner may not describe turn 1.
+        let promptlessSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertEqual(promptlessSubmit.status, 0, promptlessSubmit.stderr)
+
+        let stopStart = context.state.commands.count
+        let secondStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-2","cwd":"\#(context.root.path)","hook_event_name":"Stop"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertEqual(secondStop.status, 0, secondStop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        let notify = try XCTUnwrap(
+            stopCommands.first { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Expected a Codex stop notification, saw \(stopCommands)"
+        )
+        XCTAssertFalse(notify.contains("Finished: Refactor the parser"), notify)
+    }
+
     func testGenericAgentStopTreatsJSONAssistantMessageAsMissing() throws {
         let context = try makeClaudeHookContext(name: "codex-json-blob-fallback")
         defer { context.cleanup() }

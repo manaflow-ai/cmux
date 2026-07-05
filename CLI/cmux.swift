@@ -474,6 +474,10 @@ final class ClaudeHookSessionStore {
                 lastPrompt: lastPrompt,
                 now: now
             )
+            // lastPrompt is per-turn state: a new prompt-submit replaces it even
+            // when the event carried no extractable prompt, so a completion
+            // banner can never describe the previous turn's prompt.
+            record.lastPrompt = normalizeOptional(lastPrompt)
             appendAutoNameMessages(autoNameMessages, to: &record)
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
