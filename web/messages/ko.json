@@ -846,7 +846,9 @@
         },
         "fileExplorer": {
           "description": "오른쪽 사이드바 파일 탐색기(파일 트리) 설정입니다.",
-          "doubleClickAction": "파일 탐색기에서 파일을 더블클릭(또는 검색 결과에서 Return 키 입력)했을 때의 동작을 설정합니다. `preview`는 cmux 내장 파일 미리보기(기본값이자 기존 동작)를 엽니다. `defaultEditor`는 파일 형식의 macOS 기본 앱으로 엽니다. `preferredEditor`는 `app.preferredEditor` 명령으로 열고, 설정되지 않은 경우 기본 앱으로 대체합니다. 이 설정은 파일에만 적용되며, 디렉터리는 항상 펼치기/접기 동작을 하고, 로컬이 아닌(원격) 파일 탐색기는 항상 cmux 미리보기를 엽니다."
+          "doubleClickAction": "파일 탐색기에서 파일을 더블클릭(또는 검색 결과에서 Return 키 입력)했을 때의 동작을 설정합니다. `preview`는 cmux 내장 파일 미리보기(기본값이자 기존 동작)를 엽니다. `defaultEditor`는 파일 형식의 macOS 기본 앱으로 엽니다. `preferredEditor`는 `app.preferredEditor` 명령으로 열고, 설정되지 않은 경우 기본 앱으로 대체합니다. 이 설정은 파일에만 적용되며, 디렉터리는 항상 펼치기/접기 동작을 하고, 로컬이 아닌(원격) 파일 탐색기는 항상 cmux 미리보기를 엽니다.",
+          "sortBy": "파일 탐색기가 항목을 정렬하는 방식입니다. `name`은 기존처럼 폴더를 먼저 두는 알파벳순 정렬을 유지합니다. 날짜 정렬은 각 항목의 생성 또는 수정 시각을 사용하며, 해당 시각이 없는 항목은 마지막에 둡니다.",
+          "sortOrder": "파일 탐색기의 정렬 방향입니다. 날짜 정렬에서 `descending`을 사용하면 최신 항목이 먼저 표시됩니다."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

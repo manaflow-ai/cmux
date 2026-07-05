@@ -846,7 +846,9 @@
         },
         "fileExplorer": {
           "description": "Indstillinger for filoversigten (filtræet) i højre sidepanel.",
-          "doubleClickAction": "Bestemmer, hvad der sker, når du dobbeltklikker (eller trykker Return på et søgeresultat for) en fil i filoversigten. `preview` åbner den indbyggede cmux-filvisning (standard og historisk adfærd). `defaultEditor` åbner med macOS-standardappen for filtypen. `preferredEditor` åbner med kommandoen `app.preferredEditor` og falder tilbage til standardappen, når den ikke er sat. Gælder kun filer; mapper udvides/skjules altid, og ikke-lokale (eksterne) filoversigter åbner altid cmux-forhåndsvisningen."
+          "doubleClickAction": "Bestemmer, hvad der sker, når du dobbeltklikker (eller trykker Return på et søgeresultat for) en fil i filoversigten. `preview` åbner den indbyggede cmux-filvisning (standard og historisk adfærd). `defaultEditor` åbner med macOS-standardappen for filtypen. `preferredEditor` åbner med kommandoen `app.preferredEditor` og falder tilbage til standardappen, når den ikke er sat. Gælder kun filer; mapper udvides/skjules altid, og ikke-lokale (eksterne) filoversigter åbner altid cmux-forhåndsvisningen.",
+          "sortBy": "Hvordan filoversigten sorterer poster. `name` bevarer den hidtidige alfabetiske sortering med mapper først; datosorteringer bruger hver posts oprettelses- eller ændringstidspunkt, og poster uden dette tidspunkt placeres sidst.",
+          "sortOrder": "Sorteringsretning for filoversigten. Ved datosortering placerer `descending` nyere poster først."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

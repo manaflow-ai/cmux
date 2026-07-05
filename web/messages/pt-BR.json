@@ -846,7 +846,9 @@
         },
         "fileExplorer": {
           "description": "Configurações do explorador de arquivos (árvore de arquivos) na barra lateral direita.",
-          "doubleClickAction": "Define o que acontece ao clicar duas vezes (ou pressionar Return em um resultado de busca) em um arquivo no explorador de arquivos. `preview` abre a visualização de arquivo integrada do cmux (comportamento padrão e histórico). `defaultEditor` abre com o app padrão do macOS para o tipo de arquivo. `preferredEditor` abre com o comando `app.preferredEditor`, voltando para o app padrão quando nenhum estiver definido. Aplica-se apenas a arquivos; diretórios sempre expandem/recolhem, e exploradores de arquivos não locais (remotos) sempre abrem a visualização do cmux."
+          "doubleClickAction": "Define o que acontece ao clicar duas vezes (ou pressionar Return em um resultado de busca) em um arquivo no explorador de arquivos. `preview` abre a visualização de arquivo integrada do cmux (comportamento padrão e histórico). `defaultEditor` abre com o app padrão do macOS para o tipo de arquivo. `preferredEditor` abre com o comando `app.preferredEditor`, voltando para o app padrão quando nenhum estiver definido. Aplica-se apenas a arquivos; diretórios sempre expandem/recolhem, e exploradores de arquivos não locais (remotos) sempre abrem a visualização do cmux.",
+          "sortBy": "Como o explorador de arquivos ordena as entradas. `name` preserva a ordem alfabética histórica com pastas primeiro; ordenações por data usam o horário de criação ou modificação de cada entrada, colocando entradas sem esse horário no final.",
+          "sortOrder": "Direção de ordenação do explorador de arquivos. Ao ordenar por data, `descending` coloca entradas mais recentes primeiro."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

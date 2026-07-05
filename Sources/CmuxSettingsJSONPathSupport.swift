@@ -461,6 +461,8 @@ extension CmuxSettingsFileStore {
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
+        "fileExplorer.sortBy",
+        "fileExplorer.sortOrder",
         "shortcuts.bindings",
     ]
 }

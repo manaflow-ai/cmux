@@ -846,7 +846,9 @@
         },
         "fileExplorer": {
           "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",
-          "doubleClickAction": "Określa, co robi dwukrotne kliknięcie pliku w eksploratorze plików (albo naciśnięcie Return na wyniku wyszukiwania). `preview` otwiera wbudowany podgląd pliku cmux (domyślne i dotychczasowe zachowanie). `defaultEditor` otwiera plik w domyślnej aplikacji macOS dla tego typu pliku. `preferredEditor` otwiera za pomocą polecenia `app.preferredEditor`, a gdy nie jest ono ustawione, wraca do domyślnej aplikacji. Dotyczy tylko plików; katalogi zawsze się rozwijają/zwijają, a nielokalne (zdalne) eksploratory plików zawsze otwierają podgląd cmux."
+          "doubleClickAction": "Określa, co robi dwukrotne kliknięcie pliku w eksploratorze plików (albo naciśnięcie Return na wyniku wyszukiwania). `preview` otwiera wbudowany podgląd pliku cmux (domyślne i dotychczasowe zachowanie). `defaultEditor` otwiera plik w domyślnej aplikacji macOS dla tego typu pliku. `preferredEditor` otwiera za pomocą polecenia `app.preferredEditor`, a gdy nie jest ono ustawione, wraca do domyślnej aplikacji. Dotyczy tylko plików; katalogi zawsze się rozwijają/zwijają, a nielokalne (zdalne) eksploratory plików zawsze otwierają podgląd cmux.",
+          "sortBy": "Sposób sortowania pozycji w eksploratorze plików. `name` zachowuje dotychczasową kolejność alfabetyczną z folderami na początku; sortowania według daty używają znacznika czasu utworzenia lub modyfikacji każdej pozycji, a pozycje bez tego znacznika trafiają na koniec.",
+          "sortOrder": "Kierunek sortowania w eksploratorze plików. Przy sortowaniu według daty `descending` umieszcza nowsze pozycje na początku."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

@@ -846,7 +846,9 @@
         },
         "fileExplorer": {
           "description": "Postavke istraživača datoteka (stabla datoteka) u desnoj bočnoj traci.",
-          "doubleClickAction": "Šta se dešava kada dvaput kliknete (ili pritisnete Return na rezultatu pretrage) datoteku u istraživaču datoteka. `preview` otvara ugrađeni cmux pregled datoteke (zadano i dosadašnje ponašanje). `defaultEditor` otvara datoteku macOS zadanom aplikacijom za tu vrstu datoteke. `preferredEditor` otvara pomoću komande `app.preferredEditor`, uz povratak na zadanu aplikaciju kada nije postavljena. Primjenjuje se samo na datoteke; direktoriji se uvijek proširuju/skupljaju, a nelokalni (udaljeni) istraživači datoteka uvijek otvaraju cmux pregled."
+          "doubleClickAction": "Šta se dešava kada dvaput kliknete (ili pritisnete Return na rezultatu pretrage) datoteku u istraživaču datoteka. `preview` otvara ugrađeni cmux pregled datoteke (zadano i dosadašnje ponašanje). `defaultEditor` otvara datoteku macOS zadanom aplikacijom za tu vrstu datoteke. `preferredEditor` otvara pomoću komande `app.preferredEditor`, uz povratak na zadanu aplikaciju kada nije postavljena. Primjenjuje se samo na datoteke; direktoriji se uvijek proširuju/skupljaju, a nelokalni (udaljeni) istraživači datoteka uvijek otvaraju cmux pregled.",
+          "sortBy": "Način na koji istraživač datoteka poreda stavke. `name` zadržava dosadašnji abecedni redoslijed s mapama prvo; sortiranja po datumu koriste vrijeme kreiranja ili izmjene svake stavke, a stavke bez tog vremena stavljaju se na kraj.",
+          "sortOrder": "Smjer sortiranja za istraživač datoteka. Kod sortiranja po datumu, `descending` stavlja novije stavke prve."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
