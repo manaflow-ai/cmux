@@ -81,13 +81,13 @@ public enum FleetTaskState: String, CaseIterable, Codable, Sendable {
         case .stalled:
             to == .retryBackoff || to == .done || to == .failed || to == .cancelled
         case .retryBackoff:
-            to == .launching || to == .cancelled
+            to == .launching || to == .awaitingReview || to == .done || to == .cancelled
         case .awaitingReview:
             to == .done || to == .queued || to == .cancelled
         case .done:
             false
         case .failed:
-            to == .queued
+            to == .awaitingReview || to == .done || to == .queued
         case .cancelled:
             to == .queued
         }

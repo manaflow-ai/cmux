@@ -140,6 +140,17 @@ public struct FleetSupervisor: Sendable {
                 let transitioned = transition(task: next, to: .done, at: at)
                 return (transitioned.0, transitioned.1 + [.cleanupWorkspace(task: transitioned.0)])
             }
+            if task.state == .retryBackoff || task.state == .failed {
+                let target: FleetTaskState = pr.isTerminal ? .done : .awaitingReview
+                let transitioned = transition(task: next, to: target, at: at)
+                guard transitioned.0.state == target else {
+                    return (task, [])
+                }
+                let commands = target == .done
+                    ? transitioned.1 + [.cleanupWorkspace(task: transitioned.0)]
+                    : transitioned.1
+                return (transitioned.0, commands)
+            }
             next.updatedAt = at
             return (next, [])
         case let .sourceReachedTerminalState(taskID, at):

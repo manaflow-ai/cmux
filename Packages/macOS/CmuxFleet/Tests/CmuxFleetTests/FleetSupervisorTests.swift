@@ -69,8 +69,10 @@ enum SupervisorSignalKind: CaseIterable {
 
     func expectedState(from state: FleetTaskState) -> FleetTaskState {
         switch self {
-        case .sourceSync, .activity, .prChanged:
+        case .sourceSync, .activity:
             state
+        case .prChanged:
+            state == .retryBackoff || state == .failed ? .awaitingReview : state
         case .dispatched:
             state == .queued ? .provisioning : state
         case .provisioned:

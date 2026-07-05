@@ -1,6 +1,8 @@
 /// Produces safe directory names for Fleet task keys.
 public struct FleetPathSanitizer: Sendable {
-    /// The maximum character count for returned directory names.
+    /// The requested maximum character count for returned directory names.
+    ///
+    /// Values below the minimum safe suffix length are raised so the stable hash is preserved.
     public var maxLength: Int
 
     /// The name returned when sanitization would otherwise be empty.
@@ -19,16 +21,23 @@ public struct FleetPathSanitizer: Sendable {
     /// - Parameter key: The source task key to sanitize.
     /// - Returns: A non-empty safe directory name.
     public func directoryName(for key: String) -> String {
-        let sanitizedKey = sanitizedName(for: key)
+        let suffix = "-\(hashHex(for: key))"
+        let limit = effectiveMaxLength(suffixLength: suffix.count)
+        let baseLimit = limit - suffix.count
+
+        let sanitizedKey = sanitizedName(for: key, maxLength: baseLimit)
+        let base: String
         if !sanitizedKey.isEmpty {
-            return sanitizedKey
+            base = sanitizedKey
+        } else {
+            let sanitizedFallback = sanitizedName(for: fallback, maxLength: baseLimit)
+            base = sanitizedFallback.isEmpty ? "task" : sanitizedFallback
         }
 
-        let sanitizedFallback = sanitizedName(for: fallback)
-        return sanitizedFallback.isEmpty ? "task" : sanitizedFallback
+        return "\(base)\(suffix)"
     }
 
-    private func sanitizedName(for value: String) -> String {
+    private func sanitizedName(for value: String, maxLength: Int) -> String {
         guard maxLength > 0 else {
             return ""
         }
@@ -53,6 +62,31 @@ public struct FleetPathSanitizer: Sendable {
             result = trimmed(result)
         }
 
+        return result
+    }
+
+    private func effectiveMaxLength(suffixLength: Int) -> Int {
+        max(maxLength, "task".count + suffixLength)
+    }
+
+    private func hashHex(for value: String) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return lowerEightHexDigits(of: hash)
+    }
+
+    private func lowerEightHexDigits(of value: UInt64) -> String {
+        let alphabet = Array("0123456789abcdef")
+        let truncated = UInt32(truncatingIfNeeded: value)
+        var result = ""
+        result.reserveCapacity(8)
+        for shift in stride(from: 28, through: 0, by: -4) {
+            let index = Int((truncated >> shift) & 0xF)
+            result.append(alphabet[index])
+        }
         return result
     }
 

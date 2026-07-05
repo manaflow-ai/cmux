@@ -28,10 +28,10 @@ struct FleetTaskStateTests {
             .running: [.running, .needsInput, .retryBackoff, .awaitingReview, .done, .failed, .cancelled],
             .needsInput: [.needsInput, .running, .retryBackoff, .awaitingReview, .done, .failed, .cancelled],
             .stalled: [.stalled, .retryBackoff, .done, .failed, .cancelled],
-            .retryBackoff: [.retryBackoff, .launching, .cancelled],
+            .retryBackoff: [.retryBackoff, .launching, .awaitingReview, .done, .cancelled],
             .awaitingReview: [.awaitingReview, .done, .queued, .cancelled],
             .done: [.done],
-            .failed: [.failed, .queued],
+            .failed: [.failed, .awaitingReview, .done, .queued],
             .cancelled: [.cancelled, .queued],
         ]
 
