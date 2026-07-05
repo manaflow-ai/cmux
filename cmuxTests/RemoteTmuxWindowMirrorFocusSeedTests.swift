@@ -35,6 +35,10 @@ import Testing
         )
         #expect(mirror.activePaneId == 4)
 
+        connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 5))
+        mirror.setActivePane(5, fromTmux: true)
+        #expect(mirror.activePaneId == 5)
+
         connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 8))
         mirror.reconcile(layout: Self.twoPaneLayout(left: 7, right: 8))
         #expect(mirror.activePaneId == 8)

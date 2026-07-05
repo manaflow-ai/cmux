@@ -95,6 +95,7 @@ final class RemoteTmuxWindowMirror {
             if activePaneId == paneId { activePaneId = nil }
         }
         if layout != newLayout { layout = newLayout }
+        seedActivePaneIfNeeded()
     }
 
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).
@@ -127,8 +128,29 @@ final class RemoteTmuxWindowMirror {
 
     /// Records the user-focused pane and asks tmux to make it active.
     func focus(pane tmuxPaneId: Int) {
-        if activePaneId != tmuxPaneId { activePaneId = tmuxPaneId }
-        connection?.send("select-pane -t @\(windowId).%\(tmuxPaneId)")
+        setActivePane(tmuxPaneId, fromTmux: false)
+    }
+
+    /// Records the active pane. tmux-driven syncs (`fromTmux: true`) never echo
+    /// `select-pane` back to tmux; a user focus does.
+    func setActivePane(_ paneId: Int, fromTmux: Bool) {
+        guard layout.paneIDsInOrder.contains(paneId) else { return }
+        if activePaneId != paneId { activePaneId = paneId }
+        if !fromTmux {
+            connection?.send("select-pane -t @\(windowId).%\(paneId)")
+        }
+    }
+
+    /// Seeds or repairs the active pane from tmux's tracked active pane
+    /// (`%window-pane-changed` → ``RemoteTmuxControlConnection/activePaneByWindow``),
+    /// so a freshly-mirrored window renders tmux's real focus instead of
+    /// all-unfocused-until-first-click (#7372).
+    private func seedActivePaneIfNeeded() {
+        let live = layout.paneIDsInOrder
+        let seed = connection?.activePaneByWindow[windowId] ?? live.first
+        if activePaneId.map({ live.contains($0) }) != true, let seed {
+            setActivePane(seed, fromTmux: true)
+        }
     }
 
     /// Propagates a user split of `tmuxPaneId` to tmux `split-window`

@@ -389,8 +389,8 @@ final class RemoteTmuxSessionMirror {
     /// window tab when the active pane changes, so switching panes updates the
     /// folder immediately (rather than waiting for that pane's next `cd`).
     private func handleActivePaneChanged(windowId: Int, paneId: Int) {
-        guard let workspace,
-              windowMirrorByWindowId[windowId] != nil,
+        windowMirrorByWindowId[windowId]?.setActivePane(paneId, fromTmux: true)
+        guard let workspace, windowMirrorByWindowId[windowId] != nil,
               let panelId = panelIdByWindow[windowId],
               let path = cwdByPane[paneId] else { return }
         _ = workspace.updatePanelDirectory(panelId: panelId, directory: path)
