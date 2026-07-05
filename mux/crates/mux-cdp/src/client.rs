@@ -99,7 +99,12 @@ impl CdpClient {
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
         let request = web_socket_url.into_client_request()?;
         let (ws, _) = client(request, stream)?;
-        ws.get_ref().set_read_timeout(Some(Duration::from_millis(100)))?;
+        // The reader loop holds the ws mutex for the whole read poll
+        // (sync tungstenite cannot split read/write halves), so this
+        // window is also the worst-case wait for every outgoing call.
+        // Keep it short: writers stall at most ~20ms, and the idle
+        // wakeup cost (one timed-out read per window) is negligible.
+        ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
         let client = CdpClient {
             inner: Arc::new(Inner {

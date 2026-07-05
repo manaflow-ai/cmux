@@ -7,6 +7,7 @@
 //! headless) session over that socket, which is how detach/reattach works.
 
 mod app;
+mod browser_input;
 mod config;
 mod host_colors;
 mod keys;

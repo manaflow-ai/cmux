@@ -28,6 +28,7 @@ use mux_core::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
 
+use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
 use crate::config::{Action, Config, ScrollbarPosition};
 use crate::keys;
 use crate::session::{Session, SurfaceHandle, TreeView};
@@ -244,14 +245,18 @@ pub struct OmnibarState {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct BrowserMouseDispatch<'a> {
-    event_type: &'a str,
-    button: Option<&'a str>,
+struct BrowserMouseDispatch {
+    event_type: &'static str,
+    button: Option<&'static str>,
     click_count: Option<u32>,
 }
 
-impl<'a> BrowserMouseDispatch<'a> {
-    const fn new(event_type: &'a str, button: Option<&'a str>, click_count: Option<u32>) -> Self {
+impl BrowserMouseDispatch {
+    const fn new(
+        event_type: &'static str,
+        button: Option<&'static str>,
+        click_count: Option<u32>,
+    ) -> Self {
         Self { event_type, button, click_count }
     }
 }
@@ -360,6 +365,9 @@ pub struct App {
     /// clickable element); tracked to avoid re-emitting OSC 22.
     pointer_shape: bool,
     last_browser_hover: Option<(SurfaceId, u16, u16)>,
+    /// Off-loop forwarder for browser input: CDP/socket round trips must
+    /// never run on the event-loop thread (see `browser_input`).
+    browser_input: BrowserInputDispatcher,
     drag: Option<Drag>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
@@ -537,6 +545,7 @@ pub fn run(session: Session, session_label: String) -> anyhow::Result<()> {
         cell_pixels,
         pointer_shape: false,
         last_browser_hover: None,
+        browser_input: BrowserInputDispatcher::spawn()?,
         drag: None,
         encoder,
         encode_buf: Vec::with_capacity(64),
@@ -768,6 +777,11 @@ impl App {
 
     fn active_surface_handle(&self) -> Option<SurfaceHandle> {
         self.active_surface().and_then(|id| self.session.surface(id))
+    }
+
+    fn active_surface_with_handle(&self) -> Option<(SurfaceId, SurfaceHandle)> {
+        let id = self.active_surface()?;
+        Some((id, self.session.surface(id)?))
     }
 
     pub fn dragging_scrollbar(&self) -> Option<SurfaceId> {
@@ -1344,28 +1358,53 @@ impl App {
             }
             return;
         }
-        let Some(surface) = self.active_surface_handle() else { return };
+        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         if let KeyCode::Char(c) = key.code {
             if !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
             {
-                let _ = surface.browser_insert_text(&c.to_string());
+                self.browser_input.enqueue(BrowserInputEvent {
+                    surface_id,
+                    surface,
+                    kind: BrowserInputKind::InsertText(c.to_string()),
+                });
                 return;
             }
         }
         let Some((key_name, code, vk, text)) = browser_key_mapping(key.code) else { return };
         let modifiers = browser_modifiers(key.modifiers);
-        let _ = surface.browser_key_event("keyDown", key_name, code, vk, modifiers, text);
+        let key_event =
+            |event_type: &'static str, text: Option<&'static str>| BrowserInputKind::Key {
+                event_type,
+                key: key_name,
+                code,
+                windows_virtual_key_code: vk,
+                modifiers,
+                text,
+            };
+        self.browser_input.enqueue(BrowserInputEvent {
+            surface_id,
+            surface: surface.clone(),
+            kind: key_event("keyDown", text),
+        });
         if key.kind == KeyEventKind::Press {
-            let _ = surface.browser_key_event("keyUp", key_name, code, vk, modifiers, None);
+            self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: key_event("keyUp", None),
+            });
         }
     }
 
     fn paste(&mut self, text: &str) {
-        let Some(surface) = self.active_surface_handle() else { return };
+        let Some((surface_id, surface)) = self.active_surface_with_handle() else { return };
         if surface.kind() == SurfaceKind::Browser {
-            let _ = surface.browser_insert_text(text);
+            self.browser_input.enqueue(BrowserInputEvent {
+                surface_id,
+                surface,
+                kind: BrowserInputKind::InsertText(text.to_string()),
+            });
             return;
         }
         let Some(bracketed) = surface.with_terminal(|t| t.mode(2004, false)) else {
@@ -1505,7 +1544,7 @@ impl App {
                     let cell = (x.saturating_sub(area.content.x), y.saturating_sub(area.content.y));
                     let next = (area.surface, cell.0, cell.1);
                     if self.last_browser_hover != Some(next) {
-                        let _ = self.send_browser_mouse(
+                        self.send_browser_mouse(
                             area.surface,
                             area.content,
                             x,
@@ -1674,7 +1713,7 @@ impl App {
                         x,
                         y,
                         BrowserMouseDispatch::new("mousePressed", Some("left"), Some(1)),
-                    )?;
+                    );
                     self.drag =
                         Some(Drag::Browser { surface: area.surface, content: area.content });
                 } else {
@@ -1712,7 +1751,7 @@ impl App {
                     cx,
                     cy,
                     BrowserMouseDispatch::new("mouseMoved", Some("left"), Some(1)),
-                )?;
+                );
                 Ok(true)
             }
             Some(Drag::Scrollbar { surface, track, anchor_y, anchor_offset }) => {
@@ -1750,7 +1789,7 @@ impl App {
                 cx,
                 cy,
                 BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
-            )?;
+            );
             return Ok(true);
         }
         let was_select = matches!(self.drag, Some(Drag::Select { .. }));
@@ -1956,7 +1995,11 @@ impl App {
             if area.content.contains(x, y) {
                 let (px, py) = self.browser_point(area.content, x, y);
                 let delta = if down { 3.0 } else { -3.0 } * f64::from(self.cell_pixels.1);
-                let _ = surface.browser_wheel(px, py, delta);
+                self.browser_input.enqueue(BrowserInputEvent {
+                    surface_id,
+                    surface,
+                    kind: BrowserInputKind::Wheel { x: px, y: py, delta_y: delta },
+                });
                 return Ok(true);
             }
             return Ok(false);
@@ -2006,23 +2049,29 @@ impl App {
         (col * f64::from(self.cell_pixels.0), row * f64::from(self.cell_pixels.1))
     }
 
+    /// Queue a mouse event for the off-loop browser input worker; the
+    /// event loop never waits on the CDP/socket round trip.
     fn send_browser_mouse(
         &self,
         surface_id: SurfaceId,
         content: Rect,
         x: u16,
         y: u16,
-        dispatch: BrowserMouseDispatch<'_>,
-    ) -> anyhow::Result<()> {
-        let Some(surface) = self.session.surface(surface_id) else { return Ok(()) };
+        dispatch: BrowserMouseDispatch,
+    ) {
+        let Some(surface) = self.session.surface(surface_id) else { return };
         let (px, py) = self.browser_point(content, x, y);
-        surface.browser_mouse_event(
-            dispatch.event_type,
-            px,
-            py,
-            dispatch.button,
-            dispatch.click_count,
-        )
+        self.browser_input.enqueue(BrowserInputEvent {
+            surface_id,
+            surface,
+            kind: BrowserInputKind::Mouse {
+                event_type: dispatch.event_type,
+                x: px,
+                y: py,
+                button: dispatch.button,
+                click_count: dispatch.click_count,
+            },
+        });
     }
 }
 
