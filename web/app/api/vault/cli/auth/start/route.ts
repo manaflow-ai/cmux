@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
-import { count, gt, lt } from "drizzle-orm";
+import { checkRateLimit } from "@vercel/firewall";
+import { and, count, eq, gt, lt } from "drizzle-orm";
+import { env } from "@/app/env";
 import { cloudDb } from "../../../../../../db/client";
 import { vaultCliAuthRequests } from "../../../../../../db/schema";
 import { isVaultConfigured } from "../../../../../../services/vault/config";
@@ -12,14 +14,26 @@ export const dynamic = "force-dynamic";
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const EXPIRES_IN_SECONDS = 15 * 60;
 const INTERVAL_SECONDS = 3;
-// Hard ceiling on concurrently pending device-code requests. Legitimate CLI
-// logins are rare, so this mostly exists to bound table growth and insert
-// load from unauthenticated floods; per-IP limiting is a follow-up
-// (see DESIGN.md).
-const MAX_ACTIVE_REQUESTS = 200;
+// Backstop ceiling on rows still awaiting approval. Only `pending` rows count,
+// so completed logins never consume capacity; the primary abuse control is the
+// per-IP firewall rate limit below, and this cap only bounds table growth
+// under a distributed flood that the per-IP rule cannot see.
+const MAX_PENDING_REQUESTS = 500;
 
 export async function POST(request: Request): Promise<Response> {
   if (!isVaultConfigured()) return jsonResponse({ error: "vault_not_configured" }, 503);
+
+  // Per-IP throttle through the platform firewall, same pattern as the other
+  // public POST endpoints (waitlist, feedback). Only active on Vercel.
+  if (process.env.VERCEL === "1" && env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
+    const { error, rateLimited } = await checkRateLimit(env.CMUX_FEEDBACK_RATE_LIMIT_ID, {
+      request,
+    });
+    if (rateLimited || error === "blocked") {
+      return jsonResponse({ error: "throttled" }, 429);
+    }
+  }
+
   const body = await readVaultJsonObject(request);
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
@@ -38,11 +52,16 @@ export async function POST(request: Request): Promise<Response> {
     .delete(vaultCliAuthRequests)
     .where(lt(vaultCliAuthRequests.expiresAt, new Date(now.getTime() - 60 * 1000)));
 
-  const [active] = await db
+  const [pending] = await db
     .select({ value: count() })
     .from(vaultCliAuthRequests)
-    .where(gt(vaultCliAuthRequests.expiresAt, now));
-  if ((active?.value ?? 0) >= MAX_ACTIVE_REQUESTS) {
+    .where(
+      and(
+        eq(vaultCliAuthRequests.status, "pending"),
+        gt(vaultCliAuthRequests.expiresAt, now),
+      ),
+    );
+  if ((pending?.value ?? 0) >= MAX_PENDING_REQUESTS) {
     return jsonResponse({ error: "throttled" }, 429);
   }
 
