@@ -5,7 +5,7 @@
 17954	Sources/AppDelegate.swift
 16427	Sources/ContentView.swift
 14270	Sources/TerminalController.swift
-13172	Sources/Workspace.swift
+13190	Sources/Workspace.swift
 12348	cmuxTests/AppDelegateShortcutRoutingTests.swift
 12212	Sources/GhosttyTerminalView.swift
 11669	Sources/Panels/BrowserPanel.swift
@@ -83,7 +83,7 @@
 1197	cmuxTests/CodexAppServerSessionTests.swift
 1166	Sources/VaultAgentProcessScanner.swift
 1147	cmuxTests/PiVaultAgentPersistenceTests.swift
-1121	cmuxTests/AgentHibernationTests.swift
+1128	cmuxTests/AgentHibernationTests.swift
 1110	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
@@ -133,6 +133,7 @@
 761	Sources/Mobile/AgentChat/AgentChatSessionRegistry.swift
 756	Sources/Panels/AgentSessionWebRendererCoordinator.swift
 754	Sources/TerminalController+ControlWorkspaceContext.swift
+754	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 739	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
@@ -195,7 +196,6 @@
 586	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+PortScan.swift
 586	Sources/JSONCParser.swift
 585	Sources/Cloud/VMClient.swift
-754	cmuxTests/GhosttyTerminalStartupEnvironmentTests.swift
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
