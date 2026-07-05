@@ -189,6 +189,16 @@ extension AgentChatSessionRegistry {
         sessionID.hasPrefix("pending-claude-")
     }
 
+    nonisolated static func allowsUnidentifiedClaudeLivenessFallback(for record: AgentChatSessionRecord) -> Bool {
+        record.agentKind == .claude
+            && isPendingClaudeSessionID(record.sessionID)
+            && record.hookStoreSessionID == nil
+    }
+
+    func processIsDead(_ pid: Int) -> Bool {
+        kill(pid_t(pid), 0) != 0 && errno == ESRCH
+    }
+
     private nonisolated static func observedSessionID(
         agentID: String,
         pid: Int,

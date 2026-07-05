@@ -69,7 +69,8 @@ extension AgentChatSessionRegistry {
 
     nonisolated static func nextState(
         previous: ChatAgentState,
-        event: WorkstreamEvent
+        event: WorkstreamEvent,
+        clearsApprovalWait: Bool = false
     ) -> ChatAgentState {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
             return .ended
@@ -83,19 +84,61 @@ extension AgentChatSessionRegistry {
         case .preCompact, .postCompact:
             // Compaction is lifecycle telemetry. It can occur while a session
             // is idle, so it must not create a synthetic working state.
-            return previous
-        case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
-            if case .needsInput = previous { return previous }
+            return stateAfterLifecycleTelemetry(
+                previous: previous,
+                clearsApprovalWait: clearsApprovalWait
+            )
+        case .permissionRequest, .askUserQuestion, .exitPlanMode, .approvalWait, .notification:
+            if case .needsInput = previous, !clearsApprovalWait { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
             return .idle
         case .subagentStart, .subagentStop:
             // Task subagent lifecycle says nothing about the parent
             // session's activity; keep the current state.
-            return previous
+            return stateAfterLifecycleTelemetry(
+                previous: previous,
+                clearsApprovalWait: clearsApprovalWait
+            )
         case .sessionEnd:
             return .ended
         }
+    }
+
+    /// Applies one hook event to the state machine while tracking whether a
+    /// non-blocking approval wait owns the resulting `.needsInput`. An
+    /// approval wait clears as soon as the NEXT event for the same session
+    /// arrives (mirroring the Feed's pre-clear semantics) — including
+    /// lifecycle telemetry that otherwise preserves the previous state — but
+    /// never downgrades a `.needsInput` owned by a blocking decision.
+    nonisolated static func hookStateTransition(
+        previous: ChatAgentState,
+        event: WorkstreamEvent,
+        approvalWaitOwnedNeedsInput wasApprovalWait: Bool
+    ) -> (state: ChatAgentState, approvalWaitOwnsNeedsInput: Bool) {
+        let clearsApprovalWait = wasApprovalWait && event.hookEventName != .approvalWait
+        let state = nextState(
+            previous: previous,
+            event: event,
+            clearsApprovalWait: clearsApprovalWait
+        )
+        let ownsNeedsInput = event.hookEventName == .approvalWait
+            && state.needsAttention
+            && (wasApprovalWait || !previous.needsAttention)
+        return (state: state, approvalWaitOwnsNeedsInput: ownsNeedsInput)
+    }
+
+    /// Telemetry events keep the previous state, except that they clear an
+    /// approval-wait-owned `.needsInput` back to `.idle`: the agent moved on,
+    /// so the wait is over even though no state-bearing hook fired.
+    private nonisolated static func stateAfterLifecycleTelemetry(
+        previous: ChatAgentState,
+        clearsApprovalWait: Bool
+    ) -> ChatAgentState {
+        if clearsApprovalWait, case .needsInput = previous {
+            return .idle
+        }
+        return previous
     }
 
     nonisolated static func stateIsEnded(_ state: ChatAgentState) -> Bool {
@@ -104,4 +147,12 @@ extension AgentChatSessionRegistry {
         }
         return false
     }
+
+    #if DEBUG
+    /// Compact state label for the debug trace (`idle`/`working`/`needsInput`/
+    /// `ended`), stripping any associated value.
+    nonisolated static func stateLabel(_ state: ChatAgentState) -> String {
+        String(describing: state).split(separator: "(").first.map(String.init) ?? "?"
+    }
+    #endif
 }

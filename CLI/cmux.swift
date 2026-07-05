@@ -32870,9 +32870,9 @@ export default CMUXSessionRestore;
 
         // Read stdin. Claude, Codex, and the other agents all pipe hook
         // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
-        // events are telemetry, and native lifecycle hooks can carry arbitrary
-        // transcript fragments or tool output, so cap every Codex feed
-        // invocation before JSON decoding without changing other agents'
+        // events never block in the hook, and native lifecycle hooks can carry
+        // arbitrary transcript fragments or tool output, so cap every Codex
+        // feed invocation before JSON decoding without changing other agents'
         // actionable hook reads.
         let stdinData: Data
         let shouldBoundCodexFeedStdin = source == "codex"

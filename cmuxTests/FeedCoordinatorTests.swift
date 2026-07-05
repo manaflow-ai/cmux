@@ -548,7 +548,7 @@ struct FeedCoordinatorTests {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
             FeedCoordinator.shared.install(store: store)
-            FeedCoordinatorTestHooks.attentionSurfaceObserver = { event in
+            FeedCoordinator.shared.needsInputAttentionRequestObserver = { event in
                 attention.record(event)
             }
             // Resolve the blocking wait as soon as the item is ingested so
@@ -618,7 +618,7 @@ struct FeedCoordinatorTests {
                 FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
                 FeedCoordinatorTestHooks.isAppActiveOverride = nil
                 FeedCoordinatorTestHooks.notificationPostObserver = nil
-                FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
+                FeedCoordinator.shared.needsInputAttentionRequestObserver = nil
             }
         }
         if Thread.isMainThread {

@@ -9,6 +9,9 @@ final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
     private var liveSessionIDBySurfaceID: [String: String] = [:]
     private var liveClaudeSessionIDsBySurfaceID: [String: Set<String>] = [:]
+    /// Sessions whose current `.needsInput` state came from a non-blocking
+    /// approval wait owned by the agent UI.
+    private var approvalWaitSessionIDs: Set<String> = []
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -212,12 +215,6 @@ final class AgentChatSessionRegistry {
         }
     }
 
-    nonisolated static func allowsUnidentifiedClaudeLivenessFallback(for record: AgentChatSessionRecord) -> Bool {
-        record.agentKind == .claude
-            && isPendingClaudeSessionID(record.sessionID)
-            && record.hookStoreSessionID == nil
-    }
-
     /// One session's record.
     ///
     /// - Parameter sessionID: Raw (unprefixed) session id.
@@ -286,6 +283,9 @@ final class AgentChatSessionRegistry {
         var record = previous
         mutate(&record)
         stampLifecycleTransition(previous: previous, current: &record, at: Date())
+        if !record.state.needsAttention {
+            approvalWaitSessionIDs.remove(sessionID)
+        }
         stampVersion(&record)
         records[sessionID] = record
         #if DEBUG
@@ -300,14 +300,6 @@ final class AgentChatSessionRegistry {
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
     }
-
-    #if DEBUG
-    /// Compact state label for the debug trace (`idle`/`working`/`needsInput`/
-    /// `ended`), stripping any associated value.
-    private static func stateLabel(_ state: ChatAgentState) -> String {
-        String(describing: state).split(separator: "(").first.map(String.init) ?? "?"
-    }
-    #endif
 
     /// A transcript tail can observe a completed assistant turn even when
     /// the agent hook stream never emits Stop (Claude weekly-limit replies
@@ -458,7 +450,17 @@ final class AgentChatSessionRegistry {
         record.lastActivityAt = event.receivedAt
 
         let previous = records[sessionID]
-        record.state = Self.nextState(previous: record.state, event: event)
+        let transition = Self.hookStateTransition(
+            previous: record.state,
+            event: event,
+            approvalWaitOwnedNeedsInput: approvalWaitSessionIDs.contains(sessionID)
+        )
+        record.state = transition.state
+        if transition.approvalWaitOwnsNeedsInput {
+            approvalWaitSessionIDs.insert(sessionID)
+        } else {
+            approvalWaitSessionIDs.remove(sessionID)
+        }
         stampLifecycleTransition(previous: previous, current: &record, at: event.receivedAt)
         stampVersion(&record)
         records[sessionID] = record
@@ -608,6 +610,7 @@ final class AgentChatSessionRegistry {
         let normalizedWorkspace = workspaceID.flatMap { $0.isEmpty ? nil : $0 }
         let normalizedCwd = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
         if records[sessionID] != nil {
+            approvalWaitSessionIDs.remove(sessionID)
             update(sessionID: sessionID) { record in
                 if let normalizedSurface { record.surfaceID = normalizedSurface }
                 if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
@@ -745,9 +748,4 @@ final class AgentChatSessionRegistry {
         }
         return record.surfaceID
     }
-
-    private func processIsDead(_ pid: Int) -> Bool {
-        kill(pid_t(pid), 0) != 0 && errno == ESRCH
-    }
-
 }

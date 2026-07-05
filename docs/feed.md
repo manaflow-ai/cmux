@@ -75,7 +75,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | Agent        | Config                                    | Feed trigger             |
 |--------------|-------------------------------------------|--------------------------|
 | Claude Code  | wrapper-injected                          | PermissionRequest        |
-| Codex        | `~/.codex/hooks.json`                     | PreToolUse / PermissionRequest telemetry |
+| Codex        | `~/.codex/hooks.json`                     | PreToolUse telemetry / PermissionRequest approval wait |
 | Grok         | `~/.grok/hooks/cmux-session.json`         | PreToolUse               |
 | OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
@@ -128,7 +128,7 @@ For Claude Code, the cmux wrapper launches Claude with `--allow-dangerously-skip
 
 For Claude Code, AskUserQuestion is answered by allowing the PermissionRequest with an updated tool input containing the selected answers. Other agents use their native question reply shape where available.
 
-Codex's hook-level `request_user_input`, `update_plan`, and approval prompts stay in Codex's own TUI/app-server path. cmux records Codex `PreToolUse` and `PermissionRequest` hooks as non-blocking telemetry only, because Codex runs `PermissionRequest` hooks before its `Approve for me` auto-review path. Blocking in hook mode would make Codex ask for Feed approval before its own reviewer can decide.
+Codex's hook-level `request_user_input`, `update_plan`, and approval prompts stay in Codex's own TUI/app-server path. cmux records Codex `PreToolUse` hooks as non-blocking telemetry, because blocking in hook mode would make Codex ask for Feed approval before its own reviewer can decide. Codex `PermissionRequest` hooks are also non-blocking, but they surface a visible approval-wait row and sidebar Needs input attention while Codex waits in the terminal. cmux clears that attention when the next event from the same Codex session arrives.
 
 When Codex is launched through `cmux codex-teams`, cmux owns the private Codex app-server connection. The Codex Teams watcher listens for app-server command and file-change approval requests, which happen after Codex has decided that user approval is needed, and bridges those requests to Feed as actionable permission cards. A Feed click responds to the app-server request. If Feed times out or no decision is returned, cmux does not send a denial so Codex's native TUI approval can still answer the request.
 

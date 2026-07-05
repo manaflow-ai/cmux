@@ -87,6 +87,11 @@ private struct FeedPreviewRootView: View {
             case .pending: return ("Pending", .orange)
             case .resolved: return ("Resolved", .green)
             case .expired: return ("Expired", .secondary)
+            case .cleared:
+                return (
+                    String(localized: "feed.preview.status.cleared", defaultValue: "Cleared"),
+                    .secondary
+                )
             case .telemetry: return ("Telemetry", .blue)
             }
         }()
@@ -158,11 +163,13 @@ private enum FeedPreviewActions {
 
 enum FeedPreviewFixtures {
     enum Kind: String, CaseIterable, Identifiable {
-        case permission, exitPlan, question, todos, toolUse, userPrompt
+        case permission, approvalWait, exitPlan, question, todos, toolUse, userPrompt
         var id: String { rawValue }
         var label: String {
             switch self {
             case .permission: return "Permission request"
+            case .approvalWait:
+                return String(localized: "feed.preview.kind.approvalWait", defaultValue: "Approval wait")
             case .exitPlan: return "Plan mode"
             case .question: return "AskUserQuestion (multi)"
             case .todos: return "TodoWrite"
@@ -228,6 +235,7 @@ enum FeedPreviewFixtures {
         let eventName: WorkstreamEvent.HookEventName
         switch item.kind {
         case .permissionRequest: eventName = .permissionRequest
+        case .approvalWait: eventName = .approvalWait
         case .exitPlan: eventName = .exitPlanMode
         case .question: eventName = .askUserQuestion
         case .todos: eventName = .todoWrite
@@ -257,6 +265,11 @@ enum FeedPreviewFixtures {
                 {"command":"rm -rf /tmp/some-nonexistent-test-dir-xyz","description":"Attempt rm -rf to trigger permission prompt"}
                 """,
                 pattern: nil
+            ))
+        case .approvalWait:
+            return (.approvalWait, .approvalWait(
+                toolName: "shell",
+                toolInputJSON: #"{"command":"touch /tmp/x"}"#
             ))
         case .exitPlan:
             let plan = """
@@ -344,6 +357,7 @@ enum FeedPreviewFixtures {
     private static func sampleDecision(for kind: Kind) -> WorkstreamDecision {
         switch kind {
         case .permission: return .permission(.once)
+        case .approvalWait: return .permission(.once)
         case .exitPlan: return .exitPlan(.autoAccept)
         case .question: return .question(selections: ["Tiny shell script"])
         default: return .permission(.once)
@@ -353,6 +367,7 @@ enum FeedPreviewFixtures {
     private static func titleHint(for kind: Kind) -> String? {
         switch kind {
         case .permission: return "Write"
+        case .approvalWait: return "shell"
         case .exitPlan: return "ExitPlanMode"
         case .question: return "AskUserQuestion"
         default: return nil

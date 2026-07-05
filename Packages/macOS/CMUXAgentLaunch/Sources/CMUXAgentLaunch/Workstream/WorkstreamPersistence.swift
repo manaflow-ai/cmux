@@ -209,6 +209,11 @@ private extension WorkstreamPayload {
                 toolInputJSON: WorkstreamPersistenceRedactor.redactToolInputJSON(toolInputJSON),
                 pattern: pattern
             )
+        case .approvalWait(let toolName, let toolInputJSON):
+            return .approvalWait(
+                toolName: toolName,
+                toolInputJSON: WorkstreamPersistenceRedactor.redactToolInputJSON(toolInputJSON)
+            )
         case .toolUse(let toolName, let toolInputJSON):
             return .toolUse(
                 toolName: toolName,

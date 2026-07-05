@@ -92,6 +92,30 @@ struct WorkstreamStoreTests {
         #expect(store.items[2].status.isPending)
     }
 
+    @Test("expireItems reports approval-wait workstream IDs it expired")
+    func expireItemsReportsApprovalWaitWorkstreamIds() {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .approvalWait,
+            source: "codex",
+            toolName: "shell",
+            toolInputJSON: #"{"command":"touch /tmp/x"}"#,
+            ppid: 123
+        ))
+        store.ingest(.permission("claude-session", requestId: "r1", ppid: 123))
+
+        let expiredApprovalWaitIds = store.expireItems(forPpid: 123)
+
+        #expect(expiredApprovalWaitIds == ["codex-session"])
+        #expect(store.pending.isEmpty)
+        if case .expired = store.items[0].status {
+            // ok
+        } else {
+            Issue.record("expected approval wait to expire")
+        }
+    }
+
     @Test("expirePending moves stale pending items to expired")
     func expirePending() {
         let clock = TestClock(initial: Date(timeIntervalSince1970: 0))
@@ -196,6 +220,58 @@ struct WorkstreamStoreTests {
         } else {
             Issue.record("expected SubagentStop item")
         }
+    }
+
+    @Test("Codex approval waits are pending until the next same-session event")
+    func codexApprovalWaitClearsOnNextSameSessionEvent() {
+        let clock = TestClock(initial: Date(timeIntervalSince1970: 100))
+        let store = WorkstreamStore(ringCapacity: 10, clock: { clock.now })
+
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .approvalWait,
+            source: "codex",
+            toolName: "shell",
+            toolInputJSON: #"{"command":"touch /tmp/x"}"#,
+            receivedAt: clock.now
+        ))
+
+        #expect(store.items.count == 1)
+        #expect(store.items[0].kind == .approvalWait)
+        #expect(store.items[0].status.isPending)
+        #expect(store.pending.count == 1)
+        #expect(store.actionable.count == 1)
+        if case .approvalWait(let toolName, let toolInputJSON) = store.items[0].payload {
+            #expect(toolName == "shell")
+            #expect(toolInputJSON.contains("touch /tmp/x"))
+        } else {
+            Issue.record("expected approvalWait payload")
+        }
+
+        clock.advance(1)
+        store.ingest(WorkstreamEvent(
+            sessionId: "other-codex-session",
+            hookEventName: .postToolUse,
+            source: "codex",
+            receivedAt: clock.now
+        ))
+        #expect(store.items[0].status.isPending)
+
+        clock.advance(1)
+        let clearTime = clock.now
+        store.ingest(WorkstreamEvent(
+            sessionId: "codex-session",
+            hookEventName: .postToolUse,
+            source: "codex",
+            receivedAt: clearTime
+        ))
+
+        if case .cleared(let at) = store.items[0].status {
+            #expect(at == clearTime)
+        } else {
+            Issue.record("expected approval wait to clear on next same-session event")
+        }
+        #expect(store.pending.isEmpty)
     }
 
     @Test("Telemetry payloads preserve prompt, stop, and todo content")
