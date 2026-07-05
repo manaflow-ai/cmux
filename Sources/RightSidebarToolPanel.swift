@@ -190,7 +190,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
 
-        if workspace.isRemoteWorkspace {
+        if workspace.usesRemoteDirectoryProvenance {
             guard let configuration = workspace.remoteConfiguration,
                   configuration.transport == .ssh else {
                 store.applyWorkspaceRoot(.none)
@@ -225,7 +225,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {
-        guard !workspace.isRemoteWorkspace else {
+        guard !workspace.usesRemoteDirectoryProvenance else {
             store.setCurrentDirectoryIfChanged(nil)
             return
         }
