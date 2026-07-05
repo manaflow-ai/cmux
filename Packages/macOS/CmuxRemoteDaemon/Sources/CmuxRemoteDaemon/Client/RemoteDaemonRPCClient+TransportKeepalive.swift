@@ -49,6 +49,13 @@ extension RemoteDaemonRPCClient {
         transportKeepaliveTimeoutWorkItem = timeoutWorkItem
         stateQueue.asyncAfter(deadline: .now() + keepaliveTimeout, execute: timeoutWorkItem)
 
+        // The blocking probe runs off stateQueue. If the watchdog above fires
+        // first, handleTransportKeepaliveFailureLocked closes the transport
+        // handles, which makes this in-flight call fail shortly afterwards;
+        // its late completion lands on stateQueue behind the teardown and is
+        // dropped by the isClosed guards below. The keepalive queue thread is
+        // expected to drain on its own that way — nothing waits on it, and it
+        // must not acquire resources beyond the call itself.
         transportKeepaliveQueue.async { [weak self] in
             guard let self else { return }
             do {

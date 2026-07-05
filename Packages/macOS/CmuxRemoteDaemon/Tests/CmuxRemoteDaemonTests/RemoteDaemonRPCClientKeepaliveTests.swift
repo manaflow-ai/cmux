@@ -71,12 +71,12 @@ struct RemoteDaemonRPCClientKeepaliveTests {
             remotePath: "/fake/cmuxd-remote",
             strings: strings(),
             keepaliveInterval: 0.2,
-            keepaliveTimeout: 1.0,
-            transportExecutableOverride: executable
+            keepaliveTimeout: 1.0
         ) { _ in
             terminated.signal()
         }
         defer { client.stop() }
+        client.transportExecutableOverride = executable
 
         try client.start()
 
@@ -96,12 +96,12 @@ struct RemoteDaemonRPCClientKeepaliveTests {
             remotePath: "/fake/cmuxd-remote",
             strings: strings(),
             keepaliveInterval: 0.2,
-            keepaliveTimeout: 1.0,
-            transportExecutableOverride: executable
+            keepaliveTimeout: 1.0
         ) { _ in
             terminated.signal()
         }
         defer { client.stop() }
+        client.transportExecutableOverride = executable
 
         try client.start()
 

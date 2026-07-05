@@ -80,7 +80,11 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let strings: RemoteDaemonStrings
     let keepaliveInterval: TimeInterval
     let keepaliveTimeout: TimeInterval
-    let transportExecutableOverride: String?
+    /// Test seam: replaces the `/usr/bin/ssh` stdio-transport executable.
+    /// Kept off the public initializer so the package API carries no
+    /// test-injection surface; keepalive tests set it via `@testable import`
+    /// before calling ``start()``. Production always launches `/usr/bin/ssh`.
+    var transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
     let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
@@ -129,7 +133,6 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         strings: RemoteDaemonStrings,
         keepaliveInterval: TimeInterval = 5.0,
         keepaliveTimeout: TimeInterval = 10.0,
-        transportExecutableOverride: String? = nil,
         onUnexpectedTermination: @escaping (String) -> Void
     ) {
         self.configuration = configuration
@@ -137,7 +140,6 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         self.strings = strings
         self.keepaliveInterval = keepaliveInterval
         self.keepaliveTimeout = keepaliveTimeout
-        self.transportExecutableOverride = transportExecutableOverride
         self.onUnexpectedTermination = onUnexpectedTermination
     }
 
