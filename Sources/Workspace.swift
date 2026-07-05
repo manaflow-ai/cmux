@@ -4706,7 +4706,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func discardRemoteDirectoryTrustState(panelId: UUID) {
-        remoteDirectoryTrustRequiredPanelIds.remove(panelId)
+        remoteDirectoryTrustRequiredPanelIds.remove(panelId); remoteDirectoryReportPanelIds.remove(panelId)
     }
 
     @discardableResult
@@ -4746,7 +4746,7 @@ final class Workspace: Identifiable, ObservableObject {
         if panelId == focusedPanelId {
             let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
             if surfaceTabBarDirectory != nextSurfaceTabBarDirectory { surfaceTabBarDirectory = nextSurfaceTabBarDirectory }
-            if currentDirectory != trimmed { currentDirectory = trimmed }
+            if allowsLocalDirectoryFallback(panelId: panelId), currentDirectory != trimmed { currentDirectory = trimmed }
         }
         if usesRemoteDirectoryProvenance {
             notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: provenanceChanged)
