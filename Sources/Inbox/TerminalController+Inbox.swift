@@ -311,7 +311,7 @@ private extension TerminalController {
             "participants": thread.participants.map(dictionary(participant:)),
             "title": thread.title,
             "unread_count": thread.unreadCount,
-            "last_activity_at": iso(thread.lastActivityAt),
+            "last_activity_at": iso(thread.lastActivityAt) as Any,
             "muted": thread.isMuted,
             "pinned": thread.isPinned,
             "archived": thread.isArchived,
@@ -329,7 +329,7 @@ private extension TerminalController {
             "account_id": item.accountID,
             "external_message_id": item.externalMessageID,
             "sender": dictionary(participant: item.sender),
-            "timestamp": iso(item.timestamp),
+            "timestamp": iso(item.timestamp) as Any,
             "body_preview": item.bodyPreview,
             "body": item.body as Any,
             "metadata": item.metadata,
@@ -350,7 +350,7 @@ private extension TerminalController {
             "instruction": draft.instruction as Any,
             "body": draft.body,
             "status": draft.status.rawValue,
-            "created_at": iso(draft.createdAt),
+            "created_at": iso(draft.createdAt) as Any,
             "approved_at": iso(draft.approvedAt) as Any,
             "sent_at": iso(draft.sentAt) as Any,
             "error_message": draft.errorMessage as Any,
@@ -438,14 +438,15 @@ private extension TerminalController {
         }
     }
 
-    // Shared: these serializers run per item per socket call; the formatter is thread-safe.
-    nonisolated static let inboxISOFormatter = ISO8601DateFormatter()
+    // Not shared/static: `ISO8601DateFormatter` is not `Sendable`, so a
+    // `nonisolated static let` can't hold one. These serializers run at most
+    // a few dozen times per socket call, so a fresh formatter per use is cheap.
     nonisolated static func date(_ value: Any?) -> Date? {
         if let number = value as? NSNumber { return Date(timeIntervalSince1970: number.doubleValue) }
         if let double = value as? Double { return Date(timeIntervalSince1970: double) }
         guard let raw = string(value) else { return nil }
         if let seconds = Double(raw) { return Date(timeIntervalSince1970: seconds) }
-        return inboxISOFormatter.date(from: raw)
+        return ISO8601DateFormatter().date(from: raw)
     }
 
     nonisolated static func participant(_ value: Any?) -> InboxParticipant? {
@@ -481,7 +482,7 @@ private extension TerminalController {
         return result
     }
 
-    nonisolated static func iso(_ date: Date?) -> String? { date.map { inboxISOFormatter.string(from: $0) } }
+    nonisolated static func iso(_ date: Date?) -> String? { date.map { ISO8601DateFormatter().string(from: $0) } }
 }
 
 private extension Dictionary where Key == String, Value == Any {
