@@ -27,6 +27,7 @@ import Testing
             393
             - MobileLeadingToolbarTitleWidth.backButtonReserve
             - MobileLeadingToolbarTitleWidth.trailingReserveBase
+            - MobileLeadingToolbarTitleWidth.newTerminalReserve
             - MobileLeadingToolbarTitleWidth.chatToggleReserve
             - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
         )
@@ -39,12 +40,19 @@ import Testing
     }
 
     @Test func iPhoneWidthCapsTitleBeforeTrailingControlsOverflow() {
-        #expect(cap(393, hasChatToggle: true) <= 140)
+        let expectedWithChat = 393
+            - MobileLeadingToolbarTitleWidth.backButtonReserve
+            - MobileLeadingToolbarTitleWidth.trailingReserveBase
+            - MobileLeadingToolbarTitleWidth.newTerminalReserve
+            - MobileLeadingToolbarTitleWidth.chatToggleReserve
+            - MobileLeadingToolbarTitleWidth.barMarginsAndSpacing
+
+        #expect(cap(393, hasChatToggle: true) == expectedWithChat)
         #expect(cap(393, hasChatToggle: false) == 140)
     }
 
     @Test func titleGainsRoomWithoutBackButton() {
-        #expect(cap(260, hasBackButton: false) > cap(260, hasBackButton: true))
+        #expect(cap(320, hasBackButton: false) > cap(320, hasBackButton: true))
     }
 
     @Test func noTrailingClusterDoesNotReserveChatToggle() {
