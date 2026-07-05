@@ -17,7 +17,6 @@ final class SharedLiveAgentIndex {
     private var deferredReloadTask: Task<Void, Never>?
 
     private static let cacheTTL: TimeInterval = 60.0
-    private static let forkAvailabilityProbeTTL: TimeInterval = 1.0
     private static let minEventReloadInterval: TimeInterval = 2.0
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
@@ -179,7 +178,7 @@ final class SharedLiveAgentIndex {
 
     private var hasFreshForkAvailabilityProbe: Bool {
         guard let forkAvailabilityProbeCompletedAt else { return false }
-        return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
+        return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.cacheTTL
     }
 
     private var hasCompletedForkAvailabilityProbe: Bool {
@@ -230,11 +229,6 @@ final class SharedLiveAgentIndex {
         source.setCancelHandler { Darwin.close(fd) }
         source.resume()
         directoryWatchSource = source
-        if refreshTask == nil, forkAvailabilityRefreshTask == nil {
-            startReload()
-        } else {
-            changePending = true
-        }
     }
 }
 
