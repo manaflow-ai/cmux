@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import type {
-  AttachEndpoint,
-  AttachOptions,
-  ExecResult,
-  ProviderId,
-  SSHEndpoint,
+import {
+  type AttachEndpoint,
+  type AttachOptions,
+  type ExecResult,
+  type ProviderId,
+  type SSHEndpoint,
+  type VMStatus,
 } from "./drivers";
 import {
   VmBillingGateway,
@@ -250,6 +251,35 @@ function dbStatusFromProviderStatus(status: "running" | "paused" | "destroyed"):
   return status;
 }
 
+function withResumeOnSuspended<A, E extends VmWorkflowError>(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  providerVmId: string,
+  op: Effect.Effect<A, E>,
+): Effect.Effect<A, E> {
+  return op.pipe(
+    Effect.catchAll((originalError) => {
+      const getStatus = providers.getStatus;
+      const resume = providers.resume;
+      if (!getStatus || !resume) return Effect.fail(originalError);
+
+      return Effect.gen(function* () {
+        const status = yield* getStatus(provider, providerVmId).pipe(
+          Effect.catchAll(() => Effect.succeed(null as VMStatus | null)),
+        );
+        if (status !== "paused") {
+          return yield* Effect.fail(originalError);
+        }
+
+        yield* resume(provider, providerVmId).pipe(
+          Effect.catchAll(() => Effect.fail(originalError)),
+        );
+        return yield* op;
+      });
+    }),
+  );
+}
+
 export function destroyVm(input: { readonly userId: string; readonly providerVmId: string }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -286,9 +316,14 @@ export function execVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
-    const result = yield* providers.exec(vm.provider, input.providerVmId, input.command, {
-      timeoutMs: input.timeoutMs,
-    });
+    const result = yield* withResumeOnSuspended(
+      providers,
+      vm.provider,
+      input.providerVmId,
+      providers.exec(vm.provider, input.providerVmId, input.command, {
+        timeoutMs: input.timeoutMs,
+      }),
+    );
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -313,7 +348,12 @@ export function openAttachEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
+    const endpoint = yield* withResumeOnSuspended(
+      providers,
+      vm.provider,
+      input.providerVmId,
+      providers.openAttach(vm.provider, input.providerVmId, input.options),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -348,7 +388,12 @@ export function openSshEndpoint(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input.userId, input.providerVmId);
     yield* revokeActiveIdentities(vm);
-    const endpoint = yield* providers.openSSH(vm.provider, input.providerVmId);
+    const endpoint = yield* withResumeOnSuspended(
+      providers,
+      vm.provider,
+      input.providerVmId,
+      providers.openSSH(vm.provider, input.providerVmId),
+    );
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
