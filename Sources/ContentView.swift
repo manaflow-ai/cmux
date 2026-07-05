@@ -13781,7 +13781,7 @@ struct TabItemView: View, Equatable {
                     Circle()
                         .fill(Color(nsColor: statusColor))
                         .frame(width: scaledFontSize(7), height: scaledFontSize(7))
-                        .padding(.top, scaledFontSize(4.5))
+                        .padding(.top, scaledFontSize(4))
                         .padding(.trailing, 1)
                         .accessibilityHidden(true)
                 }
@@ -13830,7 +13830,7 @@ struct TabItemView: View, Equatable {
                 }
 
                 Text(displayedTitle)
-                    .font(magnifiedFont(scaledFontSize(13), weight: titleFontWeight))
+                    .font(magnifiedFont(scaledFontSize(12), weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(titleLineLimit)
                     .truncationMode(.tail)
