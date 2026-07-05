@@ -117,6 +117,7 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
+    var onRequestRestoredAgentAutoResume: (() -> Bool)?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -589,10 +590,13 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 #endif
 
-    func focus() {
+    func focus(resumeRestoredAgent: Bool) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
+        }
+        if resumeRestoredAgent {
+            _ = requestRestoredAgentAutoResumeIfNeeded()
         }
         focusTerminalSurface(respectForeignFirstResponder: true)
     }
@@ -767,8 +771,11 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     private func resumeForExplicitInputIfNeeded() {
-        guard isAgentHibernated else { return }
-        _ = requestAgentHibernationResume(focus: false)
+        if isAgentHibernated {
+            _ = requestAgentHibernationResume(focus: false)
+            return
+        }
+        _ = requestRestoredAgentAutoResumeIfNeeded()
     }
 
     @discardableResult
@@ -778,6 +785,12 @@ final class TerminalPanel: Panel, ObservableObject {
             return onRequestAgentHibernationResume(focus)
         }
         return prepareAgentHibernationResume().didResume
+    }
+
+    @discardableResult
+    private func requestRestoredAgentAutoResumeIfNeeded() -> Bool {
+        guard !isAgentHibernated else { return false }
+        return onRequestRestoredAgentAutoResume?() ?? false
     }
 
     func hasSelection() -> Bool {
@@ -851,13 +864,16 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+    func restoreFocusIntent(_ intent: PanelFocusIntent, resumeRestoredAgent: Bool) -> Bool {
         if isAgentHibernated {
             return requestAgentHibernationResume(focus: true)
         }
+        if resumeRestoredAgent {
+            _ = requestRestoredAgentAutoResumeIfNeeded()
+        }
         switch intent {
         case .panel:
-            focus()
+            focus(resumeRestoredAgent: resumeRestoredAgent)
             return true
         case .terminal(let target):
             switch target {

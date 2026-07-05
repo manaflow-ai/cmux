@@ -3,6 +3,7 @@ import Foundation
 import CmuxCore
 import CmuxSidebar
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -120,25 +121,25 @@ struct AgentSessionAutoResumeSwiftTests {
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
-                restoredPanel,
-                scriptContains: [launchCwd, "--resume", sessionId],
-                scriptDoesNotContain: [runtimeCwd]
-            )
+            assertNoAgentResumeLaunchOnRestore(restoredPanel)
             #expect(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.cwd == launchCwd
+            )
+            try assertLazyAgentResumeArmedAfterFocus(
+                workspace: restored,
+                panelId: restoredPanelId,
+                sessionId: sessionId,
+                expectedResumeToken: "--resume",
+                inputContains: [launchCwd, "--resume"],
+                inputDoesNotContain: [runtimeCwd]
             )
         }
     }
 
     /// Regression for #6617: after Cmd+Q/restore of a workspace whose focused
-    /// terminal is running an auto-resumed agent in a project directory, the
-    /// resumed shell spawns in its default directory and shell integration
-    /// reports that directory (typically home) before the agent-resume command
-    /// cds into the project. While the project directory still exists that
-    /// spurious live report must not overwrite the restored workspace cwd,
-    /// otherwise Cmd+T opens the next tab in home (~) instead of the project
-    /// directory the agent is in.
+    /// terminal has a resumable agent in a project directory, lazy restore must
+    /// keep the terminal rooted in that project so Cmd+T opens the next tab
+    /// there instead of home.
     @MainActor
     @Test func cmdTAfterAgentResumeRestoreKeepsProjectCwdDespiteSpuriousHomePwdReport() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
@@ -156,16 +157,11 @@ struct AgentSessionAutoResumeSwiftTests {
                 savedDirectory: projectDir
             )
 
-            // The resumed shell starts before its agent-resume command cds, so
-            // shell integration reports home first. Because the project directory
-            // still exists, this spurious live report must be ignored so the
-            // restored project cwd survives.
-            let spuriousHomeReport = FileManager.default.homeDirectoryForCurrentUser.path
-            try #require(spuriousHomeReport != projectDir)
-            restored.updatePanelDirectory(panelId: restoredPanelId, directory: spuriousHomeReport)
-
             #expect(restored.currentDirectory == projectDir)
             #expect(restored.panelDirectories[restoredPanelId] == projectDir)
+            let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+            assertNoAgentResumeLaunchOnRestore(restoredPanel)
+            #expect(restoredPanel.requestedWorkingDirectory == projectDir)
 
             // Cmd+T must open the new tab in the project directory, not home.
             let createdPanel = try #require(restored.newTerminalSurfaceInFocusedPane(focus: false))
@@ -1090,11 +1086,21 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredBinding.command.contains(freshRuntimeCwd), Comment(rawValue: restoredBinding.command))
             #expect(!restoredBinding.command.contains(staleLaunchCwd), Comment(rawValue: restoredBinding.command))
             #expect(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent == nil)
-            try assertAgentAutoResumeUsesStartupCommand(
-                restoredPanel,
-                scriptContains: [freshRuntimeCwd, "--resume", freshSessionId],
-                scriptDoesNotContain: [staleLaunchCwd, staleSessionId]
+            assertNoAgentResumeLaunchOnRestore(restoredPanel)
+            try assertLazyAgentResumeArmedAfterFocus(
+                workspace: restored,
+                panelId: restoredPanelId,
+                sessionId: freshSessionId,
+                expectedResumeToken: "--resume",
+                inputContains: [freshRuntimeCwd, "claude", "--resume"],
+                inputDoesNotContain: [staleLaunchCwd, staleSessionId]
             )
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == .autoResumeCommandRunning)
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+            let completedTerminal = restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal
+            #expect(completedTerminal?.resumeBinding == nil)
+            #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
         }
     }
 
@@ -1153,10 +1159,14 @@ struct AgentSessionAutoResumeSwiftTests {
             #expect(restoredTerminal?.agent == nil)
             #expect(restoredBinding.kind == "codex")
             #expect(restoredBinding.checkpointId == codexSessionId)
-            try assertAgentAutoResumeUsesStartupCommand(
-                restoredPanel,
-                scriptContains: ["codex", "resume", codexSessionId],
-                scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
+            assertNoAgentResumeLaunchOnRestore(restoredPanel)
+            try assertLazyAgentResumeArmedAfterFocus(
+                workspace: restored,
+                panelId: restoredPanelId,
+                sessionId: codexSessionId,
+                expectedResumeToken: "'resume'",
+                inputContains: ["codex", "resume"],
+                inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }
@@ -1219,10 +1229,14 @@ struct AgentSessionAutoResumeSwiftTests {
             let restoredPanelId = try #require(restored.focusedPanelId)
             let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
 
-            try assertAgentAutoResumeUsesStartupCommand(
-                restoredPanel,
-                scriptContains: ["codex", "resume", codexSessionId],
-                scriptDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
+            assertNoAgentResumeLaunchOnRestore(restoredPanel)
+            try assertLazyAgentResumeArmedAfterFocus(
+                workspace: restored,
+                panelId: restoredPanelId,
+                sessionId: codexSessionId,
+                expectedResumeToken: "'resume'",
+                inputContains: ["codex", "resume"],
+                inputDoesNotContain: [claudeSessionId, "claude-opus-4-8"]
             )
         }
     }
@@ -1403,26 +1417,42 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
-    private func assertAgentAutoResumeUsesStartupCommand(
-        _ panel: TerminalPanel,
-        scriptContains needles: [String],
-        scriptDoesNotContain excludedNeedles: [String] = []
+    private func assertNoAgentResumeLaunchOnRestore(_ panel: TerminalPanel) {
+        let input = panel.surface.debugInitialInputMetadata()
+        #expect(!input.hasInitialInput)
+        #expect(input.byteCount == 0)
+        #expect(panel.surface.debugInitialCommand() == nil)
+        #expect(panel.surface.nextRuntimeInitialInput == nil)
+    }
+
+    @MainActor
+    private func assertLazyAgentResumeArmedAfterFocus(
+        workspace: Workspace,
+        panelId: UUID,
+        sessionId: String,
+        expectedResumeToken: String,
+        inputContains needles: [String] = [],
+        inputDoesNotContain excludedNeedles: [String] = [],
+        expectedResumeState: Workspace.RestoredAgentResumeState? = .awaitingAutoResumeCommand
     ) throws {
-        let command = try #require(panel.surface.debugInitialCommand())
-        #expect(command.hasPrefix("/bin/zsh '"), Comment(rawValue: command))
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
-        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
-        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
-        for needle in needles {
-            #expect(script.contains(needle), Comment(rawValue: script))
+        workspace.focusPanel(panelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        if let input = panel.surface.nextRuntimeInitialInput {
+            #expect(input.contains(expectedResumeToken), Comment(rawValue: input))
+            #expect(input.contains(sessionId), Comment(rawValue: input))
+            for needle in needles {
+                #expect(input.contains(needle), Comment(rawValue: input))
+            }
+            for needle in excludedNeedles {
+                #expect(!input.contains(needle), Comment(rawValue: input))
+            }
+        } else {
+            #expect(panel.surface.hasLiveSurface)
         }
-        for needle in excludedNeedles {
-            #expect(!script.contains(needle), Comment(rawValue: script))
+        if let expectedResumeState {
+            #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == expectedResumeState)
+        } else {
+            #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == nil)
         }
-        #expect(script.contains("CMUX_SHELL_INTEGRATION_DIR"), Comment(rawValue: script))
-        #expect(script.contains("CMUX_ZSH_ZDOTDIR"), Comment(rawValue: script))
-        #expect(script.contains("\"$_cmux_resume_shell\" -lic"), Comment(rawValue: script))
-        #expect(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), Comment(rawValue: script))
-        #expect(script.contains("exec -l \"$_cmux_resume_shell\""), Comment(rawValue: script))
     }
 }

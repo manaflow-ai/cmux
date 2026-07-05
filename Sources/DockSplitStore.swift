@@ -632,6 +632,7 @@ final class DockSplitStore: BonsplitDelegate {
             guard let panelId = surfaceIdToPanelId.removeValue(forKey: tabId) else { continue }
             panelCancellables[panelId]?.cancel()
             panelCancellables.removeValue(forKey: panelId)
+            detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspaceId, surfaceId: panelId)
             detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
             if let panel = panels.removeValue(forKey: panelId) { panel.close() }

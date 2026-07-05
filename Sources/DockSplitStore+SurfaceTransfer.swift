@@ -157,6 +157,15 @@ extension DockSplitStore {
             return nil
         }
 
+        // `sourceWorkspaceId` is this Dock's `workspaceId` (not the panel's original
+        // workspace) by design: attaching into the Dock re-homed the surface's
+        // notification tab-id to `workspaceId` via `updateWorkspaceId`, so any
+        // notifications delivered while the panel was docked are keyed under it.
+        // `Workspace.attachDetachedSurface` rebinds `fromTabId: sourceWorkspaceId`,
+        // so returning the Dock id carries docked-era notifications to the
+        // destination workspace; the `preservedTransfer` original id would instead
+        // strand them under the (possibly Global-Dock synthetic) id. Consolidating
+        // pre-dock notifications is a dock-*entry* rebind concern, out of scope here.
         return Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
             panelId: panelId,
@@ -179,6 +188,7 @@ extension DockSplitStore {
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
             restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
+            restorableAgentAutoResumeOnVisit: agentProvenExited ? false : (preservedTransfer?.restorableAgentAutoResumeOnVisit ?? false),
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
@@ -227,6 +237,12 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             isLoading: detached.isLoading,
             isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            // The Dock has no pinned-tab concept (no `pinnedPanelIds`; every Dock
+            // `createTab`/`newSurface` site creates unpinned tabs). `detached.isPinned`
+            // is intentionally preserved only in the stored transfer above so a
+            // workspace→Dock→workspace round-trip restores the pin once the panel
+            // lands back in a workspace, where `Workspace.attachDetachedSurface`
+            // applies it. Passing it here would create a pin the Dock cannot show.
             isPinned: false,
             inPane: paneId
         ) else {
@@ -239,6 +255,32 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
         installSubscription(for: panel, tracksTerminalTitle: true)
+        // Preserve the full transfer payload — including deferred-resume metadata
+        // (`restorableAgentAutoResumeOnVisit`, `resumeBinding`, agent snapshots) —
+        // so it survives the Dock round-trip. The Dock has no deferred-resume
+        // engine and, like the pre-existing `resumeBinding` path, does not execute
+        // pending resume while a panel is docked; `Workspace.attachDetachedSurface`
+        // re-arms `restoredAgentAutoResumeOnVisitPanelIds` and reinstalls the
+        // resume closure when the panel returns to a workspace, where the next
+        // visit resumes it. Running resume from the Dock would require duplicating
+        // that Workspace machinery here and is intentionally out of scope.
+        //
+        // This snapshot is frozen at dock-entry and never refreshed while docked,
+        // which is correct: the Dock tracks none of the workspace's per-panel
+        // state (no `panelDirectories`, `surfaceTTYNames`, `panelTitles`,
+        // `panelCustomTitles`, `pinnedPanelIds`, or `manualUnreadPanelIds`), so it
+        // has no fresher value to record. Dock-immutable fields (pin, custom
+        // title, manual-unread, agent/resume snapshots, remote identity) have no
+        // mutation path here at all. Live terminal-derived fields (`directory`,
+        // `ttyName`) are re-seeded from this payload on re-attach and then
+        // corrected by the live terminal's own reporting once
+        // `Workspace.attachDetachedSurface` restores workspace tracking
+        // (`updatePanelDirectory(source: .liveReport)`); `title` is already read
+        // live at detach above. Preserving this payload is strictly better than
+        // the prior behavior of dropping all of it (nil/false) on a Dock round-
+        // trip. If a future Dock feature can mutate any of these fields, refresh
+        // this entry at that point.
+        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)
             if let terminal = panel as? TerminalPanel {

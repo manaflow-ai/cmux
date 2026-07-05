@@ -72,6 +72,7 @@ extension DockSocketLifecycleTests {
             restoredUnreadIndicator: nil,
             restorableAgent: restorableAgent,
             restorableAgentResumeState: restorableAgentResumeState,
+            restorableAgentAutoResumeOnVisit: false,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             agentRuntime: agentRuntime,
