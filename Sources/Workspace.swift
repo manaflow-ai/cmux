@@ -1194,6 +1194,9 @@ extension Workspace {
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?
     ) -> UUID? {
+        let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
+            (snapshot.directoryRequiresRemoteTrust == true ||
+                (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil && snapshot.terminal?.isRemoteTerminal != false))
         switch snapshot.type {
         case .terminal:
             let snapshotRestorableAgent = snapshot.terminal?.agent
@@ -1236,13 +1239,10 @@ extension Workspace {
                 }
             }
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
-            let usesUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
-                (snapshot.directoryRequiresRemoteTrust == true ||
-                    (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil))
             let savedWorkingDirectory = effectiveResumeBinding?.cwd
-                ?? (usesUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
-                ?? (usesUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
-                ?? (usesUntrustedSavedDirectory ? nil : snapshot.directory)
+                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
+                ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
+                ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
             // A persisted terminal cwd can already be the stray fallback cwd
             // from a prior auto-resume restore; the transient rescue/guard must
             // remember where the resume launcher actually sends the agent.
@@ -1589,7 +1589,7 @@ extension Workspace {
                     inPane: paneId,
                     providerID: agentSession.providerID,
                     rendererKind: agentSession.rendererKind,
-                    workingDirectory: agentSession.workingDirectory ?? snapshot.directory,
+                    workingDirectory: restoresUntrustedSavedDirectory ? nil : (agentSession.workingDirectory ?? snapshot.directory),
                     focus: false
                   ) else {
                 return nil
@@ -1652,7 +1652,7 @@ extension Workspace {
         let restoredDirectoryRequiresRemoteTrust = snapshot.directoryIsTrustedRemoteReport != true && (
             snapshot.directoryRequiresRemoteTrust == true ||
                 remoteDirectoryTrustRequiredPanelIds.contains(panelId) ||
-                (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil)
+                (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil && snapshot.terminal?.isRemoteTerminal != false)
         )
         if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
             let source: PanelDirectoryUpdateSource = snapshot.directoryIsTrustedRemoteReport == true

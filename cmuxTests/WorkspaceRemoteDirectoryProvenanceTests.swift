@@ -226,6 +226,68 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
     }
 
+    @MainActor
+    @Test("known-local terminal in remote workspace restores local cwd")
+    func knownLocalTerminalInRemoteWorkspaceRestoresLocalDirectory() throws {
+        let workspaceDirectory = "/Users/alice/development"
+        let localTerminalDirectory = "/Users/alice/local-tools"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: workspaceDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: localTerminalDirectory,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == localPanel.id })
+        snapshot.panels[panelIndex].directoryIsTrustedRemoteReport = nil
+        snapshot.panels[panelIndex].directoryRequiresRemoteTrust = nil
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.isRemoteTerminal = false
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
+
+        let restored = Workspace()
+        let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[localPanel.id])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        #expect(restoredPanel.requestedWorkingDirectory == localTerminalDirectory)
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == localTerminalDirectory)
+        #expect(!restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
+    }
+
+    @MainActor
+    @Test("trust-required agent restore does not capture remote cwd as local")
+    func trustRequiredAgentRestoreDoesNotCaptureRemoteDirectoryAsLocal() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        workspace.disconnectRemoteConnection()
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[agentPanel.id])
+        let restoredAgentPanel = try #require(restored.panels[restoredPanelId] as? AgentSessionPanel)
+        #expect(restoredAgentPanel.workingDirectory == nil)
+        #expect(restored.panelDirectories[restoredPanelId] == remoteDirectory)
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
