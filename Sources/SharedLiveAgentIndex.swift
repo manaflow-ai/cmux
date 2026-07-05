@@ -26,6 +26,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     private let indexLoader: @Sendable () -> RestorableAgentSessionIndex
     private let hookStoreDirectoryProvider: @MainActor () -> String
+    private let dateProvider: @MainActor () -> Date
 
     init(
         indexLoader: @escaping @Sendable () -> RestorableAgentSessionIndex = {
@@ -33,10 +34,14 @@ final class SharedLiveAgentIndex: ObservableObject {
         },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
+        },
+        dateProvider: @escaping @MainActor () -> Date = {
+            Date()
         }
     ) {
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
+        self.dateProvider = dateProvider
     }
 
     deinit {
@@ -75,7 +80,7 @@ final class SharedLiveAgentIndex: ObservableObject {
     func scheduleRefreshIfStale() {
         ensureWatchingHookStoreDirectory()
         guard refreshTask == nil, forkAvailabilityRefreshTask == nil else { return }
-        if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.cacheTTL {
+        if let loadedAt, dateProvider().timeIntervalSince(loadedAt) < Self.cacheTTL {
             return
         }
         startReload()
@@ -83,7 +88,7 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     func refreshForkAvailabilityNow() async {
         if await reloadIfLiveAgentProcessFingerprintChanged() {
-            forkAvailabilityProbeCompletedAt = Date()
+            forkAvailabilityProbeCompletedAt = dateProvider()
         }
     }
 
@@ -96,7 +101,7 @@ final class SharedLiveAgentIndex: ObservableObject {
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             if await self.reloadIfLiveAgentProcessFingerprintChanged() {
-                self.forkAvailabilityProbeCompletedAt = Date()
+                self.forkAvailabilityProbeCompletedAt = self.dateProvider()
             }
             self.forkAvailabilityRefreshTask = nil
             if self.changePending {
@@ -140,23 +145,28 @@ final class SharedLiveAgentIndex: ObservableObject {
         }.value
         guard !Task.isCancelled else { return }
         if forcePublish || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint {
-            applyReloadedIndex(result.index, liveAgentProcessFingerprint: result.liveAgentProcessFingerprint)
+            applyReloadedIndex(
+                result.index,
+                loadedAt: dateProvider(),
+                liveAgentProcessFingerprint: result.liveAgentProcessFingerprint
+            )
         }
     }
 
     private func applyReloadedIndex(
         _ newIndex: RestorableAgentSessionIndex,
+        loadedAt: Date,
         liveAgentProcessFingerprint: Set<String>
     ) {
         index = newIndex
-        loadedAt = Date()
-        forkAvailabilityProbeCompletedAt = loadedAt
+        self.loadedAt = loadedAt
+        self.forkAvailabilityProbeCompletedAt = loadedAt
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
     }
 
     private var hasFreshForkAvailabilityProbe: Bool {
         guard let forkAvailabilityProbeCompletedAt else { return false }
-        return Date().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
+        return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.forkAvailabilityProbeTTL
     }
 
     private func handleHookStoreChange() {
@@ -164,7 +174,7 @@ final class SharedLiveAgentIndex: ObservableObject {
             changePending = true
             return
         }
-        let elapsed = loadedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+        let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
         if elapsed >= Self.minEventReloadInterval {
             startReload()
         } else if deferredReloadTask == nil {

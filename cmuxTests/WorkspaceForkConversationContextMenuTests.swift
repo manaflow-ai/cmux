@@ -254,6 +254,96 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func forkAvailabilityProbeFailsClosedWhileSharedIndexRefreshes() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-live-agent-probe-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let agentId = "forkable-probe-agent"
+        let sessionId = "probe-session"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let executable = "/usr/local/bin/\(agentId)"
+        let registry = CmuxVaultAgentRegistry(registrations: [
+            CmuxVaultAgentRegistration(
+                id: agentId,
+                name: "Forkable Probe Agent",
+                detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
+                sessionIdSource: .argvOption("--session"),
+                resumeCommand: "{{executable}} --session {{sessionId}}",
+                forkCommand: "{{executable}} --session {{sessionId}} --fork"
+            ),
+        ])
+        try writeCustomAgentHookStore(
+            root: root,
+            agentId: agentId,
+            sessions: [
+                sessionId: customAgentHookRecord(
+                    agentId: agentId,
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    executable: executable,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let sampledAt = now.withLock { $0 }
+                return SharedLiveAgentIndexLoader(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    registry: registry,
+                    processSnapshotProvider: {
+                        CmuxTopProcessSnapshot(
+                            processes: [],
+                            sampledAt: sampledAt,
+                            includesProcessDetails: true
+                        )
+                    },
+                    capturedAtProvider: { sampledAt.timeIntervalSince1970 },
+                    processArgumentsProvider: { _ in nil }
+                )
+                .loadSynchronously()
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: {
+                now.withLock { $0 }
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow()
+        #expect(sharedIndex.prepareForkAvailabilityProbe())
+        #expect(
+            sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId)?.sessionId
+                == sessionId
+        )
+
+        now.withLock { $0 = Date(timeIntervalSince1970: 2) }
+        #expect(
+            sharedIndex.prepareForkAvailabilityProbe(),
+            "A completed fork probe should not expire solely because the old 1s window elapsed."
+        )
+
+        now.withLock { $0 = Date(timeIntervalSince1970: 61) }
+        #expect(
+            !sharedIndex.prepareForkAvailabilityProbe(),
+            "Fork availability must fail closed while the shared index is refreshing."
+        )
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+    }
+
+    @Test
     func contextMenuAvailabilityReportsHiddenReasons() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
