@@ -60,6 +60,29 @@ import Testing
         #expect(payload == PricingPayload(headline: "Ship faster", seats: 12))
     }
 
+    @Test func typedPayloadsFallBackOnMissingOrMismatchedValues() throws {
+        let fallback = PricingPayload(headline: "Fallback", seats: 1)
+        let config = ClientConfig(
+            featureFlags: [:],
+            featureFlagPayloads: [
+                "pricing-copy": .string("{\"headline\":\"Keep as text\"}"),
+            ],
+            errorsWhileComputingFlags: false
+        )
+
+        let mismatchedPayload = try config.payload(ClientConfigPayloadFlag<PricingPayload>(
+            key: "pricing-copy",
+            defaultValue: fallback
+        ))
+        let missingPayload = try config.payload(ClientConfigPayloadFlag<PricingPayload>(
+            key: "missing",
+            defaultValue: fallback
+        ))
+
+        #expect(mismatchedPayload == fallback)
+        #expect(missingPayload == fallback)
+    }
+
     @Test func encodesRequestContextWithoutEmptyBuckets() throws {
         let request = ClientConfigRequest(
             distinctId: "user-1",

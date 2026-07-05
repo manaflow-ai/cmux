@@ -40,6 +40,10 @@ public struct ClientConfig: Decodable, Sendable, Equatable {
         guard let payload = featureFlagPayloads[flag.key] else {
             return flag.defaultValue
         }
-        return try payload.decode(Value.self, decoder: decoder)
+        do {
+            return try payload.decode(Value.self, decoder: decoder)
+        } catch is DecodingError {
+            return flag.defaultValue
+        }
     }
 }
