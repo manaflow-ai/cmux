@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34499	CLI/cmux.swift
+34633	CLI/cmux.swift
 17954	Sources/AppDelegate.swift
 16471	Sources/ContentView.swift
 14270	Sources/TerminalController.swift
@@ -24,8 +24,8 @@
 4483	Sources/cmuxApp.swift
 4482	Sources/Panels/FilePreviewPanel.swift
 4367	cmuxTests/BrowserPanelTests.swift
-4283	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 4121	Sources/BrowserWindowPortal.swift
+3964	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
@@ -120,6 +120,7 @@
 830	Sources/TaskManagerTypes.swift
 825	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift
 822	Sources/WorkspaceContentView.swift
+817	cmuxTests/FeedCoordinatorTests.swift
 810	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/SwiftViewInterpreterTests.swift
 803	Packages/iOS/CmuxMobilePairedMac/Sources/CmuxMobilePairedMac/MobilePairedMacStore.swift
 802	Sources/TerminalController+ControlPaneContext.swift
@@ -157,7 +158,6 @@
 680	Sources/FileExplorerSearchController.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
 672	cmuxTests/SessionPersistenceResumeBindingTests.swift
-668	cmuxTests/FeedCoordinatorTests.swift
 668	cmuxTests/SettingsWindowPresenterTests.swift
 664	Sources/CmuxTopSnapshot.swift
 663	Sources/PortScanner.swift
@@ -186,6 +186,7 @@
 602	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift
 598	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizer.swift
+596	CLI/CodexTeamsApprovalBridge.swift
 596	cmuxTests/CmuxEventBusTests.swift
 594	cmuxTests/PortalTabDragRoutingTests.swift
 592	Sources/TextBoxSubmitActions.swift
@@ -217,7 +218,6 @@
 544	cmuxUITests/DisplayResolutionRegressionUITests.swift
 540	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGridReplay.swift
 539	CLI/CMUXCLI+Themes.swift
-539	CLI/CodexTeamsApprovalBridge.swift
 538	Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/MobileTerminalRenderGridTests.swift
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift

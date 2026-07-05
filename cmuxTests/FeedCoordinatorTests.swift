@@ -627,6 +627,155 @@ struct FeedCoordinatorTests {
             DispatchQueue.main.sync(execute: reset)
         }
     }
+
+    // Regression coverage for https://github.com/manaflow-ai/cmux/issues/5698:
+    // `cmux codex-teams` must learn the spawned subagent's thread id from the
+    // Codex app-server `item/completed` notification for a `spawnAgent`
+    // collab-agent tool call, otherwise it never opens the subagent split.
+    @Test func codexTeamsParsesSpawnedSubagentFromItemCompleted() {
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "threadId": "thread-parent",
+                "turnId": "turn-1",
+                "item": [
+                    "id": "call-1",
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "senderThreadId": "thread-parent",
+                    "receiverThreadIds": ["thread-child"]
+                ]
+            ]
+        ]
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        #expect(spawned?.parentThreadId == "thread-parent")
+        #expect(spawned?.childThreadIds == ["thread-child"])
+    }
+
+    @Test func codexTeamsSpawnFallsBackToNotificationThreadIdForParent() {
+        // Older/edge payloads may omit `senderThreadId`; the spawning thread is
+        // then the notification's own `threadId`.
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "threadId": "thread-parent",
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "receiverThreadIds": ["thread-child-a", "thread-child-b"]
+                ]
+            ]
+        ]
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        #expect(spawned?.parentThreadId == "thread-parent")
+        #expect(spawned?.childThreadIds == ["thread-child-a", "thread-child-b"])
+    }
+
+    @Test func codexTeamsSpawnParsesSnakeCasePayload() {
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "thread_id": "thread-parent",
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "sender_thread_id": "thread-parent",
+                    "receiver_thread_ids": ["thread-child"]
+                ]
+            ]
+        ]
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        #expect(spawned?.parentThreadId == "thread-parent")
+        #expect(spawned?.childThreadIds == ["thread-child"])
+    }
+
+    @Test func codexTeamsSpawnParsesSnakeCaseTypeAndTool() {
+        // The discriminator values themselves must match across camelCase and
+        // snake_case spellings, not just the key names.
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "threadId": "thread-parent",
+                "item": [
+                    "type": "collab_agent_tool_call",
+                    "tool": "spawn_agent",
+                    "senderThreadId": "thread-parent",
+                    "receiverThreadIds": ["thread-child"]
+                ]
+            ]
+        ]
+        let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message)
+        #expect(spawned?.parentThreadId == "thread-parent")
+        #expect(spawned?.childThreadIds == ["thread-child"])
+    }
+
+    @Test func codexTeamsSpawnIgnoresFailedSpawnWithNoReceivers() {
+        // A failed spawn carries an empty `receiverThreadIds`; there is no child
+        // to open, so the watcher must not treat it as a spawn.
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "threadId": "thread-parent",
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "failed",
+                    "senderThreadId": "thread-parent",
+                    "receiverThreadIds": [String]()
+                ]
+            ]
+        ]
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+    }
+
+    @Test func codexTeamsSpawnIgnoresNonSpawnCollabTools() {
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "threadId": "thread-parent",
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "tool": "sendInput",
+                    "senderThreadId": "thread-parent",
+                    "receiverThreadIds": ["thread-child"]
+                ]
+            ]
+        ]
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+    }
+
+    @Test func codexTeamsSpawnIgnoresNonCollabItems() {
+        let message: [String: Any] = [
+            "method": "item/completed",
+            "params": [
+                "threadId": "thread-parent",
+                "item": [
+                    "type": "commandExecution",
+                    "receiverThreadIds": ["thread-child"]
+                ]
+            ]
+        ]
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+    }
+
+    @Test func codexTeamsSpawnIgnoresNonCompletedNotifications() {
+        // Spawn start arrives as `item/started` before the child exists; only
+        // the `item/completed` spawn end carries the resolved child thread id.
+        let message: [String: Any] = [
+            "method": "item/started",
+            "params": [
+                "threadId": "thread-parent",
+                "item": [
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "senderThreadId": "thread-parent",
+                    "receiverThreadIds": ["thread-child"]
+                ]
+            ]
+        ]
+        #expect(CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) == nil)
+    }
 }
 
 private final class IngestResultBox: @unchecked Sendable {

@@ -19230,6 +19230,7 @@ struct CMUXCLI {
     private static let codexTeamsMaxAutoDepth = 2
     private static let codexTeamsReconcileInterval: TimeInterval = 1
     private static let codexTeamsMaxCachedApprovalItems = 500
+    private static let codexTeamsMaxCachedSpawnHints = 512
     static let codexTeamsApprovalMethods: Set<String> = [
         "item/commandExecution/requestApproval",
         "item/fileChange/requestApproval",
@@ -19519,6 +19520,19 @@ struct CMUXCLI {
         private let stateLock = NSLock()
         private var lastAgentSurfaceId: String?
         private var subscribedThreadIds = Set<String>()
+        // Parent thread id for a child learned from a `spawnAgent` item/completed
+        // event, used when the resumed child thread snapshot omits its
+        // source.subAgent metadata. Bounded with FIFO eviction (mirrors
+        // `approvalItemById`) so a long-running session does not grow it without
+        // bound; once a hint is consumed it is also baked into `threadById`.
+        // Guarded by `stateLock`.
+        private var spawnHintByThreadId: [String: CodexTeamsSpawn] = [:]
+        private var spawnHintOrder: [String] = []
+        // Spawned child thread ids discovered while a request was in flight
+        // (allowThreadSubscribe == false); drained by the main listen loop where
+        // issuing a thread/resume request on the connection is safe. Guarded by
+        // `stateLock`.
+        private var deferredSpawnChildThreadIds = Set<String>()
         private var approvalItemById: [String: [String: Any]] = [:]
         private var approvalItemOrder: [String] = []
         private var suppressedApprovalKeys = Set<String>()
@@ -19561,6 +19575,11 @@ struct CMUXCLI {
                     )
                     resetConnectionSubscriptions()
                     try backfillLoadedThreads(connection: connection)
+                    // Backfill resume handlers run with allowThreadSubscribe ==
+                    // false, so a spawn observed during startup is deferred.
+                    // Drain it here, in a non-reentrant context, before the
+                    // listen loop blocks waiting for the next notification.
+                    try drainDeferredSpawnSubscribes(connection: connection)
                     try listenForNotifications(connection: connection)
                 } catch {
                     cliWriteStderr("cmux codex-teams watcher connection failed: \(error)\n")
@@ -19595,6 +19614,10 @@ struct CMUXCLI {
             while true {
                 let message = try connection.receiveObject()
                 try handleAppServerMessage(message, connection: connection)
+                // Subscribe to any spawned children discovered while a request was
+                // in flight; doing it here keeps thread/resume off the re-entrant
+                // notification-handler path.
+                try drainDeferredSpawnSubscribes(connection: connection)
             }
         }
 
@@ -19610,6 +19633,11 @@ struct CMUXCLI {
                 return
             }
             if message["id"] != nil { return }
+            try handleSpawnedSubagents(
+                fromItemNotification: message,
+                connection: connection,
+                allowThreadSubscribe: allowThreadSubscribe
+            )
             guard method.hasPrefix("thread/"),
                   let params = message["params"] as? [String: Any],
                   let threadObject = params["thread"] as? [String: Any],
@@ -19665,7 +19693,94 @@ struct CMUXCLI {
         private func resetConnectionSubscriptions() {
             stateLock.lock()
             subscribedThreadIds.removeAll(keepingCapacity: true)
+            // Deferred subscribes belong to the dropped connection; the reconnect
+            // backfill re-lists loaded threads. Spawn hints stay valid across
+            // reconnects and are intentionally preserved.
+            deferredSpawnChildThreadIds.removeAll(keepingCapacity: true)
             stateLock.unlock()
+        }
+
+        /// Handles a Codex `spawnAgent` completion: records the parent for each
+        /// spawned child thread and subscribes to it so the existing
+        /// observe/open-split pipeline runs. This is the path the codex-teams
+        /// watcher uses to open a subagent split, since the child thread id only
+        /// arrives via this item/completed event (see #5698).
+        private func handleSpawnedSubagents(
+            fromItemNotification message: [String: Any],
+            connection: CodexTeamsAppServerConnection,
+            allowThreadSubscribe: Bool
+        ) throws {
+            guard let spawned = CodexTeamsApprovalBridge.codexTeamsSpawnedSubagents(fromItemNotification: message) else {
+                return
+            }
+            stateLock.lock()
+            for childId in spawned.childThreadIds where spawnHintByThreadId[childId] == nil {
+                spawnHintByThreadId[childId] = CodexTeamsSpawn(
+                    parentThreadId: spawned.parentThreadId,
+                    sourceDepth: nil,
+                    agentNickname: nil,
+                    agentRole: nil
+                )
+                spawnHintOrder.append(childId)
+            }
+            while spawnHintOrder.count > CMUXCLI.codexTeamsMaxCachedSpawnHints {
+                let evicted = spawnHintOrder.removeFirst()
+                spawnHintByThreadId.removeValue(forKey: evicted)
+            }
+            // If the child thread was already observed as a plain root thread
+            // (its snapshot arrived before this spawn event and lacked
+            // source.subAgent metadata), re-run observeThread so the just-recorded
+            // hint is applied and the split opens. Subscribing alone would no-op
+            // because the thread is already subscribed.
+            let knownChildrenToReobserve = spawned.childThreadIds.compactMap { childId -> CodexTeamsThread? in
+                guard !openedThreadIds.contains(childId) else { return nil }
+                return threadById[childId]
+            }
+            for thread in knownChildrenToReobserve {
+                do {
+                    try observeThread(thread)
+                } catch {
+                    cliWriteStderr("cmux codex-teams watcher could not open known spawned subagent \(thread.id): \(error)\n")
+                }
+            }
+            if !allowThreadSubscribe {
+                // Cannot issue thread/resume re-entrantly from a request's
+                // notification handler; defer to the main listen loop.
+                for childId in spawned.childThreadIds {
+                    deferredSpawnChildThreadIds.insert(childId)
+                }
+            }
+            stateLock.unlock()
+
+            guard allowThreadSubscribe else { return }
+            for childId in spawned.childThreadIds {
+                do {
+                    try subscribeToThreadIfNeeded(childId, connection: connection)
+                } catch {
+                    cliWriteStderr("cmux codex-teams watcher could not attach spawned subagent \(childId): \(error)\n")
+                }
+            }
+        }
+
+        private func drainDeferredSpawnSubscribes(connection: CodexTeamsAppServerConnection) throws {
+            // Loop until empty: a thread/resume issued below runs notification
+            // handlers (allowThreadSubscribe == false) that can defer further
+            // children, so one pass is not enough to guarantee the set is flushed
+            // before the caller blocks for the next notification.
+            while true {
+                stateLock.lock()
+                let pending = deferredSpawnChildThreadIds
+                deferredSpawnChildThreadIds.removeAll(keepingCapacity: true)
+                stateLock.unlock()
+                guard !pending.isEmpty else { return }
+                for childId in pending {
+                    do {
+                        try subscribeToThreadIfNeeded(childId, connection: connection)
+                    } catch {
+                        cliWriteStderr("cmux codex-teams watcher could not attach spawned subagent \(childId): \(error)\n")
+                    }
+                }
+            }
         }
 
         private func cacheApprovalItemIfPresent(_ message: [String: Any], method: String) {
@@ -19809,6 +19924,21 @@ struct CMUXCLI {
         }
 
         private func observeThread(_ thread: CodexTeamsThread) throws {
+            var thread = thread
+            // If the resumed child thread snapshot does not carry its own
+            // source.subAgent spawn metadata, fall back to the parent learned
+            // from the spawnAgent item/completed event (see #5698) so the
+            // open-split pipeline still recognizes it as a subagent.
+            if thread.spawn == nil, let hint = spawnHintByThreadId[thread.id] {
+                thread = CodexTeamsThread(
+                    id: thread.id,
+                    cwd: thread.cwd,
+                    statusType: thread.statusType,
+                    agentNickname: thread.agentNickname,
+                    agentRole: thread.agentRole,
+                    spawn: hint
+                )
+            }
             threadById[thread.id] = thread
             if knownThreadIds.contains(thread.id) {
                 if let spawn = thread.spawn {
@@ -19816,6 +19946,10 @@ struct CMUXCLI {
                         try observeSpawn(thread, spawn: spawn)
                     } else if !openedThreadIds.contains(thread.id) {
                         try openObservedSubagent(thread, spawn: spawn)
+                    }
+                    if knownThreadIds.contains(spawn.parentThreadId),
+                       depthByThreadId[spawn.parentThreadId] != nil {
+                        try drainPendingChildren(parentThreadId: thread.id)
                     }
                 }
                 return

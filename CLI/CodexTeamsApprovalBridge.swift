@@ -243,6 +243,63 @@ enum CodexTeamsApprovalBridge {
         return nil
     }
 
+    /// Parses a Codex app-server `item/completed` notification for a successful
+    /// `spawnAgent` collab-agent tool call. Codex carries the spawned child
+    /// thread id(s) in `receiverThreadIds` (populated only when the spawn
+    /// succeeds) and the spawning parent in `senderThreadId`; the codex-teams
+    /// watcher relies on this to open a split for the new subagent (see #5698).
+    static func codexTeamsSpawnedSubagents(
+        fromItemNotification message: [String: Any]
+    ) -> CodexTeamsSpawnedSubagents? {
+        guard let method = message["method"] as? String,
+              method == "item/completed",
+              let params = message["params"] as? [String: Any],
+              let item = params["item"] as? [String: Any] else {
+            return nil
+        }
+        let fallbackParent = stringValue(in: params, keys: ["threadId", "thread_id"])
+        return codexTeamsSpawnedSubagents(fromItem: item, fallbackParentThreadId: fallbackParent)
+    }
+
+    static func codexTeamsSpawnedSubagents(
+        fromItem item: [String: Any],
+        fallbackParentThreadId: String?
+    ) -> CodexTeamsSpawnedSubagents? {
+        guard codexTeamsDiscriminatorMatches(item["type"], "collabAgentToolCall"),
+              codexTeamsDiscriminatorMatches(item["tool"], "spawnAgent") else {
+            return nil
+        }
+        let rawReceivers = (item["receiverThreadIds"] as? [Any])
+            ?? (item["receiver_thread_ids"] as? [Any])
+            ?? []
+        let childThreadIds = rawReceivers
+            .compactMap { $0 as? String }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !childThreadIds.isEmpty else { return nil }
+        guard let parentThreadId = stringValue(in: item, keys: ["senderThreadId", "sender_thread_id"])
+                ?? fallbackParentThreadId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !parentThreadId.isEmpty else {
+            return nil
+        }
+        return CodexTeamsSpawnedSubagents(
+            parentThreadId: parentThreadId,
+            childThreadIds: childThreadIds
+        )
+    }
+
+    // Matches a Codex discriminator value (e.g. "spawnAgent", "collabAgentToolCall")
+    // tolerantly across camelCase and snake_case spellings, mirroring the
+    // normalization used for thread status in `codexTeamsThreadMayBeAttachable`.
+    private static func codexTeamsDiscriminatorMatches(_ value: Any?, _ expected: String) -> Bool {
+        guard let string = value as? String else { return false }
+        return codexTeamsNormalizedIdentifier(string) == codexTeamsNormalizedIdentifier(expected)
+    }
+
+    private static func codexTeamsNormalizedIdentifier(_ value: String) -> String {
+        value.replacingOccurrences(of: "_", with: "").lowercased()
+    }
+
     private static func commandApprovalDecision(params: [String: Any], mode: String) -> Any {
         if mode == "deny" { return rejectApprovalDecision(params: params) }
         if mode == "all" || mode == "bypass",
