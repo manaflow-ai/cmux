@@ -67,7 +67,6 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
-        #if DEBUG
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
             auth: Self.root.auth,
@@ -79,17 +78,5 @@ struct cmuxApp: App {
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             diagnosticLog: Self.root.diagnosticLog
         )
-        #else
-        CMUXMobileRootScene(
-            runtime: Self.root.runtime,
-            auth: Self.root.auth,
-            reachability: Self.root.reachability,
-            analytics: Self.root.analytics.emitter,
-            pushCoordinator: Self.root.pushCoordinator,
-            displaySettings: Self.root.displaySettings,
-            onboardingStore: Self.root.onboardingStore,
-            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor
-        )
-        #endif
     }
 }

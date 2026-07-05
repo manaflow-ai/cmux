@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
+import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -16,7 +17,7 @@ import SwiftUI
 import CmuxMobileTerminal
 #endif
 
-private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
+nonisolated private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
 
 /// Top-level mobile scene root.
 ///
@@ -54,12 +55,8 @@ public struct CMUXMobileRootScene: View {
     /// separately and replaces this at the composition root without touching the
     /// shell.
     private let draftStore: any TerminalDraftStoring
-    #if DEBUG
-    /// The structured diagnostic log injected into the shell store so the DEV
-    /// dogfood feedback round-trip can export it. DEBUG-only; `nil` when the app
-    /// composition root did not build one.
+    /// The structured diagnostic log injected into the shell store.
     private let diagnosticLog: DiagnosticLog?
-    #endif
 
     #if os(iOS)
     /// Creates the root scene.
@@ -77,8 +74,8 @@ public struct CMUXMobileRootScene: View {
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
-    ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
-    ///     injected into the shell store for the DEV feedback round-trip.
+    ///   - diagnosticLog: The structured diagnostic log injected into the shell
+    ///     store for feedback and diagnostics exports.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -100,9 +97,7 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = diagnosticLog
-        #endif
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -119,9 +114,7 @@ public struct CMUXMobileRootScene: View {
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
-        #if DEBUG
         self.diagnosticLog = nil
-        #endif
     }
     #endif
 
@@ -273,7 +266,6 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
-        #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
@@ -290,22 +282,5 @@ public struct CMUXMobileRootScene: View {
             feedbackStampProvider: feedbackStampProvider,
             draftStore: draftStore
         )
-        #else
-        return CMUXMobileShellStore(
-            runtime: runtime,
-            pairedMacStore: backedUpPairedMacStore,
-            pairedMacRestoreBoundary: restoreBoundary,
-            deviceRegistry: deviceRegistry,
-            presence: makePresenceClient(),
-            identityProvider: identityProvider,
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            reachability: reachability,
-            forgottenMacStore: forgottenMacStore,
-            analytics: analytics,
-            feedbackEmailSubmitter: feedbackEmailSubmitter,
-            feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
-        )
-        #endif
     }
 }

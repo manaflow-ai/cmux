@@ -1,6 +1,6 @@
 public import CMUXMobileCore
 public import CmuxAgentChat
-internal import CmuxMobileDiagnostics
+public import CmuxMobileDiagnostics
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -10,7 +10,7 @@ public import Foundation
 import Observation
 internal import OSLog
 
-private let mobileShellLog = Logger(
+nonisolated private let mobileShellLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )
@@ -112,6 +112,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var isSignedIn: Bool {
         didSet {
             guard oldValue != isSignedIn else { return }
+            recordDiagnosticsEvent(isSignedIn ? "auth.signedIn" : "auth.signedOut")
             // Presence follows the session: subscribe while signed in, tear
             // down (and blank the map) the moment the user signs out so a
             // shared device never renders the previous account's devices.
@@ -126,6 +127,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // does not fire for the in-init assignment, so this only observes
             // real transitions. The throttle's `outageOpen` is the per-outage gate.
             guard oldValue != connectionState else { return }
+            recordDiagnosticsEvent("conn.state", fields: [
+                "from": String(describing: oldValue),
+                "to": String(describing: connectionState),
+                "host": connectedHostName,
+            ])
             // Intentional teardown (sign-out, forget, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
             // later real reconnect doesn't emit `recovered` with a bogus duration.
@@ -160,7 +166,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     public private(set) var macConnectionStatus: MobileMacConnectionStatus
     public private(set) var connectedHostName: String
-    public private(set) var connectionError: String?
+    /// User-facing connection error currently shown by the shell. Non-empty
+    /// values are scrubbed and retained in ``lastConnectionError`` for shared
+    /// diagnostics after transient UI state clears.
+    public private(set) var connectionError: String? {
+        didSet {
+            guard oldValue != connectionError else { return }
+            guard let trimmed = connectionError?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else {
+                return
+            }
+            let scrubbed = MobileDiagnosticsSecretScrubber().scrub(trimmed)
+            lastConnectionError = scrubbed
+            recordDiagnosticsEvent("conn.error", fields: ["message": scrubbed])
+        }
+    }
+    /// Most recent non-empty, secret-scrubbed connection error retained after
+    /// the visible error clears, so diagnostics still explain the failure that
+    /// led to the current state.
+    public private(set) var lastConnectionError: String?
     /// Actionable next-step line shown beneath ``connectionError`` (for example
     /// "Check that both devices are on the same Tailscale"). Set and cleared
     /// together with the error by the pairing-failure classifier sink.
@@ -638,10 +662,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Recording is lock-free and `nonisolated`, so the connect/pair, liveness,
     /// and seq/byte-gap seams below dual-emit a compact ``DiagnosticEvent``
     /// alongside their existing ``MobileDebugLog/anchormux(_:)`` string line.
-    /// `nil` in previews/tests that do not exercise the round-trip. Exposed
-    /// `public` so the DEV feedback-submit affordance can ``DiagnosticLog/export()``
-    /// it.
+    /// `nil` in previews/tests that do not exercise diagnostics export. Exposed
+    /// `public` so feedback and Share Diagnostics affordances can
+    /// ``DiagnosticLog/export()`` it.
     public let diagnosticLog: DiagnosticLog?
+    /// Human-readable auth/connection event log for in-app diagnostics reports.
+    ///
+    /// `private(set) var` (not `let`) because `signOut()` resets it by swapping in a
+    /// fresh instance at the account boundary; see the swap in `signOut()` for why an
+    /// ordered swap is used instead of a fire-and-forget `clear()`.
+    public private(set) var diagnosticsEventLog: MobileDiagnosticsEventLog?
     var remoteClient: MobileCoreRPCClient? {
         didSet {
             if remoteClient == nil {
@@ -886,6 +916,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         forgottenMacStore: any PairedMacForgottenStoring = InMemoryPairedMacForgottenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
+        diagnosticsEventLog: MobileDiagnosticsEventLog? = MobileDiagnosticsEventLog(),
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
@@ -909,6 +940,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.forgottenMacStore = forgottenMacStore
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
+        self.diagnosticsEventLog = diagnosticsEventLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
         self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
@@ -1025,6 +1057,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    private func recordDiagnosticsEvent(_ name: String, fields: [String: String] = [:]) {
+        guard let diagnosticsEventLog else { return }
+        Task { await diagnosticsEventLog.record(name, fields: fields) }
+    }
+
     public func signIn() {
         let wasSignedIn = isSignedIn
         isSignedIn = true
@@ -1057,11 +1094,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         isSignedIn = false
+        // Blank the host before the `.disconnected` transition so the diagnostics
+        // `conn.state` event that connectionState.didSet records cannot carry the
+        // previous account's host across sign-out on a shared device.
+        connectedHostName = ""
         connectionState = .disconnected
         macConnectionStatus = .unavailable
-        connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
+        // Reset the diagnostics report inputs at the account boundary so a shared
+        // device never lets the next user's Share Diagnostics surface the previous
+        // account's connection failure or event history. `lastConnectionError` is
+        // deliberately retained when the visible `connectionError` clears (see its
+        // didSet), so sign-out must null it explicitly.
+        //
+        // The event log is reset by swapping in a fresh instance rather than calling
+        // an async `clear()`. The swap is synchronous on this `@MainActor` sign-out,
+        // so it is ordered ahead of anything the next signed-in user can do — the
+        // next `snapshot()` reads this new, empty instance. A fire-and-forget
+        // `Task { await log.clear() }` was racy on two counts: it could run *after*
+        // the next user's `snapshot()` (leaking prior events), and a still-in-flight
+        // `recordDiagnosticsEvent` task could land *after* the clear and reinsert a
+        // prior-account event. Both are closed here: `recordDiagnosticsEvent` binds
+        // the current instance locally (see its `guard let`), so any in-flight record
+        // writes to the previous, now-discarded instance — never to this new one.
+        lastConnectionError = nil
+        if diagnosticsEventLog != nil {
+            diagnosticsEventLog = MobileDiagnosticsEventLog()
+        }
         // Wipe every saved draft so the next account never sees the previous
         // user's unsent text. Guard the in-memory clear (and the selection resets
         // below) so the per-terminal draft hooks do not write partial state into a

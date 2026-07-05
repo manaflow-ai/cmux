@@ -2,7 +2,7 @@ internal import CMUXAuthCore
 import Foundation
 import OSLog
 
-private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
+nonisolated private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
 extension AuthCoordinator {
     // MARK: - Priming
@@ -235,6 +235,7 @@ extension AuthCoordinator {
                 authLog.info("Cached session validation superseded by a newer session transition; leaving state untouched")
                 return
             }
+            recordAuthError(error)
             // Drive the clear-vs-preserve decision from LIVE session validity, not
             // the error code alone. The SDK throws the same `UserNotSignedInError`
             // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine
