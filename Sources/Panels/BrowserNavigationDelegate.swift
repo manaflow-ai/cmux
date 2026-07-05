@@ -305,7 +305,7 @@ import WebKit
            !navigationAction.shouldPerformDownload,
            BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
 #if DEBUG
-            cmuxDebugLog("browser.nav.decidePolicy.action kind=escapeToSystemBrowser url=\(url.absoluteString)")
+            cmuxDebugLog("browser.nav.decidePolicy.action kind=escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")
 #endif
             decisionHandler(.cancel)
             browserOpenExternalNavigationURL(

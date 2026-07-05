@@ -8561,7 +8561,7 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
            navigationAction.navigationType == .linkActivated,
            BrowserLinkOpenSettings.linkEscapesToSystemBrowser(url) {
 #if DEBUG
-            cmuxDebugLog("browser.nav.createWebView.action kind=escapeToSystemBrowser url=\(url.absoluteString)")
+            cmuxDebugLog("browser.nav.createWebView.action kind=escapeToSystemBrowser url=\(browserNavigationDebugURL(url))")
 #endif
             browserOpenExternalNavigationURL(
                 url,
