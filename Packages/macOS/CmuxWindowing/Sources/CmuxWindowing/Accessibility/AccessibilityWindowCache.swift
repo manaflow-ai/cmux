@@ -42,10 +42,13 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
         /// because it reads main-actor-isolated `NSWindow` properties.
         @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows.map {
-                WindowToken(
+            self.windows = windows.compactMap {
+                guard let windowNumber = $0.cmuxAccessibilityWindowNumber else {
+                    return nil
+                }
+                return WindowToken(
                     identity: ObjectIdentifier($0),
-                    windowNumber: $0.windowNumber,
+                    windowNumber: windowNumber,
                     isVisible: $0.isVisible,
                     isMiniaturized: $0.isMiniaturized
                 )
@@ -57,9 +60,11 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     public struct Snapshot {
         let windows: [NSWindow]
 
-        /// Builds a snapshot from a window list.
+        /// Builds a snapshot from a window list, keeping only windows that
+        /// expose a valid CoreGraphics window id to AX clients.
+        @MainActor
         public init(windows: [NSWindow]) {
-            self.windows = windows
+            self.windows = windows.filter { $0.cmuxAccessibilityWindowNumber != nil }
         }
     }
 
@@ -108,10 +113,11 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
     /// Returns the cached value for `attribute`, building a fresh snapshot via
     /// `builder` only when `stateToken` differs from the cached one. Returns
     /// nil for attributes this cache does not handle.
+    @MainActor
     public func value(
         for attribute: NSAccessibility.Attribute,
         stateToken: StateToken,
-        builder: () -> Snapshot
+        builder: @MainActor () -> Snapshot
     ) -> Any? {
         guard Self.supportsCaching(attribute) else { return nil }
 
@@ -134,5 +140,16 @@ public final class AccessibilityWindowCache: AccessibilityWindowCaching, @unchec
 
     private static func supportsCaching(_ attribute: NSAccessibility.Attribute) -> Bool {
         attribute.rawValue == NSAccessibility.Attribute.windows.rawValue
+    }
+}
+
+private extension NSWindow {
+    @MainActor
+    var cmuxAccessibilityWindowNumber: Int? {
+        let windowNumber = self.windowNumber
+        // A zero window number is not targetable by tiling window managers
+        // and is how AppKit reports status-item backing windows such as Item-0.
+        guard windowNumber > 0 else { return nil }
+        return windowNumber
     }
 }
