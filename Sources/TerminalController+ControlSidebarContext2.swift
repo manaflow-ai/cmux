@@ -322,14 +322,14 @@ extension TerminalController {
         }
     }
 
+    /// Deliberately NOT coalesced: a scoped `ports_kick` queued after a TTY
+    /// report must drain after the registration (`PortScanner.kick` no-ops
+    /// for unregistered TTYs), and replace-key coalescing would let a
+    /// repeated report jump behind an already-queued kick. `report_tty`
+    /// fires once per shell start, not per prompt, so unbounded growth is
+    /// not a practical concern on this path.
     nonisolated func controlSidebarScheduleScopedTTY(scope: ControlSidebarPanelScope, ttyName: String) {
-        TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
-            replaceKey: TerminalMutationReplaceKey(
-                tabId: scope.workspaceID,
-                surfaceId: scope.panelID,
-                kind: .tty
-            )
-        ) {
+        TerminalMutationBus.shared.enqueueMainActorMutation {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID),
                   let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceID }) else {
                 return

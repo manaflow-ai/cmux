@@ -34,7 +34,7 @@ fileprivate struct TerminalSocketMutationEntry {
 /// while the main actor is blocked and cannot drain.
 struct TerminalMutationReplaceKey: Hashable, Sendable {
     enum Kind: Hashable, Sendable {
-        case shellActivity, gitBranch, directory, tty
+        case shellActivity, gitBranch, directory
         case portsKick(PortScanKickReason)
     }
 
