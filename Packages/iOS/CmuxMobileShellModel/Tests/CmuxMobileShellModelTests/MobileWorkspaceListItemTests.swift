@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import CmuxMobileShellModel
@@ -178,140 +179,166 @@ import Testing
         ])
     }
 
-    // MARK: Drop intent
+    // MARK: List move intent
 
-    @Test func dropIntentReordersWithinUngroupedRegion() {
-        let intent = MobileWorkspaceDropIntentResolver.intent(
-            workspaces: [workspace("a"), workspace("b"), workspace("c")],
+    @Test func listMoveIntentAdjustsDownwardDestinationBeforeRemoval() {
+        let workspaces = [workspace("a"), workspace("b"), workspace("c")]
+        let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
             groups: [],
-            draggedWorkspaceID: "c",
-            target: .beforeWorkspace("a")
-        )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "a"))
-    }
-
-    @Test func dropIntentAppendsOntoGroupHeader() {
-        let intent = MobileWorkspaceDropIntentResolver.intent(
-            workspaces: [
-                workspace("anchor", group: "g"),
-                workspace("member", group: "g"),
-                workspace("dragged"),
-                workspace("tail"),
-            ],
-            groups: [group("g", anchor: "anchor")],
-            draggedWorkspaceID: "dragged",
-            target: .groupHeader("g")
-        )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
-    }
-
-    @Test func dropIntentMovesBetweenGroupMembers() {
-        let intent = MobileWorkspaceDropIntentResolver.intent(
-            workspaces: [
-                workspace("anchor", group: "g"),
-                workspace("first", group: "g"),
-                workspace("second", group: "g"),
-                workspace("dragged"),
-            ],
-            groups: [group("g", anchor: "anchor")],
-            draggedWorkspaceID: "dragged",
-            target: .beforeWorkspace("second")
-        )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "second"))
-    }
-
-    @Test func dropIntentUngroupsIntoUngroupedRegion() {
-        let intent = MobileWorkspaceDropIntentResolver.intent(
-            workspaces: [
-                workspace("anchor", group: "g"),
-                workspace("dragged", group: "g"),
-                workspace("top"),
-                workspace("bottom"),
-            ],
-            groups: [group("g", anchor: "anchor")],
-            draggedWorkspaceID: "dragged",
-            target: .beforeWorkspace("bottom")
-        )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "bottom"))
-    }
-
-    @Test func dropIntentInsertsAfterTargetWorkspace() {
-        let intent = MobileWorkspaceDropIntentResolver.intent(
-            workspaces: [workspace("a"), workspace("b"), workspace("c")],
-            groups: [],
-            draggedWorkspaceID: "a",
-            target: .afterWorkspace("b")
-        )
-        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "c"))
-    }
-
-    @Test func dropIntentInsertsAfterLastWorkspaceAppends() {
-        let intent = MobileWorkspaceDropIntentResolver.intent(
-            workspaces: [workspace("a"), workspace("b"), workspace("c")],
-            groups: [],
-            draggedWorkspaceID: "a",
-            target: .afterWorkspace("c")
+            sourceOffsets: IndexSet(integer: 0),
+            destination: 3
         )
         #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
     }
 
-    @Test func dropIntentIgnoresSelfDrop() {
-        let intent = MobileWorkspaceDropIntentResolver.intent(
-            workspaces: [workspace("a"), workspace("b")],
+    @Test func listMoveIntentMovesUpwardBeforeTargetWorkspace() {
+        let workspaces = [workspace("a"), workspace("b"), workspace("c")]
+        let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
             groups: [],
-            draggedWorkspaceID: "a",
-            target: .beforeWorkspace("a")
+            sourceOffsets: IndexSet(integer: 2),
+            destination: 0
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "a"))
+    }
+
+    @Test func listMoveIntentLandingBelowHeaderJoinsGroupAtTop() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 2),
+            destination: 1
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "member"))
+    }
+
+    @Test func listMoveIntentLandingAtEndOfMemberRunAppendsInsideGroup() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("first", group: "g"),
+            workspace("second", group: "g"),
+            workspace("between"),
+            workspace("dragged"),
+            workspace("tail"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 4),
+            destination: 3
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "between"))
+    }
+
+    @Test func listMoveIntentLandingInUngroupedRunUngroupsWorkspace() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("dragged", group: "g"),
+            workspace("top"),
+            workspace("bottom"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 1),
+            destination: 3
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "bottom"))
+    }
+
+    @Test func listMoveIntentLandingAtVeryTopPlacesWorkspaceBeforeLeadingGroup() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
+        ]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 2),
+            destination: 0
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "anchor"))
+    }
+
+    @Test func listMoveIntentLandingAtVeryBottomAppendsUngroupedWorkspace() {
+        let workspaces = [workspace("a"), workspace("b"), workspace("c")]
+        let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: [],
+            sourceOffsets: IndexSet(integer: 0),
+            destination: 3
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: nil))
+    }
+
+    @Test func listMoveIntentRejectsHeaderRowMove() {
+        let workspaces = [workspace("anchor", group: "g"), workspace("member", group: "g")]
+        let groups = [group("g", anchor: "anchor")]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 0),
+            destination: 2
         )
         #expect(intent == nil)
     }
 
-    // MARK: Insertion drop target mapping
-
-    @Test func insertionTargetAtWorkspaceRowUsesBeforeWorkspace() {
-        let items: [MobileWorkspaceListItem] = [
-            .workspace(workspace("a"), indented: false),
-            .workspace(workspace("b"), indented: false),
-        ]
-        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 1) == .beforeWorkspace("b"))
+    @Test func listMoveIntentRejectsNoOpMove() {
+        let workspaces = [workspace("a"), workspace("b"), workspace("c")]
+        let items = workspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: [],
+            sourceOffsets: IndexSet(integer: 1),
+            destination: 2
+        )
+        #expect(intent == nil)
     }
 
-    @Test func insertionTargetAtEndOfPlainListAppendsAfterLastWorkspace() {
-        let items: [MobileWorkspaceListItem] = [
-            .workspace(workspace("a"), indented: false),
-            .workspace(workspace("b"), indented: false),
+    @Test func listMoveIntentRejectsIdentityDropAtGroupBoundary() {
+        let workspaces = [
+            workspace("anchor", group: "g"),
+            workspace("member", group: "g"),
+            workspace("dragged"),
         ]
-        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 2) == .afterWorkspace("b"))
-    }
-
-    @Test func insertionTargetBeforeHeaderFollowingMembersIsNil() {
-        let items: [MobileWorkspaceListItem] = [
-            .workspace(workspace("u"), indented: false),
-            .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
-        ]
-        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 1) == nil)
-    }
-
-    @Test func insertionTargetAboveLeadingHeaderIsNil() {
-        let items: [MobileWorkspaceListItem] = [
-            .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
-            .workspace(workspace("member", group: "g"), indented: true),
-        ]
-        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 0) == nil)
-    }
-
-    @Test func insertionTargetBelowCollapsedTrailingHeaderIsNil() {
-        let items: [MobileWorkspaceListItem] = [
-            .workspace(workspace("u"), indented: false),
-            .groupHeader(group("g", anchor: "anchor", collapsed: true), hasUnread: false),
-        ]
-        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 2) == nil)
-    }
-
-    @Test func insertionTargetBetweenCollapsedAndFollowingHeaderIsNil() {
-        let items: [MobileWorkspaceListItem] = [
-            .groupHeader(group("g1", anchor: "a1", collapsed: true), hasUnread: false),
-            .groupHeader(group("g2", anchor: "a2", collapsed: true), hasUnread: false),
-        ]
-        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 1) == nil)
+        let groups = [group("g", anchor: "anchor", collapsed: true)]
+        let items = MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
+        let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: workspaces,
+            groups: groups,
+            sourceOffsets: IndexSet(integer: 1),
+            destination: 2
+        )
+        #expect(intent == nil)
     }
 }

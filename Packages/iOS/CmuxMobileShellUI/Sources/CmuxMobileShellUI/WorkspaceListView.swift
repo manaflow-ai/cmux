@@ -80,7 +80,7 @@ struct WorkspaceListView: View {
         _ id: MobileWorkspacePreview.ID,
         _ groupID: MobileWorkspaceGroupPreview.ID?,
         _ beforeWorkspaceID: MobileWorkspacePreview.ID?
-    ) -> Void)? = nil
+    ) async -> Void)? = nil
     /// Optional: collapse/expand a group on the Mac. When present, group headers
     /// toggle their section; when `nil` the chevron renders as a passive
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
@@ -111,6 +111,8 @@ struct WorkspaceListView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
+    @State var optimisticFlatWorkspaces: [MobileWorkspacePreview]?
+    @State var optimisticGroupedItems: [MobileWorkspaceListItem]?
 
     var trimmedQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -186,8 +188,16 @@ struct WorkspaceListView: View {
     /// Ordered drawable items for the grouped presentation. Preserves the Mac's
     /// member order and contiguity (no pinned-first flattening, which would
     /// scatter group members).
-    private var groupedListItems: [MobileWorkspaceListItem] {
+    var groupedListItems: [MobileWorkspaceListItem] {
         MobileWorkspaceListItem.items(workspaces: groupedWorkspaces, groups: groups)
+    }
+
+    var displayedFlatWorkspaces: [MobileWorkspacePreview] {
+        optimisticFlatWorkspaces ?? filteredWorkspaces
+    }
+
+    var displayedGroupedListItems: [MobileWorkspaceListItem] {
+        optimisticGroupedItems ?? groupedListItems
     }
 
     var groupedWorkspaces: [MobileWorkspacePreview] {
@@ -286,8 +296,18 @@ struct WorkspaceListView: View {
             cancelMacTitlePickerSwitch()
         }
         .onAppear {
+            syncOptimisticWorkspaceOrder()
             updateMachineSnapshots(currentMachineSnapshots)
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
+        }
+        .onChange(of: filteredWorkspaces) { _, _ in
+            optimisticFlatWorkspaces = nil
+        }
+        .onChange(of: groupedListItems) { _, _ in
+            optimisticGroupedItems = nil
+        }
+        .onChange(of: rendersGroupedSections) { _, _ in
+            syncOptimisticWorkspaceOrder()
         }
         .onChange(of: currentMachineSnapshots) { _, snapshots in
             updateMachineSnapshots(snapshots)
@@ -471,20 +491,17 @@ struct WorkspaceListView: View {
     /// Mac has no groups (or lacks the capability) or while searching.
     @ViewBuilder
     private var flatRows: some View {
-        ForEach(filteredWorkspaces) { workspace in
+        ForEach(displayedFlatWorkspaces) { workspace in
             workspaceRow(workspace, indented: false)
         }
-        .onInsert(of: MobileWorkspaceDragPayload.dropContentTypes) { index, providers in
-            let items = filteredWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
-            handleWorkspaceInsert(providers, index: index, items: items)
-        }
+        .onMove(perform: moveFlatRows)
     }
 
     /// Grouped presentation: collapsible group headers with their members nested
     /// underneath, mirroring the Mac sidebar. Order and contiguity follow the Mac.
     @ViewBuilder
     private var groupedRows: some View {
-        ForEach(groupedListItems, id: \.id) { item in
+        ForEach(displayedGroupedListItems, id: \.id) { item in
             switch item {
             case .groupHeader(let group, let hasUnread):
                 WorkspaceGroupHeaderRow(
@@ -498,26 +515,14 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
-                .onDrop(of: MobileWorkspaceDragPayload.dropContentTypes, isTargeted: nil) { providers in
-                    handleWorkspaceProviderDrop(providers, target: .groupHeader(group.id))
-                }
-                .accessibilityHint(
-                    enablesWorkspaceDragAndDrop
-                        ? L10n.string(
-                            "mobile.workspaceGroup.dropTarget.a11y",
-                            defaultValue: "Drop a workspace here to move it into this group."
-                        )
-                        : ""
-                )
+                .moveDisabled(true)
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                 .listRowSeparator(.hidden)
             case .workspace(let workspace, let indented):
                 workspaceRow(workspace, indented: indented)
             }
         }
-        .onInsert(of: MobileWorkspaceDragPayload.dropContentTypes) { index, providers in
-            handleWorkspaceInsert(providers, index: index, items: groupedListItems)
-        }
+        .onMove(perform: moveGroupedRows)
     }
 
     @ViewBuilder
@@ -543,12 +548,9 @@ struct WorkspaceListView: View {
                 confirmCloseWorkspace()
             } : nil
         )
-        .modifier(WorkspaceDragDropModifier(
-            isEnabled: enablesWorkspaceDragAndDrop && capabilities.supportsWorkspaceActions,
-            workspaceID: workspace.id
-        ))
+        .moveDisabled(!(enablesWorkspaceReorder && capabilities.supportsWorkspaceActions))
         .accessibilityHint(
-            enablesWorkspaceDragAndDrop && capabilities.supportsWorkspaceActions
+            enablesWorkspaceReorder && capabilities.supportsWorkspaceActions
                 ? L10n.string(
                     "mobile.workspace.drag.a11y",
                     defaultValue: "Drag to reorder this workspace or move it between groups."

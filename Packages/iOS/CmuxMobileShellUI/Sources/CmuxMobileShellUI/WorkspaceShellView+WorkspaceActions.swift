@@ -31,13 +31,11 @@ extension WorkspaceShellView {
         _ id: MobileWorkspacePreview.ID,
         _ groupID: MobileWorkspaceGroupPreview.ID?,
         _ beforeWorkspaceID: MobileWorkspacePreview.ID?
-    ) -> Void)? {
+    ) async -> Void)? {
         guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, groupID, beforeWorkspaceID in
-            Task {
-                await store.moveWorkspace(id: id, toGroup: groupID, before: beforeWorkspaceID)
-            }
+            await store.moveWorkspace(id: id, toGroup: groupID, before: beforeWorkspaceID)
         }
     }
 

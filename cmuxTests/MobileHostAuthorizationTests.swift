@@ -1095,11 +1095,7 @@ struct MobileHostAuthorizationTests {
     }
 
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
-        let route = try CmxAttachRoute(
-            id: "debug",
-            kind: .debugLoopback,
-            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
-        )
+        let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
         return try CmxAttachTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
@@ -1110,7 +1106,6 @@ struct MobileHostAuthorizationTests {
             authToken: "ticket-secret"
         )
     }
-
     private func workspaceMoveAuthorizationError(
         ticketWorkspaceID: String,
         workspaceID: String,
@@ -1120,15 +1115,7 @@ struct MobileHostAuthorizationTests {
         let ticket = try scopedAttachTicket(workspaceID: ticketWorkspaceID, terminalID: nil)
         var params = additionalParams
         params["workspace_id"] = workspaceID
-        let request = MobileHostRPCRequest(
-            id: "workspace-move",
-            method: "workspace.move",
-            params: params,
-            auth: MobileHostRPCAuth(
-                attachToken: ticket.authToken,
-                stackAccessToken: nil
-            )
-        )
+        let request = MobileHostRPCRequest(id: "workspace-move", method: "workspace.move", params: params, auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil))
         return MobileHostService.debugTicketAuthorizationError(
             ticket: ticket,
             request: request,
@@ -1138,9 +1125,7 @@ struct MobileHostAuthorizationTests {
 
     private func drainMobileHostMainQueue() async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.main.async {
-                continuation.resume()
-            }
+            DispatchQueue.main.async { continuation.resume() }
         }
     }
 }

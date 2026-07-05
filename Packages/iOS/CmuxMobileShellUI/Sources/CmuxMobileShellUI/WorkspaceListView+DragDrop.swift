@@ -2,7 +2,7 @@ import CmuxMobileShellModel
 import Foundation
 
 extension WorkspaceListView {
-    var enablesWorkspaceDragAndDrop: Bool {
+    var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
             && connectionStatus == .connected
             && canCreateWorkspaceForMacSelection
@@ -19,64 +19,59 @@ extension WorkspaceListView {
             && canRenderGroupsForSelection
     }
 
-    private var visibleDropIntentWorkspaces: [MobileWorkspacePreview] {
-        if rendersGroupedSections {
-            return groupedWorkspaces
-        }
-        return filteredWorkspaces
+    func syncOptimisticWorkspaceOrder() {
+        optimisticFlatWorkspaces = nil
+        optimisticGroupedItems = nil
     }
 
-    func handleWorkspaceDrop(
-        _ rawWorkspaceID: String,
-        target: MobileWorkspaceDropTarget
-    ) -> Bool {
-        guard enablesWorkspaceDragAndDrop else {
-            return false
-        }
-        let trimmedWorkspaceID = rawWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedWorkspaceID.isEmpty else {
-            return false
-        }
-        let draggedWorkspaceID = MobileWorkspacePreview.ID(rawValue: trimmedWorkspaceID)
-        let dropWorkspaces = visibleDropIntentWorkspaces
-        guard dropWorkspaces.contains(where: { $0.id == draggedWorkspaceID }),
-              let intent = MobileWorkspaceDropIntentResolver.intent(
-                workspaces: dropWorkspaces,
-                groups: groups,
-                draggedWorkspaceID: draggedWorkspaceID,
-                target: target
-              ) else {
-            return false
-        }
-        moveWorkspace?(draggedWorkspaceID, intent.groupID, intent.beforeWorkspaceID)
-        return true
-    }
-
-    func handleWorkspaceProviderDrop(
-        _ providers: [NSItemProvider],
-        target: MobileWorkspaceDropTarget
-    ) -> Bool {
-        guard enablesWorkspaceDragAndDrop,
-              let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else {
-            return false
-        }
-        provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let rawWorkspaceID = object as? String else { return }
-            Task { @MainActor in
-                _ = handleWorkspaceDrop(rawWorkspaceID, target: target)
-            }
-        }
-        return true
-    }
-
-    func handleWorkspaceInsert(
-        _ providers: [NSItemProvider],
-        index: Int,
-        items: [MobileWorkspaceListItem]
-    ) {
-        guard let target = MobileWorkspaceListItem.insertionDropTarget(items: items, index: index) else {
+    func moveFlatRows(from sourceOffsets: IndexSet, to destination: Int) {
+        guard enablesWorkspaceReorder else { return }
+        let sourceWorkspaces = optimisticFlatWorkspaces ?? filteredWorkspaces
+        let items = sourceWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
+        guard let intent = MobileWorkspaceListItem.moveIntent(
+            items: items,
+            workspaces: filteredWorkspaces,
+            groups: [],
+            sourceOffsets: sourceOffsets,
+            destination: destination
+        ) else {
             return
         }
-        _ = handleWorkspaceProviderDrop(providers, target: target)
+        var movedWorkspaces = sourceWorkspaces
+        movedWorkspaces.move(fromOffsets: sourceOffsets, toOffset: destination)
+        optimisticFlatWorkspaces = movedWorkspaces
+        guard let sourceIndex = sourceOffsets.first,
+              case .workspace(let workspace, _) = items[sourceIndex] else {
+            return
+        }
+        Task { @MainActor in
+            await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID)
+            syncOptimisticWorkspaceOrder()
+        }
+    }
+
+    func moveGroupedRows(from sourceOffsets: IndexSet, to destination: Int) {
+        guard enablesWorkspaceReorder else { return }
+        let sourceItems = optimisticGroupedItems ?? groupedListItems
+        guard let intent = MobileWorkspaceListItem.moveIntent(
+            items: sourceItems,
+            workspaces: groupedWorkspaces,
+            groups: groups,
+            sourceOffsets: sourceOffsets,
+            destination: destination
+        ) else {
+            return
+        }
+        var movedItems = sourceItems
+        movedItems.move(fromOffsets: sourceOffsets, toOffset: destination)
+        optimisticGroupedItems = movedItems
+        guard let sourceIndex = sourceOffsets.first,
+              case .workspace(let workspace, _) = sourceItems[sourceIndex] else {
+            return
+        }
+        Task { @MainActor in
+            await moveWorkspace?(workspace.id, intent.groupID, intent.beforeWorkspaceID)
+            syncOptimisticWorkspaceOrder()
+        }
     }
 }

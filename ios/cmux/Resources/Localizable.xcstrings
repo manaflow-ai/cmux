@@ -8262,23 +8262,6 @@
           }
         }
       }
-    },
-    "mobile.workspaceGroup.dropTarget.a11y": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Drop a workspace here to move it into this group."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ここにワークスペースをドロップすると、このグループに移動します。"
-          }
-        }
-      }
     }
   },
   "version": "1.0"
