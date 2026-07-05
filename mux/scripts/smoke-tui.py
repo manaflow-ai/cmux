@@ -26,11 +26,11 @@ def active_screen(ws):
 def send_prefix_t_until_tab_count(count):
     last = None
     for _ in range(5):
-        os.write(fd, b"\x02t")
-        drain(0.8)
         last = active_screen(tree()[0])
         if len(last["panes"][0]["tabs"]) >= count:
             return last
+        os.write(fd, b"\x02t")
+        drain(0.8)
     raise AssertionError(last)
 
 pid, fd = pty.fork()
@@ -100,6 +100,85 @@ def wait_screen_contains(surface_id, needle, seconds=15):
             return last
     raise AssertionError(last[-500:])
 
+def render_style_snapshot(data, rows=30, cols=100):
+    grid = [[{"bg": None, "bold": False, "dim": False, "reverse": False} for _ in range(cols)] for _ in range(rows)]
+    x = y = 0
+    bg = None
+    bold = False
+    dim = False
+    reverse = False
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if b == 0x1b and i + 1 < len(data) and data[i + 1] == ord("["):
+            j = i + 2
+            while j < len(data) and not (0x40 <= data[j] <= 0x7e):
+                j += 1
+            if j >= len(data):
+                break
+            params = data[i + 2:j].decode("ascii", "ignore")
+            final = chr(data[j])
+            if final in ("H", "f"):
+                parts = [p for p in params.split(";") if p and not p.startswith("?")]
+                row = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else 1
+                col = int(parts[1]) if len(parts) >= 2 and parts[1].isdigit() else 1
+                y = max(0, min(rows - 1, row - 1))
+                x = max(0, min(cols - 1, col - 1))
+            elif final == "m":
+                raw = [p for p in params.split(";") if p]
+                vals = [int(p) for p in raw if p.isdigit()] or [0]
+                k = 0
+                while k < len(vals):
+                    if vals[k] == 0:
+                        bg = None
+                        bold = False
+                        dim = False
+                        reverse = False
+                    elif vals[k] == 1:
+                        bold = True
+                    elif vals[k] == 2:
+                        dim = True
+                    elif vals[k] == 7:
+                        reverse = True
+                    elif vals[k] == 22:
+                        bold = False
+                        dim = False
+                    elif vals[k] == 27:
+                        reverse = False
+                    elif vals[k] == 49:
+                        bg = None
+                    elif vals[k] == 48 and k + 2 < len(vals) and vals[k + 1] == 5:
+                        bg = vals[k + 2]
+                        k += 2
+                    k += 1
+            i = j + 1
+            continue
+        if b == 0x0d:
+            x = 0
+            i += 1
+            continue
+        if b == 0x0a:
+            y = min(rows - 1, y + 1)
+            i += 1
+            continue
+        if b < 0x20:
+            i += 1
+            continue
+        if y < rows and x < cols:
+            grid[y][x] = {"bg": bg, "bold": bold, "dim": dim, "reverse": reverse}
+        if b < 0x80:
+            i += 1
+        elif b & 0xE0 == 0xC0:
+            i += 2
+        elif b & 0xF0 == 0xE0:
+            i += 3
+        elif b & 0xF8 == 0xF0:
+            i += 4
+        else:
+            i += 1
+        x = min(cols - 1, x + 1)
+    return grid
+
 deadline = time.time() + 15
 while not os.path.exists(SOCK) and time.time() < deadline:
     drain(0.2)
@@ -109,7 +188,7 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-mux", ident
-assert ident["data"]["protocol"] in (4, 5), ident
+assert ident["data"]["protocol"] == 6, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]
@@ -364,6 +443,21 @@ drain(1.0)
 workspaces = tree()
 assert workspaces[1]["active"] and workspaces[1]["id"] == original_ws, workspaces
 print("sidebar click switches workspace ok")
+
+# A workspace context menu overlaps the active sidebar row. The menu must
+# repaint the cell style, not inherit the sidebar active background.
+output = b""
+os.write(fd, b"\x1b[<2;2;6M\x1b[<2;2;6m")
+drain(0.8)
+text = output.decode("utf-8", "replace")
+assert "Rename workspace" in text, text[-800:]
+assert "┌" in text, text[-800:]
+styles = render_style_snapshot(output)
+overlap = styles[6][2]  # item 1: non-selected menu row over the active workspace subtitle row.
+assert overlap["bg"] == 237 and not overlap["bold"] and not overlap["dim"], (overlap, text[-800:])
+os.write(fd, b"\x1b")
+drain(0.4)
+print("sidebar-overlapping menu repaints menu background ok")
 
 # Plain right-click inside the right-hand pane (col 81, row 6 SGR; clear
 # of the sidebar and borders): the menu opens at the press cell and must

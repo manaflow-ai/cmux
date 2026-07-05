@@ -4,6 +4,7 @@
 //! keys or mouse hover) highlights across the inner row, padding included.
 
 use mux_core::Rect;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Position;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::Frame;
@@ -45,7 +46,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
 
     for dy in 0..height {
         for dx in 0..width {
-            buf[(x + dx, y + dy)].set_symbol(" ").set_style(base);
+            set_cell(buf, x + dx, y + dy, " ", base);
         }
     }
     draw_border(buf, prompt.rect, border);
@@ -56,7 +57,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     prompt.input_rect = Rect { x: x + 2, y: y + 4, width: input_w, height: 1 };
     let (shown, cursor_col) = prompt.input.visible_text_and_cursor(input_w as usize);
     for dx in 0..input_w {
-        buf[(x + 2 + dx, y + 4)].set_symbol(" ").set_style(input_style);
+        set_cell(buf, x + 2 + dx, y + 4, " ", input_style);
     }
     buf.set_stringn(x + 2, y + 4, &shown, input_w as usize, input_style);
     let cursor_x = x + 2 + (cursor_col as u16).min(input_w);
@@ -134,7 +135,7 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
 
     for dy in 0..height {
         for dx in 0..width {
-            buf[(x + dx, y + dy)].set_symbol(" ").set_style(base);
+            set_cell(buf, x + dx, y + dy, " ", base);
         }
     }
     draw_border(buf, menu.rect, border);
@@ -152,7 +153,7 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         let style = if i == menu.selected { selected } else { base };
         // The highlight spans the full inner row, side padding included.
         for dx in 0..inner_w {
-            buf[(inner_x + dx, row_y)].set_symbol(" ").set_style(style);
+            set_cell(buf, inner_x + dx, row_y, " ", style);
         }
         buf.set_stringn(
             inner_x + pad + 1,
@@ -164,7 +165,13 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     }
 }
 
-fn draw_border(buf: &mut ratatui::buffer::Buffer, rect: Rect, style: Style) {
+fn set_cell(buf: &mut Buffer, x: u16, y: u16, symbol: &str, style: Style) {
+    let cell = &mut buf[(x, y)];
+    cell.reset();
+    cell.set_symbol(symbol).set_style(style);
+}
+
+fn draw_border(buf: &mut Buffer, rect: Rect, style: Style) {
     if rect.width < 2 || rect.height < 2 {
         return;
     }
@@ -173,17 +180,17 @@ fn draw_border(buf: &mut ratatui::buffer::Buffer, rect: Rect, style: Style) {
     let x1 = rect.x + rect.width - 1;
     let y1 = rect.y + rect.height - 1;
     for x in x0 + 1..x1 {
-        buf[(x, y0)].set_symbol("─").set_style(style);
-        buf[(x, y1)].set_symbol("─").set_style(style);
+        set_cell(buf, x, y0, "─", style);
+        set_cell(buf, x, y1, "─", style);
     }
     for y in y0 + 1..y1 {
-        buf[(x0, y)].set_symbol("│").set_style(style);
-        buf[(x1, y)].set_symbol("│").set_style(style);
+        set_cell(buf, x0, y, "│", style);
+        set_cell(buf, x1, y, "│", style);
     }
-    buf[(x0, y0)].set_symbol("┌").set_style(style);
-    buf[(x1, y0)].set_symbol("┐").set_style(style);
-    buf[(x0, y1)].set_symbol("└").set_style(style);
-    buf[(x1, y1)].set_symbol("┘").set_style(style);
+    set_cell(buf, x0, y0, "┌", style);
+    set_cell(buf, x1, y0, "┐", style);
+    set_cell(buf, x0, y1, "└", style);
+    set_cell(buf, x1, y1, "┘", style);
 }
 
 fn label_width(label: &str) -> u16 {

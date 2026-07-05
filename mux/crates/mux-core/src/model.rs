@@ -111,6 +111,7 @@ pub struct Pane {
     pub name: Option<String>,
     pub tabs: Vec<SurfaceId>,
     pub active_tab: usize,
+    pub active_at: u64,
 }
 
 impl Pane {

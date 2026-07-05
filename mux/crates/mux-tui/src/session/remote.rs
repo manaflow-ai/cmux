@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 
 use super::tree::{parse_tree, TreeView};
 
-const SUPPORTED_PROTOCOL_VERSIONS: &[u64] = &[4, 5];
+const SUPPORTED_PROTOCOL_VERSION: u64 = 6;
 
 /// A surface mirrored from a remote session.
 pub struct RemoteSurface {
@@ -29,17 +29,24 @@ pub struct RemoteSurface {
 }
 
 impl RemoteSurface {
-    /// Apply the server's authoritative size to the mirror terminal.
-    /// Returns true when the local mirror geometry actually changed.
-    pub(super) fn set_server_size(&self, cols: u16, rows: u16) -> bool {
+    pub(super) fn set_server_size(&self, cols: u16, rows: u16) {
         let (cols, rows) = (cols.max(1), rows.max(1));
-        let mut size = self.server_size.lock().unwrap();
-        if *size == (cols, rows) {
-            return false;
+        *self.server_size.lock().unwrap() = (cols, rows);
+    }
+
+    /// Apply an ordered attach-stream resize marker to the mirror terminal.
+    pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        self.set_server_size(cols, rows);
+        let mut term = self.term.lock().unwrap();
+        if let Some(replay) = replay {
+            if let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default()) {
+                fresh.vt_write(replay);
+                *term = fresh;
+                return;
+            }
         }
-        *size = (cols, rows);
-        let _ = self.term.lock().unwrap().resize(cols, rows, 8, 16);
-        true
+        let _ = term.resize(cols, rows, 8, 16);
     }
 
     pub(super) fn server_size(&self) -> (u16, u16) {
@@ -102,9 +109,9 @@ impl RemoteSession {
             anyhow::bail!("socket endpoint is not a cmux-mux session");
         }
         let protocol = ident.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0);
-        if !SUPPORTED_PROTOCOL_VERSIONS.contains(&protocol) {
+        if protocol != SUPPORTED_PROTOCOL_VERSION {
             anyhow::bail!(
-                "unsupported cmux-mux protocol {protocol}; this client supports protocols 4 and 5"
+                "unsupported cmux-mux protocol {protocol}; this client requires protocol 6 because attach-stream resize markers are authoritative; restart the cmux-mux server"
             );
         }
         session.request(json!({"cmd": "subscribe"}))?;
@@ -141,7 +148,7 @@ impl RemoteSession {
                     return;
                 };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.set_server_size(cols, rows);
+                    surface.apply_stream_resize(cols, rows, None);
                     let mut term = surface.term.lock().unwrap();
                     term.vt_write(&replay);
                     drop(term);
@@ -153,9 +160,20 @@ impl RemoteSession {
                 let Some(id) = surface_id() else { return };
                 let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                 let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+            }
+            Some("resized") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let replay = value
+                    .get("data")
+                    .and_then(|v| v.as_str())
+                    .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok());
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.set_server_size(cols, rows);
+                    surface.apply_stream_resize(cols, rows, replay.as_deref());
                     surface.dirty.store(true, Ordering::Release);
+                    self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
@@ -305,4 +323,47 @@ impl RemoteSession {
 
 fn hex_color(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resize_replay_replaces_mirror_with_server_truth_without_duplication() {
+        let mut server = Terminal::new(12, 4, 100, Callbacks::default()).unwrap();
+        for i in 0..12 {
+            server.vt_write(format!("srv{i:02}\r\n").as_bytes());
+        }
+        server.resize(8, 4, 8, 16).unwrap();
+        let server_text = server.plain_text().unwrap();
+        let server_oldest = server.selection_text_absolute((0, 0), (4, 0)).unwrap();
+        assert_eq!(server_oldest, "srv00");
+        let replay = server.vt_replay().unwrap();
+
+        let surface = RemoteSurface {
+            id: 1,
+            term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((20, 6)),
+            asserted_size: Mutex::new(None),
+        };
+        {
+            let mut mirror = surface.term.lock().unwrap();
+            mirror.vt_write(b"mirror-only\r\nstate\r\n");
+        }
+
+        surface.apply_stream_resize(8, 4, Some(&replay));
+        let scrollback_rows = {
+            let mut mirror = surface.term.lock().unwrap();
+            assert_eq!(mirror.plain_text().unwrap(), server_text);
+            assert_eq!(mirror.selection_text_absolute((0, 0), (4, 0)).unwrap(), server_oldest);
+            mirror.scrollback_rows()
+        };
+
+        surface.apply_stream_resize(8, 4, Some(&replay));
+        let mut mirror = surface.term.lock().unwrap();
+        assert_eq!(mirror.plain_text().unwrap(), server_text);
+        assert_eq!(mirror.scrollback_rows(), scrollback_rows);
+    }
 }

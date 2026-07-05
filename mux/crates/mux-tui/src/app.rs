@@ -392,6 +392,50 @@ fn content_size_for_rect(rect: Rect, scrollbar: ScrollbarPosition) -> Option<(u1
     }
 }
 
+fn cell_height_width_ratio(cell_pixels: (u16, u16)) -> u16 {
+    let (width, height) = cell_pixels;
+    if width == 0 || height == 0 {
+        return 4;
+    }
+    ((height as f32 / width as f32).round() as u16).max(1)
+}
+
+fn zellij_smart_direction(content: Rect, ratio: u16) -> Option<SplitDir> {
+    let rows = content.height as u32;
+    let cols = content.width as u32;
+    let ratio = ratio as u32;
+    if rows.saturating_mul(ratio) > cols && rows > 20 {
+        Some(SplitDir::Down)
+    } else if cols > 60 {
+        Some(SplitDir::Right)
+    } else {
+        None
+    }
+}
+
+fn smart_split_target(
+    areas: &[PaneArea],
+    focused: Option<PaneId>,
+    cell_pixels: (u16, u16),
+) -> Option<(PaneId, SplitDir)> {
+    let ratio = cell_height_width_ratio(cell_pixels);
+    if let Some(area) = focused.and_then(|pane| areas.iter().find(|area| area.pane == pane)) {
+        if let Some(dir) = zellij_smart_direction(area.content, ratio) {
+            return Some((area.pane, dir));
+        }
+    }
+    areas
+        .iter()
+        .filter_map(|area| {
+            zellij_smart_direction(area.content, ratio).map(|dir| {
+                let area_score = area.content.width as u32 * area.content.height as u32;
+                (area_score, area.pane, dir)
+            })
+        })
+        .max_by_key(|(area_score, _, _)| *area_score)
+        .map(|(_, pane, dir)| (pane, dir))
+}
+
 pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
     let config = crate::config::load();
     // First workspace before the terminal switches modes, so a spawn
@@ -717,6 +761,10 @@ impl App {
                 }
                 Ok(HandleOutcome::new(true, false))
             }
+            AppEvent::Mux(MuxEvent::SurfaceResized { surface, .. }) => {
+                self.render_states.remove(&surface);
+                Ok(HandleOutcome::new(true, false))
+            }
             AppEvent::Mux(_) => Ok(HandleOutcome::new(true, false)),
             AppEvent::Input(Event::Key(key)) => {
                 let user_interaction = key.kind != KeyEventKind::Release;
@@ -748,6 +796,7 @@ impl App {
             }
             AppEvent::Input(Event::Resize(_, _)) => {
                 self.refresh_cell_pixels(false);
+                self.render_states.clear();
                 Ok(HandleOutcome::new(true, true))
             }
             AppEvent::Input(_) => Ok(HandleOutcome::new(false, false)),
@@ -857,14 +906,10 @@ impl App {
     }
 
     fn new_pane_smart(&mut self) -> anyhow::Result<()> {
-        let Some(pane) = self.active_pane() else { return Ok(()) };
-        let Some(area) = self.pane_areas.iter().find(|area| area.pane == pane) else {
+        let Some((pane, dir)) =
+            smart_split_target(&self.pane_areas, self.active_pane(), self.cell_pixels)
+        else {
             return Ok(());
-        };
-        let dir = if area.content.width > area.content.height.saturating_mul(2) {
-            SplitDir::Right
-        } else {
-            SplitDir::Down
         };
         self.split_pane(pane, dir)
     }
@@ -1973,5 +2018,41 @@ fn browser_key_mapping(
         KeyCode::PageDown => Some(("PageDown", "PageDown", 34, None)),
         KeyCode::Delete => Some(("Delete", "Delete", 46, None)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn area(pane: PaneId, width: u16, height: u16) -> PaneArea {
+        PaneArea {
+            pane,
+            surface: pane,
+            rect: Rect { x: 0, y: 0, width, height },
+            bar: None,
+            content: Rect { x: 0, y: 0, width, height },
+            track: None,
+        }
+    }
+
+    #[test]
+    fn zellij_smart_direction_uses_cell_ratio_and_minimums() {
+        assert_eq!(
+            zellij_smart_direction(Rect { x: 0, y: 0, width: 80, height: 21 }, 4),
+            Some(SplitDir::Down)
+        );
+        assert_eq!(
+            zellij_smart_direction(Rect { x: 0, y: 0, width: 80, height: 20 }, 4),
+            Some(SplitDir::Right)
+        );
+        assert_eq!(zellij_smart_direction(Rect { x: 0, y: 0, width: 60, height: 20 }, 4), None);
+        assert_eq!(cell_height_width_ratio((0, 0)), 4);
+    }
+
+    #[test]
+    fn smart_split_falls_back_to_largest_selectable_pane() {
+        let areas = [area(1, 40, 10), area(2, 80, 10), area(3, 30, 30)];
+        assert_eq!(smart_split_target(&areas, Some(1), (8, 16)), Some((3, SplitDir::Down)));
     }
 }

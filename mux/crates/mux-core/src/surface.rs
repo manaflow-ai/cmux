@@ -79,7 +79,13 @@ pub struct AttachStream {
     pub cols: u16,
     pub rows: u16,
     pub replay: Vec<u8>,
-    pub stream: std::sync::mpsc::Receiver<Vec<u8>>,
+    pub stream: std::sync::mpsc::Receiver<AttachFrame>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachFrame {
+    Output(Vec<u8>),
+    Resized { cols: u16, rows: u16, replay: Vec<u8> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +149,7 @@ pub struct PtySurface {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    taps: Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>,
+    taps: Mutex<Vec<std::sync::mpsc::Sender<AttachFrame>>>,
 }
 
 impl std::fmt::Debug for Surface {
@@ -250,7 +256,8 @@ impl Surface {
                         {
                             let mut taps = pty.taps.lock().unwrap();
                             if !taps.is_empty() {
-                                taps.retain(|tap| tap.send(buf[..n].to_vec()).is_ok());
+                                let frame = AttachFrame::Output(buf[..n].to_vec());
+                                taps.retain(|tap| tap.send(frame.clone()).is_ok());
                             }
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
@@ -524,6 +531,10 @@ impl PtySurface {
             }
             *size = (cols, rows);
         }
+        // Hold the terminal lock while resizing and while sending the
+        // attach marker, so attach mirrors observe bytes and resizes in
+        // the exact order the server terminal applied them.
+        let mut term = self.term.lock().unwrap();
         let _ = self.master.lock().unwrap().resize(PtySize {
             rows,
             cols,
@@ -531,7 +542,14 @@ impl PtySurface {
             pixel_height: 0,
         });
         // Nominal cell metrics; only pixel size reports observe these.
-        let _ = self.term.lock().unwrap().resize(cols, rows, 8, 16);
+        let _ = term.resize(cols, rows, 8, 16);
+        let replay = term.vt_replay().unwrap_or_default();
+        let mut taps = self.taps.lock().unwrap();
+        if !taps.is_empty() {
+            taps.retain(|tap| {
+                tap.send(AttachFrame::Resized { cols, rows, replay: replay.clone() }).is_ok()
+            });
+        }
         true
     }
 }

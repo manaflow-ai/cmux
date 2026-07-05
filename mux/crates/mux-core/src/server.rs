@@ -8,11 +8,12 @@
 //! - `subscribe` — the server pushes `{"event":...}` lines (tree-changed,
 //!   surface-output, surface-resized, surface-exited, title-changed,
 //!   bell) interleaved with responses.
-//! - `attach-surface` — the server sends `{"event":"vt-state"}` with a
-//!   base64 VT replay of the surface's current state, then a live
-//!   `{"event":"output"}` stream of every subsequent pty byte. Replaying
-//!   state then stream into a fresh terminal reproduces the surface
-//!   exactly.
+//! - `attach-surface` — the server sends ordered attach events on the
+//!   same connection: an initial `{"event":"vt-state"}` base64 VT replay,
+//!   then interleaved `{"event":"resized"}` geometry markers carrying a
+//!   fresh base64 VT replay at the new size and `{"event":"output"}`
+//!   base64 pty byte chunks. Replaying those events in order into a
+//!   fresh terminal reproduces the surface exactly.
 //!
 //! ```text
 //! {"id":1,"cmd":"identify"}
@@ -31,11 +32,11 @@ use serde_json::{json, Value};
 
 use crate::model::{Screen, State};
 use crate::{
-    DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId, SplitDir, SurfaceId, SurfaceKind,
-    WorkspaceId,
+    AttachFrame, DefaultColors, Mux, MuxEvent, Node, PaneId, Rgb, ScreenId, SplitDir, SurfaceId,
+    SurfaceKind, WorkspaceId,
 };
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 /// Default socket path for a session: `$TMPDIR/cmux-mux-<uid>/<session>.sock`.
 pub fn default_socket_path(session: &str) -> PathBuf {
@@ -479,15 +480,22 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             Ok(json!({}))
         }
         Command::MoveTab { surface, pane, index } => {
-            if !mux.move_tab(surface, pane, index) {
-                anyhow::bail!("unknown surface/pane or unchanged move");
+            let valid = mux.with_state(|state| {
+                state.surfaces.contains_key(&surface)
+                    && state.panes.contains_key(&pane)
+                    && state.pane_of(surface).is_some()
+            });
+            if !valid {
+                anyhow::bail!("unknown surface/pane");
             }
+            mux.move_tab(surface, pane, index);
             Ok(json!({}))
         }
         Command::MoveWorkspace { workspace, index } => {
-            if !mux.move_workspace(workspace, index) {
-                anyhow::bail!("unknown workspace or unchanged move");
+            if !mux.with_state(|state| state.workspaces.iter().any(|ws| ws.id == workspace)) {
+                anyhow::bail!("unknown workspace");
             }
+            mux.move_workspace(workspace, index);
             Ok(json!({}))
         }
         Command::SetDefaultColors { fg, bg } => {
@@ -630,12 +638,21 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             }))?;
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                while let Ok(chunk) = attach.stream.recv() {
-                    let value = json!({
-                        "event": "output",
-                        "surface": surface_id,
-                        "data": base64::engine::general_purpose::STANDARD.encode(chunk),
-                    });
+                while let Ok(frame) = attach.stream.recv() {
+                    let value = match frame {
+                        AttachFrame::Output(chunk) => json!({
+                            "event": "output",
+                            "surface": surface_id,
+                            "data": base64::engine::general_purpose::STANDARD.encode(chunk),
+                        }),
+                        AttachFrame::Resized { cols, rows, replay } => json!({
+                            "event": "resized",
+                            "surface": surface_id,
+                            "cols": cols,
+                            "rows": rows,
+                            "data": base64::engine::general_purpose::STANDARD.encode(replay),
+                        }),
+                    };
                     if writer.send(&value).is_err() {
                         break;
                     }

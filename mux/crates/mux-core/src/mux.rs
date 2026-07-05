@@ -39,6 +39,7 @@ pub struct Mux {
     state: Mutex<State>,
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
     next_id: AtomicU64,
+    next_active_at: AtomicU64,
     surface_options: SurfaceOptions,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
@@ -57,6 +58,7 @@ impl Mux {
             }),
             subscribers: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
+            next_active_at: AtomicU64::new(1),
             surface_options,
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
@@ -67,6 +69,10 @@ impl Mux {
 
     fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn next_active_at(&self) -> u64 {
+        self.next_active_at.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn subscribe(&self) -> Receiver<MuxEvent> {
@@ -131,7 +137,16 @@ impl Mux {
     /// A fresh single-tab pane wrapping `surface`.
     fn make_pane(&self, surface: SurfaceId) -> (PaneId, Pane) {
         let id = self.next_id();
-        (id, Pane { id, name: None, tabs: vec![surface], active_tab: 0 })
+        (
+            id,
+            Pane {
+                id,
+                name: None,
+                tabs: vec![surface],
+                active_tab: 0,
+                active_at: self.next_active_at(),
+            },
+        )
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
@@ -325,12 +340,14 @@ impl Mux {
         // A sibling tab renders at the size the pane already has.
         let size = size.or_else(|| self.pane_size(target));
         let surface = self.spawn_surface(cwd, size)?;
+        let active_at = self.next_active_at();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
                 Some(pane) => {
                     pane.tabs.push(surface.id);
                     pane.active_tab = pane.tabs.len() - 1;
+                    pane.active_at = active_at;
                     true
                 }
                 None => {
@@ -399,12 +416,14 @@ impl Mux {
 
         let size = size.or_else(|| self.pane_size(target));
         let surface = self.spawn_browser_surface(url, size)?;
+        let active_at = self.next_active_at();
         let attached = {
             let mut state = self.state.lock().unwrap();
             match state.panes.get_mut(&target) {
                 Some(pane) => {
                     pane.tabs.push(surface.id);
                     pane.active_tab = pane.tabs.len() - 1;
+                    pane.active_at = active_at;
                     true
                 }
                 None => {
@@ -474,7 +493,13 @@ impl Mux {
             if done {
                 state.panes.insert(
                     pane_id,
-                    Pane { id: pane_id, name: None, tabs: vec![surface.id], active_tab: 0 },
+                    Pane {
+                        id: pane_id,
+                        name: None,
+                        tabs: vec![surface.id],
+                        active_tab: 0,
+                        active_at: self.next_active_at(),
+                    },
                 );
             } else {
                 state.surfaces.remove(&surface.id);
@@ -660,6 +685,7 @@ impl Mux {
     /// Make `pane` the active pane of its screen (and that screen and
     /// workspace active).
     pub fn focus_pane(&self, pane: PaneId) -> bool {
+        let active_at = self.next_active_at();
         let found = {
             let mut state = self.state.lock().unwrap();
             match state.screen_of(pane) {
@@ -668,6 +694,7 @@ impl Mux {
                     let ws = &mut state.workspaces[wi];
                     ws.active_screen = si;
                     ws.screens[si].active_pane = pane;
+                    stamp_pane(&mut state, pane, active_at);
                     true
                 }
                 None => false,
@@ -700,9 +727,14 @@ impl Mux {
     /// alive; if moving it empties the source pane, that pane collapses
     /// out of its split tree.
     pub fn move_tab(&self, surface: SurfaceId, pane: PaneId, index: usize) -> bool {
+        let active_at = self.next_active_at();
         let moved = {
             let mut state = self.state.lock().unwrap();
-            move_tab_in_state(&mut state, surface, pane, index)
+            let moved = move_tab_in_state(&mut state, surface, pane, index);
+            if moved {
+                stamp_pane(&mut state, pane, active_at);
+            }
+            moved
         };
         if moved {
             self.emit(MuxEvent::TreeChanged);
@@ -717,14 +749,18 @@ impl Mux {
             let Some(old_idx) = state.workspaces.iter().position(|ws| ws.id == workspace) else {
                 return false;
             };
+            let new_idx = if index > old_idx { index.saturating_sub(1) } else { index };
+            let new_idx = new_idx.min(state.workspaces.len().saturating_sub(1));
+            if new_idx == old_idx {
+                return false;
+            }
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             let ws = state.workspaces.remove(old_idx);
-            let new_idx = index.min(state.workspaces.len());
             state.workspaces.insert(new_idx, ws);
             state.active_workspace = active_id
                 .and_then(|id| state.workspaces.iter().position(|ws| ws.id == id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-            old_idx != new_idx
+            true
         };
         if moved {
             self.emit(MuxEvent::TreeChanged);
@@ -735,6 +771,7 @@ impl Mux {
     /// Select a tab within a pane (default: the active pane) by index or
     /// relative delta.
     pub fn select_tab(&self, pane: Option<PaneId>, index: Option<usize>, delta: Option<isize>) {
+        let active_at = self.next_active_at();
         {
             let mut state = self.state.lock().unwrap();
             let Some(target) = pane.or_else(|| state.active_pane()) else { return };
@@ -751,12 +788,14 @@ impl Mux {
                 pane.active_tab =
                     ((pane.active_tab as isize + delta).rem_euclid(len as isize)) as usize;
             }
+            stamp_pane(&mut state, target, active_at);
         }
         self.emit(MuxEvent::TreeChanged);
     }
 
     /// Select a screen in the active workspace by index or relative delta.
     pub fn select_screen(&self, index: Option<usize>, delta: Option<isize>) {
+        let active_at = self.next_active_at();
         {
             let mut state = self.state.lock().unwrap();
             let active = state.active_workspace;
@@ -773,12 +812,16 @@ impl Mux {
                 ws.active_screen =
                     ((ws.active_screen as isize + delta).rem_euclid(len as isize)) as usize;
             }
+            if let Some(pane) = ws.active_screen_ref().map(|screen| screen.active_pane) {
+                stamp_pane(&mut state, pane, active_at);
+            }
         }
         self.emit(MuxEvent::TreeChanged);
     }
 
     /// Select a workspace by index or relative delta.
     pub fn select_workspace(&self, index: Option<usize>, delta: Option<isize>) {
+        let active_at = self.next_active_at();
         {
             let mut state = self.state.lock().unwrap();
             let len = state.workspaces.len();
@@ -792,6 +835,13 @@ impl Mux {
             } else if let Some(delta) = delta {
                 state.active_workspace =
                     ((state.active_workspace as isize + delta).rem_euclid(len as isize)) as usize;
+            }
+            if let Some(pane) = state
+                .workspaces
+                .get(state.active_workspace)
+                .and_then(|ws| ws.active_screen_ref().map(|screen| screen.active_pane))
+            {
+                stamp_pane(&mut state, pane, active_at);
             }
         }
         self.emit(MuxEvent::TreeChanged);
@@ -807,6 +857,20 @@ fn screen_tabs(state: &State, screen: &Screen) -> Vec<SurfaceId> {
         .filter_map(|id| state.panes.get(id))
         .flat_map(|pane| pane.tabs.iter().copied())
         .collect()
+}
+
+fn stamp_pane(state: &mut State, pane: PaneId, active_at: u64) {
+    if let Some(pane) = state.panes.get_mut(&pane) {
+        pane.active_at = active_at;
+    }
+}
+
+fn most_recent_pane(state: &State, panes: &[PaneId]) -> Option<PaneId> {
+    panes
+        .iter()
+        .filter_map(|id| state.panes.get(id).map(|pane| (*id, pane.active_at)))
+        .max_by_key(|(_, active_at)| *active_at)
+        .map(|(id, _)| id)
 }
 
 /// Remove one surface from the state: detach it from its
@@ -832,14 +896,23 @@ fn remove_surface(state: &mut State, target: SurfaceId) -> Option<Arc<Surface>> 
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return removed;
     };
-    let screen = &mut state.workspaces[wi].screens[si];
-    match std::mem::replace(&mut screen.root, Node::Leaf(0)).remove_leaf(pane_id) {
+    let root = {
+        let screen = &mut state.workspaces[wi].screens[si];
+        std::mem::replace(&mut screen.root, Node::Leaf(0))
+    };
+    match root.remove_leaf(pane_id) {
         Some(root) => {
-            screen.root = root;
-            if screen.active_pane == pane_id {
+            let next_active = if state.workspaces[wi].screens[si].active_pane == pane_id {
                 let mut ids = Vec::new();
-                screen.root.pane_ids(&mut ids);
-                screen.active_pane = ids[0];
+                root.pane_ids(&mut ids);
+                most_recent_pane(state, &ids)
+            } else {
+                None
+            };
+            let screen = &mut state.workspaces[wi].screens[si];
+            screen.root = root;
+            if let Some(next) = next_active {
+                screen.active_pane = next;
             }
             return removed;
         }
@@ -868,16 +941,23 @@ fn collapse_empty_pane(state: &mut State, pane_id: PaneId) {
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return;
     };
-    let screen = &mut state.workspaces[wi].screens[si];
-    match std::mem::replace(&mut screen.root, Node::Leaf(0)).remove_leaf(pane_id) {
+    let root = {
+        let screen = &mut state.workspaces[wi].screens[si];
+        std::mem::replace(&mut screen.root, Node::Leaf(0))
+    };
+    match root.remove_leaf(pane_id) {
         Some(root) => {
-            screen.root = root;
-            if screen.active_pane == pane_id {
+            let next_active = if state.workspaces[wi].screens[si].active_pane == pane_id {
                 let mut ids = Vec::new();
-                screen.root.pane_ids(&mut ids);
-                if let Some(first) = ids.first() {
-                    screen.active_pane = *first;
-                }
+                root.pane_ids(&mut ids);
+                most_recent_pane(state, &ids)
+            } else {
+                None
+            };
+            let screen = &mut state.workspaces[wi].screens[si];
+            screen.root = root;
+            if let Some(next) = next_active {
+                screen.active_pane = next;
             }
         }
         None => {
@@ -988,6 +1068,26 @@ mod tests {
         mux.close_pane(p3);
         assert_eq!(mux.surface_count(), 0);
         mux.with_state(|s| assert!(s.workspaces.is_empty()));
+    }
+
+    #[test]
+    fn closing_active_pane_focuses_most_recent_remaining_pane() {
+        let mux = test_mux();
+        let s1 = mux.new_workspace(None, None).unwrap();
+        let p1 = mux.with_state(|s| s.pane_of(s1.id).unwrap());
+        let s2 = mux.split(p1, SplitDir::Right, None).unwrap();
+        let p2 = mux.with_state(|s| s.pane_of(s2.id).unwrap());
+        let s3 = mux.split(p2, SplitDir::Down, None).unwrap();
+        let p3 = mux.with_state(|s| s.pane_of(s3.id).unwrap());
+
+        assert!(mux.focus_pane(p1));
+        assert!(mux.focus_pane(p3));
+        mux.close_pane(p3);
+
+        mux.with_state(|s| {
+            assert_eq!(s.workspaces[0].screens[0].active_pane, p1);
+            assert!(s.panes.contains_key(&p2));
+        });
     }
 
     #[test]
