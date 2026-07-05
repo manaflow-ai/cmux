@@ -539,8 +539,7 @@ final class ScriptTerminal: NSObject {
     var workingDirectory: String {
         guard NSApp.isAppleScriptEnabled else { return "" }
         if let workspace {
-            return workspace.reportedPanelDirectory(panelId: terminalId)
-                ?? (workspace.allowsLocalDirectoryFallback(panelId: terminalId) ? terminal?.directory ?? "" : "")
+            return workspace.effectivePanelDirectory(panelId: terminalId, localFallback: terminal?.directory) ?? ""
         }
         return terminal?.directory ?? ""
     }

@@ -196,10 +196,10 @@ extension TerminalController {
             if let requestedTerminalID, terminal.id != requestedTerminalID {
                 return nil
             }
-            let terminalDirectory = workspace.reportedPanelDirectory(panelId: terminal.id)
-                ?? (workspace.allowsLocalDirectoryFallback(panelId: terminal.id)
-                    ? mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
-                    : nil)
+            let terminalDirectory = workspace.effectivePanelDirectory(
+                panelId: terminal.id,
+                localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
+            )
             return [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,

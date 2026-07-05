@@ -4628,7 +4628,7 @@ class TerminalController {
                 let paneId = mapped?.paneId
                 let treeVisible = mapped?.bonsplitTabId != nil && paneId != nil
                 let ttyName = workspace?.surfaceTTYNames[panelId]
-                let currentDirectory = workspace.map { $0.reportedPanelDirectory(panelId: panelId) ?? ($0.allowsLocalDirectoryFallback(panelId: panelId) ? nonEmpty(mapped?.terminalPanel.directory) : nil) } ?? nonEmpty(mapped?.terminalPanel.directory)
+                let currentDirectory = workspace.map { $0.effectivePanelDirectory(panelId: panelId, localFallback: nonEmpty(mapped?.terminalPanel.directory)) } ?? nonEmpty(mapped?.terminalPanel.directory)
                 let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
@@ -13083,9 +13083,9 @@ class TerminalController {
 
     private func agentLifecycleRegistryWorkingDirectory(tab: Tab, panelId: UUID?) -> String? {
         let candidates = [
-            panelId.flatMap { tab.reportedPanelDirectory(panelId: $0) ?? (tab.allowsLocalDirectoryFallback(panelId: $0) ? tab.panelDirectories[$0] : nil) },
-            tab.focusedPanelId.flatMap { tab.reportedPanelDirectory(panelId: $0) ?? (tab.allowsLocalDirectoryFallback(panelId: $0) ? tab.panelDirectories[$0] : nil) },
-            tab.isRemoteWorkspace ? tab.presentedCurrentDirectory : tab.currentDirectory,
+            panelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.focusedPanelId.flatMap { tab.effectivePanelDirectory(panelId: $0) },
+            tab.usesRemoteDirectoryProvenance ? tab.presentedCurrentDirectory : tab.currentDirectory,
         ]
         return candidates.compactMap(normalizedOptionValue).first
     }

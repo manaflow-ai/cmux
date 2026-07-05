@@ -11,7 +11,7 @@ extension Workspace {
 
     private var reportedRemoteCurrentDirectory: String? {
         if let focusedPanelId {
-            if let directory = reportedPanelDirectory(panelId: focusedPanelId) {
+            if let directory = effectivePanelDirectory(panelId: focusedPanelId) {
                 return directory
             }
             if terminalPanel(for: focusedPanelId) != nil {
@@ -39,6 +39,15 @@ extension Workspace {
             guard remoteDirectoryReportPanelIds.contains(panelId) else { return nil }
         }
         return normalizedSidebarDirectory(panelDirectories[panelId])
+    }
+
+    func effectivePanelDirectory(panelId: UUID, localFallback: String? = nil) -> String? {
+        if let directory = reportedPanelDirectory(panelId: panelId) {
+            return directory
+        }
+        guard allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
+        return normalizedSidebarDirectory(localFallback)
+            ?? normalizedSidebarDirectory(terminalPanel(for: panelId)?.requestedWorkingDirectory)
     }
 
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
@@ -77,15 +86,10 @@ extension Workspace {
     }
 
     private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
-        if let directory = reportedPanelDirectory(panelId: panelId) {
+        if let directory = effectivePanelDirectory(panelId: panelId) {
             return directory
         }
         guard allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
-        if let requestedDirectory = normalizedSidebarDirectory(
-            terminalPanel(for: panelId)?.requestedWorkingDirectory
-        ) {
-            return requestedDirectory
-        }
         guard panelId == focusedPanelId else { return nil }
         return normalizedSidebarDirectory(currentDirectory)
     }
