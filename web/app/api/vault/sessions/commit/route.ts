@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { cloudDb } from "../../../../../db/client";
-import { vaultSessions, vaultSnapshots } from "../../../../../db/schema";
+import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../../../../db/schema";
 import { vaultConfig, isVaultConfigured } from "../../../../../services/vault/config";
 import { buildObjectKey, headObject } from "../../../../../services/vault/storage";
 import { getVaultStoredCompressedBytes } from "../../../../../services/vault/usage";
@@ -99,6 +99,10 @@ export async function POST(request: Request): Promise<Response> {
         .onConflictDoNothing({
           target: [vaultSnapshots.sessionId, vaultSnapshots.sha256],
         });
+
+      // The snapshot now accounts for these bytes, so release the upload
+      // grant that reserved them at presign time.
+      await tx.delete(vaultUploadGrants).where(eq(vaultUploadGrants.objectKey, objectKey));
 
       return session;
     });

@@ -193,6 +193,28 @@ export const vaultSnapshots = pgTable(
   ],
 );
 
+// Ledger of presigned PUT URLs that were minted but not yet committed.
+// Pending grants count against the per-user storage quota so a client cannot
+// bypass CMUX_VAULT_MAX_USER_BYTES by uploading objects and never committing;
+// expired uncommitted grants and their storage objects are opportunistically
+// GC'd by the uploads route.
+export const vaultUploadGrants = pgTable(
+  "vault_upload_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_upload_grants_object_key_unique").on(table.objectKey),
+    index("vault_upload_grants_user_idx").on(table.userId),
+    index("vault_upload_grants_expires_idx").on(table.expiresAt),
+  ],
+);
+
 export const vaultCliAuthRequests = pgTable(
   "vault_cli_auth_requests",
   {

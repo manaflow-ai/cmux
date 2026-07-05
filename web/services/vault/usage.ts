@@ -1,6 +1,6 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gt, notInArray, sql } from "drizzle-orm";
 import type { cloudDb } from "../../db/client";
-import { vaultSessions, vaultSnapshots } from "../../db/schema";
+import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schema";
 
 type VaultDb = ReturnType<typeof cloudDb>;
 
@@ -22,5 +22,37 @@ export async function getVaultStoredCompressedBytes(
     .from(vaultSnapshots)
     .innerJoin(vaultSessions, eq(vaultSnapshots.sessionId, vaultSessions.id))
     .where(eq(vaultSessions.userId, userId));
+  return row?.total ?? 0;
+}
+
+/**
+ * Compressed bytes reserved by unexpired upload grants (presigned PUT URLs
+ * minted but not yet committed). Counting these against the quota closes the
+ * bypass where a client uploads objects and never commits them: every minted
+ * URL reserves capacity until it is committed or its grant expires and the
+ * orphaned object is garbage-collected.
+ *
+ * `excludeObjectKeys` removes grants for the batch currently being
+ * re-requested so a retry after a failed commit is not double-counted.
+ */
+export async function getVaultPendingGrantBytes(
+  db: VaultDb,
+  userId: string,
+  now: Date,
+  excludeObjectKeys: readonly string[] = [],
+): Promise<number> {
+  const conditions = [
+    eq(vaultUploadGrants.userId, userId),
+    gt(vaultUploadGrants.expiresAt, now),
+  ];
+  if (excludeObjectKeys.length > 0) {
+    conditions.push(notInArray(vaultUploadGrants.objectKey, [...excludeObjectKeys]));
+  }
+  const [row] = await db
+    .select({
+      total: sql<number>`coalesce(sum(${vaultUploadGrants.compressedSizeBytes}), 0)::double precision`,
+    })
+    .from(vaultUploadGrants)
+    .where(and(...conditions));
   return row?.total ?? 0;
 }

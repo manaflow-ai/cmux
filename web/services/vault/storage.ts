@@ -1,4 +1,10 @@
-import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { vaultConfig } from "./config";
 
@@ -78,6 +84,12 @@ export async function presignGet(key: string): Promise<string> {
     }),
     { expiresIn: config.presignTtlSeconds },
   );
+}
+
+export async function deleteObject(key: string): Promise<void> {
+  const config = vaultConfig();
+  if (!config.bucket) throw new Error("CMUX_VAULT_S3_BUCKET is required");
+  await s3Client().send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
 }
 
 export async function headObject(key: string): Promise<HeadObjectResult | null> {

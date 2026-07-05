@@ -66,8 +66,13 @@ temporarily.
 Round 1 enforces request shape limits, a max batch size of 25 items,
 `CMUX_VAULT_MAX_UPLOAD_BYTES` on compressed upload size (default 512 MiB), and
 `CMUX_VAULT_MAX_USER_BYTES` on total stored compressed bytes per user (default
-50 GiB). The uploads route checks the projected total before presigning and the
-commit route re-checks it, so previously issued URLs cannot bypass the cap.
+50 GiB). The quota counts committed snapshots plus unexpired upload grants: the
+uploads route records a grant row per minted presigned URL (whose signed
+Content-Length bounds the actual upload size), so uploading objects and never
+committing still consumes quota. Commit releases the grant; expired uncommitted
+grants and their orphaned storage objects are garbage-collected opportunistically
+by the uploads route. The commit route re-checks the committed total, so
+previously issued URLs cannot bypass the cap.
 Quota and size failures are per-item (`upload_too_large`, `quota_exceeded`) so
 one oversized transcript does not block the rest of a batch.
 
