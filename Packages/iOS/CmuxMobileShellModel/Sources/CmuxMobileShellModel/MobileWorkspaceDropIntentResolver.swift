@@ -1,8 +1,5 @@
 /// Resolves mobile workspace drag/drop targets into Mac mutation intents.
-public struct MobileWorkspaceDropIntentResolver: Sendable {
-    /// Creates a resolver.
-    public init() {}
-
+public enum MobileWorkspaceDropIntentResolver {
     /// Returns the Mac-facing move intent for a drop, or `nil` for no-op/invalid drops.
     /// - Parameters:
     ///   - workspaces: The full workspace order from the Mac.
@@ -10,7 +7,7 @@ public struct MobileWorkspaceDropIntentResolver: Sendable {
     ///   - draggedWorkspaceID: The workspace being dragged.
     ///   - target: The drop landing target.
     /// - Returns: A move intent carrying the target group and insertion anchor.
-    public func intent(
+    public static func intent(
         workspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview],
         draggedWorkspaceID: MobileWorkspacePreview.ID,
@@ -70,7 +67,7 @@ public struct MobileWorkspaceDropIntentResolver: Sendable {
         return intent
     }
 
-    private func validGroupID(
+    private static func validGroupID(
         _ groupID: MobileWorkspaceGroupPreview.ID?,
         knownGroupIDs: Set<MobileWorkspaceGroupPreview.ID>
     ) -> MobileWorkspaceGroupPreview.ID? {
@@ -78,7 +75,7 @@ public struct MobileWorkspaceDropIntentResolver: Sendable {
         return groupID
     }
 
-    private func workspaceAfterGroup(
+    private static func workspaceAfterGroup(
         _ groupID: MobileWorkspaceGroupPreview.ID,
         workspaces: [MobileWorkspacePreview],
         knownGroupIDs: Set<MobileWorkspaceGroupPreview.ID>
@@ -93,7 +90,7 @@ public struct MobileWorkspaceDropIntentResolver: Sendable {
         return workspaces[nextIndex].id
     }
 
-    private func changesOrder(
+    private static func changesOrder(
         draggedWorkspaceID: MobileWorkspacePreview.ID,
         beforeWorkspaceID: MobileWorkspacePreview.ID?,
         workspaces: [MobileWorkspacePreview]

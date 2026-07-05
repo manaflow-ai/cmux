@@ -38,7 +38,7 @@ extension WorkspaceListView {
         let draggedWorkspaceID = MobileWorkspacePreview.ID(rawValue: rawWorkspaceID)
         let dropWorkspaces = visibleDropIntentWorkspaces
         guard dropWorkspaces.contains(where: { $0.id == draggedWorkspaceID }),
-              let intent = MobileWorkspaceDropIntentResolver().intent(
+              let intent = MobileWorkspaceDropIntentResolver.intent(
                 workspaces: dropWorkspaces,
                 groups: groups,
                 draggedWorkspaceID: draggedWorkspaceID,
