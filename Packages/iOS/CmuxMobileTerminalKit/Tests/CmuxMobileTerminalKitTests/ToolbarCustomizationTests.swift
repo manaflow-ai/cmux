@@ -286,4 +286,38 @@ struct CustomToolbarActionTests {
         let decoded = try JSONDecoder().decode([CustomToolbarAction].self, from: data)
         #expect(decoded == actions)
     }
+
+    @Test("menu payload opens a group and does not emit bytes directly")
+    func menuPayloadHasChildrenButNoDirectOutput() {
+        let item = ToolbarMenuItem(title: "List", payload: .text("ls\n"))
+        let action = CustomToolbarAction(
+            title: "More",
+            symbolName: "ellipsis.circle",
+            payload: .menu([item])
+        )
+        #expect(action.isMenu)
+        #expect(action.output == nil)
+        #expect(action.menuItems == [item])
+        #expect(item.output == Data("ls\r".utf8))
+    }
+
+    @Test("menu payload codable preserves nested menu items")
+    func menuPayloadCodable() throws {
+        let nested = ToolbarMenuItem(title: "Back Tab", payload: .keyCombo(modifiers: [.shift], key: .tab))
+        let item = ToolbarMenuItem(
+            title: "Nested",
+            symbolName: "folder",
+            payload: .menu([nested])
+        )
+        let action = CustomToolbarAction(
+            title: "Navigation",
+            symbolName: "ellipsis.circle",
+            payload: .menu([item])
+        )
+        let data = try JSONEncoder().encode(action)
+        let decoded = try JSONDecoder().decode(CustomToolbarAction.self, from: data)
+        #expect(decoded == action)
+        #expect(decoded.menuItems.first?.isMenu == true)
+        #expect(decoded.menuItems.first?.menuItems == [nested])
+    }
 }

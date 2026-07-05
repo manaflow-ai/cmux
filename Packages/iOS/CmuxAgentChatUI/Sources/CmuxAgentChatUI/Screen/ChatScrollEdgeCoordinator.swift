@@ -32,6 +32,7 @@ final class ChatScrollEdgeCoordinator {
         _ tableView: ChatTranscriptUITableView?,
         owner: UIViewController
     ) {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             guard let tableView else {
                 clearTopContentScrollViewController()
@@ -53,12 +54,14 @@ final class ChatScrollEdgeCoordinator {
             tableView.recordTopContentScrollViewRegistration(true)
             #endif
         }
+        #endif
     }
 
     private func configureBottomInteraction(
         _ tableView: ChatTranscriptUITableView?,
         bottomChromeView: UIView
     ) {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             guard let tableView else {
                 resetBottomInteraction()
@@ -86,6 +89,7 @@ final class ChatScrollEdgeCoordinator {
             tableView.recordBottomEdgeElementContainerRegistration(true)
             #endif
         }
+        #endif
     }
 
     private func resetBottomInteraction() {
@@ -100,9 +104,11 @@ final class ChatScrollEdgeCoordinator {
     }
 
     private func clearTopContentScrollViewController() {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             topContentScrollViewController?.setContentScrollView(nil, for: .top)
         }
+        #endif
         #if DEBUG
         topContentScrollViewTableView?.recordTopContentScrollViewRegistration(false)
         #endif

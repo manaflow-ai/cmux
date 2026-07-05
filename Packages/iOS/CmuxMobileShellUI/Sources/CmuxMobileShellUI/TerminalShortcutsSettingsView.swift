@@ -5,10 +5,10 @@ import CmuxMobileTerminalKit
 import SwiftUI
 
 /// Editor for the terminal input-accessory shortcut bar: toggle which buttons
-/// appear, drag to reorder them, and add/edit/delete custom actions. Every bar
-/// button is listed, including the modifier keys (⌃ ⌥ ⌘), zoom, and paste, so
-/// their position is customizable too. Backed by ``TerminalAccessoryConfiguration``,
-/// so edits apply to the live bar immediately.
+/// appear, drag to reorder them, and add/edit/delete custom actions and menus.
+/// Every bar button is listed, including the modifier keys (⌃ ⌥ ⌘), zoom, and
+/// paste, so their position is customizable too. Backed by
+/// ``TerminalAccessoryConfiguration``, so edits apply to the live bar immediately.
 struct TerminalShortcutsSettingsView: View {
     // TRANSITIONAL: TerminalAccessoryConfiguration.shared is also read by the
     // off-limits typing-latency render path (TerminalInputTextView); inverting it
@@ -19,6 +19,7 @@ struct TerminalShortcutsSettingsView: View {
     private let scope: TerminalShortcutsSettingsScope
     @Environment(\.dismiss) private var dismiss
     @State private var isAddingAction = false
+    @State private var isAddingMenu = false
     @State private var editingAction: CustomToolbarAction?
 
     init(scope: TerminalShortcutsSettingsScope = .terminal) {
@@ -26,11 +27,17 @@ struct TerminalShortcutsSettingsView: View {
     }
 
     var body: some View {
+        let rowActions = TerminalShortcutRowActions(
+            setEnabled: { id, isEnabled in configuration.setEnabled(id, isEnabled) },
+            removeCustomAction: { id in configuration.removeCustomAction(id: id) },
+            editCustomAction: { action in editingAction = action }
+        )
+
         NavigationStack {
             List {
                 Section {
-                    ForEach(displayedItems) { item in
-                        row(for: item)
+                    ForEach(displayedRows) { row in
+                        rowView(for: row, actions: rowActions)
                     }
                     .onMove(perform: moveDisplayedItems)
                 } header: {
@@ -49,6 +56,18 @@ struct TerminalShortcutsSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("TerminalShortcutsAddActionButton")
+
+                    if scope == .terminal {
+                        Button {
+                            isAddingMenu = true
+                        } label: {
+                            Label(
+                                L10n.string("mobile.shortcuts.addMenu", defaultValue: "Add Menu"),
+                                systemImage: "ellipsis.circle"
+                            )
+                        }
+                        .accessibilityIdentifier("TerminalShortcutsAddMenuButton")
+                    }
                 }
 
                 Section {
@@ -77,33 +96,46 @@ struct TerminalShortcutsSettingsView: View {
             .sheet(isPresented: $isAddingAction) {
                 CustomToolbarActionEditorView(action: nil) { configuration.addCustomAction($0) }
             }
+            .sheet(isPresented: $isAddingMenu) {
+                CustomToolbarMenuEditorView(action: nil) { configuration.addCustomAction($0) }
+            }
             .sheet(item: $editingAction) { action in
-                CustomToolbarActionEditorView(action: action) { configuration.updateCustomAction($0) }
+                if action.isMenu {
+                    CustomToolbarMenuEditorView(action: action) { configuration.updateCustomAction($0) }
+                } else {
+                    CustomToolbarActionEditorView(action: action) { configuration.updateCustomAction($0) }
+                }
             }
         }
     }
 
     @ViewBuilder
-    private func row(for item: ResolvedToolbarItem) -> some View {
-        Toggle(isOn: binding(for: item.id)) {
-            if item.isCustom {
-                Label(item.settingsDisplayName, systemImage: "character.cursor.ibeam")
+    private func rowView(
+        for row: TerminalShortcutRowSnapshot,
+        actions: TerminalShortcutRowActions
+    ) -> some View {
+        Toggle(isOn: Binding(
+            get: { row.isEnabled },
+            set: { actions.setEnabled(row.id, $0) }
+        )) {
+            if row.isCustom {
+                Label(row.settingsDisplayName, systemImage: row.symbolName)
             } else {
-                Text(item.settingsDisplayName)
+                Text(row.settingsDisplayName)
             }
         }
-        .accessibilityIdentifier("TerminalShortcutToggle.\(item.id.storageKey)")
+        .accessibilityIdentifier("TerminalShortcutToggle.\(row.id.storageKey)")
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if let custom = item.customAction {
+            if let custom = row.customAction {
                 Button(role: .destructive) {
-                    configuration.removeCustomAction(id: custom.id)
+                    actions.removeCustomAction(custom.id)
                 } label: {
                     Label(L10n.string("mobile.common.delete", defaultValue: "Delete"), systemImage: "trash")
                 }
                 .accessibilityIdentifier("TerminalShortcutDelete.\(custom.id.uuidString)")
 
                 Button {
-                    editingAction = custom
+                    actions.editCustomAction(custom)
                 } label: {
                     Label(L10n.string("mobile.common.edit", defaultValue: "Edit"), systemImage: "pencil")
                 }
@@ -113,15 +145,14 @@ struct TerminalShortcutsSettingsView: View {
         }
     }
 
-    private func binding(for id: ToolbarItemID) -> Binding<Bool> {
-        Binding(
-            get: { configuration.isEnabled(id) },
-            set: { configuration.setEnabled(id, $0) }
-        )
-    }
-
     private var displayedItems: [ResolvedToolbarItem] {
         configuration.displayItems.filter(scope.includes)
+    }
+
+    private var displayedRows: [TerminalShortcutRowSnapshot] {
+        displayedItems.map { item in
+            TerminalShortcutRowSnapshot(item: item, isEnabled: configuration.isEnabled(item.id))
+        }
     }
 
     private func moveDisplayedItems(from offsets: IndexSet, to destination: Int) {

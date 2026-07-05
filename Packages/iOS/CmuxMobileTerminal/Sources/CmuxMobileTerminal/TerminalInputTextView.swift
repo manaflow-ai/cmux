@@ -863,9 +863,21 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// Fire a custom action's bytes. Custom actions are macros, so any armed
     /// modifier is cleared first to avoid silently modifying the macro's output.
     private func handleCustomAction(_ custom: CustomToolbarAction) {
+        guard !custom.isMenu else { return }
+        performCustomPayloadOutput(custom.output)
+    }
+
+    /// Fire a dropdown menu row's bytes. Menu rows are macros, so any armed
+    /// modifier is cleared first to avoid silently modifying the macro's output.
+    private func handleToolbarMenuItem(_ item: ToolbarMenuItem) {
+        guard !item.isMenu else { return }
+        performCustomPayloadOutput(item.output)
+    }
+
+    private func performCustomPayloadOutput(_ output: Data?) {
         disarmAllModifiers()
         refreshAccessoryButtonStyles()
-        guard let output = custom.output else { return }
+        guard let output else { return }
         onEscapeSequence?(output)
     }
 
@@ -901,9 +913,19 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private func makeCustomAccessoryButton(for custom: CustomToolbarAction) -> AccessoryActionButton {
         let button = AccessoryActionButton(item: .custom(custom))
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
         button.accessibilityIdentifier = "terminal.inputAccessory.custom.\(custom.id.uuidString)"
         button.accessibilityLabel = custom.title
+        if custom.isMenu {
+            button.accessibilityHint = String(
+                localized: "terminal.input_accessory.menu_hint",
+                defaultValue: "Opens a menu"
+            )
+            button.showsMenuAsPrimaryAction = true
+            button.menu = UIMenu(title: custom.title, children: custom.menuItems.map(menuElement))
+            button.isEnabled = !custom.menuItems.isEmpty
+        } else {
+            button.addTarget(self, action: #selector(handleAccessoryButton(_:)), for: .touchUpInside)
+        }
         // Custom actions never arm; they always render in the resting style.
         applyAccessoryButtonStyle(button, item: .custom(custom), armed: false, sticky: false)
         button.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight).isActive = true
@@ -917,6 +939,25 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: Self.accessoryButtonMinWidth).isActive = true
         }
         return button
+    }
+
+    private func menuElement(for item: ToolbarMenuItem) -> UIMenuElement {
+        let image = validMenuImage(named: item.symbolName)
+        if item.isMenu {
+            return UIMenu(
+                title: item.title,
+                image: image,
+                children: item.menuItems.map(menuElement)
+            )
+        }
+        return UIAction(title: item.title, image: image) { [weak self] _ in
+            self?.handleToolbarMenuItem(item)
+        }
+    }
+
+    private func validMenuImage(named symbolName: String?) -> UIImage? {
+        guard let symbolName, !symbolName.isEmpty else { return nil }
+        return UIImage(systemName: symbolName, withConfiguration: Self.accessoryButtonSymbolConfig)
     }
 
     /// The HIDE button. A plain `UIButton` (not an ``AccessoryActionButton``) so the
@@ -1035,6 +1076,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
 
     private static func accessoryButtonConfiguration(armed: Bool, sticky: Bool) -> UIButton.Configuration {
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
             config.baseForegroundColor = .white
@@ -1043,6 +1085,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             }
             return config
         }
+        #endif
         var config = UIButton.Configuration.plain()
         var background = UIBackgroundConfiguration.clear()
         if sticky {
