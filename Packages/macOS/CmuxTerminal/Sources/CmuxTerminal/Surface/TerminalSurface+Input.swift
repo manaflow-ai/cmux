@@ -201,6 +201,7 @@ extension TerminalSurface {
         bufferedText.reserveCapacity(text.count)
         var previousWasCR = false
         let scalars = Array(text.unicodeScalars)
+        let controlSequenceParser = TerminalControlSequenceParser(scalars: scalars)
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
@@ -264,7 +265,21 @@ extension TerminalSurface {
                     flushBufferedText()
                     appendKey(nav.keycode, mods: nav.mods, label: nav.label)
                     index += nav.length
-                } else if let length = terminalControlSequenceLength(scalars, from: index) {
+                } else if let length = controlSequenceParser.terminalControlSequenceLength(from: index) {
+                    // A sequence the *emulator* must consume — a DSR query
+                    // (`ESC[6n` / `ESC[?6n` / `ESC[5n`) or an OSC/DCS/PM/APC
+                    // string — is injected into the terminal parser as process output, not the
+                    // PTY input stream, so Ghostty can update state or answer (a
+                    // DSR query makes it emit its own CPR reply). Splitting these
+                    // into Escape + literal text is the #5763 cursor-desync bug.
+                    // Only this narrow set matches: interactive CSI input (function
+                    // keys, kitty-keyboard, mouse, arbitrary `terminal.input`) and
+                    // terminal-to-application *responses* (CPR `ESC[…R`, DSR results
+                    // `ESC[0n`/`ESC[3n`) fall through to the input path below,
+                    // never the display parser, so they reach the foreground
+                    // program. Printable text takes the input-text path above, and
+                    // pasted/composed blocks use the separate `sendText`
+                    // (bracketed-paste) path.
                     flushBufferedText()
                     appendTerminalBytes(length: length, from: index)
                     index += length
@@ -287,45 +302,6 @@ extension TerminalSurface {
         }
         flushBufferedText()
         return events
-    }
-
-    /// Returns the byte-like scalar length for a complete terminal string control sequence.
-    private static func terminalControlSequenceLength(
-        _ scalars: [Unicode.Scalar],
-        from start: Int
-    ) -> Int? {
-        guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
-
-        switch scalars[start + 1].value {
-        case 0x5D: // OSC: ESC ] ... (BEL | ST)
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
-        case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
-            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
-        default:
-            return nil
-        }
-    }
-
-    /// Finds the terminator for ESC-prefixed string controls without accepting partial sequences.
-    private static func stringControlSequenceLength(
-        _ scalars: [Unicode.Scalar],
-        from start: Int,
-        terminatesWithBEL: Bool
-    ) -> Int? {
-        var index = start + 2
-        while index < scalars.count {
-            let value = scalars[index].value
-            if terminatesWithBEL, value == 0x07 {
-                return index - start + 1
-            }
-            if value == 0x1B,
-               index + 1 < scalars.count,
-               scalars[index + 1].value == 0x5C {
-                return index - start + 2
-            }
-            index += 1
-        }
-        return nil
     }
 
     /// Match a CSI (`ESC [ …`) or SS3 (`ESC O …`) cursor/navigation escape
@@ -359,6 +335,18 @@ extension TerminalSurface {
         case 0x46: return (UInt32(kVK_End), GHOSTTY_MODS_NONE, "end", 3)           // F
         default:
             break
+        }
+        // Shift+Tab (back-tab) arrives as CSI Z (`ESC[Z`). Like the arrows above
+        // it is an interactive key, so re-issue it as Shift+Tab and let libghostty
+        // encode it for the surface's current keyboard mode — matching a hardware
+        // back-tab. Otherwise it falls through to the bare-ESC path (Escape key +
+        // literal `[Z`), which a kitty-keyboard surface would encode as a modified
+        // Escape and corrupt (the DSR-query matcher does not claim `ESC[Z`: it is
+        // not `ESC[5n`/`ESC[6n`). The iOS client emits
+        // this for a hardware Shift+Tab and the on-screen ⇧+Tab accessory; it is
+        // the socket sibling of the `backtab` named key in `pendingKeyEvent(for:)`.
+        if next == 0x5B, final == 0x5A { // Z
+            return (UInt32(kVK_Tab), GHOSTTY_MODS_SHIFT, "backTab", 3)
         }
         // CSI tilde sequences: ESC [ N ~
         if next == 0x5B, start + 3 < scalars.count, scalars[start + 3].value == 0x7E {
