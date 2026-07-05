@@ -4726,7 +4726,7 @@ final class Workspace: Identifiable, ObservableObject {
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
         if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) { return false }
         let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
-            (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror))
+            (source.establishesRemoteProvenance && (isRemoteTerminalReport || isRemoteTmuxMirror || remoteDirectoryTrustRequiredPanelIds.contains(panelId)))
         let provenanceChanged = establishesRemoteProvenance && !remoteDirectoryReportPanelIds.contains(panelId)
         if provenanceChanged {
             remoteDirectoryReportPanelIds.insert(panelId); remoteDirectoryTrustRequiredPanelIds.insert(panelId)

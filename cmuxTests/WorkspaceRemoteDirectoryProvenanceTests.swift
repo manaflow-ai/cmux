@@ -100,6 +100,10 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(agentPanel.id))
         #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
         #expect(workspace.presentedCurrentDirectory == nil)
+
+        workspace.updateRemotePanelDirectory(panelId: agentPanel.id, directory: remoteDirectory)
+        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
     }
 
     @MainActor
@@ -147,7 +151,7 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == nil)
         #expect(workspace.trustedRemoteCurrentDirectory == nil)
 
-        manager.updateRemoteSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
+        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
         #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == remoteDirectory)
         #expect(workspace.trustedRemoteCurrentDirectory == remoteDirectory)
     }
