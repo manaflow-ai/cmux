@@ -1001,6 +1001,14 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
+BIN_DIR="$APP_PATH/Contents/Resources/bin"
+CU_PROVIDER_DEST="$BIN_DIR/cmux-computer-use-provider"
+if [[ -x "$CU_PROVIDER_DEST" ]]; then
+  echo "Preserving Xcode-built cmux computer-use provider at $CU_PROVIDER_DEST"
+else
+  mkdir -p "$BIN_DIR"
+  "$PWD/scripts/build-computer-use-provider.sh" --output "$CU_PROVIDER_DEST"
+fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"

@@ -886,6 +886,13 @@ cmux_computer_use_resolve_node() {
 }
 
 cmux_computer_use_swift_provider_available() {
+    local self_dir bundled_provider
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    bundled_provider="$self_dir/cmux-computer-use-provider"
+    if [[ -x "$bundled_provider" ]]; then
+        return 0
+    fi
+
     local xcrun_bin=/usr/bin/xcrun
     [[ -x "$xcrun_bin" ]] || return 1
     "$xcrun_bin" --find swiftc >/dev/null 2>&1

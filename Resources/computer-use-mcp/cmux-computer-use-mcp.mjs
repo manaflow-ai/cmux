@@ -16,11 +16,12 @@
 //   CMUX_CU_FAKE_PROVIDER=1 uses a hermetic provider for tests
 
 import { spawn, execFile } from "node:child_process";
-import { rmSync } from "node:fs";
+import { accessSync, constants as fsConstants, rmSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import process from "node:process";
 
@@ -84,6 +85,7 @@ const INCLUDE_SCREENSHOT_CURSOR = process.env.CMUX_CU_SCREENSHOT_CURSOR !== "0";
 // so unattended runs need this consciously set.
 const AUTO_APPROVE = process.env.CMUX_CU_AUTO_APPROVE === "1";
 const USE_FAKE_PROVIDER = process.env.CMUX_CU_FAKE_PROVIDER === "1";
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 const MESSAGE_CATALOG = {
   en: {
@@ -162,6 +164,8 @@ const MESSAGE_CATALOG = {
     unsupportedKey: (key) => `unsupported key: ${key}`,
     visibleSnapshotRequired: (app) =>
       `no visible snapshot for "${app}" in the current session; run computer_state or computer_screenshot first`,
+    windowIdentityRequired: (app) =>
+      `the latest "${app}" snapshot did not include a stable window identity; re-run computer_state and retry`,
     windowEnumerationNotApproved: "window enumeration was not approved",
     windowListApproval:
       "Allow cmux computer use to list every on-screen window (apps, titles, positions)?",
@@ -243,6 +247,8 @@ const MESSAGE_CATALOG = {
     unsupportedKey: (key) => `未対応のキーです: ${key}`,
     visibleSnapshotRequired: (app) =>
       `このセッションには「${app}」の表示済みスナップショットがありません。先に computer_state または computer_screenshot を実行してください`,
+    windowIdentityRequired: (app) =>
+      `最新の「${app}」スナップショットには安定したウィンドウ識別子が含まれていません。computer_state を再実行してから再試行してください`,
     windowEnumerationNotApproved: "ウィンドウ一覧取得は承認されませんでした",
     windowListApproval:
       "cmux computer use に画面上のすべてのウィンドウ（アプリ、タイトル、位置）の一覧取得を許可しますか？",
@@ -368,6 +374,13 @@ class FakeComputerUseProvider {
 
   async getState(app, { includeScreenshot = true } = {}) {
     if (app === "SlowStateApp" || app === "QueueHoldApp") await delay(140);
+    const pid = app === "QueueHoldApp" ? 1002 : app === "SlowStateApp" ? 1003 : 1001;
+    const bundleIdentifier =
+      app === "QueueHoldApp"
+        ? "com.cmux.queuehold"
+        : app === "SlowStateApp"
+          ? "com.cmux.slowstate"
+          : "com.cmux.testapp";
     return {
       tree: [
         `[0] AXWindow title="${app}" frame={x:0,y:0,w:400,h:300}`,
@@ -381,6 +394,8 @@ class FakeComputerUseProvider {
       ],
       root: "window",
       windowIndex: 0,
+      windowId: 42,
+      target: { pid, bundleIdentifier, name: app },
       window: {
         id: 42,
         bounds: { x: 0, y: 0, width: 400, height: 300 },
@@ -391,7 +406,27 @@ class FakeComputerUseProvider {
 
   async input(action) {
     if (action.app === "QueueHoldApp") await delay(40);
+    if (action.app === "TestApp" && action.windowId !== 42) throw new Error("missing window id");
+    if (action.app === "TestApp" && action.targetPid !== 1001) throw new Error("missing target pid");
     return `${action.op || "action"} sent`;
+  }
+
+  async listWindows(match) {
+    const windows = [
+      {
+        id: 42,
+        app: "TestApp",
+        title: "Test Window",
+        pid: 1001,
+        layer: 0,
+        bounds: { X: 0, Y: 0, Width: 400, Height: 300 },
+      },
+    ];
+    if (!match) return windows;
+    const needle = match.toLowerCase();
+    return windows.filter(
+      (w) => String(w.app).toLowerCase().includes(needle) || String(w.title).toLowerCase().includes(needle)
+    );
   }
 }
 
@@ -480,6 +515,18 @@ func boundsFor(_ element: AXUIElement) -> [String: Double]? {
     ]
 }
 
+func intAttr(_ element: AXUIElement, _ attr: String) -> Int? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success else { return nil }
+    if let number = value as? NSNumber { return number.intValue }
+    if let string = value as? String { return Int(string) }
+    return nil
+}
+
+func windowNumberFor(_ element: AXUIElement) -> Int? {
+    intAttr(element, "AXWindowNumber")
+}
+
 func frameText(_ bounds: [String: Double]?) -> String {
     guard let bounds else { return "" }
     let x = Int(bounds["x"] ?? 0)
@@ -496,35 +543,68 @@ func clean(_ value: String) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-func resolveApp(_ query: String) -> NSRunningApplication? {
+func appInfo(_ app: NSRunningApplication) -> [String: Any] {
+    [
+        "name": app.localizedName ?? "",
+        "bundleIdentifier": app.bundleIdentifier ?? "",
+        "pid": Int(app.processIdentifier),
+    ]
+}
+
+func singleResolvedApp(_ apps: [NSRunningApplication], query: String) -> NSRunningApplication? {
+    if apps.count > 1 {
+        fail("ambiguous app match: \\(query)")
+    }
+    return apps.first
+}
+
+func resolveApp(_ query: String, targetPid: pid_t?, targetBundleIdentifier: String?) -> NSRunningApplication? {
+    if let targetPid {
+        guard let app = NSRunningApplication(processIdentifier: targetPid) else { return nil }
+        if let targetBundleIdentifier, !targetBundleIdentifier.isEmpty,
+           app.bundleIdentifier != targetBundleIdentifier {
+            fail("target app identity changed for pid \\(targetPid)")
+        }
+        return app
+    }
+
     let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return nil }
     if trimmed.lowercased().hasPrefix("pid:"),
        let pid = pid_t(trimmed.dropFirst(4).trimmingCharacters(in: .whitespacesAndNewlines)) {
         return NSRunningApplication(processIdentifier: pid)
     }
     let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-    if let exact = apps.first(where: { $0.bundleIdentifier == trimmed || $0.localizedName == trimmed }) {
-        return exact
-    }
     let lower = trimmed.lowercased()
-    return apps.first(where: {
+    let exact = apps.filter { $0.bundleIdentifier == trimmed || $0.localizedName == trimmed }
+    if !exact.isEmpty {
+        return singleResolvedApp(exact, query: trimmed)
+    }
+    let caseInsensitiveExact = apps.filter {
         ($0.bundleIdentifier ?? "").lowercased() == lower ||
         ($0.localizedName ?? "").lowercased() == lower
-    }) ?? apps.first(where: {
+    }
+    if !caseInsensitiveExact.isEmpty {
+        return singleResolvedApp(caseInsensitiveExact, query: trimmed)
+    }
+    let fuzzy = apps.filter {
         ($0.bundleIdentifier ?? "").lowercased().contains(lower) ||
         ($0.localizedName ?? "").lowercased().contains(lower)
-    })
+    }
+    return singleResolvedApp(fuzzy, query: trimmed)
 }
 
-func windowInfoFor(pid: pid_t) -> [String: Any]? {
+func windowInfoFor(pid: pid_t, windowId: Int?) -> [String: Any]? {
     let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
     guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return nil }
     for entry in list {
         let ownerPID = (entry[kCGWindowOwnerPID as String] as? NSNumber)?.intValue ?? -1
         let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
+        let number = (entry[kCGWindowNumber as String] as? NSNumber)?.intValue ?? -1
         if ownerPID != Int(pid) || layer != 0 { continue }
+        if let windowId, number != windowId { continue }
         var output: [String: Any] = [
-            "id": entry[kCGWindowNumber as String] ?? 0,
+            "id": number,
             "title": entry[kCGWindowName as String] ?? "",
             "app": entry[kCGWindowOwnerName as String] ?? "",
             "pid": ownerPID,
@@ -542,14 +622,56 @@ func windowInfoFor(pid: pid_t) -> [String: Any]? {
     return nil
 }
 
-func appRoot(_ app: NSRunningApplication, windowIndex: Int?) -> (AXUIElement, String, Int?) {
+func listWindows(match: String?) -> [[String: Any]] {
+    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+    guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
+    let needle = (match ?? "").lowercased()
+    var windows: [[String: Any]] = []
+    for entry in list {
+        let layer = (entry[kCGWindowLayer as String] as? NSNumber)?.intValue ?? -1
+        if layer != 0 { continue }
+        let app = entry[kCGWindowOwnerName as String] ?? ""
+        let title = entry[kCGWindowName as String] ?? ""
+        if !needle.isEmpty &&
+           !String(describing: app).lowercased().contains(needle) &&
+           !String(describing: title).lowercased().contains(needle) {
+            continue
+        }
+        var window: [String: Any] = [
+            "id": entry[kCGWindowNumber as String] ?? 0,
+            "app": app,
+            "title": title,
+            "pid": entry[kCGWindowOwnerPID as String] ?? 0,
+            "layer": layer,
+        ]
+        if let bounds = entry[kCGWindowBounds as String] as? [String: Any] {
+            window["bounds"] = bounds
+        }
+        windows.append(window)
+    }
+    return windows
+}
+
+func appRoot(_ app: NSRunningApplication, windowIndex: Int?, windowId: Int?) -> (AXUIElement, String, Int?, Int?) {
     let root = AXUIElementCreateApplication(app.processIdentifier)
     let windows = childrenAttr(root, kAXWindowsAttribute as String)
     if !windows.isEmpty {
+        if let windowId {
+            for (index, window) in windows.enumerated() {
+                if windowNumberFor(window) == windowId {
+                    return (window, "window", index, windowId)
+                }
+            }
+            fail("window no longer exists: \\(windowId)")
+        }
         let index = min(max(windowIndex ?? 0, 0), windows.count - 1)
-        return (windows[index], "window", index)
+        let window = windows[index]
+        return (window, "window", index, windowNumberFor(window))
     }
-    return (root, "app", nil)
+    if let windowId {
+        fail("window no longer exists: \\(windowId)")
+    }
+    return (root, "app", nil, nil)
 }
 
 func waitForFrontmost(_ app: NSRunningApplication, timeoutMS: Int) -> Bool {
@@ -565,7 +687,7 @@ func waitForFrontmost(_ app: NSRunningApplication, timeoutMS: Int) -> Bool {
 
 func ensureFrontmostForInput(_ app: NSRunningApplication) {
     if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return }
-    _ = app.activate(options: [.activateIgnoringOtherApps])
+    _ = app.activate()
     guard waitForFrontmost(app, timeoutMS: 1200) else {
         fail("target app did not become frontmost for input")
     }
@@ -666,18 +788,18 @@ func pathInput() -> [Int] {
 if op == "list_apps" {
     let apps = NSWorkspace.shared.runningApplications
         .filter { $0.activationPolicy == .regular }
-        .map {
-            [
-                "name": $0.localizedName ?? "",
-                "bundleIdentifier": $0.bundleIdentifier ?? "",
-                "pid": Int($0.processIdentifier),
-            ] as [String: Any]
-        }
+        .map { appInfo($0) }
     jsonOut(["ok": true, "apps": apps])
 }
 
+if op == "list_windows" {
+    jsonOut(["ok": true, "windows": listWindows(match: inputObject["match"] as? String)])
+}
+
 let appQuery = inputObject["app"] as? String ?? ""
-guard let app = resolveApp(appQuery) else {
+let targetPid = (inputObject["targetPid"] as? NSNumber).map { pid_t($0.intValue) }
+let targetBundleIdentifier = inputObject["targetBundleIdentifier"] as? String
+guard let app = resolveApp(appQuery, targetPid: targetPid, targetBundleIdentifier: targetBundleIdentifier) else {
     fail("app not found: \\(appQuery)")
 }
 
@@ -685,7 +807,7 @@ if op == "state" {
     guard AXIsProcessTrusted() else {
         fail("Accessibility permission is required for cmux computer use.")
     }
-    let (root, rootKind, windowIndex) = appRoot(app, windowIndex: nil)
+    let (root, rootKind, windowIndex, windowId) = appRoot(app, windowIndex: nil, windowId: nil)
     let maxNodes = min(max((inputObject["maxNodes"] as? NSNumber)?.intValue ?? 1200, 1), 5000)
     let maxDepth = min(max((inputObject["maxDepth"] as? NSNumber)?.intValue ?? 10, 1), 20)
     var nextIndex = 0
@@ -742,11 +864,15 @@ if op == "state" {
         "tree": lines.joined(separator: "\\n"),
         "elements": elements,
         "root": rootKind,
+        "target": appInfo(app),
     ]
     if let windowIndex {
         response["windowIndex"] = windowIndex
     }
-    if let window = windowInfoFor(pid: app.processIdentifier) {
+    if let windowId {
+        response["windowId"] = windowId
+    }
+    if let windowId, let window = windowInfoFor(pid: app.processIdentifier, windowId: windowId) {
         response["window"] = window
     }
     jsonOut(response)
@@ -758,9 +884,13 @@ guard AXIsProcessTrusted() else {
 if op == "type_text" || op == "press_key" || op == "click_element" || op == "click_point" || op == "scroll" || op == "drag" {
     ensureFrontmostForInput(app)
 } else {
-    _ = app.activate(options: [.activateIgnoringOtherApps])
+    _ = app.activate()
 }
-let (root, _, _) = appRoot(app, windowIndex: (inputObject["windowIndex"] as? NSNumber)?.intValue)
+let (root, _, _, _) = appRoot(
+    app,
+    windowIndex: (inputObject["windowIndex"] as? NSNumber)?.intValue,
+    windowId: (inputObject["windowId"] as? NSNumber)?.intValue
+)
 let element = elementAtPath(root: root, path: pathInput())
 
 switch op {
@@ -790,9 +920,9 @@ case "press_key":
     pressKey(inputObject["key"] as? String ?? "")
     jsonOut(["ok": true, "message": "key sent"])
 case "scroll":
-    if let element, let point = centerOf(element) {
-        postMouse(.mouseMoved, point)
-    }
+    guard let element else { fail("element no longer exists") }
+    guard let point = centerOf(element) else { fail("element has no scrollable frame") }
+    postMouse(.mouseMoved, point)
     let direction = inputObject["direction"] as? String ?? "down"
     let pages = max(1, (inputObject["pages"] as? NSNumber)?.intValue ?? 1)
     let amount = Int32(8 * pages)
@@ -833,12 +963,14 @@ default:
 
 class MacComputerUseProvider {
   constructor() {
+    this.bundledBinaryPath = bundledProviderPath();
     this.binaryPath = null;
     this.binaryDir = null;
     this.compilePromise = null;
   }
 
   async executable() {
+    if (this.bundledBinaryPath) return this.bundledBinaryPath;
     if (this.binaryPath) return this.binaryPath;
     if (!this.compilePromise) {
       this.compilePromise = this.compileProvider().catch((error) => {
@@ -876,8 +1008,11 @@ class MacComputerUseProvider {
       });
       stdout = providerOutput;
     } catch (error) {
+      if (this.bundledBinaryPath) {
+        throw new Error(`macOS provider failed: ${error?.message ?? error}`);
+      }
       throw new Error(
-        `macOS provider needs the Swift compiler toolchain (xcode-select --install): ${error?.message ?? error}`
+        `macOS provider is not bundled and runtime compilation needs the Swift compiler toolchain (xcode-select --install): ${error?.message ?? error}`
       );
     }
     const parsed = JSON.parse(stdout);
@@ -901,6 +1036,8 @@ class MacComputerUseProvider {
       elements: result.elements ?? [],
       root: result.root ?? "app",
       windowIndex: result.windowIndex ?? null,
+      windowId: result.windowId ?? null,
+      target: result.target ?? null,
       window: result.window ?? null,
       image,
     };
@@ -909,6 +1046,11 @@ class MacComputerUseProvider {
   async input(action) {
     const result = await this.run(action);
     return result.message || "ok";
+  }
+
+  async listWindows(match) {
+    const result = await this.run({ op: "list_windows", match: match ?? "" });
+    return result.windows ?? [];
   }
 
   dispose() {
@@ -1004,6 +1146,15 @@ function retainableBounds(bounds) {
   return { x, y, width, height };
 }
 
+function retainableTarget(target) {
+  const pid = finiteNumberOrNull(target?.pid);
+  if (pid == null) return null;
+  const bundleIdentifier =
+    typeof target?.bundleIdentifier === "string" ? target.bundleIdentifier.trim() : "";
+  const name = typeof target?.name === "string" ? target.name.trim() : "";
+  return { pid, bundleIdentifier, name };
+}
+
 function retainableSnapshot(state) {
   const bounds = retainableBounds(state?.window?.bounds);
   const imageWidth = finiteNumberOrNull(state?.image?.width);
@@ -1018,7 +1169,10 @@ function retainableSnapshot(state) {
     .filter((element) => element.index != null);
   return {
     elements,
+    root: state?.root ?? "app",
     windowIndex: state?.windowIndex ?? null,
+    windowId: finiteNumberOrNull(state?.windowId),
+    target: retainableTarget(state?.target),
     window: bounds ? { bounds } : null,
     image: imageWidth != null && imageHeight != null ? { width: imageWidth, height: imageHeight } : null,
   };
@@ -1170,8 +1324,17 @@ async function callInputTool(tool, args) {
   if (args.element_index == null && !usesCoordinates(args) && !snapshot) {
     return err(localizedMessage("visibleSnapshotRequired", app));
   }
+  if (snapshot?.root === "window" && snapshot.windowId == null) {
+    return err(localizedMessage("windowIdentityRequired", app));
+  }
 
-  const action = { app, windowIndex: snapshot?.windowIndex ?? null };
+  const action = {
+    app,
+    windowIndex: snapshot?.windowIndex ?? null,
+    windowId: snapshot?.windowId ?? null,
+    targetPid: snapshot?.target?.pid ?? null,
+    targetBundleIdentifier: snapshot?.target?.bundleIdentifier ?? null,
+  };
   if (args.element_index != null) {
     const element = elementFromSnapshot(snapshot, args.element_index);
     if (!element) return err(localizedMessage("stateSnapshotRequired", app));
@@ -1278,6 +1441,26 @@ function passthrough(result, fallback) {
 const activeCaptureDirs = new Set();
 const activeProviderDirs = new Set();
 
+function executablePath(path) {
+  try {
+    accessSync(path, fsConstants.X_OK);
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+function bundledProviderPath() {
+  for (const candidate of [
+    join(MODULE_DIR, "../bin/cmux-computer-use-provider"),
+    join(MODULE_DIR, "bin/cmux-computer-use-provider"),
+  ]) {
+    const path = executablePath(candidate);
+    if (path) return path;
+  }
+  return null;
+}
+
 async function desktopScreenshot(display) {
   if (
     !(await approveLocalCapability(
@@ -1319,33 +1502,6 @@ async function desktopScreenshot(display) {
     activeCaptureDirs.delete(dir);
   }
 }
-
-// CGWindowList via `swift -` (the JXA ObjC bridge crashes on this call on
-// recent macOS). Window titles require Screen Recording permission; without
-// it they are simply omitted (the rest of the metadata still lists correctly).
-const WINDOW_LIST_SWIFT = `
-import CoreGraphics
-import Foundation
-
-let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-    print("[]")
-    exit(0)
-}
-var windows: [[String: Any]] = []
-for entry in list {
-    var window: [String: Any] = [:]
-    window["id"] = entry[kCGWindowNumber as String] ?? 0
-    window["app"] = entry[kCGWindowOwnerName as String] ?? ""
-    window["title"] = entry[kCGWindowName as String] ?? ""
-    window["pid"] = entry[kCGWindowOwnerPID as String] ?? 0
-    window["layer"] = entry[kCGWindowLayer as String] ?? 0
-    window["bounds"] = entry[kCGWindowBounds as String] ?? [String: Any]()
-    windows.append(window)
-}
-let data = try JSONSerialization.data(withJSONObject: windows, options: [.sortedKeys])
-print(String(data: data, encoding: .utf8) ?? "[]")
-`;
 
 function runWithStdin(command, args, input) {
   const token = activeToolToken;
@@ -1410,40 +1566,8 @@ function runWithStdin(command, args, input) {
 }
 
 async function listWindows(match) {
-  if (USE_FAKE_PROVIDER) {
-    const windows = [
-      {
-        id: 42,
-        app: "TestApp",
-        title: "Test Window",
-        pid: 1001,
-        layer: 0,
-        bounds: { X: 0, Y: 0, Width: 400, Height: 300 },
-      },
-    ];
-    if (!match) return windows;
-    const needle = match.toLowerCase();
-    return windows.filter(
-      (w) => String(w.app).toLowerCase().includes(needle) || String(w.title).toLowerCase().includes(needle)
-    );
-  }
-  let stdout;
-  try {
-    stdout = await runWithStdin("/usr/bin/swift", ["-"], WINDOW_LIST_SWIFT);
-  } catch (error) {
-    throw new Error(
-      `window listing needs the macOS Swift toolchain (xcode-select --install): ${error?.message ?? error}`
-    );
-  }
-  let windows = JSON.parse(stdout);
-  windows = windows.filter((w) => w.layer === 0);
-  if (match) {
-    const needle = match.toLowerCase();
-    windows = windows.filter(
-      (w) => String(w.app).toLowerCase().includes(needle) || String(w.title).toLowerCase().includes(needle)
-    );
-  }
-  return windows;
+  const s = await session();
+  return s.provider.listWindows(match);
 }
 
 const TOOLS = [

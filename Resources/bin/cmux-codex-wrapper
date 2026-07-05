@@ -105,6 +105,177 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
+cmux_computer_use_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+cmux_computer_use_world_writable_dir() {
+    local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    local mode
+    mode="$("$stat_bin" -f %Lp "$dir" 2>/dev/null || "$stat_bin" -c %a "$dir" 2>/dev/null)" || return 1
+    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
+    local other=$((mode % 10))
+    (( (other & 2) != 0 ))
+}
+
+cmux_computer_use_dir_owner() {
+    local dir="$1"
+    local stat_bin=/usr/bin/stat
+    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
+    [[ -x "$stat_bin" ]] || return 1
+    "$stat_bin" -f %u "$dir" 2>/dev/null || "$stat_bin" -c %u "$dir" 2>/dev/null
+}
+
+cmux_computer_use_trusted_path_ancestors() {
+    local path="$1"
+    local id_bin=/usr/bin/id
+    [[ -x "$id_bin" ]] || id_bin=/bin/id
+    [[ -x "$id_bin" ]] || return 1
+    local current_uid
+    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    local dir="${path%/*}"
+    [[ "$dir" = /* ]] || return 1
+    while :; do
+        local owner
+        owner="$(cmux_computer_use_dir_owner "$dir")" || return 1
+        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+        cmux_computer_use_world_writable_dir "$dir" && return 1
+        [[ "$dir" == "/" ]] && break
+        dir="${dir%/*}"
+        [[ -n "$dir" ]] || dir="/"
+    done
+}
+
+cmux_computer_use_workspace_root() {
+    local dir="$1"
+    while [[ -n "$dir" && "$dir" != "/" ]]; do
+        if [[ -e "$dir/.git" ]]; then
+            printf '%s' "$dir"
+            return 0
+        fi
+        dir="${dir%/*}"
+        [[ -n "$dir" ]] || dir="/"
+    done
+    return 1
+}
+
+cmux_computer_use_canonical_executable() {
+    local candidate="$1"
+    [[ "$candidate" = /* && -x "$candidate" ]] || return 1
+    local path="$candidate"
+    local hops=0
+    while :; do
+        local dir="${path%/*}"
+        local base="${path##*/}"
+        local dir_real
+        dir_real="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
+        path="$dir_real/$base"
+        [[ -L "$path" ]] || break
+        (( hops < 16 )) || return 1
+        local target
+        target="$(/usr/bin/readlink "$path" 2>/dev/null || readlink "$path" 2>/dev/null)" || return 1
+        if [[ "$target" = /* ]]; then
+            path="$target"
+        else
+            path="$dir_real/$target"
+        fi
+        hops=$((hops + 1))
+    done
+    [[ -x "$path" ]] || return 1
+    printf '%s' "$path"
+}
+
+cmux_computer_use_resolve_node() {
+    local node_bin
+    node_bin="$(command -v node 2>/dev/null)" || return 1
+    [[ "$node_bin" = /* && -x "$node_bin" ]] || return 1
+    if [[ -n "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}" ]]; then
+        case "$node_bin" in
+            "${CMUX_CODEX_WRAPPER_SHIM_ROOT%/}"/*)
+                return 1
+                ;;
+        esac
+    fi
+    if [[ -n "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}" ]]; then
+        case "$node_bin" in
+            "${CMUX_CLAUDE_WRAPPER_SHIM_ROOT%/}"/*)
+                return 1
+                ;;
+        esac
+    fi
+    case "$node_bin" in
+        */cmux-cli-shims/*)
+            return 1
+            ;;
+    esac
+    local node_real
+    node_real="$(cmux_computer_use_canonical_executable "$node_bin")" || return 1
+    local cwd_real
+    cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
+    if [[ -n "$cwd_real" ]]; then
+        case "$node_real" in
+            "$cwd_real"|"$cwd_real"/*)
+                return 1
+                ;;
+        esac
+        local workspace_real
+        workspace_real="$(cmux_computer_use_workspace_root "$cwd_real" || true)"
+        if [[ -n "$workspace_real" ]]; then
+            case "$node_real" in
+                "$workspace_real"|"$workspace_real"/*)
+                    return 1
+                    ;;
+            esac
+        fi
+    fi
+    cmux_computer_use_trusted_path_ancestors "$node_real" || return 1
+    printf '%s' "$node_real"
+}
+
+cmux_computer_use_provider_available() {
+    local self_dir bundled_provider
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    bundled_provider="$self_dir/cmux-computer-use-provider"
+    if [[ -x "$bundled_provider" ]]; then
+        return 0
+    fi
+
+    local xcrun_bin=/usr/bin/xcrun
+    [[ -x "$xcrun_bin" ]] || return 1
+    "$xcrun_bin" --find swiftc >/dev/null 2>&1
+}
+
+cmux_codex_emit_computer_use_args() {
+    [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    local node_binary
+    node_binary="$(cmux_computer_use_resolve_node)" || return 1
+    cmux_computer_use_provider_available || return 1
+    local self_dir candidate
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    for candidate in \
+        "$self_dir/../cmux-computer-use-mcp.mjs" \
+        "$self_dir/../computer-use-mcp/cmux-computer-use-mcp.mjs"; do
+        if [[ -f "$candidate" ]]; then
+            printf '%s\0' \
+                "-c" \
+                "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$node_binary")\"" \
+                "-c" \
+                "mcp_servers.cmux-computer-use.args=[\"$(cmux_computer_use_json_escape "$candidate")\"]"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # The interactive session, `exec`/`e`, and `resume` entrypoints all START a
 # Codex session, so all three must receive cmux's hook injection; everything
 # else (review, login, mcp, doctor, --help, --version, ...) passes through
@@ -330,6 +501,7 @@ fi
 # fall back to plain passthrough so installing the wrapper can never break codex.
 CMUX_INJECT_CLI="$CMUX_CODEX_HOOK_CMUX_BIN"
 cmux_codex_injected_args=()
+cmux_codex_computer_use_args=()
 cmux_codex_read_inject_args() {
     [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
     local arg
@@ -350,8 +522,18 @@ cmux_codex_read_inject_args() {
     return 0
 }
 
+cmux_codex_read_computer_use_args() {
+    local arg
+    while IFS= read -r -d '' arg; do
+        cmux_codex_computer_use_args+=("$arg")
+    done < <(cmux_codex_emit_computer_use_args 2>/dev/null)
+    (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
+    return 0
+}
+
 if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
+    cmux_codex_read_computer_use_args || true
+    exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
 fi
 
 # Emit failed or returned nothing: never break codex, just pass through.

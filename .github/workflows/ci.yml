@@ -639,6 +639,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_codex_wrapper_computer_use_mcp.py
           (cd Resources/computer-use-mcp && npm ci --ignore-scripts && npm test)
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py

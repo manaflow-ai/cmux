@@ -25,11 +25,11 @@ Element clicks move the macOS pointer to the element center before using
 `AXPress`, so the cursor shown in the next screenshot still reflects the action
 target even when the semantic accessibility action handled the click.
 
-The implementation is currently a single bundled Node resource with embedded
-Swift helper snippets. That keeps app-bundle wiring simple for this PR. If this
-grows into a pane-visible runtime or long-lived helper, the next step is to
-extract the provider into a dedicated cmux-owned helper binary with the same
-JSON contract.
+The implementation ships as a bundled Node MCP resource plus a cmux-owned
+`cmux-computer-use-provider` helper binary compiled from the embedded Swift
+provider source at build time. Source checkouts can still fall back to runtime
+Swift compilation, but bundled apps do not require Xcode or Command Line Tools
+on the user's machine.
 
 ## Snapshot Contract
 
@@ -64,6 +64,8 @@ Focused local checks:
 
 ```bash
 node --check Resources/computer-use-mcp/cmux-computer-use-mcp.mjs
+scripts/build-computer-use-provider.sh --output /tmp/cmux-computer-use-provider-test
 cd Resources/computer-use-mcp && npm test
+python3 tests/test_codex_wrapper_computer_use_mcp.py
 python3 tests/test_claude_wrapper_hooks.py
 ```

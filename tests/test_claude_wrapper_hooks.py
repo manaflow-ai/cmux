@@ -873,7 +873,8 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 # --- cmux computer use MCP injection ------------------------------------------
 #
 # The wrapper attaches the bundled computer-use MCP server via --mcp-config only
-# when the bundled provider script and a trusted node binary are available.
+# when the server script, bundled provider helper (or source-checkout Swift
+# fallback), and a trusted node binary are available.
 # Existing tests never inject because the sandboxed wrapper has no sibling
 # server script unless these fixtures create one.
 
@@ -882,6 +883,7 @@ def computer_use_sandbox(
     *,
     script: bool = True,
     disabled: bool = False,
+    provider: bool = True,
     workspace_node_first: bool = False,
     workspace_node_outside_pwd: bool = False,
     workspace_node_symlink_target_first: bool = False,
@@ -894,6 +896,11 @@ def computer_use_sandbox(
             script_dir.mkdir(parents=True, exist_ok=True)
             (script_dir / "cmux-computer-use-mcp.mjs").write_text(
                 "// test stub\n", encoding="utf-8"
+            )
+        if provider:
+            make_executable(
+                tmp / "wrapper-bin" / "cmux-computer-use-provider",
+                "#!/usr/bin/env bash\nexit 0\n",
             )
         if workspace_node_first:
             node_dir = tmp / "workspace-node-bin"

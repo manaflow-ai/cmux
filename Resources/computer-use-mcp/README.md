@@ -15,13 +15,17 @@ snapshot for that app, and the snapshot is consumed by the first input action.
 
 ## Auto-attach in cmux
 
-`Resources/bin/cmux-claude-wrapper` injects `--mcp-config` for Claude launches
-inside live cmux terminals when all of these are true:
+`Resources/bin/cmux-claude-wrapper` injects `--mcp-config` for Claude launches,
+and `Resources/bin/cmux-codex-wrapper` injects equivalent Codex `-c
+mcp_servers.cmux-computer-use.*` config for Codex launches inside live cmux
+terminals when all of these are true:
 
 - `CMUX_COMPUTER_USE_MCP_DISABLED` is not `1`,
-- the invocation did not request `--strict-mcp-config`,
+- the invocation did not request strict MCP isolation where the agent supports it,
 - a trusted absolute `node` binary is available,
-- the bundled `cmux-computer-use-mcp.mjs` resource exists.
+- the bundled `cmux-computer-use-mcp.mjs` resource exists,
+- the bundled `cmux-computer-use-provider` helper exists, or the checkout has a
+  Swift compiler for source-tree fallback.
 
 No external agent runtime, login, or auth file is required.
 
