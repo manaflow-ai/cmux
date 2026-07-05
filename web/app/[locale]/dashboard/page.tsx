@@ -1,5 +1,10 @@
 import { getTranslations } from "next-intl/server";
+import { redirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
+import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+
+export const dynamic = "force-dynamic";
 
 export default async function DashboardIndexPage({
   params,
@@ -7,6 +12,15 @@ export default async function DashboardIndexPage({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
+
+  if (!isStackConfigured()) {
+    redirect("/");
+  }
+  const user = await getStackServerApp().getUser({ or: "return-null" });
+  if (!user) {
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard")));
+  }
+
   const t = await getTranslations({ locale, namespace: "dashboard.home" });
   const products = [
     {

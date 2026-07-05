@@ -7,12 +7,25 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/manaflow-ai/cmux/vault/internal/agentdirs"
 	"github.com/manaflow-ai/cmux/vault/internal/api"
 )
+
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// normalizeSessionID lowercases UUID-shaped ids so a session id copied with
+// uppercase hex (e.g. from a dashboard) still matches the lowercase UUIDs
+// agents use in transcript filenames. Non-UUID ids are left untouched.
+func normalizeSessionID(id string) string {
+	if uuidRe.MatchString(id) {
+		return strings.ToLower(id)
+	}
+	return id
+}
 
 type Printer interface {
 	Printf(format string, args ...any)
@@ -30,7 +43,7 @@ type Restorer struct {
 }
 
 func (r *Restorer) Resume(ctx context.Context, sessionID string, opts Options) (string, error) {
-	sessionID = strings.TrimSpace(sessionID)
+	sessionID = normalizeSessionID(strings.TrimSpace(sessionID))
 	if sessionID == "" {
 		return "", errors.New("session id is required")
 	}
@@ -57,6 +70,9 @@ func (r *Restorer) Resume(ctx context.Context, sessionID string, opts Options) (
 		return "", err
 	}
 	if cloudSession == nil {
+		if local != nil {
+			return "", fmt.Errorf("session %s exists locally but was not found in cmux vault; rerun without --force to use the local transcript", sessionID)
+		}
 		return "", fmt.Errorf("session %s not found locally or in cmux vault", sessionID)
 	}
 	detail, err := r.Client.GetSession(ctx, cloudSession.ID)
@@ -93,7 +109,7 @@ func (r *Restorer) Resume(ctx context.Context, sessionID string, opts Options) (
 		return "", err
 	}
 	defer reader.Close()
-	if err := decompressToPath(reader, restorePath); err != nil {
+	if err := decompressToPath(reader, restorePath, opts.Force); err != nil {
 		return "", err
 	}
 	hint := agent.ResumeHint(ref)
@@ -108,7 +124,7 @@ func (r *Restorer) findLocal(sessionID, agentFilter string) (*agentdirs.Session,
 	}
 	var found *agentdirs.Session
 	for i := range sessions {
-		if sessions[i].AgentSessionID != sessionID {
+		if normalizeSessionID(sessions[i].AgentSessionID) != sessionID {
 			continue
 		}
 		if found != nil {
@@ -126,7 +142,7 @@ func (r *Restorer) print(format string, args ...any) {
 	}
 }
 
-func decompressToPath(reader io.Reader, target string) error {
+func decompressToPath(reader io.Reader, target string, force bool) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), ".restore-*.jsonl")
 	if err != nil {
 		return err
@@ -152,5 +168,18 @@ func decompressToPath(reader io.Reader, target string) error {
 	if err := os.Chmod(tmpPath, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, target)
+	if force {
+		return os.Rename(tmpPath, target)
+	}
+	// os.Link fails if target exists, closing the window between the earlier
+	// os.Stat pre-check and this write (a file created during the download
+	// must not be silently clobbered without --force). The deferred cleanup
+	// removes the temp path, leaving target as the only link.
+	if err := os.Link(tmpPath, target); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%s already exists; pass --force to overwrite", target)
+		}
+		return err
+	}
+	return nil
 }

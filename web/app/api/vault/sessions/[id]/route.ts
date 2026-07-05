@@ -42,6 +42,15 @@ export async function GET(
     .where(eq(vaultSnapshots.sessionId, session.id))
     .orderBy(desc(vaultSnapshots.uploadedAt));
 
+  // A transient presign failure should degrade to metadata-without-URL, not a
+  // 500; the CLI reports a missing download URL with a clear error.
+  let downloadUrl: string | null = null;
+  try {
+    downloadUrl = await presignGet(session.latestObjectKey);
+  } catch (error) {
+    console.error("vault: presignGet failed for session", session.id, error);
+  }
+
   return jsonResponse({
     id: session.id,
     agent: session.agent,
@@ -52,7 +61,7 @@ export async function GET(
     sizeBytes: session.sizeBytes,
     compressedSizeBytes: session.compressedSizeBytes,
     lastUploadedAt: session.lastUploadedAt.toISOString(),
-    downloadUrl: await presignGet(session.latestObjectKey),
+    downloadUrl,
     snapshots: snapshots.map((snapshot) => ({
       ...snapshot,
       uploadedAt: snapshot.uploadedAt.toISOString(),

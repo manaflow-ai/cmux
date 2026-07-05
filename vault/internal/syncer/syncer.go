@@ -46,8 +46,12 @@ type Engine struct {
 }
 
 type candidate struct {
-	session        agentdirs.Session
+	session agentdirs.Session
+	// sha256 is the plaintext digest sent to the server. After prepareBatch it
+	// is recomputed from the exact bytes that were compressed, so a transcript
+	// that changes between scan and upload can never commit a stale hash.
 	sha256         string
+	plainSize      int64
 	compressed     string
 	compressedSize int64
 }
@@ -85,7 +89,7 @@ func (e *Engine) Sync(ctx context.Context, opts Options) (Summary, error) {
 			e.print("skip already uploaded %s %s\n", session.AgentName, session.RelPath)
 			continue
 		}
-		candidates = append(candidates, candidate{session: session, sha256: hash})
+		candidates = append(candidates, candidate{session: session, sha256: hash, plainSize: session.SizeBytes})
 		if opts.Limit > 0 && len(candidates) >= opts.Limit {
 			break
 		}
@@ -96,7 +100,9 @@ func (e *Engine) Sync(ctx context.Context, opts Options) (Summary, error) {
 			e.print("would upload %s %s (%d bytes)\n", c.session.AgentName, c.session.RelPath, c.session.SizeBytes)
 		}
 		summary.Skipped += len(candidates)
-		return summary, e.State.Save()
+		// Dry run must not advance sync bookkeeping, so skip State.Save even
+		// though the scan loop may have reconciled entries in memory.
+		return summary, nil
 	}
 
 	var uploaded []candidate
@@ -197,13 +203,17 @@ func (e *Engine) Sync(ctx context.Context, opts Options) (Summary, error) {
 func (e *Engine) prepareBatch(batch []candidate) ([]candidate, error) {
 	prepared := make([]candidate, 0, len(batch))
 	for _, c := range batch {
-		path, size, err := compressFile(c.session.AbsPath, e.TempDir)
+		result, err := compressFile(c.session.AbsPath, e.TempDir)
 		if err != nil {
 			e.cleanup(prepared)
 			return nil, err
 		}
-		c.compressed = path
-		c.compressedSize = size
+		// Re-anchor the hash and size to the snapshot that will actually be
+		// uploaded; the scan-time hash may be stale if the agent kept writing.
+		c.sha256 = result.plainSHA256
+		c.plainSize = result.plainSize
+		c.compressed = result.path
+		c.compressedSize = result.compressedSize
 		prepared = append(prepared, c)
 	}
 	return prepared, nil
@@ -283,7 +293,7 @@ func uploadItems(candidates []candidate) []api.UploadItem {
 			RelPath:             c.session.RelPath,
 			CWD:                 c.session.CWD,
 			SHA256:              c.sha256,
-			SizeBytes:           c.session.SizeBytes,
+			SizeBytes:           c.plainSize,
 			CompressedSizeBytes: c.compressedSize,
 		})
 	}
@@ -307,49 +317,64 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func compressFile(path, tempDir string) (string, int64, error) {
+type compressResult struct {
+	path           string
+	compressedSize int64
+	plainSHA256    string
+	plainSize      int64
+}
+
+func compressFile(path, tempDir string) (compressResult, error) {
+	var result compressResult
 	if strings.TrimSpace(tempDir) == "" {
 		tempDir = os.TempDir()
 	}
 	if err := os.MkdirAll(tempDir, 0o700); err != nil {
-		return "", 0, err
+		return result, err
 	}
 	in, err := os.Open(path)
 	if err != nil {
-		return "", 0, err
+		return result, err
 	}
 	defer in.Close()
 
 	tmp, err := os.CreateTemp(tempDir, "cmux-vault-*.jsonl.zst")
 	if err != nil {
-		return "", 0, err
+		return result, err
 	}
 	tmpPath := tmp.Name()
 	encoder, err := zstd.NewWriter(tmp)
 	if err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpPath)
-		return "", 0, err
+		return result, err
 	}
-	_, copyErr := io.Copy(encoder, in)
+	// Hash the plaintext while compressing so the digest always matches the
+	// exact bytes inside the uploaded snapshot.
+	hash := sha256.New()
+	plainSize, copyErr := io.Copy(encoder, io.TeeReader(in, hash))
 	closeErr := encoder.Close()
 	fileCloseErr := tmp.Close()
 	if copyErr != nil || closeErr != nil || fileCloseErr != nil {
 		_ = os.Remove(tmpPath)
 		if copyErr != nil {
-			return "", 0, copyErr
+			return result, copyErr
 		}
 		if closeErr != nil {
-			return "", 0, closeErr
+			return result, closeErr
 		}
-		return "", 0, fileCloseErr
+		return result, fileCloseErr
 	}
 	info, err := os.Stat(tmpPath)
 	if err != nil {
 		_ = os.Remove(tmpPath)
-		return "", 0, err
+		return result, err
 	}
-	return tmpPath, info.Size(), nil
+	result.path = tmpPath
+	result.compressedSize = info.Size()
+	result.plainSHA256 = hex.EncodeToString(hash.Sum(nil))
+	result.plainSize = plainSize
+	return result, nil
 }
 
 func min(a, b int) int {

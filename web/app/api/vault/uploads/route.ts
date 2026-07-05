@@ -23,15 +23,28 @@ export async function POST(request: Request): Promise<Response> {
   if (!batch.ok) return jsonResponse({ error: batch.error }, 400);
 
   const config = vaultConfig();
-  if (batch.value.some((item) => item.compressedSizeBytes > config.maxUploadBytes)) {
-    return jsonResponse({ error: "upload_too_large" }, 400);
-  }
-
   const db = cloudDb();
   const results = [];
   for (const item of batch.value) {
+    // Per-item so one oversized transcript cannot block the rest of the batch.
+    if (item.compressedSizeBytes > config.maxUploadBytes) {
+      results.push({
+        agent: item.agent,
+        agentSessionId: item.agentSessionId,
+        relPath: item.relPath,
+        status: "error",
+        error: "upload_too_large",
+      });
+      continue;
+    }
+
     const [existing] = await db
-      .select({ latestSha256: vaultSessions.latestSha256 })
+      .select({
+        id: vaultSessions.id,
+        latestSha256: vaultSessions.latestSha256,
+        relPath: vaultSessions.relPath,
+        cwd: vaultSessions.cwd,
+      })
       .from(vaultSessions)
       .where(
         and(
@@ -42,7 +55,15 @@ export async function POST(request: Request): Promise<Response> {
       )
       .limit(1);
 
-    if (existing?.latestSha256 === item.sha256) {
+    if (existing && existing.latestSha256 === item.sha256) {
+      // Same content can still move on disk (e.g. Codex archiving a session),
+      // so keep the restore metadata current even when no upload is needed.
+      if (existing.relPath !== item.relPath || existing.cwd !== item.cwd) {
+        await db
+          .update(vaultSessions)
+          .set({ relPath: item.relPath, cwd: item.cwd })
+          .where(eq(vaultSessions.id, existing.id));
+      }
       results.push({
         agent: item.agent,
         agentSessionId: item.agentSessionId,

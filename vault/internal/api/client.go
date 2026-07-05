@@ -115,7 +115,12 @@ func New(baseURL string, tokens *authstore.Tokens) *Client {
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		BlobHTTPClient: &http.Client{},
+		// Blob transfers can be large, so allow far more than the JSON timeout,
+		// but still bound the request so a stalled S3 PUT/GET cannot hang the
+		// CLI forever.
+		BlobHTTPClient: &http.Client{
+			Timeout: 15 * time.Minute,
+		},
 	}
 }
 

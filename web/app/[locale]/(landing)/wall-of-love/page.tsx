@@ -27,7 +27,7 @@ export default function WallOfLovePage() {
 
   return (
     <div className="min-h-screen">
-      <SiteHeader section="wall of love" />
+      <SiteHeader section={t("title")} />
       <main className="w-full max-w-6xl mx-auto px-6 py-10">
         <h1 className="text-2xl font-semibold tracking-tight mb-2">
           {t("title")}

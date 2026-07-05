@@ -72,7 +72,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "login":
 		client := api.New(*apiBase, nil)
-		tokens, err := authflow.Login(ctx, client, printer{w: stdout})
+		// In JSON mode stdout must stay machine-readable, so the interactive
+		// approval URL/code prompt goes to stderr instead.
+		promptWriter := stdout
+		if *jsonOutput {
+			promptWriter = stderr
+		}
+		tokens, err := authflow.Login(ctx, client, printer{w: promptWriter})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "login failed: %v\n", err)
 			return 1

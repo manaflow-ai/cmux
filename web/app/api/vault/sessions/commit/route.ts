@@ -23,13 +23,15 @@ export async function POST(request: Request): Promise<Response> {
   if (!batch.ok) return jsonResponse({ error: batch.error }, 400);
 
   const config = vaultConfig();
-  if (batch.value.some((item) => item.compressedSizeBytes > config.maxUploadBytes)) {
-    return jsonResponse({ error: "upload_too_large" }, 400);
-  }
-
   const db = cloudDb();
   const results = [];
   for (const item of batch.value) {
+    // Per-item so one oversized transcript cannot block the rest of the batch.
+    if (item.compressedSizeBytes > config.maxUploadBytes) {
+      results.push(itemResult(item, "error", "upload_too_large"));
+      continue;
+    }
+
     const objectKey = buildObjectKey(user.id, item.agent, item.agentSessionId, item.sha256);
     const object = await headObject(objectKey);
     if (!object) {
