@@ -175,6 +175,7 @@ final class RemoteTmuxControlConnection {
     /// coalescing window on fast links, collapsing the pair to net-zero
     /// again — and any per-window confirmation predicate can be satisfied
     /// spuriously by an unrelated window already at the shrunken height.
+    /// Full evidence + a by-hand exploration: docs/remote-tmux-sizing-timers.md.
     private static let attachRedrawKickGapMs = 350
 
     /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
