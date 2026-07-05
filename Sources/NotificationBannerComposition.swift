@@ -18,31 +18,38 @@ enum NotificationBannerComposer {
         appName: String
     ) -> NotificationBannerContent {
         // Banner text leaves the app (Notification Center, lock screen, custom
-        // notification commands), so redact the free-text body for every
-        // producer here, at the single materialization point.
+        // notification commands), so redact every field for every producer
+        // here, at the single materialization point. Title/subtitle can carry
+        // a workspace title derived from a path, prompt, or auto-name, so they
+        // need the same scrub as the free-text body.
         let body = notificationBannerScrubber.scrub(body)
         let legacyTitle = title.isEmpty ? (notificationBannerNonEmpty(appName) ?? "cmux") : title
         let agentTitle = notificationBannerNonEmpty(title) ?? notificationBannerNonEmpty(appName) ?? "cmux"
         let workspace = notificationBannerNonEmpty(workspaceTitle)
         let originalSubtitle = notificationBannerNonEmpty(subtitle)
 
+        let unscrubbed: NotificationBannerContent
         if agentId != nil, let workspace {
             let subtitlePieces = [agentTitle, originalSubtitle].compactMap { $0 }
-            return NotificationBannerContent(
+            unscrubbed = NotificationBannerContent(
                 title: workspace,
                 subtitle: subtitlePieces.joined(separator: " · "),
                 body: body
             )
+        } else if agentId == nil,
+                  let workspace,
+                  originalSubtitle == nil,
+                  workspace != notificationBannerNonEmpty(legacyTitle) {
+            unscrubbed = NotificationBannerContent(title: legacyTitle, subtitle: workspace, body: body)
+        } else {
+            unscrubbed = NotificationBannerContent(title: legacyTitle, subtitle: subtitle, body: body)
         }
 
-        if agentId == nil,
-           let workspace,
-           originalSubtitle == nil,
-           workspace != notificationBannerNonEmpty(legacyTitle) {
-            return NotificationBannerContent(title: legacyTitle, subtitle: workspace, body: body)
-        }
-
-        return NotificationBannerContent(title: legacyTitle, subtitle: subtitle, body: body)
+        return NotificationBannerContent(
+            title: notificationBannerScrubber.scrub(unscrubbed.title),
+            subtitle: notificationBannerScrubber.scrub(unscrubbed.subtitle),
+            body: unscrubbed.body
+        )
     }
 
     static nonisolated func composeFeedNotificationContent(
@@ -91,10 +98,12 @@ enum NotificationBannerComposer {
         }
 
         // Feed bodies quote raw tool input (shell commands, question text),
-        // which can embed tokens or URL credentials. Native banners escape the
-        // app (Notification Center, lock screen), so scrub before composing.
+        // and the title can be a workspace title derived from a path or
+        // prompt, either of which can embed tokens or URL credentials. Native
+        // banners escape the app (Notification Center, lock screen), so scrub
+        // every field before composing.
         return NotificationBannerContent(
-            title: title,
+            title: notificationBannerScrubber.scrub(title),
             subtitle: [sourceDisplayName, kind].compactMap(notificationBannerNonEmpty).joined(separator: " · "),
             body: notificationBannerScrubber.scrub(body)
         )

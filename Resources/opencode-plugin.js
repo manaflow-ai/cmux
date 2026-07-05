@@ -451,6 +451,11 @@ export const CMUXFeed = async (ctx) => {
     const state = sessionState(meta.sessionId);
     if (meta.role === "user") {
       state.lastUserMessage = text;
+      // A new prompt starts a new turn; drop the previous turn's assistant
+      // text so a session.idle that fires before this turn produces any text
+      // part doesn't resurface the prior turn's summary as this turn's
+      // completion body.
+      state.assistantPreamble = null;
       return base(meta.sessionId, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
