@@ -474,6 +474,10 @@ struct WorkspaceListView: View {
         ForEach(filteredWorkspaces) { workspace in
             workspaceRow(workspace, indented: false)
         }
+        .onInsert(of: MobileWorkspaceDragPayload.dropContentTypes) { index, providers in
+            let items = filteredWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
+            handleWorkspaceInsert(providers, index: index, items: items)
+        }
     }
 
     /// Grouped presentation: collapsible group headers with their members nested
@@ -494,8 +498,8 @@ struct WorkspaceListView: View {
                     toggleCollapsed: toggleGroupCollapsed,
                     unreadIndicatorLeftShift: unreadIndicatorLeftShift
                 )
-                .dropDestination(for: String.self) { items, _ in
-                    handleWorkspaceDrop(items, target: .groupHeader(group.id))
+                .onDrop(of: MobileWorkspaceDragPayload.dropContentTypes, isTargeted: nil) { providers in
+                    handleWorkspaceProviderDrop(providers, target: .groupHeader(group.id))
                 }
                 .accessibilityHint(
                     enablesWorkspaceDragAndDrop
@@ -510,6 +514,9 @@ struct WorkspaceListView: View {
             case .workspace(let workspace, let indented):
                 workspaceRow(workspace, indented: indented)
             }
+        }
+        .onInsert(of: MobileWorkspaceDragPayload.dropContentTypes) { index, providers in
+            handleWorkspaceInsert(providers, index: index, items: groupedListItems)
         }
     }
 
@@ -538,13 +545,7 @@ struct WorkspaceListView: View {
         )
         .modifier(WorkspaceDragDropModifier(
             isEnabled: enablesWorkspaceDragAndDrop && capabilities.supportsWorkspaceActions,
-            workspaceID: workspace.id,
-            dropTarget: { height, location in
-                location.y < height / 2
-                    ? .beforeWorkspace(workspace.id)
-                    : .afterWorkspace(workspace.id)
-            },
-            performDrop: handleWorkspaceDrop
+            workspaceID: workspace.id
         ))
         .accessibilityHint(
             enablesWorkspaceDragAndDrop && capabilities.supportsWorkspaceActions

@@ -22,9 +22,7 @@ private final class CoordinatorStubTab: WorkspaceTabRepresenting {
     }
 }
 
-/// Window-side stand-in: creates stub workspaces on demand, records every
-/// inverted effect, and removes closed tabs from the model like the real
-/// `closeWorkspace` teardown does.
+/// Window-side stand-in for group/reorder coordinator tests.
 @MainActor
 private final class StubGroupHost: WorkspaceGroupHosting {
     typealias Tab = CoordinatorStubTab
@@ -56,7 +54,6 @@ private final class StubGroupHost: WorkspaceGroupHosting {
         select: Bool
     ) -> CoordinatorStubTab {
         let tab = CoordinatorStubTab(currentDirectory: workingDirectory ?? "/tmp")
-        // Legacy addWorkspace(placementOverride: .top) inserts after pinned.
         let pinnedCount = model.tabs.prefix(while: \.isPinned).count
         model.tabs.insert(tab, at: pinnedCount)
         if select { model.selectedTabId = tab.id }
@@ -145,7 +142,6 @@ struct WorkspaceCoordinatorTests {
         let plain2 = CoordinatorStubTab()
         model.tabs = [pinned, plain1, plain2]
 
-        // Unpinned dragged to index 0 clamps below the pinned row.
         #expect(reorder.reorderWorkspace(tabId: plain2.id, toIndex: 0))
         #expect(model.tabs.map(\.id) == [pinned.id, plain2.id, plain1.id])
     }
@@ -181,7 +177,6 @@ struct WorkspaceCoordinatorTests {
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-
         let unknown = UUID()
         guard case .failure(.workspaceNotFound(let missing)) =
             reorder.reorderWorkspaces(orderedWorkspaceIds: [unknown]) else {
@@ -208,10 +203,6 @@ struct WorkspaceCoordinatorTests {
 
         let changed = reorder.setPinned(workspaceIds: [a.id, b.id], pinned: false)
         #expect(changed == [a.id, b.id])
-        // Parity with the one-at-a-time path: each unpin inserts at the
-        // front of the unpinned segment (a first → [a, c], then b in front
-        // → [b, a, c]), which the batch path reproduces by reversing the
-        // changed input order.
         #expect(model.tabs.map(\.id) == [b.id, a.id, c.id])
         #expect(model.tabs.allSatisfy { !$0.isPinned })
     }

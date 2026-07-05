@@ -264,4 +264,54 @@ import Testing
         )
         #expect(intent == nil)
     }
+
+    // MARK: Insertion drop target mapping
+
+    @Test func insertionTargetAtWorkspaceRowUsesBeforeWorkspace() {
+        let items: [MobileWorkspaceListItem] = [
+            .workspace(workspace("a"), indented: false),
+            .workspace(workspace("b"), indented: false),
+        ]
+        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 1) == .beforeWorkspace("b"))
+    }
+
+    @Test func insertionTargetAtEndOfPlainListAppendsAfterLastWorkspace() {
+        let items: [MobileWorkspaceListItem] = [
+            .workspace(workspace("a"), indented: false),
+            .workspace(workspace("b"), indented: false),
+        ]
+        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 2) == .afterWorkspace("b"))
+    }
+
+    @Test func insertionTargetBeforeHeaderFollowingMembersIsNil() {
+        let items: [MobileWorkspaceListItem] = [
+            .workspace(workspace("u"), indented: false),
+            .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
+        ]
+        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 1) == nil)
+    }
+
+    @Test func insertionTargetAboveLeadingHeaderIsNil() {
+        let items: [MobileWorkspaceListItem] = [
+            .groupHeader(group("g", anchor: "anchor"), hasUnread: false),
+            .workspace(workspace("member", group: "g"), indented: true),
+        ]
+        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 0) == nil)
+    }
+
+    @Test func insertionTargetBelowCollapsedTrailingHeaderIsNil() {
+        let items: [MobileWorkspaceListItem] = [
+            .workspace(workspace("u"), indented: false),
+            .groupHeader(group("g", anchor: "anchor", collapsed: true), hasUnread: false),
+        ]
+        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 2) == nil)
+    }
+
+    @Test func insertionTargetBetweenCollapsedAndFollowingHeaderIsNil() {
+        let items: [MobileWorkspaceListItem] = [
+            .groupHeader(group("g1", anchor: "a1", collapsed: true), hasUnread: false),
+            .groupHeader(group("g2", anchor: "a2", collapsed: true), hasUnread: false),
+        ]
+        #expect(MobileWorkspaceListItem.insertionDropTarget(items: items, index: 1) == nil)
+    }
 }

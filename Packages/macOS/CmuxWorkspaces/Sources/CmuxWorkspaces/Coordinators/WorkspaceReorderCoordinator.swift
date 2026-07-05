@@ -166,9 +166,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         return reorderWorkspace(tabId: tabId, toIndex: plan.toIndex, isDragOperation: isDragOperation)
     }
 
-    /// Explicit group drops are planned by the sidebar in the intended target
-    /// group's row-space. Preserve that slot here instead of reclamping against
-    /// the dragged workspace's current group or global pin tier.
+    /// Preserve explicit group-drop row space from the sidebar.
     private func explicitGroupWorkspaceReorderPlan(tabId: UUID, toIndex targetIndex: Int) -> WorkspaceReorderPlanItem? {
         guard let currentIndex = model.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         if model.tabs.count <= 1 {
