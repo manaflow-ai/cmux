@@ -18,6 +18,12 @@ use crate::{Mux, MuxEvent, SurfaceId};
 use crate::browser::BrowserSurface;
 pub use crate::browser::{BrowserAttachState, BrowserFrame, BrowserSource, BrowserStatus};
 
+/// Per-tap buffer for PTY attach streams, in PTY read chunks (a chunk is
+/// at most 64 KiB, so one stalled tap holds at most ~16 MiB before it is
+/// detached). Large enough that a client briefly busy encoding output
+/// never trips it; only a consumer that stopped draining does.
+const PTY_ATTACH_TAP_CAPACITY: usize = 256;
+
 /// How to spawn surface children.
 #[derive(Debug, Clone)]
 pub struct SurfaceOptions {
@@ -143,7 +149,13 @@ pub struct PtySurface {
     /// terminal lock, and [`Surface::attach_stream`] registers taps under
     /// the same lock, so a subscriber sees exactly the bytes applied
     /// after its replay snapshot — no gap, no duplication.
-    taps: Mutex<Vec<std::sync::mpsc::Sender<Vec<u8>>>>,
+    ///
+    /// Taps are bounded: broadcast uses `try_send`, and a tap whose
+    /// buffer is full (a stalled or slow attach client) is dropped
+    /// rather than buffering PTY output without limit. Dropping the
+    /// sender disconnects the attach stream, and the forwarder reports
+    /// `detached` to its client, which can re-attach for a fresh replay.
+    taps: Mutex<Vec<std::sync::mpsc::SyncSender<Vec<u8>>>>,
 }
 
 impl std::fmt::Debug for Surface {
@@ -250,7 +262,10 @@ impl Surface {
                         {
                             let mut taps = pty.taps.lock().unwrap();
                             if !taps.is_empty() {
-                                taps.retain(|tap| tap.send(buf[..n].to_vec()).is_ok());
+                                // A full buffer means the attach client
+                                // stopped draining; detach it instead of
+                                // queueing PTY output without bound.
+                                taps.retain(|tap| tap.try_send(buf[..n].to_vec()).is_ok());
                             }
                         }
                         if title_changed.swap(false, Ordering::Relaxed) {
@@ -419,7 +434,7 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::sync_channel(PTY_ATTACH_TAP_CAPACITY);
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         let replay = term.vt_replay()?;

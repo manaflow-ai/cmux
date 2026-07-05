@@ -339,6 +339,48 @@ fn attach_stream_replays_then_streams_without_duplication() {
 }
 
 #[test]
+fn attach_stream_detaches_stalled_tap_instead_of_buffering_unbounded() {
+    // ~20 MB of PTY output is far more than the bounded per-tap buffer
+    // (256 chunks of at most 64 KiB). A tap that never drains must be
+    // detached by the PTY reader, not buffer the whole flood.
+    let mux = Mux::new(
+        "test-attach-stall",
+        shell_opts("yes | head -c 20000000; printf 'flood-done\\n'; sleep 30"),
+    );
+    let surface = mux.new_workspace(None, None).unwrap();
+    let attach = surface.attach_stream().unwrap();
+
+    // Do not drain the stream while the flood runs; wait until the
+    // terminal itself saw the end of it (reader processed everything).
+    let done = wait_for(
+        || {
+            let text = surface.with_terminal(|t| t.plain_text()).unwrap().unwrap();
+            text.contains("flood-done").then_some(())
+        },
+        Duration::from_secs(30),
+    );
+    assert!(done.is_some(), "flood never finished");
+
+    // The tap was dropped mid-flood: draining yields at most the buffer
+    // capacity and then reports disconnect instead of blocking forever.
+    let mut buffered = 0usize;
+    loop {
+        match attach.stream.recv_timeout(Duration::from_secs(5)) {
+            Ok(_) => {
+                buffered += 1;
+                assert!(buffered <= 256, "stalled tap buffered more than its bound");
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                panic!("stalled tap was never detached (still connected after flood)")
+            }
+        }
+    }
+
+    mux.close_surface(surface.id);
+}
+
+#[test]
 fn new_tab_on_empty_headless_session_creates_workspace() {
     // A headless session receives new-tab before any workspace exists;
     // it must create a workspace around the new tab instead of panicking.
