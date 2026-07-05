@@ -15,18 +15,19 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// from the main thread.
     case socketWorker(mainThreadCallable: Bool)
 
-    /// Classifies a method: every `vm.`- and `remotes.`-prefixed method and the
-    /// fixed socket-worker set run on the worker; everything else runs on the
-    /// main actor.
+    /// Classifies a method: every `vm.`-, `remotes.`-, and
+    /// `aiAccounts.`-prefixed method and the fixed socket-worker set run on the
+    /// worker; everything else runs on the main actor.
     ///
-    /// `remotes.*` (the `cmux remotes` device-registry verbs) make blocking,
+    /// `remotes.*` (the `cmux remotes` device-registry verbs) and
+    /// `aiAccounts.*` (the team's subrouter AI-account verbs) make blocking,
     /// authenticated web API calls just like `vm.*`, so they must stay off the
-    /// main actor; a prefix match keeps the three verbs in lockstep without
-    /// listing each.
+    /// main actor; prefix matches keep each verb family in lockstep without
+    /// listing each method.
     ///
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
-        if method.hasPrefix("vm.") || method.hasPrefix("remotes.")
+        if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
             || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)

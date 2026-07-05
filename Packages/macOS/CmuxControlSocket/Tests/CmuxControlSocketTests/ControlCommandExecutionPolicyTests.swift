@@ -17,6 +17,15 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "remotes.remove") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func aiAccountsPrefixedMethodsRunOnTheSocketWorker() {
+        // `cmux ai-accounts` verbs make blocking authenticated web API calls, so
+        // they must run on the worker; otherwise the dispatcher never reaches
+        // their handler and returns method_not_found.
+        #expect(ControlCommandExecutionPolicy(forMethod: "aiAccounts.list") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "aiAccounts.upload") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "aiAccounts.remove") == .socketWorker(mainThreadCallable: false))
+    }
+
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
