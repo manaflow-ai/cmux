@@ -129,6 +129,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.detach()
     }
 
+    @MainActor
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
@@ -400,9 +401,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // mouse reports). Forward to the Mac sync server which
             // writes them into the Mac's libghostty surface, which in
             // turn writes them down the PTY.
-            Task { @MainActor [weak store] in
-                await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
-            }
+            store?.sendTerminalRawInput(data, surfaceID: surfaceID)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {

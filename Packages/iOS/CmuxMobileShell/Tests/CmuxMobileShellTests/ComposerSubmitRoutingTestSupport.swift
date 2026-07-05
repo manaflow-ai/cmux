@@ -42,6 +42,7 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var inputs: [RoutingHostInputRecord] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     /// Reject the Nth (0-based) and later paste_image requests; `nil` accepts all.
     private var rejectPasteImageFromIndex: Int?
@@ -49,6 +50,12 @@ actor RoutingHostRouter {
     private var firstPasteImageHeld = false
     private var firstPasteImageContinuation: CheckedContinuation<Void, Never>?
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var holdFirstTerminalInput = false
+    private var terminalInputArrivalCount = 0
+    private var firstTerminalInputHeld = false
+    private var firstTerminalInputContinuation: CheckedContinuation<Void, Never>?
+    private var firstTerminalInputReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var inputCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
@@ -74,10 +81,22 @@ actor RoutingHostRouter {
         holdFirstPasteImage = hold
     }
 
+    /// Park the first terminal.input request before recording it, modeling a host
+    /// whose first PTY write is still in progress while later input is submitted.
+    func setHoldFirstTerminalInput(_ hold: Bool) {
+        holdFirstTerminalInput = hold
+    }
+
     /// Resolve when the first paste_image request has arrived (and is parked).
     func awaitFirstPasteImageReached() async {
         if firstPasteImageHeld { return }
         await withCheckedContinuation { firstPasteImageReachedWaiters.append($0) }
+    }
+
+    /// Resolve when the first terminal.input request has arrived (and is parked).
+    func awaitFirstTerminalInputReached() async {
+        if firstTerminalInputHeld { return }
+        await withCheckedContinuation { firstTerminalInputReachedWaiters.append($0) }
     }
 
     /// Release the parked first paste_image so its (success) response is sent.
@@ -87,8 +106,24 @@ actor RoutingHostRouter {
         continuation?.resume()
     }
 
+    /// Release the parked first terminal.input so its (success) response is sent.
+    func releaseFirstTerminalInput() {
+        let continuation = firstTerminalInputContinuation
+        firstTerminalInputContinuation = nil
+        continuation?.resume()
+    }
+
+    /// Resolve once at least `count` terminal.input requests have been applied.
+    func awaitRecordedInputCount(_ count: Int) async {
+        if inputs.count >= count { return }
+        await withCheckedContinuation { continuation in
+            inputCountWaiters.append((count: count, continuation: continuation))
+        }
+    }
+
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedInputs() -> [RoutingHostInputRecord] { inputs }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
 
     /// Sendable extract of the request fields the router needs, pulled off the
@@ -166,6 +201,20 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "terminal.input":
+            let surfaceID = info.surfaceID ?? ""
+            let text = info.text ?? ""
+            terminalInputArrivalCount += 1
+            if terminalInputArrivalCount == 1, holdFirstTerminalInput {
+                firstTerminalInputHeld = true
+                let reachedWaiters = firstTerminalInputReachedWaiters
+                firstTerminalInputReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { firstTerminalInputContinuation = $0 }
+            }
+            inputs.append(RoutingHostInputRecord(surfaceID: surfaceID, text: text))
+            resumeSatisfiedInputCountWaiters()
+            return try? Self.resultFrame(id: id, result: [:])
         case "notification.dismiss":
             dismisses.append((
                 notificationIDs: info.notificationIDs ?? [],
@@ -195,6 +244,18 @@ actor RoutingHostRouter {
             "error": ["message": message],
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
+    }
+
+    private func resumeSatisfiedInputCountWaiters() {
+        var remaining: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in inputCountWaiters {
+            if inputs.count >= waiter.count {
+                waiter.continuation.resume()
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        inputCountWaiters = remaining
     }
 }
 

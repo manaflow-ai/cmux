@@ -3,12 +3,15 @@ import Foundation
 /// A coalescing, back-pressured queue of pending terminal input.
 ///
 /// The buffer batches consecutive text destined for the same workspace/terminal
-/// into one chunk, bounds total pending bytes to ``maximumPendingByteCount``, and
-/// reports via ``MobileTerminalInputEnqueueResult`` whether the caller should
-/// start a drain loop. It is a pure value type so the send loop's ordering and
-/// overflow behavior can be tested deterministically.
+/// into one chunk, bounds accumulated pending bytes to ``maximumPendingByteCount``
+/// once a backlog or in-flight send exists (a single payload onto a fully idle
+/// buffer is always admitted), and reports via ``MobileTerminalInputEnqueueResult``
+/// whether the caller should start a drain loop. It is a pure value type so the
+/// send loop's ordering and overflow behavior can be tested deterministically.
 public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
-    /// The maximum number of UTF-8 bytes that may sit pending before new input is rejected.
+    /// The maximum number of UTF-8 bytes that may sit pending before *additional*
+    /// input is rejected. A single payload onto a fully idle buffer is always
+    /// admitted, even above this cap, so a large paste is delivered rather than dropped.
     public static let maximumPendingByteCount = 64 * 1024
 
     /// One coalesced run of pending input bound to a single terminal.
@@ -60,7 +63,17 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
     ) -> MobileTerminalInputEnqueueResult {
         guard !text.isEmpty else { return .queued }
         let byteCount = text.utf8.count
-        guard pendingByteCount + byteCount <= Self.maximumPendingByteCount else {
+        // Reject only when input is already backed up: there is pending input or
+        // an in-flight send, and this payload would push the pending total over
+        // the cap. A single payload onto a fully idle buffer is always admitted
+        // — even above the cap — so a large foreground paste is delivered in
+        // FIFO order as one send instead of being dropped and disconnecting the
+        // session (the pre-FIFO surface path sent oversized pastes uncapped).
+        // The cap still bounds accumulation once the drain falls behind
+        // sustained input.
+        let isFullyIdle = pendingChunks.isEmpty && !isDraining
+        if !isFullyIdle,
+           pendingByteCount + byteCount > Self.maximumPendingByteCount {
             return .rejected
         }
         if var last = pendingChunks.last,

@@ -791,7 +791,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// down when its own token is still current, so it never deletes the new
     /// stream's continuation.
     private var terminalLiveFontTokensBySurfaceID: [String: UUID]
-    private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
+    var rawTerminalInputDrainTask: Task<Void, Never>?
+    var rawTerminalInputDrainTaskID: UUID?
     private var pairingAttemptID: UUID
 
     /// High-level shell phase derived from sign-in and connection state.
@@ -995,6 +997,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontContinuationsBySurfaceID = [:]
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
+        self.rawTerminalInputDrainTask = nil
+        self.rawTerminalInputDrainTaskID = nil
         self.pairingAttemptID = UUID()
     }
 
@@ -1010,6 +1014,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTask?.cancel()
         workspaceListRefreshTask?.cancel()
         pullToRefreshTask?.cancel()
+        rawTerminalInputDrainTask?.cancel()
         cancelAllTerminalReplayTasks()
         teardownSecondaryMacSubscriptions()
         if let remoteClient {
@@ -1134,7 +1139,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             Task { await refresher.cancelInFlightRestores() }
         }
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
         reportedViewportSizesByTerminalKey = [:]
         terminalPreBarrierDeliveredEndSeqBySurfaceID = [:]
         terminalRenderGridBaselineReplayRequestCountsBySurfaceID = [:]
@@ -4844,78 +4849,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    public func sendTerminalRawInput(_ text: String) {
-        #if DEBUG
-        mobileShellLog.debug("enqueue raw terminal input byteCount=\(text.utf8.count, privacy: .public)")
-        #endif
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
-            #if DEBUG
-            mobileShellLog.info("skip raw terminal input enqueue selectedWorkspace=\(self.selectedWorkspace == nil ? 0 : 1, privacy: .public) selectedTerminal=\(self.selectedTerminalID == nil ? 0 : 1, privacy: .public)")
-            #endif
-            return
-        }
-        switch rawTerminalInputBuffer.enqueue(
-            text,
-            workspaceID: workspaceID,
-            terminalID: terminalID
-        ) {
-        case .startDraining:
-            Task { @MainActor [weak self] in
-                await self?.drainRawTerminalInputBuffer()
-            }
-        case .queued:
-            return
-        case .rejected:
-            mobileShellLog.error("disconnecting mobile terminal input because pending byte count exceeded limit")
-            // Real error-rate signal: the core input loop silently broke because
-            // the send buffer filled. Distinct from an RPC timeout.
-            analytics.capture("ios_terminal_input_dropped", [
-                "pending_byte_count": .int(rawTerminalInputBuffer.pendingByteCount),
-                "reason": .string("queue_full"),
-            ])
-            connectionError = L10n.string(
-                "mobile.terminal.inputQueueFull",
-                defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
-            )
-            connectionErrorGuidance = nil
-            connectionState = .disconnected
-            macConnectionStatus = .unavailable
-            clearRemoteConnectionContext()
-        }
+    func handleRawTerminalInputQueueRejected() {
+        mobileShellLog.error("disconnecting mobile terminal input because pending byte count exceeded limit")
+        // Real error-rate signal: the core input loop silently broke because
+        // the send buffer filled. Distinct from an RPC timeout.
+        analytics.capture("ios_terminal_input_dropped", [
+            "pending_byte_count": .int(rawTerminalInputBuffer.pendingByteCount),
+            "reason": .string("queue_full"),
+        ])
+        connectionError = L10n.string(
+            "mobile.terminal.inputQueueFull",
+            defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
+        )
+        connectionErrorGuidance = nil
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
     }
 
-    /// Submit raw text to the currently selected terminal when one is available.
-    public func submitTerminalRawInput(_ text: String) async {
-        guard !text.isEmpty else { return }
-        guard let workspaceID = selectedWorkspace?.id,
-              let terminalID = selectedTerminalID else {
-            return
-        }
-        await submitTerminalRawInput(text, workspaceID: workspaceID, terminalID: terminalID)
-    }
-
-    /// Raw-bytes overload. The libghostty render path on iOS uses this
-    /// for input that may include binary sequences (mouse reports,
-    /// kitty keyboard, IME byte streams). The wire RPC encodes bytes
-    /// as the UTF-8-stringified payload of `mobile.terminal.input`,
-    /// then the Mac decodes back to Data. If we ever need true binary
-    /// fidelity (paste of mid-codepoint bytes, etc.), upgrade the
-    /// `input` param to a base64 field.
-    public func submitTerminalRawInput(_ data: Data, surfaceID: String) async {
-        guard !data.isEmpty else { return }
-        guard let text = String(data: data, encoding: .utf8) else {
-            return
-        }
-        let workspaceCandidate = workspaces.first(where: { workspace in
-            workspace.terminals.contains(where: { $0.id.rawValue == surfaceID })
-        })
-        guard let workspace = workspaceCandidate else { return }
-        let terminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
-        await submitTerminalRawInput(text, workspaceID: workspace.id, terminalID: terminalID)
-    }
-
-    private func submitTerminalRawInput(
+    func submitTerminalRawInput(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID
@@ -4923,16 +4875,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !text.isEmpty else { return }
         guard remoteClient != nil else { return }
         await sendRemoteTerminalInput(text, workspaceID: workspaceID, terminalID: terminalID)
-    }
-
-    private func drainRawTerminalInputBuffer() async {
-        while let chunk = rawTerminalInputBuffer.nextBatch() {
-            await submitTerminalRawInput(
-                chunk.text,
-                workspaceID: chunk.workspaceID,
-                terminalID: chunk.terminalID
-            )
-        }
     }
 
     /// Establishes the live connection for `ticket`. Returns `nil` on success
@@ -4954,7 +4896,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = generation
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -5277,7 +5219,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             offline.status = .unavailable
             workspacesByMac[offlineForegroundKey] = offline
         }
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
     }
 
     /// Set `remoteClient` to a new value (possibly nil) and disconnect the
@@ -5367,7 +5309,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
-        rawTerminalInputBuffer.clear()
+        clearRawTerminalInputBuffer()
         clearPairingError()
         clearPairingVersionWarning()
         return attemptID
