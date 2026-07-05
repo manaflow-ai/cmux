@@ -18,11 +18,10 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
 
     /// Right-sidebar Dock: an experimental terminal-controls dock that
     /// replaces the per-pane action chrome with a unified right-side
-    /// rail. Defaults on (it also hosts installed TUI extensions); the
-    /// toggle here still turns the whole surface off.
+    /// rail. Defaults off; flagged as unstable in the Settings UI.
     public let rightSidebarDock = DefaultsKey<Bool>(
         id: "rightSidebar.beta.dock.enabled",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 

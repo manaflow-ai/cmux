@@ -48,10 +48,8 @@ final class DockExtensionsAppHost: DockExtensionsHost {
     }
 
     private func enableDockBetaFlagIfNeeded() {
-        // The Dock defaults on, but a user can turn it off; extension panes
-        // live in the Dock, so opening/installing one turns it back on.
         let defaults = UserDefaults.standard
-        if !RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults) {
+        if !defaults.bool(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey) {
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         }
     }
