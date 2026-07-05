@@ -11034,7 +11034,7 @@ struct CMUXCLI {
            !split.isEmpty {
             params["direction"] = split
             let surfaceID = try normalizeSurfaceHandle(
-                surfaceOpt ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"],
+                surfaceOpt ?? (workspaceOpt == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil),
                 client: client,
                 workspaceHandle: workspaceID
             )
@@ -14841,7 +14841,7 @@ struct CMUXCLI {
               --session-id <id>           Persisted SSH PTY session ID
               --pane <id|ref|index>       Target pane for a new surface
               --split <left|right|up|down> Create a new split instead of a surface
-              --surface <id|ref|index>    Source surface for --split
+              --surface <id|ref|index>    Split anchor (default: $CMUX_SURFACE_ID; with --workspace, its focused surface)
               --focus <true|false>        Focus the attached surface (default: true)
 
             Example:
