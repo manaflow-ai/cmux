@@ -20,7 +20,7 @@ final class CuaDriverManagerTests: XCTestCase {
             """
         )
         let manager = CuaDriverManager(registerTerminationObserver: false)
-        var updates = manager.stateUpdates().makeAsyncIterator()
+        let updates = CuaDriverStateUpdateIterator(manager.stateUpdates())
         let first = await updates.next()
         XCTAssertEqual(first, .stopped)
 
@@ -33,9 +33,9 @@ final class CuaDriverManagerTests: XCTestCase {
             )
         }
 
-        let starting = await nextState(from: &updates, matching: { $0 == .starting })
+        let starting = await nextState(from: updates, matching: { $0 == .starting })
         XCTAssertEqual(starting, .starting)
-        let nextRunning = await nextState(from: &updates, matching: {
+        let nextRunning = await nextState(from: updates, matching: {
             if case .running = $0 { return true }
             return false
         })
@@ -62,7 +62,7 @@ final class CuaDriverManagerTests: XCTestCase {
             body: "exit 7"
         )
         let manager = CuaDriverManager(registerTerminationObserver: false)
-        var updates = manager.stateUpdates().makeAsyncIterator()
+        let updates = CuaDriverStateUpdateIterator(manager.stateUpdates())
         _ = await updates.next()
 
         await manager.start(
@@ -75,7 +75,7 @@ final class CuaDriverManagerTests: XCTestCase {
         if case .failed = manager.state {
             return
         }
-        let failed = await nextState(from: &updates, matching: {
+        let failed = await nextState(from: updates, matching: {
             if case .failed = $0 { return true }
             return false
         })
@@ -86,15 +86,51 @@ final class CuaDriverManagerTests: XCTestCase {
     }
 
     private func nextState(
-        from updates: inout AsyncStream<CuaDriverManager.State>.Iterator,
-        matching predicate: (CuaDriverManager.State) -> Bool
+        from updates: CuaDriverStateUpdateIterator,
+        matching predicate: @escaping @Sendable (CuaDriverManager.State) -> Bool
     ) async -> CuaDriverManager.State? {
-        while let state = await updates.next() {
-            if predicate(state) {
-                return state
+        let readTask = Task { @MainActor in
+            while let state = await updates.next() {
+                if predicate(state) {
+                    return state
+                }
             }
+            return nil
         }
-        return nil
+
+        let clock = ContinuousClock()
+        let result = await withTaskGroup(of: NextStateResult.self) { group in
+            group.addTask {
+                .state(await readTask.value)
+            }
+            group.addTask {
+                do {
+                    try await clock.sleep(for: .seconds(10))
+                } catch {
+                    return .timeout
+                }
+                return .timeout
+            }
+
+            guard let result = await group.next() else {
+                readTask.cancel()
+                group.cancelAll()
+                return NextStateResult.timeout
+            }
+            if case .timeout = result {
+                readTask.cancel()
+            }
+            group.cancelAll()
+            return result
+        }
+
+        switch result {
+        case .state(let state):
+            return state
+        case .timeout:
+            XCTFail("Timed out waiting for cua-driver state update.")
+            return nil
+        }
     }
 
     private func makeStubExecutable(name: String, body: String) throws -> URL {
@@ -110,5 +146,23 @@ final class CuaDriverManagerTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
     }
+}
+
+@MainActor
+private final class CuaDriverStateUpdateIterator {
+    private var iterator: AsyncStream<CuaDriverManager.State>.Iterator
+
+    init(_ stream: AsyncStream<CuaDriverManager.State>) {
+        self.iterator = stream.makeAsyncIterator()
+    }
+
+    func next() async -> CuaDriverManager.State? {
+        await iterator.next()
+    }
+}
+
+private enum NextStateResult {
+    case state(CuaDriverManager.State?)
+    case timeout
 }
 #endif

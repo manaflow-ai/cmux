@@ -258,6 +258,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Returns the current Computer Use driver and permission snapshot.
     func computerUseState() async -> ComputerUseHostState
 
+    /// Streams host-owned Computer Use driver state changes.
+    func computerUseDriverStateUpdates() -> AsyncStream<ComputerUseHostState.DriverState>
+
     /// Starts the host-owned cua-driver process.
     func startCuaDriver() async
 
@@ -279,6 +282,9 @@ public extension SettingsHostActions {
     func resetAllSettingsSideEffects() {}
 
     func computerUseState() async -> ComputerUseHostState { .unavailable }
+    func computerUseDriverStateUpdates() -> AsyncStream<ComputerUseHostState.DriverState> {
+        AsyncStream { $0.finish() }
+    }
     func startCuaDriver() async {}
     func stopCuaDriver() async {}
     func requestAccessibilityAccess() async {}

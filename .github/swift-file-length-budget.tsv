@@ -177,7 +177,7 @@
 620	cmuxTests/FinderFileDropRegressionTests.swift
 620	cmuxTests/TerminalNotificationQueueTests.swift
 617	Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellRenderGridLivenessTests.swift
-617	Sources/SettingsNavigation.swift
+628	Sources/SettingsNavigation.swift
 608	cmuxUITests/FeedSidebarUITests.swift
 607	Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface.swift
 607	Sources/SessionIndexModels.swift
@@ -222,7 +222,7 @@
 538	Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/PTYBridge/RemotePTYBridgeSession.swift
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 535	Sources/App/WorkspaceRuntimeSettings.swift
-533	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
+541	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Scene/SettingsWindowScene.swift
 530	Sources/BrowserPaneDropTargetView.swift
 530	Sources/TerminalController+ControlSurfaceContext3.swift
 528	cmuxUITests/AutomationSocketUITests.swift

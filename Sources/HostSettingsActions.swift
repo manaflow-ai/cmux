@@ -18,9 +18,9 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
-    private let computerUseConfigStore: JSONConfigStore
-    private let computerUsePermissionChecker: any ComputerUsePermissionChecking
-    private var screenRecordingRequested = false
+    let computerUseConfigStore: JSONConfigStore
+    let computerUsePermissionChecker: any ComputerUsePermissionChecking
+    var screenRecordingRequested = false
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -98,108 +98,12 @@ final class HostSettingsActions: SettingsHostActions {
         PaneChromeSettings.notifyDidChange()
     }
 
-    func computerUseState() async -> ComputerUseHostState {
-        let driverPath = computerUseDriverPath()
-        let manager = CuaDriverManager.shared
-        let resolved = manager.resolve(settingValue: driverPath)
-        let triedSources = manager.resolutionCandidates(settingValue: driverPath)
-            .map { computerUseDriverSource($0.source) }
-
-        let driverState: ComputerUseHostState.DriverState
-        if resolved == nil {
-            switch manager.state {
-            case .starting, .running, .failed:
-                driverState = computerUseDriverState(manager.state)
-            case .notFound, .stopped:
-                driverState = .notFound
-            }
-        } else {
-            switch manager.state {
-            case .notFound:
-                driverState = .stopped
-            default:
-                driverState = computerUseDriverState(manager.state)
-            }
-        }
-
-        return ComputerUseHostState(
-            driverState: driverState,
-            resolvedDriver: resolved.map {
-                ComputerUseHostState.ResolvedDriver(
-                    path: $0.url.path,
-                    source: computerUseDriverSource($0.source)
-                )
-            },
-            triedSources: triedSources,
-            accessibilityGranted: computerUsePermissionChecker.accessibilityGranted,
-            screenRecordingGranted: computerUsePermissionChecker.screenRecordingGranted,
-            screenRecordingRequested: screenRecordingRequested
-        )
-    }
-
-    func startCuaDriver() async {
-        await CuaDriverManager.shared.start(settingValue: computerUseDriverPath())
-    }
-
-    func stopCuaDriver() async {
-        await CuaDriverManager.shared.stop()
-    }
-
-    func requestAccessibilityAccess() async {
-        _ = computerUsePermissionChecker.requestAccessibility()
-    }
-
-    func requestScreenRecordingAccess() async {
-        screenRecordingRequested = true
-        _ = computerUsePermissionChecker.requestScreenRecording()
-    }
-
-    func openPrivacyPane(anchor: ComputerUsePrivacyPaneAnchor) {
-        let fragment: String
-        switch anchor {
-        case .accessibility:
-            fragment = "Privacy_Accessibility"
-        case .screenRecording:
-            fragment = "Privacy_ScreenCapture"
-        }
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(fragment)") else { return }
-        NSWorkspace.shared.open(url)
-    }
-
     func openConfigInExternalEditor() {
         // Honor the user's configured editor (`preferredEditorCommand`),
         // falling back to the OS default. Opening the config file directly
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
         PreferredEditorService(defaults: .standard).open(configFileURL)
-    }
-
-    private func computerUseDriverPath() -> String {
-        computerUseConfigStore.snapshotValue(for: SettingCatalog().computerUse.driverPath)
-    }
-
-    private func computerUseDriverState(_ state: CuaDriverManager.State) -> ComputerUseHostState.DriverState {
-        switch state {
-        case .notFound:
-            return .notFound
-        case .stopped:
-            return .stopped
-        case .starting:
-            return .starting
-        case .running(let info):
-            return .running(
-                pid: info.pid,
-                serverName: info.serverName,
-                serverVersion: info.serverVersion,
-                toolCount: info.toolCount
-            )
-        case .failed(let message):
-            return .failed(message)
-        }
-    }
-
-    private func computerUseDriverSource(_ source: CuaDriverBinaryResolution.Source) -> ComputerUseDriverSource {
-        ComputerUseDriverSource(rawValue: source.rawValue) ?? .setting
     }
 
     func sendFeedback() {

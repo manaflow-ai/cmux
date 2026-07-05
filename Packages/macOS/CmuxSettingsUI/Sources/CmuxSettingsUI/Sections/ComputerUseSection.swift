@@ -76,6 +76,14 @@ public struct ComputerUseSection: View {
         .task {
             driverPathModel.startObserving()
             await refresh()
+            for await driverState in hostActions.computerUseDriverStateUpdates() {
+                apply(driverState: driverState)
+            }
+        }
+        .onChange(of: driverPathModel.current) { _, _ in
+            Task {
+                await refresh()
+            }
         }
     }
 
@@ -129,6 +137,7 @@ public struct ComputerUseSection: View {
             permissionRow(
                 title: String(localized: "settings.computerUse.accessibility.title", defaultValue: "Accessibility"),
                 subtitle: rowState.statusText,
+                searchAnchorID: "setting:computerUse:accessibility",
                 grantDisabled: rowState.grantDisabled,
                 grantAction: {
                     Task {
@@ -153,6 +162,7 @@ public struct ComputerUseSection: View {
             permissionRow(
                 title: String(localized: "settings.computerUse.screenRecording.title", defaultValue: "Screen Recording"),
                 subtitle: rowState.statusText,
+                searchAnchorID: "setting:computerUse:screen-recording",
                 grantDisabled: rowState.grantDisabled,
                 grantAction: {
                     Task {
@@ -209,12 +219,14 @@ public struct ComputerUseSection: View {
     private func permissionRow(
         title: String,
         subtitle: String,
+        searchAnchorID: String,
         grantDisabled: Bool,
         grantAction: @escaping () -> Void,
         openAction: @escaping () -> Void
     ) -> some View {
         SettingsCardRow(
             configurationReview: .action,
+            searchAnchorID: searchAnchorID,
             title,
             subtitle: subtitle,
             controlWidth: Self.columnWidth
@@ -294,5 +306,16 @@ public struct ComputerUseSection: View {
         isRefreshing = true
         hostState = await hostActions.computerUseState()
         isRefreshing = false
+    }
+
+    private func apply(driverState: ComputerUseHostState.DriverState) {
+        hostState = ComputerUseHostState(
+            driverState: driverState,
+            resolvedDriver: hostState.resolvedDriver,
+            triedSources: hostState.triedSources,
+            accessibilityGranted: hostState.accessibilityGranted,
+            screenRecordingGranted: hostState.screenRecordingGranted,
+            screenRecordingRequested: hostState.screenRecordingRequested
+        )
     }
 }
