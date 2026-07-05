@@ -40,7 +40,7 @@ public struct DockExtensionInstallPreview: Equatable, Sendable {
 
     /// The consent fingerprint that confirming this preview records.
     public var consentFingerprint: String {
-        DockExtensionFingerprint.compute(pinnedSha: resolvedSha, manifest: manifest)
+        manifest.consentFingerprint(pinnedSha: resolvedSha)
     }
 
     /// Creates a preview value.

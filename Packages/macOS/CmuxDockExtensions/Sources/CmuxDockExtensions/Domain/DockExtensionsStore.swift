@@ -242,7 +242,7 @@ public final class DockExtensionsStore {
             pinnedSha: nil,
             installedAt: Date(),
             enabled: true,
-            consentFingerprint: DockExtensionFingerprint.compute(pinnedSha: nil, manifest: manifest)
+            consentFingerprint: manifest.consentFingerprint(pinnedSha: nil)
         )
         try await repository.upsert(record)
         await reload()
@@ -311,7 +311,7 @@ public final class DockExtensionsStore {
             controlId: qualifiedId,
             title: title,
             iconSystemName: manifest.iconSystemName,
-            shellCommand: DockExtensionCommandLine.shellCommand(for: pane.command),
+            shellCommand: pane.shellCommand,
             workingDirectory: workingDirectory.path,
             environment: environment
         )
@@ -446,10 +446,7 @@ public final class DockExtensionsStore {
                     // the manifest are the whole point of linking.
                     status = .ok
                 } else {
-                    let fingerprint = DockExtensionFingerprint.compute(
-                        pinnedSha: record.pinnedSha,
-                        manifest: manifest
-                    )
+                    let fingerprint = manifest.consentFingerprint(pinnedSha: record.pinnedSha)
                     status = fingerprint == record.consentFingerprint ? .ok : .needsReconsent
                 }
                 return InstalledDockExtension(

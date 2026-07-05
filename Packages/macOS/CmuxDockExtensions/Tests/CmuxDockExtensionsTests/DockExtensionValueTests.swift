@@ -19,24 +19,30 @@ struct DockExtensionVersionTests {
     }
 }
 
-@Suite("DockExtensionCommandLine")
-struct DockExtensionCommandLineTests {
+@Suite("Dock extension shell commands")
+struct DockExtensionShellCommandTests {
     @Test func safeArgumentsStayBare() {
-        #expect(DockExtensionCommandLine.shellCommand(for: ["npx", "--yes", "./run.sh"]) == "npx --yes ./run.sh")
-        #expect(DockExtensionCommandLine.shellCommand(for: ["a=b", "x:y", "v1.2,3"]) == "a=b x:y v1.2,3")
+        #expect(DockExtensionBuildStep(command: ["npx", "--yes", "./run.sh"]).shellCommand == "npx --yes ./run.sh")
+        #expect(DockExtensionBuildStep(command: ["a=b", "x:y", "v1.2,3"]).shellCommand == "a=b x:y v1.2,3")
     }
 
     @Test func unsafeArgumentsAreSingleQuoted() {
-        #expect(DockExtensionCommandLine.shellCommand(for: ["echo", "hello world"]) == "echo 'hello world'")
-        #expect(DockExtensionCommandLine.quoteIfNeeded("it's") == "'it'\\''s'")
-        #expect(DockExtensionCommandLine.quoteIfNeeded("$HOME") == "'$HOME'")
-        #expect(DockExtensionCommandLine.quoteIfNeeded("a;b") == "'a;b'")
-        #expect(DockExtensionCommandLine.quoteIfNeeded("") == "''")
+        #expect(DockExtensionBuildStep(command: ["echo", "hello world"]).shellCommand == "echo 'hello world'")
+        #expect(["it's"].dockExtensionShellCommand == "'it'\\''s'")
+        #expect(["$HOME"].dockExtensionShellCommand == "'$HOME'")
+        #expect(["a;b"].dockExtensionShellCommand == "'a;b'")
+        #expect([""].dockExtensionShellCommand == "''")
+    }
+
+    @Test func paneAndStepRenderTheSameWay() {
+        let argv = ["./bin/tui", "--flag", "two words"]
+        let pane = DockExtensionPane(id: "main", title: "Main", command: argv)
+        #expect(pane.shellCommand == DockExtensionBuildStep(command: argv).shellCommand)
     }
 }
 
-@Suite("DockExtensionFingerprint")
-struct DockExtensionFingerprintTests {
+@Suite("Consent fingerprint")
+struct DockExtensionConsentFingerprintTests {
     private func manifest(env: [String: String] = ["B": "2", "A": "1"], command: [String] = ["run"]) -> DockExtensionManifest {
         DockExtensionManifest(
             manifestVersion: 1,
@@ -49,16 +55,16 @@ struct DockExtensionFingerprintTests {
     }
 
     @Test func stableAcrossEnvOrder() {
-        let first = DockExtensionFingerprint.compute(pinnedSha: "abc", manifest: manifest(env: ["A": "1", "B": "2"]))
-        let second = DockExtensionFingerprint.compute(pinnedSha: "abc", manifest: manifest(env: ["B": "2", "A": "1"]))
+        let first = manifest(env: ["A": "1", "B": "2"]).consentFingerprint(pinnedSha: "abc")
+        let second = manifest(env: ["B": "2", "A": "1"]).consentFingerprint(pinnedSha: "abc")
         #expect(first == second)
         #expect(first.count == 64)
     }
 
     @Test func changesWhenConsentedSurfaceChanges() {
-        let base = DockExtensionFingerprint.compute(pinnedSha: "abc", manifest: manifest())
-        #expect(base != DockExtensionFingerprint.compute(pinnedSha: "def", manifest: manifest()))
-        #expect(base != DockExtensionFingerprint.compute(pinnedSha: "abc", manifest: manifest(command: ["run", "-x"])))
-        #expect(base != DockExtensionFingerprint.compute(pinnedSha: nil, manifest: manifest()))
+        let base = manifest().consentFingerprint(pinnedSha: "abc")
+        #expect(base != manifest().consentFingerprint(pinnedSha: "def"))
+        #expect(base != manifest(command: ["run", "-x"]).consentFingerprint(pinnedSha: "abc"))
+        #expect(base != manifest().consentFingerprint(pinnedSha: nil))
     }
 }

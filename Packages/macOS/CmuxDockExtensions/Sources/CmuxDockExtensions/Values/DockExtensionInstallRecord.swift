@@ -25,9 +25,9 @@ public struct DockExtensionInstallRecord: Codable, Equatable, Sendable, Identifi
     /// the checkout and consent but hides the panes.
     public var enabled: Bool
 
-    /// ``DockExtensionFingerprint`` of the consented commit + commands. A
-    /// mismatch against the checkout's current manifest flags the extension as
-    /// needing re-consent.
+    /// ``DockExtensionManifest/consentFingerprint(pinnedSha:)`` of the
+    /// consented commit + commands. A mismatch against the checkout's current
+    /// manifest flags the extension as needing re-consent.
     public var consentFingerprint: String
 
     /// Creates a lockfile record.

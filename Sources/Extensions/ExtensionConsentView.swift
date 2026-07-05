@@ -218,7 +218,7 @@ struct ExtensionConsentView: View {
                     defaultValue: "Runs once at install (build steps)"
                 ))
                 ForEach(Array(buildSteps.enumerated()), id: \.offset) { _, step in
-                    commandLine(DockExtensionCommandLine.shellCommand(for: step.command))
+                    commandLine(step.shellCommand)
                 }
             }
         }
@@ -231,7 +231,7 @@ struct ExtensionConsentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(pane.title)
                         .font(.system(size: 12, weight: .medium))
-                    commandLine(DockExtensionCommandLine.shellCommand(for: pane.command))
+                    commandLine(pane.shellCommand)
                     if let cwd = pane.cwd {
                         detailLine(String(
                             localized: "extensions.consent.paneCwd",

@@ -16,7 +16,7 @@ public struct DockExtensionPaneOpenRequest: Equatable, Sendable {
     public let iconSystemName: String
 
     /// The pane argv rendered as one shell command string (see
-    /// ``DockExtensionCommandLine``) for the Dock's login-shell wrapper.
+    /// ``DockExtensionPane/shellCommand``) for the Dock's login-shell wrapper.
     public let shellCommand: String
 
     /// Absolute working directory (extension root plus the pane's `cwd`).

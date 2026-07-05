@@ -50,7 +50,7 @@ public actor DockExtensionBuildRunner {
         var log = ""
 
         for step in steps {
-            let display = DockExtensionCommandLine.shellCommand(for: step.command)
+            let display = step.shellCommand
             log += "$ \(display)\n"
             let result: DockExtensionProcessResult
             do {
@@ -91,7 +91,7 @@ public actor DockExtensionBuildRunner {
         // variable (herdr parity: build commands see no runtime/socket env).
         let environment = ProcessInfo.processInfo.environment
             .filter { !$0.key.hasPrefix("CMUX_") }
-        let shellCommand = "exec " + DockExtensionCommandLine.shellCommand(for: step.command)
+        let shellCommand = "exec " + step.shellCommand
         return try await runner.run(
             executableURL: URL(fileURLWithPath: loginShellPath()),
             arguments: ["-l", "-c", shellCommand],
