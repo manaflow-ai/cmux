@@ -829,6 +829,7 @@
 		477796B44AAC7290AA9EFB6C /* RemoteTmuxControlCommandKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */; };
 		1A8D46CE776340BB6BC49FC2 /* RemoteTmuxControlConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */; };
 		42FBA382CDEAEC146FA5A895 /* RemoteTmuxControlConnectionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */; };
+		736200000000000000000002 /* RemoteTmuxController+Decisions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000001 /* RemoteTmuxController+Decisions.swift */; };
 		F67BABC493A488943ED1DB90 /* RemoteTmuxController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */; };
 		DCCD118CAFF7B3B9C6F184B4 /* RemoteTmuxControlMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07A7B144E94D24E7E1A99106 /* RemoteTmuxControlMessage.swift */; };
 		0B17C0DE0B17C0DE0B17C002 /* RemoteTmuxControlMessageDecoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B17C0DE0B17C0DE0B17C001 /* RemoteTmuxControlMessageDecoding.swift */; };
@@ -847,6 +848,7 @@
 		F11ED7AB0001000100010001 /* RemoteTmuxMirrorNewTabPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */; };
 		D4F8A2E61C5B39707A8E6F12 /* RemoteTmuxMirrorSplitRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */; };
 		F861B8D7C62A0BCB252A523A /* RemoteTmuxMirrorTabActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC55CC7B42874062C64013A /* RemoteTmuxMirrorTabActivity.swift */; };
+		736200000000000000000008 /* RemoteTmuxMirrorTargetingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000007 /* RemoteTmuxMirrorTargetingTests.swift */; };
 		0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */; };
 		E9A8CC35D632F14A8669B7D1 /* RemoteTmuxPaneForegroundState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123BF93B1ADC00C5D25EE028 /* RemoteTmuxPaneForegroundState.swift */; };
 		740FC5FDE4E13EAA440872C3 /* RemoteTmuxPaneHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6F225C1630E640224D11E09 /* RemoteTmuxPaneHeader.swift */; };
@@ -1067,6 +1069,7 @@
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
+		736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 		C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */; };
 		2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
@@ -2141,6 +2144,7 @@
 		AAAD58EFBF501E599E6D9E9A /* RemoteTmuxControlCommandKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlCommandKind.swift; sourceTree = "<group>"; };
 		602197314BF2C4CC53565BBC /* RemoteTmuxControlConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlConnection.swift; sourceTree = "<group>"; };
 		2587F4E278EFECB84E2ED34B /* RemoteTmuxControlConnectionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlConnectionSnapshot.swift; sourceTree = "<group>"; };
+		736200000000000000000001 /* RemoteTmuxController+Decisions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxController+Decisions.swift"; sourceTree = "<group>"; };
 		50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxController.swift; sourceTree = "<group>"; };
 		07A7B144E94D24E7E1A99106 /* RemoteTmuxControlMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlMessage.swift; sourceTree = "<group>"; };
 		0B17C0DE0B17C0DE0B17C001 /* RemoteTmuxControlMessageDecoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxControlMessageDecoding.swift; sourceTree = "<group>"; };
@@ -2159,6 +2163,7 @@
 		F11ED7AB0002000200020002 /* RemoteTmuxMirrorNewTabPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorNewTabPlacementTests.swift; sourceTree = "<group>"; };
 		A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorSplitRoutingTests.swift; sourceTree = "<group>"; };
 		6FC55CC7B42874062C64013A /* RemoteTmuxMirrorTabActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTabActivity.swift; sourceTree = "<group>"; };
+		736200000000000000000007 /* RemoteTmuxMirrorTargetingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTargetingTests.swift; sourceTree = "<group>"; };
 		0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNewWindowCwdTests.swift; sourceTree = "<group>"; };
 		123BF93B1ADC00C5D25EE028 /* RemoteTmuxPaneForegroundState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxPaneForegroundState.swift; sourceTree = "<group>"; };
 		F6F225C1630E640224D11E09 /* RemoteTmuxPaneHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxPaneHeader.swift; sourceTree = "<group>"; };
@@ -2369,6 +2374,7 @@
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
+		736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomTitle.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerNotificationFocusRegressionTests.swift; sourceTree = "<group>"; };
 		10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
@@ -3068,6 +3074,7 @@
 				A5001013 /* TabManager.swift */,
 				DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */,
 				C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */,
+				736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */,
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
 				C10D51700000000000000001 /* ClosedItemHistory.swift */,
@@ -3509,6 +3516,7 @@
 				59B80C0A6FC64A59BD274E1E /* RemoteTmuxProcessCancellation.swift */,
 					95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */,
 					50FE16F529BD6FBA4FBDECFC /* RemoteTmuxController.swift */,
+					736200000000000000000001 /* RemoteTmuxController+Decisions.swift */,
 					9E3E94F6022485BB12789444 /* RemoteTmuxSessionEndAction.swift */,
 				0E17C0DE0E17C0DE0E17C001 /* RemoteTmuxTransportRegistry.swift */,
 				0F17C0DE0F17C0DE0F17C001 /* RemoteTmuxWindowRegistry.swift */,
@@ -3950,6 +3958,7 @@
 					0A17C0DE0A17C0DE0A17CA01 /* RemoteTmuxVersionTests.swift */,
 					3F704ED4F177122D7DCD0B01 /* RemoteTmuxSessionRenameTitleTests.swift */,
 					736200000000000000000005 /* RemoteTmuxMirrorLifecycleTests.swift */,
+					736200000000000000000007 /* RemoteTmuxMirrorTargetingTests.swift */,
 					31FFFE3EFCDCCD6BDF405370 /* RemoteTmuxSessionSnapshotTests.swift */,
 				08850489C70ECFACA540C2F3 /* WorkspaceTerminalWorkingDirectoryFallbackTests.swift */,
 				B561A95C6DC21BA9C4B2BCDD /* WorkspaceEnvironmentTests.swift */,
@@ -4931,6 +4940,7 @@
 				477796B44AAC7290AA9EFB6C /* RemoteTmuxControlCommandKind.swift in Sources */,
 				1A8D46CE776340BB6BC49FC2 /* RemoteTmuxControlConnection.swift in Sources */,
 				42FBA382CDEAEC146FA5A895 /* RemoteTmuxControlConnectionSnapshot.swift in Sources */,
+				736200000000000000000002 /* RemoteTmuxController+Decisions.swift in Sources */,
 				F67BABC493A488943ED1DB90 /* RemoteTmuxController.swift in Sources */,
 				DCCD118CAFF7B3B9C6F184B4 /* RemoteTmuxControlMessage.swift in Sources */,
 				0B17C0DE0B17C0DE0B17C002 /* RemoteTmuxControlMessageDecoding.swift in Sources */,
@@ -5074,6 +5084,7 @@
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
 				604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */,
+				736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */,
 				A5001003 /* TabManager.swift in Sources */,
 				C7A503000000000000000002 /* TaskManagerSnapshot.swift in Sources */,
 				C7A504000000000000000002 /* TaskManagerTypes.swift in Sources */,
@@ -5580,6 +5591,7 @@
 				736200000000000000000006 /* RemoteTmuxMirrorLifecycleTests.swift in Sources */,
 				F11ED7AB0001000100010001 /* RemoteTmuxMirrorNewTabPlacementTests.swift in Sources */,
 				D4F8A2E61C5B39707A8E6F12 /* RemoteTmuxMirrorSplitRoutingTests.swift in Sources */,
+				736200000000000000000008 /* RemoteTmuxMirrorTargetingTests.swift in Sources */,
 				0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */,
 				7020C0DE7020C0DE7020A002 /* RemoteTmuxProxyTransportRetryTests.swift in Sources */,
 				3AC9AB9046E742B93726A405 /* RemoteTmuxSessionListParserTests.swift in Sources */,

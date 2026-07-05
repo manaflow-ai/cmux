@@ -44,6 +44,8 @@ final class RemoteTmuxSessionMirror {
 
     private weak var tabManager: TabManager?
     private weak var workspace: Workspace?
+    /// The workspace currently backing this mirror, if it has not been released.
+    var mirroredWorkspace: Workspace? { workspace }
     private let defaultPanelIds: [UUID]
     private var defaultClosed = false
     private var panelIdByWindow: [Int: UUID] = [:]
@@ -345,17 +347,6 @@ final class RemoteTmuxSessionMirror {
         if let panel = workspace.panels[panelId] as? TerminalPanel {
             panel.surface.onManualGridResize = nil
         }
-    }
-
-    /// The tab title for a mirrored window: the tmux window name, or a localized
-    /// placeholder when tmux hasn't reported one. tmux window names are
-    /// content-derived (like every other cmux tab title) so the name itself is
-    /// not translated; only the empty-name placeholder is localized.
-    private static func tabTitle(for window: RemoteTmuxWindow) -> String {
-        let trimmed = window.name.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty
-            ? String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
-            : trimmed
     }
 
     private func closeDefaultTabsIfNeeded() {

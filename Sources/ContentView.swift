@@ -2616,7 +2616,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange, object: tabManager)) { notification in
-            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID, workspaceId == tabManager.selectedTabId, !tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspaceId) else { return }
+            guard tabManager.shouldRefreshTitleChrome(for: notification) else { return }
             updateTitlebarText()
         })
 
