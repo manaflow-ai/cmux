@@ -241,10 +241,10 @@ describe("reconcileProPlanMetadata", () => {
 });
 
 describe("resolveProPlanStatus", () => {
-  function statusUser(metadata: unknown, products: ProductInput[]) {
+  function statusUser(metadata: unknown, products: ProductInput[], id?: string) {
     const base = metadataUser(metadata);
     const pages = customerWithPages([productsPage(products)]);
-    return { ...base, listProducts: pages.listProducts };
+    return { ...base, id, listProducts: pages.listProducts };
   }
 
   const activePro: ProductInput = {
@@ -286,5 +286,21 @@ describe("resolveProPlanStatus", () => {
       metadataChanged: false,
     });
     expect(user.updates).toEqual([]);
+  });
+
+  test("returns pro when Stripe has an active subscription row", async () => {
+    const user = statusUser({}, [], "user-stripe-pro");
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async (stackUserId) => stackUserId === "user-stripe-pro",
+      }),
+    ).resolves.toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      metadataPlanId: null,
+      hasManualVmPlanOverride: false,
+      metadataChanged: true,
+    });
+    expect(user.updates).toEqual([{ cmuxPlan: PRO_PLAN_ID }]);
   });
 });

@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stackServerApp } from "../../../lib/stack";
+import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import {
   PRO_PRODUCT_ID,
   TEAM_PRODUCT_ID,
   hasActiveProSubscription,
+  resolveProPlanStatus,
   syncProPlanMetadata,
 } from "../../../../services/billing/pro";
+import { captureBillingError } from "../../../../services/errors";
+import {
+  isStripeBillingConfigured,
+  resolveProPrice,
+  stripe,
+  type ProBillingInterval,
+} from "../../../../services/billing/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -23,9 +32,75 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", request.url));
   }
 
+  if (plan === "pro" && isStripeBillingConfigured()) {
+    return stripeProCheckout(request);
+  }
+
+  return legacyStackCheckout(request, plan);
+}
+
+async function stripeProCheckout(request: NextRequest) {
   const user =
-    (await stackServerApp.getUser({ or: "return-null" })) ??
-    (await stackServerApp.getUser({ or: "anonymous" }));
+    (await stackServerApp!.getUser({ or: "return-null" })) ??
+    (await stackServerApp!.getUser({ or: "anonymous" }));
+
+  const status = await resolveProPlanStatus(user);
+  if (status.isPro) {
+    await syncProPlanMetadata(user, true);
+    return NextResponse.redirect(new URL("/pricing?welcome=active", request.url));
+  }
+
+  const scheme = validatedNativeCallbackScheme(
+    request.nextUrl.searchParams.get("cmux_scheme"),
+    request,
+  );
+  const interval = checkoutInterval(request.nextUrl.searchParams.get("interval"));
+  const successUrl =
+    `${request.nextUrl.origin}/api/billing/complete` +
+    `?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=${encodeURIComponent(scheme)}`;
+  const cancelUrl = new URL("/pricing?billing=cancelled", request.nextUrl.origin);
+  const metadata = {
+    stackUserId: user.id,
+    plan: "pro",
+    app: "cmux",
+  };
+
+  try {
+    const session = await stripe().checkout.sessions.create({
+      mode: "subscription",
+      line_items: [
+        {
+          price: await resolveProPrice(interval),
+          quantity: 1,
+        },
+      ],
+      client_reference_id: user.id,
+      metadata,
+      subscription_data: { metadata },
+      customer_email: !user.isAnonymous && user.primaryEmail ? user.primaryEmail : undefined,
+      allow_promotion_codes: true,
+      success_url: successUrl,
+      cancel_url: cancelUrl.toString(),
+    });
+    if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    return NextResponse.redirect(session.url);
+  } catch (error) {
+    captureBillingError(error, {
+      route: "/api/billing/checkout",
+      plan: "pro",
+      interval,
+    });
+    return NextResponse.redirect(new URL("/pricing?billing=error", request.url));
+  }
+}
+
+async function legacyStackCheckout(
+  request: NextRequest,
+  plan: "pro" | "team",
+) {
+  const user =
+    (await stackServerApp!.getUser({ or: "return-null" })) ??
+    (await stackServerApp!.getUser({ or: "anonymous" }));
 
   if (plan === "pro" && (await hasActiveProSubscription(user))) {
     await syncProPlanMetadata(user, true);
@@ -96,6 +171,10 @@ function checkoutPlan(raw: string | null): "pro" | "team" | null {
   const plan = raw.trim().toLowerCase();
   if (plan === "pro" || plan === "team") return plan;
   return null;
+}
+
+function checkoutInterval(raw: string | null): ProBillingInterval {
+  return raw === "month" ? "month" : "year";
 }
 
 function isAlreadyGrantedError(error: unknown): boolean {

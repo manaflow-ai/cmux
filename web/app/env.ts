@@ -44,6 +44,13 @@ export const env = createEnv({
     // change without a code edit.
     STRIPE_FOUNDERS_WEBHOOK_SECRET: z.string().min(1).optional(),
     CMUX_FOUNDERS_FROM_EMAIL: z.string().email().optional(),
+    // Direct Stripe billing for cmux Pro. Optional: when unset, checkout keeps
+    // using the legacy Stack-hosted product flow.
+    STRIPE_SECRET_KEY: z.string().min(1).optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    STRIPE_PRO_MONTHLY_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_PRO_YEARLY_PRICE_ID: z.string().min(1).optional(),
+    SENTRY_DSN: z.string().url().optional(),
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
@@ -67,6 +74,11 @@ export const env = createEnv({
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
+    STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
+    STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
+    STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
+    STRIPE_PRO_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_PRICE_ID),
+    SENTRY_DSN: trimEnv(process.env.SENTRY_DSN),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(

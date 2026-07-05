@@ -2326,6 +2326,14 @@
     "button": "cmux に戻る",
     "switchAccountButton": "別のアカウントを使用"
   },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro が有効になりました",
+    "title": "cmux Pro が有効になりました",
+    "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
+    "emailLabel": "購入メールアドレス",
+    "openCmux": "cmux を開く",
+    "manageSignInMethods": "サインイン方法を管理"
+  },
   "landing": {
     "bestTerminal": {
       "metaTitle": "2026年、Mac に最適なターミナル — cmux",

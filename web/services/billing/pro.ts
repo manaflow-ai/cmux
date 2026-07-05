@@ -10,11 +10,17 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
+import { inArray, eq, and } from "drizzle-orm";
+
+import { cloudDb } from "../../db/client";
+import { stripeSubscriptions } from "../../db/schema";
+
 export const PRO_PRODUCT_ID = "pro";
 export const TEAM_PRODUCT_ID = process.env.CMUX_TEAM_PRODUCT_ID?.trim() || "team";
 export const PRO_PLAN_ID = "pro";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
+export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
 
 const PRODUCTS_PAGE_LIMIT = 50;
 const MAX_PRODUCT_PAGES = 10;
@@ -111,7 +117,11 @@ export async function syncProPlanMetadata(
   await user.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
 }
 
-export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer;
+export type ProReconcileUser = ProductsCustomer & ProMetadataCustomer & {
+  readonly id?: string;
+};
+
+export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
 
 export type ProPlanStatus = {
   readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
@@ -131,6 +141,7 @@ export type ProPlanStatus = {
  */
 export async function reconcileProPlanMetadata(
   user: ProReconcileUser,
+  options: { hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery } = {},
 ): Promise<boolean> {
   const raw = user.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
@@ -140,7 +151,7 @@ export async function reconcileProPlanMetadata(
   const override = metadata.cmuxVmPlan;
   if (typeof override === "string" && override.trim()) return false;
 
-  const isPro = await hasActiveProSubscription(user);
+  const isPro = await hasAnyActiveProSubscription(user, options.hasActiveStripeSubscription);
   if (isPro === (metadata.cmuxPlan === PRO_PLAN_ID)) return false;
   await syncProPlanMetadata(user, isPro);
   return true;
@@ -148,11 +159,12 @@ export async function reconcileProPlanMetadata(
 
 export async function resolveProPlanStatus(
   user: ProReconcileUser,
+  options: { hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery } = {},
 ): Promise<ProPlanStatus> {
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
-  const isPro = await hasActiveProSubscription(user);
+  const isPro = await hasAnyActiveProSubscription(user, options.hasActiveStripeSubscription);
   let metadataChanged = false;
 
   if (!hasManualVmPlanOverride && isPro !== (metadataPlanId === PRO_PLAN_ID)) {
@@ -169,6 +181,40 @@ export async function resolveProPlanStatus(
   };
 }
 
+export async function hasActiveStripeProSubscription(
+  stackUserId: string,
+): Promise<boolean> {
+  try {
+    const rows = await cloudDb()
+      .select({ id: stripeSubscriptions.id })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackUserId, stackUserId),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+async function hasAnyActiveProSubscription(
+  user: ProReconcileUser,
+  hasActiveStripeSubscription: ActiveStripeSubscriptionQuery = hasActiveStripeProSubscription,
+): Promise<boolean> {
+  const stackActive =
+    typeof user.listProducts === "function"
+      ? await hasActiveProSubscription(user)
+      : false;
+  if (stackActive) return true;
+  return user.id ? hasActiveStripeSubscription(user.id) : false;
+}
+
 function proMetadataRecord(raw: unknown): Record<string, unknown> {
   return raw && typeof raw === "object" && !Array.isArray(raw)
     ? (raw as Record<string, unknown>)
@@ -183,4 +229,8 @@ function hasManualVmOverride(metadata: Record<string, unknown>): boolean {
 function planIdFromMetadata(metadata: Record<string, unknown>): string | null {
   const value = metadata.cmuxPlan;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isMissingDatabaseConfig(error: unknown): boolean {
+  return error instanceof Error && /DATABASE_URL is required/.test(error.message);
 }

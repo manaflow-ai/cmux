@@ -1,4 +1,5 @@
 export const CHECKOUT_EXTERNAL_BROWSER_PARAM = "cmux_external_browser";
+export const CHECKOUT_NATIVE_SCHEME_PARAM = "cmux_scheme";
 export const CHECKOUT_PLAN_PARAM = "plan";
 export const CHECKOUT_PATH = "/api/billing/checkout";
 export type CheckoutPlan = "pro" | "team";
@@ -17,10 +18,16 @@ export function withCheckoutPlan(href: string, plan: CheckoutPlan): string {
   return withSearchParam(href, CHECKOUT_PLAN_PARAM, plan);
 }
 
-export function appPricingCheckoutURL(plan: CheckoutPlan, requestOrigin: string | null): string {
-  return withCheckoutExternalBrowserIntent(
+export function appPricingCheckoutURL(
+  plan: CheckoutPlan,
+  requestOrigin: string | null,
+  cmuxScheme?: string | null,
+): string {
+  let href = withCheckoutExternalBrowserIntent(
     withCheckoutPlan(configuredAppPricingCheckoutURL(requestOrigin), plan),
   );
+  if (cmuxScheme) href = withSearchParam(href, CHECKOUT_NATIVE_SCHEME_PARAM, cmuxScheme);
+  return href;
 }
 
 function withSearchParam(href: string, name: string, value: string): string {

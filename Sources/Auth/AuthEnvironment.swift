@@ -115,7 +115,7 @@ enum AuthEnvironment {
     /// local Next server while still starting checkout on cmux.com so the
     /// user's default browser cookies and anonymous billing session line up.
     static var billingCheckoutURL: URL {
-        billingCheckoutURL(origin: billingWebsiteOrigin)
+        billingCheckoutURL(origin: billingWebsiteOrigin, callbackScheme: callbackScheme)
     }
 
     static func resolvedBillingCheckoutURL(environment: [String: String]) -> URL {
@@ -124,7 +124,8 @@ enum AuthEnvironment {
                 environmentKey: "CMUX_BILLING_WWW_ORIGIN",
                 fallback: "https://cmux.com",
                 environment: environment
-            )
+            ),
+            callbackScheme: callbackScheme(environment: environment, bundleIdentifier: nil)
         )
     }
 
@@ -233,14 +234,16 @@ enum AuthEnvironment {
         )
     }
 
-    private static func billingCheckoutURL(origin: URL) -> URL {
+    private static func billingCheckoutURL(origin: URL, callbackScheme: String) -> URL {
         var components = URLComponents(
             url: origin.appendingPathComponent("api/billing/checkout"),
             resolvingAgainstBaseURL: false
         )!
         var queryItems = components.queryItems ?? []
         queryItems.removeAll { $0.name == "cmux_external_browser" }
+        queryItems.removeAll { $0.name == "cmux_scheme" }
         queryItems.append(URLQueryItem(name: "cmux_external_browser", value: "1"))
+        queryItems.append(URLQueryItem(name: "cmux_scheme", value: callbackScheme))
         components.queryItems = queryItems
         return components.url!
     }

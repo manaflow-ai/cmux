@@ -132,16 +132,23 @@ struct AuthEnvironmentTests {
         #expect(URLComponents(url: defaultURL, resolvingAgainstBaseURL: false)?
             .queryItems?
             .contains(where: { $0.name == "cmux_external_browser" && $0.value == "1" }) == true)
+        #expect(URLComponents(url: defaultURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "cmux_scheme" && $0.value == "cmux-dev" }) == true)
 
         let overrideURL = AuthEnvironment.resolvedBillingCheckoutURL(
             environment: [
                 "CMUX_WWW_ORIGIN": "http://localhost:4278",
                 "CMUX_BILLING_WWW_ORIGIN": "https://billing-preview.example",
+                "CMUX_AUTH_CALLBACK_SCHEME": "cmux-dev-preview",
             ]
         )
         #expect(overrideURL.scheme == "https")
         #expect(overrideURL.host == "billing-preview.example")
         #expect(overrideURL.path == "/api/billing/checkout")
+        #expect(URLComponents(url: overrideURL, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .contains(where: { $0.name == "cmux_scheme" && $0.value == "cmux-dev-preview" }) == true)
     }
 
     @Test("tagged debug app pricing uses launch web origin before dotfile fallback")

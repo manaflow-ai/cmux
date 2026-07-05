@@ -2369,6 +2369,14 @@
     "button": "Return to cmux",
     "switchAccountButton": "Use a different account"
   },
+  "billingSuccess": {
+    "metaTitle": "cmux Pro is active",
+    "title": "cmux Pro is active",
+    "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "emailLabel": "Purchase email",
+    "openCmux": "Open cmux",
+    "manageSignInMethods": "Manage sign-in methods"
+  },
   "landing": {
     "bestTerminal": {
       "metaTitle": "The best terminal for Mac in 2026 — cmux",

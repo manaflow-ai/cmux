@@ -1,6 +1,9 @@
 import type { CSSProperties } from "react";
 import { headers } from "next/headers";
+import { NextRequest } from "next/server";
+import { redirect } from "next/navigation";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
+import { validatedNativeCallbackScheme } from "../lib/native-callback";
 import { FREE_PLAN_ID, resolveProPlanStatus } from "../../services/billing/pro";
 import enMessages from "../../messages/en.json";
 import { appPricingCheckoutURL } from "../lib/billing";
@@ -33,11 +36,18 @@ export default async function AppPricingPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const snapshot = await currentPlanSnapshot();
   const params = await searchParams;
-  const requestOrigin = appPricingRequestOrigin(await headers());
-  const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin);
-  const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin);
+  if (firstParam(params.cmux_app) !== "1") redirect("/pricing");
+
+  const snapshot = await currentPlanSnapshot();
+  const headersList = await headers();
+  const requestOrigin = appPricingRequestOrigin(headersList);
+  const cmuxScheme = validatedNativeCallbackScheme(
+    firstParam(params.cmux_scheme),
+    appPricingRequest(headersList),
+  );
+  const proCheckoutURL = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme);
+  const teamCheckoutURL = appPricingCheckoutURL("team", requestOrigin, cmuxScheme);
   const banner = appPricingBanner(params);
   const appearance = appPricingAppearance(params);
   const pageBackground = appPricingPageBackground(params, appearance);
@@ -352,6 +362,12 @@ function appPricingRequestOrigin(headersList: Headers): string | null {
   const proto = forwardedProto ?? (isLoopbackHost(host) ? "http" : "https");
   if (proto !== "http" && proto !== "https") return null;
   return `${proto}://${host}`;
+}
+
+function appPricingRequest(headersList: Headers): NextRequest {
+  return new NextRequest(appPricingRequestOrigin(headersList) ?? "https://cmux.com", {
+    headers: headersList,
+  });
 }
 
 function firstHeaderValue(value: string | null): string | null {
