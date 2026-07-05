@@ -1279,6 +1279,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
+        // Bridge OS-driven appearance switches (scheduled Auto Light↔Dark) into
+        // the chrome-refresh path so the sidebar/titlebar re-resolve colors live
+        // instead of staying stale until a tab switch (#6385).
+        SystemAppearanceObserver.shared.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)

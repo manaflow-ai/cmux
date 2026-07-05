@@ -2632,6 +2632,14 @@ struct ContentView: View {
             )
         })
 
+        // A macOS scheduled Auto Light↔Dark switch updates NSApp.effectiveAppearance
+        // but does not bump titlebarThemeGeneration, so the cached sidebar color
+        // scheme stays stale until an unrelated event forces a re-render. Bridge the
+        // OS appearance change into the same refresh path a tab switch uses (#6385).
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
+            scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged")
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
             scheduleTitlebarTextRefresh()
