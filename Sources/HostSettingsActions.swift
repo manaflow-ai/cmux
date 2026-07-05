@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxInbox
 import CmuxWorkspaces
 import CmuxSettingsUI
 import CmuxFoundation
@@ -7,7 +8,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
@@ -17,6 +18,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    weak var inboxRuntime: InboxRuntime?
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -43,8 +45,9 @@ final class HostSettingsActions: SettingsHostActions {
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
 
-    init(configFileURL: URL) {
+    init(configFileURL: URL, inboxRuntime: InboxRuntime? = nil) {
         self.configFileURL = configFileURL
+        self.inboxRuntime = inboxRuntime
         startObservingAppIconMode()
     }
 

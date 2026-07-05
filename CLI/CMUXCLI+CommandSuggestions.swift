@@ -104,6 +104,8 @@ extension CMUXCLI {
         "help",
         "hooks",
         "identify",
+        "inbox",
+        "integrations",
         "is-webview-focused",
         "join-pane",
         "jump-to-unread",

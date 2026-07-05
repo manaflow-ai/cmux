@@ -20,6 +20,8 @@ extension Array where Element == CuratedSettingEntry {
         [
             // Account / integrations
             .init(section: .account, id: "account", title: "Account", synonyms: "auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
+            .init(section: .integrations, id: "integrations", title: String(localized: "settings.section.integrations", defaultValue: "Integrations"), synonyms: "inbox integrations gmail slack discord imessage messages email webhook shortcuts zapier keychain tokens notifications replies"),
+            .init(section: .integrations, id: "integration-privacy", title: String(localized: "settings.integrations.privacy.title", defaultValue: "Local-first inbox"), synonyms: "privacy local sqlite keychain credentials tokens ai drafting approval send replies"),
             .init(section: .automation, id: "claude-code", title: "Claude Code Integration", synonyms: "automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
             .init(section: .automation, id: "claude-path", title: "Claude Binary Path", synonyms: "automation.claudeBinaryPath claude binary executable path cli command custom"),
             .init(section: .automation, id: "ripgrep-path", title: "Ripgrep Binary Path", synonyms: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),

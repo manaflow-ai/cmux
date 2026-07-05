@@ -10,7 +10,7 @@ extension RightSidebarMode {
             return .find
         case "vault", "sessions":
             return .sessions
-        case "feed":
+        case "feed", "inbox":
             return .feed
         case "dock":
             return .dock

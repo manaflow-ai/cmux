@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCommandPalette
+import CmuxInbox
 import CmuxSidebar
 import CmuxSwiftRender
 
@@ -128,6 +129,39 @@ extension ContentView {
         }
     }
 
+    static func commandPaletteInboxCommandContributions() -> [CommandPaletteCommandContribution] {
+        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
+            { _ in value }
+        }
+
+        return [
+            CommandPaletteCommandContribution(
+                commandId: "palette.openInbox",
+                title: constant(String(localized: "command.inbox.open.title", defaultValue: "Open Inbox")),
+                subtitle: constant(String(localized: "command.inbox.subtitle", defaultValue: "Inbox")),
+                keywords: ["inbox", "integrations", "messages", "attention", "gmail", "slack", "discord", "imessage", "agent"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.inbox.unreadSlack",
+                title: constant(String(localized: "command.inbox.unreadSlack.title", defaultValue: "Unread Slack")),
+                subtitle: constant(String(localized: "command.inbox.subtitle", defaultValue: "Inbox")),
+                keywords: ["inbox", "unread", "slack", "messages"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.inbox.unreadGmail",
+                title: constant(String(localized: "command.inbox.unreadGmail.title", defaultValue: "Unread Gmail")),
+                subtitle: constant(String(localized: "command.inbox.subtitle", defaultValue: "Inbox")),
+                keywords: ["inbox", "unread", "gmail", "email", "mail"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.inbox.draftReply",
+                title: constant(String(localized: "command.inbox.draftReply.title", defaultValue: "Draft Reply")),
+                subtitle: constant(String(localized: "command.inbox.subtitle", defaultValue: "Inbox")),
+                keywords: ["inbox", "draft", "reply", "send", "approve"]
+            ),
+        ]
+    }
+
     static func commandPaletteRightSidebarModeCommandID(_ mode: RightSidebarMode) -> String {
         switch mode {
         case .files:
@@ -200,6 +234,35 @@ extension ContentView {
 
     func handleCommandPaletteRightSidebarToolPane(_ mode: RightSidebarMode) {
         openRightSidebarToolPane(mode)
+    }
+
+    func registerInboxCommandHandlers(
+        _ registry: inout CommandPaletteHandlerRegistry,
+        observedWindow: NSWindow?
+    ) {
+        registry.register(commandId: "palette.openInbox") {
+            InboxRuntimeRegistry.current?.setSource(nil)
+            handleCommandPaletteRightSidebarMode(.feed, observedWindow: observedWindow)
+        }
+        registry.register(commandId: "palette.inbox.unreadSlack") {
+            InboxRuntimeRegistry.current?.setFilter(.unread)
+            InboxRuntimeRegistry.current?.setSource(.slack)
+            handleCommandPaletteRightSidebarMode(.feed, observedWindow: observedWindow)
+        }
+        registry.register(commandId: "palette.inbox.unreadGmail") {
+            InboxRuntimeRegistry.current?.setFilter(.unread)
+            InboxRuntimeRegistry.current?.setSource(.gmail)
+            handleCommandPaletteRightSidebarMode(.feed, observedWindow: observedWindow)
+        }
+        registry.register(commandId: "palette.inbox.draftReply") {
+            guard let runtime = InboxRuntimeRegistry.current,
+                  let threadID = runtime.selectedThread?.threadID else {
+                NSSound.beep()
+                return
+            }
+            runtime.draftReply(threadID: threadID, instruction: nil)
+            handleCommandPaletteRightSidebarMode(.feed, observedWindow: observedWindow)
+        }
     }
 
     func openCustomSidebarPane(_ name: String) {
