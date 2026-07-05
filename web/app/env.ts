@@ -60,6 +60,11 @@ export const env = createEnv({
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
+    CODEROUTER_KEY_SIGNING_SECRET: z.string().min(1).optional(),
+    CODEROUTER_INTERNAL_TOKEN: z.string().min(1).optional(),
+    CODEROUTER_MASTER_KEY: z.string().min(1).optional(),
+    CODEROUTER_WORKER_BASE_URL: z.string().url().optional(),
+    CMUX_CODEROUTER_CREDIT_ITEM_ID: z.string().min(1).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -77,6 +82,11 @@ export const env = createEnv({
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
+    CODEROUTER_KEY_SIGNING_SECRET: trimEnv(process.env.CODEROUTER_KEY_SIGNING_SECRET),
+    CODEROUTER_INTERNAL_TOKEN: trimEnv(process.env.CODEROUTER_INTERNAL_TOKEN),
+    CODEROUTER_MASTER_KEY: trimEnv(process.env.CODEROUTER_MASTER_KEY),
+    CODEROUTER_WORKER_BASE_URL: trimEnv(process.env.CODEROUTER_WORKER_BASE_URL),
+    CMUX_CODEROUTER_CREDIT_ITEM_ID: trimEnv(process.env.CMUX_CODEROUTER_CREDIT_ITEM_ID),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,
       "00000000-0000-4000-8000-000000000000"

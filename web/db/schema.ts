@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
   index,
+  bigint,
+  boolean,
   integer,
   jsonb,
   pgEnum,
@@ -22,6 +24,15 @@ export const vmStatus = pgEnum("vm_status", [
 ]);
 
 export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
+
+export const coderouterFamily = pgEnum("coderouter_family", ["anthropic", "openai"]);
+export const coderouterCredentialKind = pgEnum("coderouter_credential_kind", ["oauth", "api_key"]);
+export const coderouterCredentialClass = pgEnum("coderouter_credential_class", ["oauth", "byok", "managed"]);
+export const coderouterCredentialStatus = pgEnum("coderouter_credential_status", [
+  "active",
+  "needs_reauth",
+  "disabled",
+]);
 
 export const cloudVms = pgTable(
   "cloud_vms",
@@ -254,5 +265,87 @@ export const deviceAppInstances = pgTable(
   (table) => [
     uniqueIndex("device_app_instances_device_tag_unique").on(table.deviceId, table.tag),
     index("device_app_instances_team_last_seen_idx").on(table.teamId, table.lastSeenAt),
+  ],
+);
+
+export const coderouterPools = pgTable(
+  "coderouter_pools",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    billingCustomerType: text("billing_customer_type").notNull().default("team"),
+    family: coderouterFamily("family").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_pools_team_family_unique").on(table.teamId, table.family),
+  ],
+);
+
+export const coderouterCredentials = pgTable(
+  "coderouter_credentials",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    poolId: uuid("pool_id")
+      .notNull()
+      .references(() => coderouterPools.id, { onDelete: "cascade" }),
+    kind: coderouterCredentialKind("kind").notNull(),
+    class: coderouterCredentialClass("class").notNull(),
+    status: coderouterCredentialStatus("status").notNull().default("active"),
+    label: text("label"),
+    providerEmail: text("provider_email"),
+    providerAccountId: text("provider_account_id"),
+    encryptedSecret: text("encrypted_secret"),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("coderouter_credentials_pool_idx").on(table.poolId),
+  ],
+);
+
+export const coderouterKeys = pgTable(
+  "coderouter_keys",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    name: text("name").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    policy: jsonb("policy").$type<{ allowedClasses?: ("oauth" | "byok" | "managed")[] }>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("coderouter_keys_team_idx").on(table.teamId),
+  ],
+);
+
+export const coderouterUsageEvents = pgTable(
+  "coderouter_usage_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: text("event_id").notNull(),
+    teamId: text("team_id").notNull(),
+    keyId: uuid("key_id"),
+    credentialId: uuid("credential_id"),
+    family: text("family").notNull(),
+    endpointClass: text("endpoint_class").notNull(),
+    model: text("model"),
+    credentialClass: text("credential_class").notNull(),
+    status: integer("status").notNull(),
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
+    outputTokens: bigint("output_tokens", { mode: "number" }).notNull().default(0),
+    cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }).notNull().default(0),
+    cacheWriteTokens: bigint("cache_write_tokens", { mode: "number" }).notNull().default(0),
+    estimated: boolean("estimated").notNull().default(false),
+    costMicros: bigint("cost_micros", { mode: "number" }),
+    latencyMs: integer("latency_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_usage_events_event_id_unique").on(table.eventId),
+    index("coderouter_usage_events_team_created_idx").on(table.teamId, table.createdAt),
   ],
 );
