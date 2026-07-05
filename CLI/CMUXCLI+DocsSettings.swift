@@ -409,6 +409,8 @@ extension CMUXCLI {
             return "customSidebars"
         case "automation":
             return "automation"
+        case "computer-use", "computeruse", "cua":
+            return "computerUse"
         case "browser":
             return "browser"
         case "browser-import", "browserimport", "import-browser-data":
