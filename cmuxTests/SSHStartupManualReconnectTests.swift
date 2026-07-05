@@ -136,6 +136,71 @@ struct SSHStartupManualReconnectTests {
         #expect(workspace.remoteConnectionState == .connected)
     }
 
+    @MainActor
+    @Test func reconnectKeepsConnectedWorkspaceForEndedPaneRetry() {
+        let workspace = Workspace()
+        let configuration = Self.makeRemoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+
+        let panel = TerminalPanel(workspaceId: workspace.id)
+        workspace.panels[panel.id] = panel
+        workspace.pendingRemoteTerminalChildExitSurfaceIds.insert(panel.id)
+
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
+        #expect(workspace.remoteConnectionState == .connected)
+
+        workspace.reconnectRemoteConnection(surfaceId: panel.id)
+
+        #expect(workspace.isRemoteTerminalSurface(panel.id))
+        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+        #expect(workspace.remoteConnectionState == .connected)
+    }
+
+    @MainActor
+    @Test func reconnectDefersToInFlightReconnectForEndedPaneRetry() {
+        let workspace = Workspace()
+        let configuration = Self.makeRemoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini via shared local proxy 127.0.0.1:64007",
+            target: "cmux-macmini"
+        )
+
+        let panel = TerminalPanel(workspaceId: workspace.id)
+        workspace.panels[panel.id] = panel
+        workspace.pendingRemoteTerminalChildExitSurfaceIds.insert(panel.id)
+
+        #expect(!workspace.isRemoteTerminalSurface(panel.id))
+        #expect(workspace.remoteConnectionState == .reconnecting)
+
+        workspace.reconnectRemoteConnection(surfaceId: panel.id)
+
+        #expect(workspace.isRemoteTerminalSurface(panel.id))
+        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+        #expect(workspace.remoteConnectionState == .reconnecting)
+    }
+
+    private static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+    }
+
     private static func generatedVMSSHInitialStartupCommand() throws -> String {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let socketPath = makeSocketPath("vm-ssh-startup")
