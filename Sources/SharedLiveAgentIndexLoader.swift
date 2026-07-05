@@ -1,6 +1,12 @@
 import Foundation
 
 struct SharedLiveAgentIndexLoader {
+    typealias LoadResult = (
+        index: RestorableAgentSessionIndex,
+        liveAgentProcessFingerprint: Set<String>,
+        processScopeFingerprint: Set<String>
+    )
+
     private let homeDirectory: String
     private let fileManager: FileManager
     private let registry: CmuxVaultAgentRegistry?
@@ -31,21 +37,44 @@ struct SharedLiveAgentIndexLoader {
     }
 
     func loadSynchronously() -> RestorableAgentSessionIndex {
+        loadResultSynchronously().index
+    }
+
+    func loadResultSynchronously() -> LoadResult {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let processSnapshot = processSnapshotProvider()
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
-            processSnapshot: processSnapshotProvider(),
+            processSnapshot: processSnapshot,
             capturedAt: capturedAtProvider(),
             processArgumentsProvider: processArgumentsProvider
         )
-        return RestorableAgentSessionIndex.load(
+        let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
             processArgumentsProvider: processArgumentsProvider
         )
+        return (
+            index: index,
+            liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+            processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot)
+        )
+    }
+
+    static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
+        Set(snapshot.cmuxScopedProcesses().map { process in
+            [
+                process.cmuxWorkspaceID?.uuidString ?? "",
+                process.cmuxSurfaceID?.uuidString ?? "",
+                String(process.pid),
+                String(process.parentPID),
+                process.name,
+                process.path ?? ""
+            ].joined(separator: "|")
+        })
     }
 }

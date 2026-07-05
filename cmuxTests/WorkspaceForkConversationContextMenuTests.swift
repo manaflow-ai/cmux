@@ -198,7 +198,7 @@ struct WorkspaceForkConversationContextMenuTests {
                         )
                     }
                 )
-                .loadSynchronously()
+                .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
@@ -313,7 +313,7 @@ struct WorkspaceForkConversationContextMenuTests {
                     capturedAtProvider: { sampledAt.timeIntervalSince1970 },
                     processArgumentsProvider: { _ in nil }
                 )
-                .loadSynchronously()
+                .loadResultSynchronously()
             },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path

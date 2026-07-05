@@ -24,14 +24,14 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> RestorableAgentSessionIndex
+    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
     private let processScopeFingerprintProvider: @MainActor () -> Set<String>
 
     init(
-        indexLoader: @escaping @Sendable () -> RestorableAgentSessionIndex = {
-            SharedLiveAgentIndexLoader().loadSynchronously()
+        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
+            SharedLiveAgentIndexLoader().loadResultSynchronously()
         },
         hookStoreDirectoryProvider: @escaping @MainActor () -> String = {
             RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path
@@ -40,7 +40,12 @@ final class SharedLiveAgentIndex {
             Date()
         },
         processScopeFingerprintProvider: @escaping @MainActor () -> Set<String> = {
-            Self.currentProcessScopeFingerprint()
+            SharedLiveAgentIndexLoader.processScopeFingerprint(
+                from: CmuxTopProcessSnapshot.captureCached(
+                    includeProcessDetails: false,
+                    maximumAge: Self.processScopeFingerprintCacheAge
+                )
+            )
         }
     ) {
         self.indexLoader = indexLoader
@@ -155,25 +160,20 @@ final class SharedLiveAgentIndex {
     private func reload(forcePublish: Bool) async {
         let indexLoader = self.indexLoader
         let result = await Task.detached(priority: .utility) {
-            let newIndex = indexLoader()
-            return ReloadResult(
-                index: newIndex,
-                liveAgentProcessFingerprint: newIndex.liveAgentProcessFingerprint()
-            )
+            indexLoader()
         }.value
         guard !Task.isCancelled else { return }
         let loadedAt = dateProvider()
-        let processScopeFingerprint = processScopeFingerprintProvider()
         if forcePublish || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint {
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
                 liveAgentProcessFingerprint: result.liveAgentProcessFingerprint,
-                processScopeFingerprint: processScopeFingerprint
+                processScopeFingerprint: result.processScopeFingerprint
             )
         } else {
             self.loadedAt = loadedAt
-            self.processScopeFingerprint = processScopeFingerprint
+            self.processScopeFingerprint = result.processScopeFingerprint
         }
     }
 
@@ -196,28 +196,6 @@ final class SharedLiveAgentIndex {
 
     private var isForkAvailabilityRefreshInFlight: Bool {
         refreshTask != nil || forkAvailabilityRefreshTask != nil
-    }
-
-    private static func currentProcessScopeFingerprint() -> Set<String> {
-        processScopeFingerprint(
-            from: CmuxTopProcessSnapshot.captureCached(
-                includeProcessDetails: false,
-                maximumAge: processScopeFingerprintCacheAge
-            )
-        )
-    }
-
-    private static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
-        Set(snapshot.cmuxScopedProcesses().map { process in
-            [
-                process.cmuxWorkspaceID?.uuidString ?? "",
-                process.cmuxSurfaceID?.uuidString ?? "",
-                String(process.pid),
-                String(process.parentPID),
-                process.name,
-                process.path ?? ""
-            ].joined(separator: "|")
-        })
     }
 
     private func handleHookStoreChange() {
@@ -265,11 +243,6 @@ final class SharedLiveAgentIndex {
         } else if refreshTask != nil || forkAvailabilityRefreshTask != nil {
             changePending = true
         }
-    }
-
-    private struct ReloadResult: Sendable {
-        let index: RestorableAgentSessionIndex
-        let liveAgentProcessFingerprint: Set<String>
     }
 }
 
