@@ -561,6 +561,31 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
+    func testMarkdownRendererContainerAdoptionSurvivesLateDismantle() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // First mount adopts synchronously so the initial frame isn't blank.
+        let first = NSView()
+        coordinator.adopt(container: first)
+        XCTAssertEqual(webView.superview, first)
+
+        // Cross-pane move: the new host adopts before the old one tears down.
+        let second = NSView()
+        coordinator.adopt(container: second)
+        XCTAssertEqual(webView.superview, first)
+
+        // The late teardown that used to rip the webview out permanently.
+        MarkdownWebRenderer.dismantleNSView(first, coordinator: coordinator)
+
+        let settled = expectation(description: "deferred reparent ran")
+        DispatchQueue.main.async { settled.fulfill() }
+        wait(for: [settled], timeout: 1.0)
+        XCTAssertEqual(webView.superview, second)
+    }
+
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {
         let coordinator = MarkdownWebRenderer.Coordinator()
         let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
