@@ -1,6 +1,8 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
+import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { DocsHeading } from "../../components/docs-heading";
 
@@ -19,6 +21,7 @@ export default function ConceptsPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.concepts" path="/docs/concepts" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
@@ -112,6 +115,12 @@ export default function ConceptsPage() {
         </li>
       </ul>
       <p>{t("panelNote")}</p>
+
+      <DocsHeading level={2} id="workspace-groups">{t("workspaceGroups")}</DocsHeading>
+      <p>{t("workspaceGroupsDesc")}</p>
+      <p>
+        <Link href="/docs/workspace-groups">{t("workspaceGroupsLink")}</Link>
+      </p>
 
       <DocsHeading level={2} id="visual-example">{t("visualExample")}</DocsHeading>
       <CodeBlock variant="ascii">{`┌──────────────────────────────────────────────────────┐

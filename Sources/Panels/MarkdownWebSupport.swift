@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import WebKit
 
 @MainActor
@@ -20,6 +21,17 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    /// Invoked when the view leaves its window (the detach half of a pane
+    /// re-parent). Lets the renderer coordinator record whether the document
+    /// was healthy at detach time so re-entry recovery can tell a detach
+    /// artifact apart from an attached crash loop.
+    var onLeaveWindow: (() -> Void)?
+    /// Invoked when the view re-enters a window after being detached. Lets the
+    /// renderer coordinator recover content WebKit dropped while the view was
+    /// out of the window (e.g. a pane drag re-parented the hosting views).
+    var onReenterWindow: (() -> Void)?
+
+    private var needsRenderingReattach = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -28,6 +40,50 @@ final class MarkdownWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            // Leaving the window (the detach half of a pane re-parent). Drive
+            // WebKit's in-window lifecycle out so the matching re-entry below
+            // resumes rendering, mirroring the browser panel's recovery path.
+            needsRenderingReattach = true
+            callVoidSelectorIfAvailable("viewDidHide")
+            callVoidSelectorIfAvailable("_exitInWindow")
+            onLeaveWindow?()
+        } else {
+            reattachRenderingState()
+            onReenterWindow?()
+        }
+    }
+
+    /// Resume WebKit's rendering after the view re-enters a window. WebKit can
+    /// suspend painting (or reclaim the WebContent process) while a WKWebView
+    /// is detached during a pane drag, which previously left the Markdown
+    /// viewer permanently blank. This nudges the in-window lifecycle back on
+    /// and forces a layout/display pass so the live document repaints.
+    private func reattachRenderingState() {
+        guard needsRenderingReattach else { return }
+        needsRenderingReattach = false
+        callVoidSelectorIfAvailable("viewDidUnhide")
+        callVoidSelectorIfAvailable("_enterInWindow")
+        callVoidSelectorIfAvailable("_endDeferringViewInWindowChangesSync")
+        needsLayout = true
+        needsDisplay = true
+        setNeedsDisplay(bounds)
+        layoutSubtreeIfNeeded()
+        displayIfNeeded()
+    }
+
+    /// Calls a private WKWebView lifecycle selector when present. Guarded by
+    /// `responds(to:)` so it degrades to a no-op if the selector is removed.
+    private func callVoidSelectorIfAvailable(_ rawSelector: String) {
+        let selector = NSSelectorFromString(rawSelector)
+        guard responds(to: selector) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        fn(self, selector)
     }
 }
 

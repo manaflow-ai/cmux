@@ -1,7 +1,10 @@
 import Foundation
+import CmuxTerminalCore
 import Combine
 import AppKit
 import Bonsplit
+import CmuxTerminal
+import CmuxWorkspaces
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
@@ -47,6 +50,16 @@ final class TerminalPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    /// The workspace-env key/value pairs this panel inherited from its workspace's
+    /// `workspaceEnvironment` at creation. The same panel travels when a surface is
+    /// moved between workspaces, so a respawn uses these to drop the (possibly
+    /// previous) workspace's variables and re-apply the current workspace's. The
+    /// value (not just the key) is tracked so an explicit per-surface override that
+    /// happens to share a workspace key (e.g. a layout `env` AWS_PROFILE=staging in
+    /// a workspace with AWS_PROFILE=prod) is preserved on respawn rather than being
+    /// stripped and replaced by the workspace value (issue #5995).
+    var seededWorkspaceEnvironment: [String: String] = [:]
+
     /// Published title from the terminal process
     @Published private(set) var title: String = "Terminal"
 
@@ -54,6 +67,8 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published private(set) var directory: String = ""
 
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
+    let shellActivity = TerminalPanelShellActivityModel()
+    let textBoxState = TerminalPanelTextBoxState()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
@@ -113,6 +128,22 @@ final class TerminalPanel: Panel, ObservableObject {
         "terminal.fill"
     }
 
+    func updateShellActivityState(_ state: PanelShellActivityState) {
+        if shellActivity.state != state {
+            shellActivity.state = state
+        }
+        textBoxState.updateShellActivityState(state)
+    }
+
+    func recordTextBoxLaunchCommand(_ command: String) {
+        guard let boundedContext = TextBoxAgentDetection.boundedLaunchCommandContext(from: command) else { return }
+        textBoxState.recordLaunchCommand(boundedContext)
+    }
+
+    func clearTextBoxLaunchCommand() {
+        textBoxState.clearLaunchCommand()
+    }
+
     var isDirty: Bool {
         // Bonsplit's "dirty" indicator is a very small dot in the tab strip.
         //
@@ -166,7 +197,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
-        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         let surface = TerminalSurface(
             id: id,
@@ -180,9 +212,35 @@ final class TerminalPanel: Panel, ObservableObject {
             initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
+            focusPlacement: focusPlacement,
+            runtimeSpawnPolicy: runtimeSpawnPolicy
         )
         self.init(workspaceId: workspaceId, surface: surface)
+        if Self.startsAtOwnedPrompt(
+            configTemplate: configTemplate,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
+            initialInput: initialInput
+        ) {
+            updateShellActivityState(.promptIdle)
+        }
+    }
+
+    private static func startsAtOwnedPrompt(
+        configTemplate: CmuxSurfaceConfigTemplate?,
+        initialCommand: String?,
+        tmuxStartCommand: String?,
+        initialInput: String?
+    ) -> Bool {
+        isBlank(initialCommand) &&
+            isBlank(tmuxStartCommand) &&
+            isBlank(initialInput) &&
+            isBlank(configTemplate?.command) &&
+            isBlank(configTemplate?.initialInput)
+    }
+
+    private static func isBlank(_ value: String?) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
     }
 
     func updateTitle(_ newTitle: String) {
@@ -212,9 +270,10 @@ final class TerminalPanel: Panel, ObservableObject {
     func preferTextBoxInputWhenActivated() {
         isTextBoxActive = true
         textBoxInputFocusIntent = .textBox
-        shouldFocusTextBoxWhenAvailable = false
+        shouldFocusTextBoxWhenAvailable = true
         shouldOpenTextBoxFilePickerWhenAvailable = false
         shouldHideTextBoxOnNextEscape = false
+        focusTextBoxIfNeeded()
     }
 
     func showTextBoxInputWhenAvailable() {
@@ -249,6 +308,7 @@ final class TerminalPanel: Panel, ObservableObject {
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
 #endif
     }
+
 
     @discardableResult
     func toggleTextBoxInput() -> Bool {
@@ -519,7 +579,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         textBoxContent = fixture.beforeText + fixture.afterText
         textBoxAttachments = attachment.map { [$0] } ?? []
-        textBoxInputView.installDebugInlineFixture(
+        textBoxInputView.installInlineControlFixture(
             attachment,
             beforeText: fixture.beforeText,
             afterText: fixture.afterText
@@ -698,6 +758,12 @@ final class TerminalPanel: Panel, ObservableObject {
     func performBindingAction(_ action: String) -> Bool {
         guard !isAgentHibernated else { return false }
         return surface.performBindingAction(action)
+    }
+
+    @discardableResult
+    func clearScreenKeepingScrollback() -> Bool {
+        resumeForExplicitInputIfNeeded()
+        return surface.clearScreenKeepingScrollback()
     }
 
     private func resumeForExplicitInputIfNeeded() {

@@ -377,26 +377,31 @@ func TestDialSocketFailsFastWhenTCPAddressStaysStale(t *testing.T) {
 	}
 }
 
-func TestCLIPingV1(t *testing.T) {
-	sockPath := startMockSocket(t, "pong")
+func TestCLIPing(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "ping"})
 	if code != 0 {
 		t.Fatalf("ping should return 0, got %d", code)
 	}
+	req := receiveRequest(t, requests)
+	if req["method"] != "system.ping" {
+		t.Fatalf("expected method system.ping, got %v", req["method"])
+	}
 }
 
-func TestCLIPingV1OverTCP(t *testing.T) {
-	addr := startMockTCPSocket(t, "pong")
+func TestCLIPingOverTCP(t *testing.T) {
+	addr := startMockV2TCPSocketWithResult(t, map[string]any{})
 	code := runCLI([]string{"--socket", addr, "ping"})
 	if code != 0 {
 		t.Fatalf("ping over TCP should return 0, got %d", code)
 	}
 }
 
-func TestCLIPingV1OverAuthenticatedTCPWithEnv(t *testing.T) {
+func TestCLIPingOverAuthenticatedTCPWithEnv(t *testing.T) {
 	relayID := "relay-1"
 	relayToken := strings.Repeat("a1", 32)
-	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, "pong")
+	pingResp, _ := json.Marshal(map[string]any{"id": 1, "ok": true, "result": map[string]any{}})
+	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, string(pingResp))
 	t.Setenv("CMUX_RELAY_ID", relayID)
 	t.Setenv("CMUX_RELAY_TOKEN", relayToken)
 
@@ -406,10 +411,11 @@ func TestCLIPingV1OverAuthenticatedTCPWithEnv(t *testing.T) {
 	}
 }
 
-func TestCLIPingV1OverAuthenticatedTCPWithRelayFile(t *testing.T) {
+func TestCLIPingOverAuthenticatedTCPWithRelayFile(t *testing.T) {
 	relayID := "relay-2"
 	relayToken := strings.Repeat("b2", 32)
-	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, "pong")
+	pingResp, _ := json.Marshal(map[string]any{"id": 1, "ok": true, "result": map[string]any{}})
+	addr := startMockAuthenticatedTCPSocket(t, relayID, relayToken, string(pingResp))
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		t.Fatalf("split host port: %v", err)
@@ -468,61 +474,51 @@ func TestDialSocketDetection(t *testing.T) {
 	conn.Close()
 }
 
-func TestCLINewWindowV1(t *testing.T) {
-	sockPath := startMockSocket(t, "OK window_id=abc123")
+func TestCLINewWindow(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "new-window"})
 	if code != 0 {
 		t.Fatalf("new-window should return 0, got %d", code)
 	}
-}
-
-func TestSocketRoundTripReadsFullMultilineV1Response(t *testing.T) {
-	addr := startMockTCPSocket(t, "window:alpha\nwindow:beta\nwindow:gamma")
-	resp, err := socketRoundTrip(addr, "list_windows", nil)
-	if err != nil {
-		t.Fatalf("socketRoundTrip should succeed, got error: %v", err)
-	}
-	want := "window:alpha\nwindow:beta\nwindow:gamma"
-	if resp != want {
-		t.Fatalf("socketRoundTrip truncated v1 response: got %q want %q", resp, want)
+	req := receiveRequest(t, requests)
+	if req["method"] != "window.create" {
+		t.Fatalf("new-window: expected method window.create, got %v", req["method"])
 	}
 }
 
-func TestCLICloseWindowV1(t *testing.T) {
-	// Verify that the flag value is appended to the v1 command
-	dir := t.TempDir()
-	sockPath := filepath.Join(dir, "cmux.sock")
-
-	receivedCh := make(chan string, 1)
-	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+func TestSocketRoundTripV2ListResult(t *testing.T) {
+	windows := []any{
+		map[string]any{"id": "alpha", "ref": "@1"},
+		map[string]any{"id": "beta", "ref": "@2"},
+		map[string]any{"id": "gamma", "ref": "@3"},
 	}
-	t.Cleanup(func() { ln.Close() })
+	addr := startMockV2TCPSocketWithResult(t, map[string]any{"windows": windows})
+	resp, err := socketRoundTripV2(addr, "window.list", nil, nil)
+	if err != nil {
+		t.Fatalf("socketRoundTripV2 should succeed, got error: %v", err)
+	}
+	if !strings.Contains(resp, "alpha") || !strings.Contains(resp, "beta") || !strings.Contains(resp, "gamma") {
+		t.Fatalf("socketRoundTripV2 response missing window IDs: %q", resp)
+	}
+}
 
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		buf := make([]byte, 4096)
-		n, _ := conn.Read(buf)
-		receivedCh <- strings.TrimSpace(string(buf[:n]))
-		conn.Write([]byte("OK\n"))
-		conn.Close()
-	}()
-
+func TestCLICloseWindow(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{"--socket", sockPath, "close-window", "--window", "win-42"})
 	if code != 0 {
 		t.Fatalf("close-window should return 0, got %d", code)
 	}
 	select {
-	case received := <-receivedCh:
-		if received != "close_window win-42" {
-			t.Fatalf("expected 'close_window win-42', got %q", received)
+	case req := <-requests:
+		if req["method"] != "window.close" {
+			t.Fatalf("expected method window.close, got %v", req["method"])
+		}
+		p, _ := req["params"].(map[string]any)
+		if p["window_id"] != "win-42" {
+			t.Fatalf("expected window_id='win-42', got %v", p["window_id"])
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for close-window payload")
+		t.Fatal("timed out waiting for close-window request")
 	}
 }
 
@@ -593,13 +589,16 @@ func TestCLINoSocket(t *testing.T) {
 }
 
 func TestCLISocketEnvVar(t *testing.T) {
-	sockPath := startMockSocket(t, "pong")
-	os.Setenv("CMUX_SOCKET_PATH", sockPath)
-	defer os.Unsetenv("CMUX_SOCKET_PATH")
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_SOCKET_PATH", sockPath)
 
 	code := runCLI([]string{"ping"})
 	if code != 0 {
 		t.Fatalf("ping with env socket should return 0, got %d", code)
+	}
+	req := receiveRequest(t, requests)
+	if req["method"] != "system.ping" {
+		t.Fatalf("expected method system.ping, got %v", req["method"])
 	}
 }
 
@@ -1135,5 +1134,173 @@ func TestCLIEnvVarDefaults(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for close-surface payload")
+	}
+}
+
+func expectGroupRequest(t *testing.T, requests <-chan map[string]any, wantMethod string) map[string]any {
+	t.Helper()
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != wantMethod {
+			t.Fatalf("expected method %s, got %v", wantMethod, got)
+		}
+		params, _ := req["params"].(map[string]any)
+		return params
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s request", wantMethod)
+		return nil
+	}
+}
+
+func TestCLIWorkspaceGroupList(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "list"})
+	if code != 0 {
+		t.Fatalf("workspace group list should return 0, got %d", code)
+	}
+	expectGroupRequest(t, requests, "workspace.group.list")
+}
+
+func TestCLIWorkspaceGroupDashAlias(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace-group", "collapse", "workspace_group:1"})
+	if code != 0 {
+		t.Fatalf("workspace-group collapse should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.collapse")
+	if got := params["group_id"]; got != "workspace_group:1" {
+		t.Fatalf("expected positional group_id, got %v", got)
+	}
+}
+
+func TestCLIWorkspaceGroupCreateMapsFlags(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{
+		"--socket", sockPath, "--json",
+		"workspace", "group", "create",
+		"--name", "My Group",
+		"--cwd", "/repo/path",
+		"--from", "workspace:1, workspace:2",
+	})
+	if code != 0 {
+		t.Fatalf("workspace group create should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.create")
+	if got := params["name"]; got != "My Group" {
+		t.Fatalf("expected name, got %v", got)
+	}
+	if got := params["cwd"]; got != "/repo/path" {
+		t.Fatalf("expected cwd, got %v", got)
+	}
+	ids, _ := params["child_workspace_ids"].([]any)
+	if len(ids) != 2 || ids[0] != "workspace:1" || ids[1] != "workspace:2" {
+		t.Fatalf("expected trimmed child_workspace_ids, got %v", params["child_workspace_ids"])
+	}
+}
+
+func TestCLIWorkspaceGroupAddRequiresGroupAndWorkspace(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "add", "--group", "g1"}); code != 2 {
+		t.Fatalf("add without --workspace should return 2, got %d", code)
+	}
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "add", "--group", "g1", "--workspace", "ws1"})
+	if code != 0 {
+		t.Fatalf("workspace group add should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.add")
+	if params["group_id"] != "g1" || params["workspace_id"] != "ws1" {
+		t.Fatalf("expected group_id/workspace_id, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupRenamePositionalName(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "rename", "workspace_group:2", "New Name"})
+	if code != 0 {
+		t.Fatalf("workspace group rename should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.rename")
+	if params["group_id"] != "workspace_group:2" || params["name"] != "New Name" {
+		t.Fatalf("expected positional group id and name, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupNewWorkspaceUsesUnderscoreMethod(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "new-workspace", "workspace_group:3", "--placement", "top"})
+	if code != 0 {
+		t.Fatalf("workspace group new-workspace should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.new_workspace")
+	if params["group_id"] != "workspace_group:3" || params["placement"] != "top" {
+		t.Fatalf("expected group_id and placement, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupSetColorOmittedHexClears(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "set-color", "workspace_group:4"})
+	if code != 0 {
+		t.Fatalf("workspace group set-color should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.set_color")
+	if got, ok := params["hex"]; !ok || got != "" {
+		t.Fatalf("expected empty hex (clear), got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupMoveValidatesPosition(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "move", "g1"}); code != 2 {
+		t.Fatalf("move without a position flag should return 2, got %d", code)
+	}
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "move", "g1", "--to-index", "abc"}); code != 2 {
+		t.Fatalf("move with non-integer --to-index should return 2, got %d", code)
+	}
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "move", "g1", "--to-index", "2"})
+	if code != 0 {
+		t.Fatalf("workspace group move should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.move")
+	if got, ok := params["to_index"].(float64); !ok || got != 2 {
+		t.Fatalf("expected integer to_index 2, got %v", params)
+	}
+	if params["group_id"] != "g1" {
+		t.Fatalf("expected group_id g1, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupUnknownSubcommand(t *testing.T) {
+	sockPath := startMockV2Socket(t)
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "explode"}); code != 2 {
+		t.Fatalf("unknown group subcommand should return 2, got %d", code)
+	}
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group"}); code != 2 {
+		t.Fatalf("bare workspace group should return 2, got %d", code)
+	}
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "rename"}); code != 2 {
+		t.Fatalf("unsupported workspace subcommand should return 2, got %d", code)
+	}
+}
+
+func TestCLIWorkspaceGroupListForwardsCallerEnvContext(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	t.Setenv("CMUX_SURFACE_ID", "env-sf")
+	code := runCLI([]string{"--socket", sockPath, "--json", "workspace", "group", "list"})
+	if code != 0 {
+		t.Fatalf("workspace group list should return 0, got %d", code)
+	}
+	params := expectGroupRequest(t, requests, "workspace.group.list")
+	if params["workspace_id"] != "env-ws" || params["surface_id"] != "env-sf" {
+		t.Fatalf("expected caller env context to be forwarded, got %v", params)
+	}
+}
+
+func TestCLIWorkspaceGroupRemoveStillRequiresExplicitWorkspaceWithEnv(t *testing.T) {
+	sockPath := startMockV2Socket(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")
+	if code := runCLI([]string{"--socket", sockPath, "workspace", "group", "remove"}); code != 2 {
+		t.Fatalf("remove without --workspace should return 2 even with env set, got %d", code)
 	}
 }

@@ -1,5 +1,4 @@
 import { getTranslations } from "next-intl/server";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
@@ -326,7 +325,12 @@ export default async function DeeplinkPage({
       <SiteHeader section={t("section")} />
       <main className="mx-auto w-full max-w-2xl px-6 py-12">
         <div className="mb-8 flex items-center gap-4">
-          <Image
+          {/* Plain <img> (raw PNG), not next/image, on purpose — same
+              optimizer-bypass as the download confirmation hero (issue #5819).
+              The small logo gains nothing from /_next/image, and the optimizer
+              indirection broke the logo in Safari (WebKit `Vary: Accept` cache
+              mishandling). Matches the plain <img> the site header uses. */}
+          <img
             src="/logo.png"
             alt=""
             width={44}

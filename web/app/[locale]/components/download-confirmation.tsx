@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { DOWNLOAD_URL, DOWNLOAD_INTENT_PARAM } from "../../lib/download";
 import { OfficialLinks } from "./official-links";
@@ -50,7 +49,17 @@ export function DownloadConfirmation() {
     <main className="mx-auto w-full max-w-6xl px-6 py-16 sm:py-20">
       {/* Hero */}
       <div className="flex flex-col items-center text-center">
-        <Image
+        {/* Plain <img> (raw PNG), not next/image, on purpose. The 34 KB
+            256×256 logo shown at 48px gains nothing from the optimizer, and
+            routing it through /_next/image broke this hero in Safari while
+            Chrome rendered it (issue #5819): WebKit's HTTP cache mishandles the
+            optimizer's `Vary: Accept` responses (compounded by the `priority`
+            preload and `?dpl=`-pinned URLs across deploys), surfacing the
+            broken-image glyph. The site header already serves /logo.png as a
+            plain <img> and renders fine in Safari — this matches it.
+            fetchPriority="high" preserves the above-the-fold load hint that
+            `priority` provided. */}
+        <img
           // Decorative: the heading below already names the product, so an
           // empty alt avoids an untranslated string for screen readers.
           src="/logo.png"
@@ -58,7 +67,7 @@ export function DownloadConfirmation() {
           width={48}
           height={48}
           className="rounded-xl"
-          priority
+          fetchPriority="high"
         />
         <h1 className="mt-6 text-2xl sm:text-3xl font-semibold tracking-tight">
           {t("heading")}

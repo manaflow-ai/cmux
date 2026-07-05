@@ -1,4 +1,7 @@
+import CmuxFoundation
+import CmuxCore
 import AppKit
+import CmuxCommandPalette
 import Darwin
 import Foundation
 
@@ -183,10 +186,11 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
         guard let applicationPath = applicationPath(in: environment) else { return false }
         guard self == .vscodeInline else { return true }
-        return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
-            vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
-            isExecutableAtPath: environment.isExecutableFileAtPath
-        ) != nil
+        // Keep menu/palette availability cheap. Cached code-server discovery does
+        // disk I/O and belongs to the actual launch path on the launch queue.
+        let codeTunnelURL = URL(fileURLWithPath: applicationPath, isDirectory: true)
+            .appendingPathComponent("Contents/Resources/app/bin/code-tunnel", isDirectory: false)
+        return environment.isExecutableFileAtPath(codeTunnelURL.path)
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
@@ -329,17 +333,61 @@ struct VSCodeCLILaunchConfiguration {
 }
 
 enum VSCodeCLILaunchConfigurationBuilder {
+    private struct VSCodeProductMetadata: Decodable {
+        let dataFolderName: String?
+    }
+
     static func launchConfiguration(
         vscodeApplicationURL: URL,
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        dataAtURL: (URL) -> Data? = { try? Data(contentsOf: $0) },
+        contentsOfDirectoryAtURL: (URL) -> [URL] = { url in
+            (try? FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+        },
+        contentModificationDateAtURL: (URL) -> Date? = { url in
+            (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        }
     ) -> VSCodeCLILaunchConfiguration? {
         let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
+        let environment = nodeSafeEnvironment(from: baseEnvironment)
+
+        if let codeServerURL = preferredCachedCodeServerURL(
+            contentsURL: contentsURL,
+            homeDirectoryURL: homeDirectoryURL,
+            isExecutableAtPath: isExecutableAtPath,
+            dataAtURL: dataAtURL,
+            contentsOfDirectoryAtURL: contentsOfDirectoryAtURL,
+            contentModificationDateAtURL: contentModificationDateAtURL
+        ) {
+            var codeServerEnvironment = environment
+            codeServerEnvironment.removeValue(forKey: "ELECTRON_RUN_AS_NODE")
+            return VSCodeCLILaunchConfiguration(
+                executableURL: codeServerURL,
+                argumentsPrefix: [],
+                environment: codeServerEnvironment
+            )
+        }
+
         let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
         guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
+        var codeTunnelEnvironment = environment
+        codeTunnelEnvironment["ELECTRON_RUN_AS_NODE"] = "1"
 
+        return VSCodeCLILaunchConfiguration(
+            executableURL: codeTunnelURL,
+            argumentsPrefix: ["serve-web"],
+            environment: codeTunnelEnvironment
+        )
+    }
+
+    private static func nodeSafeEnvironment(from baseEnvironment: [String: String]) -> [String: String] {
         var environment = baseEnvironment
-        environment["ELECTRON_RUN_AS_NODE"] = "1"
         environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
         environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
         if let nodeOptions = environment["NODE_OPTIONS"] {
@@ -350,12 +398,87 @@ enum VSCodeCLILaunchConfigurationBuilder {
         }
         environment.removeValue(forKey: "NODE_OPTIONS")
         environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
+        return environment
+    }
 
-        return VSCodeCLILaunchConfiguration(
-            executableURL: codeTunnelURL,
-            argumentsPrefix: [],
-            environment: environment
+    private static func preferredCachedCodeServerURL(
+        contentsURL: URL,
+        homeDirectoryURL: URL,
+        isExecutableAtPath: (String) -> Bool,
+        dataAtURL: (URL) -> Data?,
+        contentsOfDirectoryAtURL: (URL) -> [URL],
+        contentModificationDateAtURL: (URL) -> Date?
+    ) -> URL? {
+        let dataFolderName = vscodeDataFolderName(
+            contentsURL: contentsURL,
+            dataAtURL: dataAtURL
         )
+        let serveWebCacheURL = homeDirectoryURL
+            .appendingPathComponent(dataFolderName, isDirectory: true)
+            .appendingPathComponent("cli/serve-web", isDirectory: true)
+
+        if let orderedCacheIDs = serveWebLRUCacheIDs(
+            serveWebCacheURL: serveWebCacheURL,
+            dataAtURL: dataAtURL
+        ) {
+            for cacheID in orderedCacheIDs {
+                let codeServerURL = serveWebCacheURL
+                    .appendingPathComponent(cacheID, isDirectory: true)
+                    .appendingPathComponent("bin/code-server", isDirectory: false)
+                if isExecutableAtPath(codeServerURL.path) {
+                    return codeServerURL
+                }
+            }
+        }
+
+        let candidates = contentsOfDirectoryAtURL(serveWebCacheURL)
+            .map {
+                $0.appendingPathComponent("bin/code-server", isDirectory: false)
+            }
+            .filter {
+                isExecutableAtPath($0.path)
+            }
+            .sorted { lhs, rhs in
+                let lhsDate = contentModificationDateAtURL(lhs) ?? .distantPast
+                let rhsDate = contentModificationDateAtURL(rhs) ?? .distantPast
+                if lhsDate != rhsDate {
+                    return lhsDate > rhsDate
+                }
+                return lhs.path > rhs.path
+            }
+
+        return candidates.first
+    }
+
+    private static func vscodeDataFolderName(
+        contentsURL: URL,
+        dataAtURL: (URL) -> Data?
+    ) -> String {
+        let productURL = contentsURL.appendingPathComponent("Resources/app/product.json", isDirectory: false)
+        guard let data = dataAtURL(productURL),
+              let product = try? JSONDecoder().decode(VSCodeProductMetadata.self, from: data),
+              let dataFolderName = product.dataFolderName,
+              isSafePathComponent(dataFolderName) else {
+            return ".vscode"
+        }
+        return dataFolderName
+    }
+
+    private static func serveWebLRUCacheIDs(
+        serveWebCacheURL: URL,
+        dataAtURL: (URL) -> Data?
+    ) -> [String]? {
+        let lruURL = serveWebCacheURL.appendingPathComponent("lru.json", isDirectory: false)
+        guard let data = dataAtURL(lruURL),
+              let cacheIDs = try? JSONDecoder().decode([String].self, from: data) else {
+            return nil
+        }
+        return cacheIDs.filter(isSafePathComponent)
+    }
+
+    private static func isSafePathComponent(_ component: String) -> Bool {
+        guard !component.isEmpty, component != ".", component != ".." else { return false }
+        return component.rangeOfCharacter(from: CharacterSet(charactersIn: "/\\")) == nil
     }
 }
 
@@ -544,6 +667,14 @@ final class VSCodeServeWebController {
         ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
     }
 
+    func isServeWebURL(_ candidateURL: URL?) -> Bool {
+        guard let candidateURL else { return false }
+        let serveWebURL = queue.sync {
+            self.serveWebURL
+        }
+        return Self.urlsShareLoopbackOrigin(candidateURL, serveWebURL)
+    }
+
     private func launchServeWebProcess(
         vscodeApplicationURL: URL,
         expectedGeneration: UInt64
@@ -563,7 +694,6 @@ final class VSCodeServeWebController {
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
         process.arguments = launchConfiguration.argumentsPrefix + [
-            "serve-web",
             "--accept-server-license-terms",
             "--host", "127.0.0.1",
             "--port", "0",
@@ -578,7 +708,7 @@ final class VSCodeServeWebController {
 
         let collector = ServeWebOutputCollector()
         let outputReader: (FileHandle) -> Void = { fileHandle in
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 collector.append(data)
             case .wouldBlock:
@@ -672,7 +802,7 @@ final class VSCodeServeWebController {
 
     private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
         while true {
-            switch ProcessPipeReader.readAvailableDataOrEndOfFile(from: fileHandle) {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
                 collector.append(data)
             case .wouldBlock, .endOfFile:
@@ -710,6 +840,21 @@ final class VSCodeServeWebController {
 
     private static func removeConnectionTokenFile(at url: URL) {
         try? FileManager.default.removeItem(at: url)
+    }
+
+    private static func urlsShareLoopbackOrigin(_ lhs: URL, _ rhs: URL?) -> Bool {
+        guard let rhs else { return false }
+        guard lhs.scheme?.lowercased() == "http",
+              rhs.scheme?.lowercased() == "http" else {
+            return false
+        }
+        guard lhs.port == rhs.port, lhs.port != nil else { return false }
+        guard let lhsHost = BrowserInsecureHTTPSettings.normalizeHost(lhs.host ?? ""),
+              let rhsHost = BrowserInsecureHTTPSettings.normalizeHost(rhs.host ?? "") else {
+            return false
+        }
+        return RemoteLoopbackProxyAlias.isLoopbackHost(lhsHost)
+            && RemoteLoopbackProxyAlias.isLoopbackHost(rhsHost)
     }
 }
 
@@ -793,5 +938,14 @@ enum WorkspaceShortcutMapper {
             }
         }
         return nil
+    }
+}
+
+extension CommandPaletteContextKeys {
+    /// Typed app-side overload over the package's raw-value key builder, so
+    /// palette context keys keep the exact `terminal.openTarget.<raw>.available`
+    /// format without the package importing the terminal domain.
+    static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> CommandPaletteContextKeys {
+        terminalOpenTargetAvailable(rawValue: target.rawValue)
     }
 }

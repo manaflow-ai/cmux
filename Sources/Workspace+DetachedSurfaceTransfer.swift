@@ -1,11 +1,18 @@
 import Foundation
+import CmuxCore
 import Darwin
+import CmuxNotifications
+import CmuxSidebar
 
 extension Workspace {
     struct DetachedAgentRuntimeState {
         let panelId: UUID
         let statusEntries: [String: SidebarStatusEntry]
         let agentPIDs: [String: pid_t]
+        /// Start-time identities recorded for `agentPIDs`, so a consumer can
+        /// distinguish "recorded process still runs" from "pid was reused by
+        /// an unrelated process" (same contract as `isRecordedAgentPIDLive`).
+        let agentPIDProcessIdentities: [String: AgentPIDProcessIdentity]
         let agentPIDKeys: Set<String>
     }
 
@@ -20,13 +27,16 @@ extension Workspace {
         let isLoading: Bool
         let isPinned: Bool
         let directory: String?
+        let directoryDisplayLabel: String?
         let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
+        let customTitleSource: Workspace.CustomTitleSource?
         let manuallyUnread: Bool
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
         let restorableAgentResumeState: RestoredAgentResumeState?
+        let restoredResumeSessionWorkingDirectory: String?
         let resumeBinding: SurfaceResumeBindingSnapshot?
         let agentRuntime: DetachedAgentRuntimeState?
         let isRemoteTerminal: Bool
@@ -46,13 +56,16 @@ extension Workspace {
                 isLoading: isLoading,
                 isPinned: isPinned,
                 directory: directory,
+                directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
+                customTitleSource: customTitleSource,
                 manuallyUnread: manuallyUnread,
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
                 resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: isRemoteTerminal,

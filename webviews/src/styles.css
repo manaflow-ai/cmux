@@ -1,0 +1,1285 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+  --cmux-diff-bg-light: #fff;
+  --cmux-diff-bg-dark: #000;
+  --cmux-diff-fg-light: #000;
+  --cmux-diff-fg-dark: #fff;
+  --cmux-diff-selection-bg-light: #abd8ff;
+  --cmux-diff-selection-bg-dark: #3f638b;
+  --cmux-diff-ui-font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --cmux-diff-ui-font-size: 12px;
+  --cmux-diff-ui-line-height: 16px;
+  --cmux-diff-code-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --cmux-diff-font-size: 10px;
+  --cmux-diff-line-height: 20px;
+  --cmux-diff-bg: var(--cmux-diff-bg-light);
+  --cmux-diff-fg: var(--cmux-diff-fg-light);
+  --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  --cmux-diff-toolbar-bg: transparent;
+  --cmux-diff-sidebar-bg: transparent;
+  --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+  --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);
+  --cmux-diff-text-muted: color-mix(in lab, var(--cmux-diff-fg) 72%, var(--cmux-diff-bg));
+  --cmux-diff-text-subtle: color-mix(in lab, var(--cmux-diff-fg) 84%, var(--cmux-diff-bg));
+  /* The native browser panel behind the WebView owns the themed fill. Keep the
+     page itself transparent so terminal/window transparency survives. */
+  --cmux-diff-surface-fill-light: transparent;
+  --cmux-diff-surface-fill-dark: transparent;
+  --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-light);
+
+  background: var(--cmux-diff-surface-fill);
+  color: var(--cmux-diff-fg);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cmux-diff-bg: var(--cmux-diff-bg-dark);
+    --cmux-diff-fg: var(--cmux-diff-fg-dark);
+    --cmux-diff-surface-fill: var(--cmux-diff-surface-fill-dark);
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  height: 100%;
+  background: var(--cmux-diff-surface-fill);
+  overflow: hidden;
+}
+body {
+  margin: 0;
+  height: 100vh;
+  min-height: 0;
+  background: var(--cmux-diff-surface-fill);
+  color: var(--cmux-diff-fg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: var(--cmux-diff-ui-font-size);
+  line-height: var(--cmux-diff-ui-line-height);
+}
+#root {
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+}
+#app {
+  height: 100vh;
+  min-height: 0;
+  display: grid;
+  /* Constrain the single column to the viewport. Without an explicit column
+     the implicit `auto` track sizes to content max-width, letting #content
+     (and its files sidebar) overflow the window and clip on the right. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  contain: strict;
+  background: transparent;
+  color: inherit;
+}
+.copy-fallback-textarea {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+#toolbar {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  /* Every track is shrinkable to zero so no cell can be starved into
+     overflowing its neighbor. The actions track is `auto` but its contents have
+     min-width:0 and the cell clips, so even a momentarily-too-wide actions row
+     cannot overlay the left cell. The JS priority-overflow keeps the actions
+     within budget; this template + `overflow: clip` on the cells is the hard
+     no-overlap guarantee that holds even if a measurement is briefly stale. */
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, auto);
+  align-items: center;
+  /* When the Files sidebar is shown, JumpSelect is not rendered (it duplicates
+     the sidebar's file navigation). Collapse the centered middle track so
+     toolbar-left (source/repo/base) reclaims that space. Declared here for
+     scope; the actual collapse is the body[data-files-hidden="false"] rule. */
+  gap: 7px;
+  min-height: 32px;
+  padding: 3px 4px 3px 8px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-toolbar-bg);
+  color: color-mix(in lab, var(--cmux-diff-fg) 76%, var(--cmux-diff-bg));
+  z-index: 50;
+}
+/* Sidebar visible (and wide enough that it is not media-auto-hidden at <=520px):
+   the JumpSelect duplicates the sidebar, so collapse the centered middle track
+   and hide it, letting toolbar-left (source/repo/base) reclaim the space. Below
+   520px the sidebar auto-hides, so JumpSelect must stay (handled by the 520px
+   media block restoring the template + middle cell). The 760px stacked layout
+   re-declares its own template and overrides this for its range. */
+@media (min-width: 521px) {
+  body[data-files-hidden="false"] #toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  }
+  body[data-files-hidden="false"] .toolbar-middle {
+    display: none;
+  }
+}
+.toolbar-left,
+.toolbar-middle,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  /* Safety net: grid cells do not clip by default, so a cell whose content is
+     wider than its track would visually overflow into the neighboring cell and
+     overlay it. Clip HORIZONTAL overflow so any residual width spill disappears
+     cleanly instead of overlapping, while leaving the VERTICAL axis visible so
+     the Base picker and options popovers (which drop below the toolbar) still
+     escape. `overflow-x: clip` + `overflow-y: visible` is a safe pair: neither
+     value is coerced, so vertical stays truly visible. The JS priority-overflow
+     keeps content within the track in practice; this is the guarantee, not the
+     mechanism. */
+  overflow-x: clip;
+  overflow-y: visible;
+}
+.toolbar-left,
+.toolbar-middle {
+  gap: 6px;
+}
+.toolbar-left {
+  justify-self: stretch;
+  /* Container for the base picker's drop-order queries: ahead/behind and the
+     reason hide first as this cell narrows, the ref never collapses. */
+  container-type: inline-size;
+  container-name: toolbar-left;
+}
+.toolbar-middle {
+  justify-content: center;
+}
+.toolbar-actions {
+  justify-self: end;
+  gap: 4px;
+}
+#source-select,
+#repo-select,
+#base-select,
+#jump-select {
+  appearance: none;
+  height: 24px;
+  min-width: 0;
+  max-width: 100%;
+  /* When the selected value is longer than the available width (capped at the
+     track by max-width, or shrunk by flex pressure), truncate it with an
+     ellipsis instead of a hard clip. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 24px 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background:
+    linear-gradient(45deg, transparent 50%, currentcolor 50%) right 11px center / 4px 4px no-repeat,
+    linear-gradient(135deg, currentcolor 50%, transparent 50%) right 7px center / 4px 4px no-repeat,
+    color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
+  color: inherit;
+  font: inherit;
+}
+#source-select {
+  /* Toolbar picker width strategy (source/repo/base):
+     - `field-sizing: content` sizes each select to its SELECTED value, not the
+       widest option, so the width tracks the current choice and the value is
+       never truncated when there is free space. (A native select otherwise
+       sizes to its widest option, and a fixed flex-basis truncated long values
+       like "Last turn" or long repo labels even with empty toolbar space.)
+     - No max-width: the picker is as wide as its value needs.
+     - min-width floor keeps the label + chevron legible.
+     - flex-shrink encodes PRIORITY for the no-free-space case: the base picker
+       (the comparison) shrinks last, the source select next, the repo select
+       first. So under pressure the repo path ellipsizes before the source mode,
+       and the base comparison before either is crushed. */
+  field-sizing: content;
+  flex: 0 3 auto;
+  min-width: 58px;
+}
+#source-select:hover,
+#repo-select:hover,
+#base-select:hover,
+#jump-select:hover {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
+  background-color: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+}
+#source-select[hidden],
+#repo-select[hidden],
+#base-select[hidden],
+#jump-select[hidden] {
+  display: none;
+}
+#jump-select {
+  /* Same treatment as the source/repo selects: size to the SELECTED file path
+     rather than stretching to fill the toolbar-middle track. max-width:100%
+     (from the shared rule) caps it at the track so a long path truncates
+     instead of overflowing; min-width keeps the chevron legible. The jump
+     select only appears when the Files sidebar is hidden. */
+  field-sizing: content;
+  min-width: 64px;
+}
+#repo-select {
+  /* Sized to its selected value like #source-select, with the HIGHEST shrink so
+     it is the first to ellipsize when the toolbar runs out of room. */
+  field-sizing: content;
+  flex: 0 5 auto;
+  min-width: 56px;
+}
+#base-select {
+  flex: 0 1 120px;
+}
+#source-select:focus,
+#repo-select:focus,
+#base-select:focus,
+#jump-select:focus,
+.base-picker-button:focus-visible,
+.base-picker-input:focus-visible,
+.toolbar-icon:focus-visible,
+.menu-item:focus-visible,
+.file-entry:focus-visible {
+  outline: 2px solid color-mix(in lab, var(--cmux-diff-fg) 36%, transparent);
+  outline-offset: 1px;
+}
+
+/* Branch base picker: heavier primary toolbar control + command-palette popover. */
+#base-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* Base is the primary action and the highest-priority picker: it is content
+     sized (no flex-grow, so it does not stretch into a half-empty button) and
+     has the LOWEST shrink, so it is the last to give up width. Its min-width
+     floor keeps `<head> -> <base>` legible; the secondaries (reason,
+     ahead/behind) shed via .base-picker-meta + the toolbar-left container
+     queries before the ref itself ellipsizes. Free toolbar space is left empty
+     to the right rather than padding out this button. */
+  flex: 0 1 auto;
+  min-width: 150px;
+}
+.base-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 7px 0 9px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
+  border-radius: 6px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.base-picker-button:hover:not(:disabled),
+.base-picker-button[aria-expanded="true"] {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 30%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-fg) 15%, transparent);
+}
+.base-picker-button:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.base-picker-button svg {
+  width: 12px;
+  height: 12px;
+  stroke: currentcolor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.7;
+  flex: 0 0 auto;
+}
+.base-picker-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  /* No overflow:hidden here — clipping the label dropped the trailing
+     ahead/behind and chevron. Only the ref token truncates (below), and the
+     ahead/behind + reason are removed by container queries when too narrow. */
+}
+.base-picker-prefix {
+  flex: 0 0 auto;
+  font-weight: 500;
+  color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
+}
+.base-picker-head {
+  /* Read-only head side of the comparison (current branch / detached HEAD). It
+     is the least important token, so it ellipsizes FIRST: a higher flex-shrink
+     than the base ref and a smaller min-width floor (4ch) mean it gives up
+     characters before the base ref does, but it does not vanish entirely while
+     any space remains. */
+  flex: 0 8 auto;
+  min-width: 4ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
+}
+.base-picker-ref {
+  /* The ref is the priority token and the LAST thing to ellipsize. The
+     secondaries (reason + ahead/behind) live in `.base-picker-meta`, which has a
+     far higher flex-shrink, so it collapses entirely before the ref gives up a
+     single character. The ref only ellipsizes once the meta group is gone and
+     `Base: <ref> v` still does not fit, keeping a ~6ch floor with the chevron
+     always visible. This is font- and width-independent: no pixel thresholds. */
+  flex: 0 1 auto;
+  min-width: 6ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Secondary group: reason + ahead/behind. It is the shrink sponge — a huge
+   flex-shrink plus overflow:hidden means the toolbar steals width from here
+   first, clipping ahead/behind (rightmost) before the reason, before the ref is
+   ever touched. min-width:0 lets it collapse to nothing. */
+.base-picker-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.base-picker-reason {
+  flex: 0 0 auto;
+  font-weight: 500;
+  color: color-mix(in lab, var(--cmux-diff-fg) 64%, var(--cmux-diff-bg));
+  white-space: nowrap;
+}
+.base-picker-reason-low {
+  opacity: 0.6;
+  font-style: italic;
+}
+.base-picker-aheadbehind {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+  white-space: nowrap;
+}
+/* Clean-hide the secondaries at narrow toolbar-left widths so they disappear
+   whole rather than clipping mid-glyph. The .base-picker-meta flex shrink above
+   is the hard guarantee that the ref always wins; these container queries only
+   make the transition tidy. Widest-first: ahead/behind, then reason. */
+@container toolbar-left (max-width: 380px) {
+  .base-picker-aheadbehind {
+    display: none;
+  }
+}
+@container toolbar-left (max-width: 312px) {
+  .base-picker-reason {
+    display: none;
+  }
+}
+.base-picker-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.base-picker-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
+  border-top-color: var(--cmux-diff-fg);
+  animation: base-picker-spin 0.7s linear infinite;
+}
+@keyframes base-picker-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .base-picker-spinner {
+    animation-duration: 1.6s;
+  }
+}
+.base-picker-popover {
+  /* Portaled to `document.body` and viewport-anchored so it escapes BOTH
+     `.toolbar-left`'s `overflow-x: clip` AND its `container-type: inline-size`:
+     a container-query container is the containing block for `position: fixed`
+     descendants and still clips them, so a fixed popover left inside the cell
+     would be positioned against (and clipped by) the cell, not the viewport.
+     `#app` likewise has `contain: strict`, which is also a fixed-positioning
+     containing block, so the popover is mounted on `document.body` (outside both)
+     in `BranchBasePicker`. `top` / `bottom` / `left` / `max-height` are set
+     inline by JS from the Base button's rect, clamped to the viewport (see
+     computePopoverStyle); `body` spans the full viewport and does not clip the
+     clamped fixed element. */
+  position: fixed;
+  width: 320px;
+  max-width: min(86vw, 360px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  border-radius: 8px;
+  background: var(--cmux-diff-bg);
+  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  z-index: 120;
+  overflow: hidden;
+}
+.base-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-bottom: 1px solid color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+}
+.base-picker-search svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentcolor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.55;
+  flex: 0 0 auto;
+}
+.base-picker-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  font: inherit;
+  outline: none;
+}
+.base-picker-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+.base-picker-status {
+  padding: 12px 9px;
+  color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
+  text-align: center;
+}
+.base-picker-status-error {
+  color: color-mix(in lab, #ff5f56 70%, var(--cmux-diff-fg));
+}
+.base-picker-group-header {
+  padding: 8px 8px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
+}
+.base-picker-more {
+  padding: 5px 8px 7px;
+  font-size: 11px;
+  color: color-mix(in lab, var(--cmux-diff-fg) 48%, var(--cmux-diff-bg));
+  cursor: default;
+  user-select: none;
+}
+.base-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.base-picker-row-selected {
+  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+}
+.base-picker-row-primary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cmux-diff-fg);
+}
+.base-picker-row-primary strong {
+  font-weight: 700;
+}
+.base-picker-row-secondary {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: color-mix(in lab, var(--cmux-diff-fg) 55%, var(--cmux-diff-bg));
+}
+.base-picker-pill {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cmux-diff-accent);
+  background: color-mix(in lab, var(--cmux-diff-accent) 16%, transparent);
+}
+@media (max-width: 760px) {
+  #toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    grid-template-areas:
+      "source actions"
+      "jump actions";
+  }
+  .toolbar-left {
+    grid-area: source;
+  }
+  .toolbar-middle {
+    grid-area: jump;
+    justify-content: stretch;
+  }
+  .toolbar-actions {
+    grid-area: actions;
+  }
+}
+.toolbar-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 60%, var(--cmux-diff-bg));
+  padding: 0;
+  cursor: pointer;
+}
+.toolbar-icon:hover,
+.toolbar-icon[aria-expanded="true"] {
+  border-color: color-mix(in lab, var(--cmux-diff-fg) 14%, transparent);
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.toolbar-icon[aria-pressed="true"] {
+  color: color-mix(in lab, var(--cmux-diff-fg) 78%, var(--cmux-diff-bg));
+}
+.toolbar-icon[hidden] {
+  display: none;
+}
+.toolbar-icon svg,
+.menu-item svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#layout-toggle svg [data-diff-deletion],
+#layout-toggle svg [data-diff-addition] {
+  stroke: none;
+}
+#layout-toggle svg [data-diff-deletion] {
+  fill: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+#layout-toggle svg [data-diff-addition] {
+  fill: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+.toolbar-icon svg [data-precision-dot],
+.menu-item svg [data-precision-dot] {
+  stroke-width: 2;
+}
+#options-menu {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 10px;
+  min-width: 246px;
+  padding: 8px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
+  border-radius: 8px;
+  background: var(--cmux-diff-bg);
+  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  z-index: 100;
+}
+#options-menu[hidden] {
+  display: none;
+}
+.menu-separator {
+  height: 1px;
+  margin: 7px 6px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+}
+.menu-item {
+  width: 100%;
+  min-height: 31px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 86%, var(--cmux-diff-bg));
+  font: inherit;
+  text-align: left;
+  padding: 0 7px;
+}
+.menu-item:hover:not(:disabled) {
+  background: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.menu-segment {
+  cursor: default;
+}
+.menu-segment:hover {
+  background: transparent;
+}
+.menu-segment-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: end;
+  padding: 2px;
+  border-radius: 7px;
+  background: transparent;
+}
+.segment-button {
+  width: 27px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: color-mix(in lab, var(--cmux-diff-fg) 62%, var(--cmux-diff-bg));
+  padding: 0;
+}
+.segment-button:hover,
+.segment-button[aria-pressed="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
+  color: var(--cmux-diff-fg);
+}
+.menu-item:disabled {
+  color: color-mix(in lab, var(--cmux-diff-fg) 36%, var(--cmux-diff-bg));
+}
+.menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-check {
+  justify-self: end;
+}
+#content {
+  --cmux-diff-files-width: 252px;
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--cmux-diff-files-width);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "viewer files";
+  overflow: hidden;
+  overscroll-behavior: contain;
+  contain: strict;
+  background: transparent;
+}
+body[data-files-hidden="true"] #content {
+  grid-template-columns: minmax(0, 1fr) 0;
+}
+body[data-status-only="true"] #content {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "viewer";
+}
+#files-sidebar {
+  grid-area: files;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-sidebar-bg);
+  contain: strict;
+  opacity: 1;
+  transition: opacity 100ms ease, visibility 0s linear 0s;
+}
+#files-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  width: 8px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  cursor: col-resize;
+  outline: none;
+}
+#files-resize-handle::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  content: "";
+  background: transparent;
+}
+body[data-files-hidden="true"] #files-sidebar {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 100ms ease, visibility 0s linear 100ms;
+}
+body[data-status-only="true"] #files-sidebar {
+  display: none;
+}
+#files-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  gap: 8px;
+  padding: 0 7px 0 10px;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-sidebar-bg);
+  color: var(--cmux-diff-text-muted);
+}
+#files-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+#files-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+#file-search-toggle {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  padding: 0;
+}
+#file-search-toggle:hover,
+#file-search-toggle[aria-pressed="true"] {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+#file-search-toggle svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#file-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--cmux-diff-sidebar-bg);
+  padding: 6px 4px 6px 6px;
+  --trees-bg-override: var(--cmux-diff-sidebar-bg);
+  --trees-fg-override: var(--cmux-diff-text-subtle);
+  --trees-fg-muted-override: var(--cmux-diff-text-muted);
+  --trees-bg-muted-override: var(--cmux-diff-hover-bg);
+  --trees-selected-bg-override: color-mix(in lab, var(--cmux-diff-fg) 11%, transparent);
+  --trees-selected-fg-override: var(--cmux-diff-fg);
+  --trees-selected-focused-border-color-override: transparent;
+  --trees-border-color-override: var(--cmux-diff-border);
+  --trees-focus-ring-color-override: color-mix(in lab, var(--cmux-diff-accent) 72%, transparent);
+  --trees-font-family-override: var(--cmux-diff-ui-font-family);
+  --trees-font-size-override: var(--cmux-diff-ui-font-size);
+  --trees-font-weight-semibold-override: 500;
+  --trees-density-override: 0.78;
+  --trees-border-radius-override: 5px;
+  --trees-item-padding-x-override: 7px;
+  --trees-item-margin-x-override: 0;
+  --trees-padding-inline-override: 8px;
+  --trees-search-bg-override: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  --trees-status-added-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+  --trees-status-modified-override: var(--cmux-diff-accent);
+  --trees-status-renamed-override: light-dark(#a26300, #ffd166);
+  --trees-status-deleted-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+body[data-loading="false"] .diff-loading-placeholder {
+  display: none;
+}
+body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
+  display: none;
+}
+#file-list file-tree-container {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.file-entry {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 3px 7px;
+}
+.file-entry:hover,
+.file-entry[aria-current="true"] {
+  background: color-mix(in lab, var(--cmux-diff-fg) 9%, transparent);
+}
+.file-status {
+  width: 17px;
+  height: 17px;
+  border: 1px solid currentcolor;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--cmux-diff-text-muted);
+}
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-stats {
+  display: inline-flex;
+  gap: 5px;
+  color: var(--cmux-diff-text-muted);
+}
+.stat-add {
+  color: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
+}
+.stat-del {
+  color: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
+}
+#viewer {
+  --diffs-font-family: var(--cmux-diff-code-font-family);
+  --diffs-header-font-family: var(--cmux-diff-ui-font-family);
+  --diffs-font-size: var(--cmux-diff-font-size);
+  --diffs-line-height: var(--cmux-diff-line-height);
+  --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+  grid-area: viewer;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: clip;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  contain: strict;
+  border-bottom: 1px solid var(--cmux-diff-border);
+  background: transparent;
+}
+.code-view-root {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: clip;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  contain: strict;
+}
+@media (max-width: 520px) {
+  #content,
+  body[data-files-hidden="true"] #content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "viewer";
+  }
+  #files-sidebar {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #files-sidebar {
+    transition: none;
+  }
+}
+#viewer diffs-container {
+  --diffs-font-family: var(--cmux-diff-code-font-family);
+  --diffs-header-font-family: var(--cmux-diff-ui-font-family);
+  --diffs-font-size: var(--cmux-diff-font-size);
+  --diffs-line-height: var(--cmux-diff-line-height);
+  --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+  width: 100%;
+  min-height: 30px;
+  flex: 1 1 auto;
+  display: block;
+  overflow: clip;
+  contain: layout paint style;
+}
+/* Per-file diff header at small widths: the @pierre/diffs header is a flex
+   space-between of the file-path side (`[data-header-content]`, already
+   min-width:0 + truncating) and the diffstat side (`[data-metadata]`: the status
+   icon + `+N`/`-N` counts). The library leaves [data-metadata] flex-shrinkable
+   with white-space:nowrap and no overflow handling, so when the panel is narrow
+   it is squished below its content and its text spills LEFT, overlapping the
+   change-status icon. Principled fix, same priority+ idea as the toolbar: pin the
+   diffstat (never shrink it) so the path side absorbs all the shrinking and
+   truncates, and clip the header as a hard no-overlap safety net. */
+#viewer diffs-container [data-diffs-header] {
+  overflow-x: clip;
+}
+#viewer diffs-container [data-diffs-header=default] [data-metadata] {
+  flex-shrink: 0;
+}
+#loading-layer {
+  grid-area: viewer;
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+  background: transparent;
+  contain: strict;
+}
+body[data-status-only="true"] #loading-layer {
+  display: flex;
+  position: static;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  pointer-events: auto;
+}
+#status {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 5;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
+  border-radius: 7px;
+  background: var(--cmux-diff-bg);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: 13px;
+  line-height: var(--cmux-diff-ui-line-height);
+  color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
+}
+/* Centered empty state (no diff to show): icon badge + message, like a polished
+   "nothing here" page rather than a thin status strip. */
+body[data-status-only="true"] #status {
+  position: static;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: auto;
+  max-width: 340px;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  text-align: center;
+  text-wrap: balance;
+  font-size: 14px;
+  line-height: 1.55;
+  color: color-mix(in lab, var(--cmux-diff-fg) 58%, var(--cmux-diff-bg));
+}
+body[data-status-only="true"] #status-text {
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* Icon badge: only for the friendly empty state, not errors or while loading. */
+#status-icon {
+  display: none;
+}
+body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
+  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
+}
+body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
+  content: "";
+  display: block;
+  width: 26px;
+  height: 26px;
+  background-color: currentcolor;
+  opacity: 0.8;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+#status[data-pending="true"]::before,
+body[data-loading="true"] #status::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
+  border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
+  border-radius: 50%;
+  animation: cmuxDiffPendingSpin 800ms linear infinite;
+}
+#status[data-error="true"] {
+  color: light-dark(#b42318, #ff8a80);
+}
+@keyframes cmuxDiffPendingSpin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #status[data-pending="true"]::before,
+  body[data-loading="true"] #status::before {
+    animation: none;
+  }
+}
+
+/* Diff review comments */
+#comments-section {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40%;
+  border-top: 1px solid var(--cmux-diff-border);
+  background: var(--cmux-diff-sidebar-bg);
+}
+#comments-header {
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+#comments-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.comments-empty {
+  padding: 2px 7px 6px;
+  color: var(--cmux-diff-text-muted);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+.comment-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-diff-text-subtle);
+  font: inherit;
+  font-size: var(--cmux-diff-ui-font-size);
+  text-align: left;
+  cursor: pointer;
+}
+.comment-entry:hover {
+  background: var(--cmux-diff-hover-bg);
+}
+.comment-entry-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.comment-entry-location {
+  font-weight: 500;
+  color: var(--cmux-diff-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.comment-entry-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--cmux-diff-muted-bg);
+  color: var(--cmux-diff-text-muted);
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
+}
+.comment-entry-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cmux-diff-text-muted);
+}
+.comment-composer,
+.comment-card {
+  margin: 8px 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 680px;
+  border: 1px solid var(--cmux-diff-border);
+  border-radius: 10px;
+  background: light-dark(
+    color-mix(in lab, var(--cmux-diff-bg) 92%, #fff),
+    color-mix(in lab, var(--cmux-diff-bg) 90%, #fff)
+  );
+  box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
+  color: var(--cmux-diff-fg);
+  font-family: var(--cmux-diff-ui-font-family);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.comment-composer:focus-within {
+  border-color: color-mix(in lab, var(--cmux-diff-accent) 60%, var(--cmux-diff-border));
+  box-shadow: 0 0 0 3px color-mix(in lab, var(--cmux-diff-accent) 18%, transparent);
+}
+.comment-composer-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cmux-diff-fg);
+  font: inherit;
+}
+.comment-composer-input::placeholder {
+  color: var(--cmux-diff-text-muted);
+}
+.comment-composer-input:focus-visible {
+  outline: none;
+}
+.comment-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.comment-composer-buttons {
+  display: inline-flex;
+  gap: 6px;
+}
+.comment-button {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.comment-button:hover:not(:disabled) {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.comment-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.comment-button-primary {
+  background: var(--cmux-diff-accent);
+  color: light-dark(#fff, #08233f);
+}
+.comment-button-primary:hover:not(:disabled) {
+  background: color-mix(in lab, var(--cmux-diff-accent) 86%, var(--cmux-diff-fg));
+  color: light-dark(#fff, #08233f);
+}
+.comment-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+.comment-card-location {
+  font-weight: 500;
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
+  color: var(--cmux-diff-text-muted);
+}
+.comment-card-actions {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.comment-card:hover .comment-card-actions,
+.comment-card:focus-within .comment-card-actions {
+  opacity: 1;
+}
+.comment-card-action {
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cmux-diff-text-muted);
+  font: inherit;
+  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
+  cursor: pointer;
+}
+.comment-card-action:hover {
+  background: var(--cmux-diff-hover-bg);
+  color: var(--cmux-diff-fg);
+}
+.comment-card-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

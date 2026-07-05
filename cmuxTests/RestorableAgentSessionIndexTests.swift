@@ -422,6 +422,192 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testPiDetectedLatestSessionDoesNotCollapseExactHookRecordsAcrossPanels() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-collapse-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let sessionsRoot = root.appendingPathComponent("pi-sessions", isDirectory: true)
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd.path))
+        let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectSessions, withIntermediateDirectories: true)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = sessionsRoot.path
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+        let workspaceId = UUID()
+        let panels = [UUID(), UUID(), UUID()]
+        let sessionIds = ["pi-session-a", "pi-session-b", "pi-session-c"]
+        var hookSessions: [String: [String: Any]] = [:]
+        for (index, sessionId) in sessionIds.enumerated() {
+            let sessionFile = projectSessions.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
+            try fm.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
+                ofItemAtPath: sessionFile.path
+            )
+            hookSessions[sessionId] = driftedAgentHookRecord(
+                launcher: "pi",
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                panelId: panels[index],
+                recordedCwd: cwd.path,
+                launchCwd: cwd.path,
+                updatedAt: TimeInterval(10 + index)
+            )
+        }
+        try writeHookStore(root: root, storeFilename: "pi-hook-sessions.json", sessions: hookSessions)
+
+        let processes = panels.enumerated().map { index, panelId in
+            CmuxTopProcessInfo(
+                pid: 4_200 + index,
+                parentPID: 1,
+                name: "pi",
+                path: "/usr/local/bin/pi",
+                ttyDevice: nil,
+                cmuxWorkspaceID: workspaceId,
+                cmuxSurfaceID: panelId,
+                cmuxAttributionReason: "cmux-test",
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: registry,
+            fileManager: fm,
+            processSnapshot: processSnapshot,
+            capturedAt: 42,
+            processArgumentsProvider: { processId in
+                guard processes.contains(where: { $0.pid == processId }) else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/pi"],
+                    environment: [
+                        "PWD": cwd.path,
+                        "PI_CODING_AGENT_SESSION_DIR": sessionsRoot.path,
+                    ]
+                )
+            }
+        )
+
+        let detectedSessionIds = Set(detectedSnapshots.values.map { $0.snapshot.sessionId })
+        XCTAssertEqual(detectedSessionIds.count, 1, "Pi latest-file detection is ambiguous for same-cwd panels")
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: { _ in nil }
+        )
+        let restoredSessionIds = try panels.map { panelId in
+            try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId)).sessionId
+        }
+
+        XCTAssertEqual(restoredSessionIds, sessionIds)
+    }
+
+    func testPiInferredLatestFallbackUsesSameKindPanelHookWhenAnotherKindIsNewer() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-pi-restore-kind-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let claudeSessionId = "11111111-1111-1111-1111-111111111111"
+        let piHookSessionId = "pi-exact-panel-session"
+        let detectedLatestPiSessionId = "pi-newest-cwd-session"
+
+        try writeClaudeTranscript(sessionId: claudeSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                claudeSessionId: hookRecord(
+                    sessionId: claudeSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 50
+                ),
+            ]
+        )
+        try writeHookStore(
+            root: root,
+            storeFilename: "pi-hook-sessions.json",
+            sessions: [
+                piHookSessionId: driftedAgentHookRecord(
+                    launcher: "pi",
+                    sessionId: piHookSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    recordedCwd: cwd.path,
+                    launchCwd: cwd.path,
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: detectedLatestPiSessionId,
+            workingDirectory: cwd.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/usr/local/bin/pi",
+                arguments: ["/usr/local/bin/pi"],
+                workingDirectory: cwd.path,
+                environment: nil,
+                capturedAt: 99,
+                source: "process"
+            )
+        )
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: [.builtInPi]),
+            detectedSnapshots: [
+                key: (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 99,
+                    processIDs: Set([123]),
+                    sessionIDSource: .inferredLatestSessionFile
+                ),
+            ],
+            processArgumentsProvider: { _ in nil }
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.kind, .custom("pi"))
+        XCTAssertEqual(snapshot.sessionId, piHookSessionId)
+        XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123])
+    }
+
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
     // classifier (in CMUXAgentLaunch) so the app-side resolver and the CLI surface-restore publisher
     // apply one policy. The shared resolver's own behavior is covered in CMUXAgentLaunchTests.
@@ -484,11 +670,13 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
         XCTAssertEqual(snapshot.sessionId, resumableSessionId)
         XCTAssertEqual(snapshot.workingDirectory, cwd.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertTrue(
-            try XCTUnwrap(snapshot.resumeCommand).contains("'--resume' '\(resumableSessionId)'")
+            resumeCommand.contains(resumableSessionId),
+            "resume command must target the sibling transcript session; got: \(resumeCommand)"
         )
         XCTAssertFalse(
-            try XCTUnwrap(snapshot.resumeCommand).contains(workflowContainerSessionId),
+            resumeCommand.contains(workflowContainerSessionId),
             "The Workflow container id is not accepted by claude --resume."
         )
     }
@@ -522,6 +710,7 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
                 detect: CmuxVaultAgentDetectRule(processNames: [agentId]),
                 sessionIdSource: .argvOption("--resume"),
                 resumeCommand: "{{executable}} --resume {{sessionId}}",
+                forkCommand: "{{executable}} --resume {{sessionId}} --fork",
                 cwd: .preserve
             ),
         ])
@@ -557,12 +746,14 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertTrue(resume.contains(runtimeCwd.path), "resume must cd into the runtime cwd; got: \(resume)")
         XCTAssertFalse(resume.contains(launchCwd.path), "resume must not fall back to the launch dir; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(fork.contains(runtimeCwd.path), "fork must cd into the runtime cwd; got: \(fork)")
+        XCTAssertTrue(fork.contains("'--fork'"), "fork must use the custom fork template; got: \(fork)")
     }
 
     // Forking branches a NEW session off an existing one. The fork command must use the correct
     // per-agent fork verb and cd into the session's directory, so the forked session launches in the
-    // right place and is itself resumable. (Claude fork is covered above; this covers the cwd-in-file
-    // fork agents codex + opencode.)
+    // right place and is itself resumable.
     func testForkCommandUsesPerAgentVerbAndSessionCwd() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -574,6 +765,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let cases: [(launcher: String, store: String, verbNeedles: [String])] = [
             ("codex", "codex-hook-sessions.json", ["'fork'"]),
             ("opencode", "opencode-hook-sessions.json", ["'--session'", "'--fork'"]),
+            ("pi", "pi-hook-sessions.json", ["'--session'", "'--fork'"]),
+            ("omp", "omp-hook-sessions.json", ["'--session'", "'--fork'"]),
         ]
         for testCase in cases {
             let ws = UUID()
@@ -913,6 +1106,163 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
 
     private func writeClaudeHookStore(root: URL, sessions: [String: [String: Any]]) throws {
         try writeHookStore(root: root, storeFilename: "claude-hook-sessions.json", sessions: sessions)
+    }
+
+    // A codex launched from inside a claude session inherits claude's CMUX_AGENT_LAUNCH_*
+    // environment (every child of a claude process carries it), so the codex hook record can
+    // capture a claude launch command: launcher "claude" with the claude binary and
+    // claude-only flags. Resume/fork must never run the foreign binary; the cross-agent
+    // capture is discarded and the agent's bare verbs are used instead. This is the root
+    // cause of "Fork Conversation" breaking for codex sessions started under a claude session.
+    func testCrossAgentLaunchCaptureIsDiscardedForResumeAndFork() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-cross-agent-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let foreignDir = root.appendingPathComponent("claude-launch-dir", isDirectory: true)
+        try fm.createDirectory(at: foreignDir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "66666666-6666-6666-6666-666666666666"
+        var record = driftedAgentHookRecord(
+            launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
+            recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "claude",
+            "executablePath": "/Users/someone/.local/bin/claude",
+            "arguments": [
+                "/Users/someone/.local/bin/claude",
+                "--dangerously-skip-permissions",
+                "--chrome",
+            ],
+            "workingDirectory": foreignDir.path,
+            "environment": ["CLAUDE_CONFIG_DIR": "/Users/someone/.claude"],
+            "capturedAt": 10,
+            "source": "environment",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sid: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        XCTAssertEqual(
+            snapshot.workingDirectory,
+            dir.path,
+            "the foreign capture's launch cwd must not leak into the snapshot"
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertFalse(resume.contains("claude"), "codex resume must not run the claude binary; got: \(resume)")
+        // Bare `codex` now routes through the codex wrapper token (CMUX_CODEX_WRAPPER_SHIM)
+        // wrapped in `/bin/sh -c '…'` so the resumed session keeps cmux hooks (issue #5639).
+        XCTAssertTrue(resume.contains("/bin/sh -c "), "codex resume must wrap the wrapper token for any login shell; got: \(resume)")
+        XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must route through the codex wrapper shim; got: \(resume)")
+        XCTAssertTrue(resume.contains("resume") && resume.contains(sid), "codex resume must use the resume verb and session id; got: \(resume)")
+        XCTAssertFalse(resume.contains(foreignDir.path), "codex resume must not cd into the foreign launch dir; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertFalse(fork.contains("claude"), "codex fork must not run the claude binary; got: \(fork)")
+        XCTAssertTrue(fork.contains("/bin/sh -c "), "codex fork must wrap the wrapper token for any login shell; got: \(fork)")
+        XCTAssertTrue(fork.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex fork must route through the codex wrapper shim; got: \(fork)")
+        XCTAssertTrue(fork.contains("fork") && fork.contains(sid), "codex fork must use the fork verb and session id; got: \(fork)")
+        XCTAssertFalse(fork.contains(foreignDir.path), "codex fork must not cd into the foreign launch dir; got: \(fork)")
+    }
+
+    // When the launch argv falls back to a PID that points at the hook dispatch shell instead of
+    // the agent (`sh -c 'payload=...'`), the captured argv describes the hook wrapper, not a
+    // launch. Resume/fork must discard it and use the agent's bare verbs.
+    func testShellWrapperArgvCaptureIsDiscardedForResumeAndFork() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-shell-argv-capture-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "77777777-7777-7777-7777-777777777777"
+        var record = driftedAgentHookRecord(
+            launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
+            recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "codex",
+            "executablePath": "sh",
+            "arguments": ["sh", "-c", "payload=\"${CMUX_HOOK_PAYLOAD:-}\"; eval \"$command\""],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "process",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sid: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        let resume = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertFalse(resume.contains("'sh'"), "codex resume must not run the hook shell wrapper; got: \(resume)")
+        // Bare `codex` routes through the codex wrapper token wrapped in `/bin/sh -c '…'`
+        // (issue #5639) so the resumed session keeps cmux hooks.
+        XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must route through the codex wrapper shim; got: \(resume)")
+        XCTAssertTrue(resume.contains("resume") && resume.contains(sid), "codex resume must use the resume verb and session id; got: \(resume)")
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertFalse(fork.contains("'sh'"), "codex fork must not run the hook shell wrapper; got: \(fork)")
+        XCTAssertTrue(fork.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex fork must route through the codex wrapper shim; got: \(fork)")
+        XCTAssertTrue(fork.contains("fork") && fork.contains(sid), "codex fork must use the fork verb and session id; got: \(fork)")
+    }
+
+    // Wrapper launchers legitimately differ from the hook kind; their captures must stay trusted.
+    func testWrapperLauncherCaptureStaysTrusted() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-wrapper-launcher-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let ws = UUID()
+        let panel = UUID()
+        let sid = "88888888-8888-8888-8888-888888888888"
+        var record = driftedAgentHookRecord(
+            launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
+            recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "codexTeams",
+            "executablePath": "/usr/local/bin/cmux",
+            "arguments": ["/usr/local/bin/cmux", "codex-teams"],
+            "workingDirectory": dir.path,
+            "capturedAt": 10,
+            "source": "environment",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sid: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        let fork = try XCTUnwrap(snapshot.forkCommand)
+        XCTAssertTrue(
+            fork.contains("'codex-teams' 'fork' '\(sid)'"),
+            "codexTeams capture must keep routing fork through the cmux wrapper; got: \(fork)"
+        )
     }
 
     private func writeHookStore(

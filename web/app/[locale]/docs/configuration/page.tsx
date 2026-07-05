@@ -1,11 +1,12 @@
 import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
-import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { localizedShortcutText, shortcutCategories } from "../../../../data/cmux-shortcuts";
 import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
@@ -50,6 +51,7 @@ const sectionOrder = [
   "browser",
   "markdown",
   "fileEditor",
+  "fileExplorer",
   "shortcuts",
 ] as const;
 
@@ -64,6 +66,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}",
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
@@ -108,6 +111,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "wordWrap": false
   // },
 
+  // "fileExplorer": {
+  //   // ${t("exampleFileExplorerDoubleClickAction")}
+  //   "doubleClickAction": "preview"
+  // },
+
   // "automation": {
   //   "suppressSubagentNotifications": true
   // },
@@ -143,10 +151,6 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
     description: t("metaDescription"),
     alternates: buildAlternates(locale, "/docs/configuration"),
   };
-}
-
-function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
 }
 
 function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
@@ -286,6 +290,7 @@ export default function ConfigurationPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.configuration" path="/docs/configuration" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
@@ -379,13 +384,14 @@ working-directory = ~/code`}</CodeBlock>
         }
 
         const skipBindings = sectionName === "shortcuts" ? ["bindings"] : [];
+        const description = property.descriptionKey ? t(property.descriptionKey) : property.description;
 
         return (
           <section key={sectionName}>
             <DocsHeading level={3} id={`schema-${sectionName}`}>
               <code>{sectionName}</code>
             </DocsHeading>
-            {property.description && <p>{property.description}</p>}
+            {description && <p>{description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
             {sectionName === "workspaceColors" && (
               <>
@@ -443,10 +449,10 @@ working-directory = ~/code`}</CodeBlock>
                     <code className="text-[12px] font-medium">{shortcut.id}</code>
                   </div>
                   <p className="text-sm text-foreground/90">
-                    {localizedText(shortcut.description, locale)}
+                    {localizedShortcutText(shortcut.description, locale)}
                     {shortcut.note && (
                       <span className="ml-2 text-xs text-muted">
-                        {localizedText(shortcut.note, locale)}
+                        {localizedShortcutText(shortcut.note, locale)}
                       </span>
                     )}
                   </p>
@@ -460,6 +466,40 @@ working-directory = ~/code`}</CodeBlock>
           </div>
         </section>
       ))}
+
+      <DocsHeading level={3} id="shortcuts-when">
+        <code>shortcuts.when</code>
+      </DocsHeading>
+      <p>{t("shortcutsWhenIntro")}</p>
+      <ul>
+        <li>
+          <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
+          <code>filePreviewTextEditorFocus</code>, <code>terminalFocus</code>,{" "}
+          <code>commandPaletteVisible</code>, <code>terminalFindVisible</code>,{" "}
+          <code>workspaceCanvasLayout</code> &mdash; {t("shortcutsWhenBooleanKeys")}
+        </li>
+        <li>
+          <code>sidebarMode</code> (<code>files</code>, <code>find</code>, <code>sessions</code>,{" "}
+          <code>feed</code>, <code>dock</code>), <code>paneCount</code>,{" "}
+          <code>workspaceCount</code> &mdash; {t("shortcutsWhenTypedKeys")}
+        </li>
+        <li>
+          <code>!</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>(&hellip;)</code>,{" "}
+          <code>==</code>, <code>!=</code>, <code>=~</code>, <code>&lt;</code>, <code>&lt;=</code>,{" "}
+          <code>&gt;</code>, <code>&gt;=</code>, <code>in [a, b]</code> &mdash;{" "}
+          {t("shortcutsWhenOperators")}
+        </li>
+      </ul>
+      <p>{t("shortcutsWhenExample")}</p>
+      <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
+        <code>{`"shortcuts": {
+  "bindings": { "selectWorkspaceByNumber": "ctrl+1" },
+  "when": {
+    "selectWorkspaceByNumber": "!sidebarFocus",
+    "selectSurfaceByNumber": "sidebarMode == 'find' && paneCount > 1"
+  }
+}`}</code>
+      </pre>
     </>
   );
 }

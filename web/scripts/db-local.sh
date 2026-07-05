@@ -129,10 +129,7 @@ case "$command" in
     export DIRECT_DATABASE_URL="$DATABASE_URL"
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
-    bun test tests/db-schema.test.ts
-    bun test tests/drizzle-effect.test.ts
-    bun test tests/vm-db-read-model.test.ts
-    bun test tests/vm-workflows.test.ts
+    bash "$ROOT_DIR/scripts/run-db-behavior-tests.sh"
     ;;
   url)
     printf '%s\n' "$DATABASE_URL"

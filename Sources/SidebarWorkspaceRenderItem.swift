@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 /// One drawable item in the workspace sidebar.
@@ -6,14 +7,24 @@ enum SidebarWorkspaceRenderItem {
     case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID])
     case workspace(Workspace)
 
-    var id: String {
+    var id: SidebarWorkspaceRenderItemID {
         switch self {
         case .groupHeader(let group, _):
-            return "group.\(group.id.uuidString)"
+            return .group(group.id)
         case .workspace(let workspace):
-            return "workspace.\(workspace.id.uuidString)"
+            return .workspace(workspace.id)
         }
     }
+
+    var rowWorkspaceId: UUID {
+        switch self {
+        case .groupHeader(let group, _):
+            return group.anchorWorkspaceId
+        case .workspace(let workspace):
+            return workspace.id
+        }
+    }
+
     static func renderItems(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup]

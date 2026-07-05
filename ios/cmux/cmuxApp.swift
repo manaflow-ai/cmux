@@ -6,6 +6,7 @@ import cmuxFeature
 @main
 struct cmuxApp: App {
     @UIApplicationDelegateAdaptor(CmuxAppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     /// The de-singletonized composition root: built once, injected down.
     @MainActor
@@ -37,6 +38,7 @@ struct cmuxApp: App {
         let runtime = CMUXMobileRuntime(
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
+            stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
         )
 
@@ -46,16 +48,48 @@ struct cmuxApp: App {
     init() {
         Self.root.pushCoordinator.configure(delegate: appDelegate)
         appDelegate.pushCoordinator = Self.root.pushCoordinator
+        appDelegate.analytics = Self.root.analytics.emitter
     }
 
     var body: some Scene {
         WindowGroup {
-            CMUXMobileRootScene(
-                runtime: Self.root.runtime,
-                auth: Self.root.auth,
-                reachability: Self.root.reachability,
-                pushCoordinator: Self.root.pushCoordinator
-            )
+            rootScene
+                // `initial: true` so the cold-launch `.active` value (which
+                // `onChange` otherwise skips) drives the first
+                // `ios_session_started` + `ios_app_foregrounded`. Without it the
+                // whole session funnel stays empty until the first
+                // background-and-return.
+                .onChange(of: scenePhase, initial: true) { _, newPhase in
+                    Self.root.handleScenePhase(newPhase)
+                }
         }
+    }
+
+    @ViewBuilder
+    private var rootScene: some View {
+        #if DEBUG
+        CMUXMobileRootScene(
+            runtime: Self.root.runtime,
+            auth: Self.root.auth,
+            reachability: Self.root.reachability,
+            analytics: Self.root.analytics.emitter,
+            pushCoordinator: Self.root.pushCoordinator,
+            displaySettings: Self.root.displaySettings,
+            onboardingStore: Self.root.onboardingStore,
+            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
+            diagnosticLog: Self.root.diagnosticLog
+        )
+        #else
+        CMUXMobileRootScene(
+            runtime: Self.root.runtime,
+            auth: Self.root.auth,
+            reachability: Self.root.reachability,
+            analytics: Self.root.analytics.emitter,
+            pushCoordinator: Self.root.pushCoordinator,
+            displaySettings: Self.root.displaySettings,
+            onboardingStore: Self.root.onboardingStore,
+            tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor
+        )
+        #endif
     }
 }
