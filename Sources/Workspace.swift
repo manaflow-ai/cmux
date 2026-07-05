@@ -5764,11 +5764,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration = configuration
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
-        let validRemoteTrustPanelIds = Set(panels.compactMap { panelId, panel in
-            panel is TerminalPanel || remoteDirectoryReportPanelIds.contains(panelId) ? panelId : nil
-        })
         remoteDirectoryTrustRequiredPanelIds = Set(remoteDirectoryTrustRequiredPanelIds.filter {
-            validRemoteTrustPanelIds.contains($0)
+            panels[$0] != nil
         })
         remoteDirectoryTrustRequiredPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         remoteDirectoryReportPanelIds.removeAll()

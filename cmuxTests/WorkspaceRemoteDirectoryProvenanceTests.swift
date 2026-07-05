@@ -69,6 +69,36 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: panelId) == remoteDirectory)
     }
 
+    @MainActor
+    @Test("reconnect keeps remote trust guard for agent panels")
+    func reconnectKeepsRemoteTrustGuardForAgentPanels() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: nil,
+            focus: true
+        ))
+        #expect(agentPanel.workingDirectory == remoteDirectory)
+        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
+
+        workspace.disconnectRemoteConnection()
+        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(agentPanel.id))
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
+
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(agentPanel.id))
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
+        #expect(workspace.presentedCurrentDirectory == nil)
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
