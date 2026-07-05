@@ -4110,7 +4110,20 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput
             )
         case "ssh-pty-attach":
-            try runSSHPTYAttach(commandArgs: commandArgs, client: client, explicitPassword: socketPasswordArg)
+            do {
+                try runSSHPTYAttach(commandArgs: commandArgs, client: client, explicitPassword: socketPasswordArg)
+            } catch let error as CLIError where error.exitCode == 253 && commandArgs.contains("--require-existing") {
+                let notice = String(
+                    localized: "cli.sshPtyAttach.remoteSessionLostRespawn",
+                    defaultValue: "[cmux] remote session was lost; starting a new shell."
+                )
+                cliWriteStderr(Data((notice + "\n").utf8))
+                try runSSHPTYAttach(
+                    commandArgs: commandArgs.filter { $0 != "--require-existing" },
+                    client: client,
+                    explicitPassword: socketPasswordArg
+                )
+            }
         case "ssh-session-list":
             try runSSHSessionList(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-attach":
@@ -6491,7 +6504,7 @@ struct CMUXCLI {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    private func debugString(_ value: Any?) -> String? {
+    func debugString(_ value: Any?) -> String? {
         guard let value, !(value is NSNull) else { return nil }
         if let string = value as? String {
             return string
@@ -11422,58 +11435,6 @@ struct CMUXCLI {
         return params
     }
 
-    private func userFacingRemotePTYErrorMessage(_ value: Any?) -> String {
-        if let error = value as? Error {
-            return userFacingRemotePTYErrorMessage(String(describing: error))
-        }
-        return userFacingRemotePTYErrorMessage(debugString(value) ?? "unknown error")
-    }
-
-    private func userFacingRemotePTYErrorMessage(_ message: String) -> String {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "remote PTY operation failed" }
-        let lowered = trimmed.lowercased()
-        if lowered.contains("missing required capability") ||
-            lowered.contains("pty.session") ||
-            lowered.contains("pty.write.notification") ||
-            lowered.contains("method_not_found") {
-            return "remote daemon does not support persistent SSH PTY sessions; reconnect the remote workspace to update cmux"
-        }
-        if lowered.contains("pty_session_not_found") ||
-            (lowered.contains("persistent ssh pty session") && lowered.contains("not running")) ||
-            (lowered.contains("persistent pty session") && lowered.contains("not running")) {
-            return "persistent SSH PTY session is no longer running"
-        }
-        if lowered.contains("pty_input_queue_full") || lowered.contains("pty input queue is full") {
-            return "remote PTY input is temporarily backed up"
-        }
-        if lowered.contains("remote connection is not active") {
-            return "remote connection is not active"
-        }
-        if lowered.contains("remote daemon is not ready") || lowered.contains("remote daemon tunnel is not ready") {
-            return "remote daemon is not ready"
-        }
-        if lowered.contains("missing workspace_id in ssh pty session list response") {
-            return "missing workspace_id in SSH PTY session list response"
-        }
-        if lowered.contains("missing session_id in ssh pty session list response") {
-            return "missing session_id in SSH PTY session list response"
-        }
-        if lowered.contains("timed out") || lowered.contains("timeout") {
-            return "remote daemon did not respond in time"
-        }
-        // Surface the daemon's PTY-allocation diagnostic verbatim (it names the
-        // failing device and the devpts/ptmxmode cause) instead of collapsing it
-        // into a generic message. Key off the daemon's stable marker only, so an
-        // unrelated error that merely mentions a device path is not leaked. The
-        // peer branches in this CLI helper return plain English, so this branch
-        // does too. See issue #5185.
-        if lowered.contains("could not allocate a remote pty") {
-            return trimmed
-        }
-        return "remote PTY operation failed"
-    }
-
     private func readSSHPTYBridgeReady(fd: Int32) throws -> String {
         let maxStatusBytes = 4096
         var line = Data()
@@ -11498,7 +11459,12 @@ struct CMUXCLI {
                         let message = ((payload["message"] as? String)?
                             .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
                             ?? "remote PTY attach failed"
-                        throw CLIError(message: "ssh-pty-attach: \(message)")
+                        let code = (payload["code"] as? String)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        throw CLIError(
+                            message: "ssh-pty-attach: \(message)",
+                            exitCode: code == "pty_session_not_found" ? 253 : 1
+                        )
                     default:
                         throw CLIError(message: "ssh-pty-attach: invalid bridge status")
                     }
