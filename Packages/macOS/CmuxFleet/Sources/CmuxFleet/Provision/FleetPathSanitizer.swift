@@ -1,13 +1,26 @@
 /// Produces safe directory names for Fleet task keys.
 public struct FleetPathSanitizer: Sendable {
-    /// Returns a filesystem-safe directory name for a task key.
+    /// The maximum character count for returned directory names.
+    public var maxLength: Int
+
+    /// The name returned when sanitization would otherwise be empty.
+    public var fallback: String
+
+    /// Creates a path sanitizer with deterministic limits.
     /// - Parameters:
-    ///   - key: The source task key to sanitize.
-    ///   - maxLength: The maximum character count for the returned name.
+    ///   - maxLength: The maximum character count for returned directory names.
+    ///   - fallback: The name returned when sanitization would otherwise be empty.
+    public init(maxLength: Int = 100, fallback: String = "task") {
+        self.maxLength = maxLength
+        self.fallback = fallback
+    }
+
+    /// Returns a filesystem-safe directory name for a task key.
+    /// - Parameter key: The source task key to sanitize.
     /// - Returns: A non-empty safe directory name.
-    public static func directoryName(for key: String, maxLength: Int = 100) -> String {
+    public func directoryName(for key: String) -> String {
         guard maxLength > 0 else {
-            return "task"
+            return fallback
         }
 
         var result = ""
@@ -30,10 +43,10 @@ public struct FleetPathSanitizer: Sendable {
             result = trimmed(result)
         }
 
-        return result.isEmpty ? "task" : result
+        return result.isEmpty ? fallback : result
     }
 
-    private static func isAllowed(_ scalar: UnicodeScalar) -> Bool {
+    private func isAllowed(_ scalar: UnicodeScalar) -> Bool {
         switch scalar.value {
         case 48...57, 65...90, 97...122:
             true
@@ -44,7 +57,7 @@ public struct FleetPathSanitizer: Sendable {
         }
     }
 
-    private static func trimmed(_ value: String) -> String {
+    private func trimmed(_ value: String) -> String {
         var start = value.startIndex
         var end = value.endIndex
 
@@ -62,7 +75,7 @@ public struct FleetPathSanitizer: Sendable {
         return String(value[start..<end])
     }
 
-    private static func shouldTrim(_ character: Character) -> Bool {
+    private func shouldTrim(_ character: Character) -> Bool {
         character == "." || character == "_" || character == "-"
     }
 }

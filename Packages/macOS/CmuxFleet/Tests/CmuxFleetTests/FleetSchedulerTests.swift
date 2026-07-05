@@ -11,7 +11,7 @@ struct FleetSchedulerTests {
             FleetTestSupport.task(idSuffix: "queued"),
         ]
 
-        let selected = FleetScheduler.tasksToDispatch(tasks, maxConcurrentAgents: 3)
+        let selected = FleetScheduler(maxConcurrentAgents: 3).dispatch(tasks)
 
         #expect(selected.map(\.id.rawValue) == ["local:queued"])
     }
@@ -27,7 +27,7 @@ struct FleetSchedulerTests {
             FleetTestSupport.task(id: "local:p2-old-a", priority: 2, createdAt: old),
         ]
 
-        let selected = FleetScheduler.tasksToDispatch(tasks, maxConcurrentAgents: 10, provisioningCap: 10)
+        let selected = FleetScheduler(maxConcurrentAgents: 10, provisioningCap: 10).dispatch(tasks)
 
         #expect(selected.map(\.id.rawValue) == [
             "local:p1",
@@ -46,7 +46,7 @@ struct FleetSchedulerTests {
             FleetTestSupport.task(idSuffix: "queued-2"),
         ]
 
-        let selected = FleetScheduler.tasksToDispatch(tasks, maxConcurrentAgents: 3, provisioningCap: 5)
+        let selected = FleetScheduler(maxConcurrentAgents: 3, provisioningCap: 5).dispatch(tasks)
 
         #expect(selected.map(\.id.rawValue) == ["local:queued-1"])
     }
@@ -58,7 +58,7 @@ struct FleetSchedulerTests {
             FleetTestSupport.task(idSuffix: "queued-2"),
         ]
 
-        let selected = FleetScheduler.tasksToDispatch(tasks, maxConcurrentAgents: 5, provisioningCap: 2)
+        let selected = FleetScheduler(maxConcurrentAgents: 5, provisioningCap: 2).dispatch(tasks)
 
         #expect(selected.map(\.id.rawValue) == ["local:queued-1"])
     }
@@ -71,7 +71,7 @@ struct FleetSchedulerTests {
             FleetTestSupport.task(idSuffix: "queued-2"),
         ]
 
-        let selected = FleetScheduler.tasksToDispatch(tasks, maxConcurrentAgents: 2, provisioningCap: 2)
+        let selected = FleetScheduler(maxConcurrentAgents: 2, provisioningCap: 2).dispatch(tasks)
 
         #expect(selected.map(\.id.rawValue) == ["local:queued-1", "local:queued-2"])
     }
@@ -81,7 +81,7 @@ struct FleetSchedulerTests {
         let duplicateB = FleetTestSupport.task(id: "local:dup", createdAt: Date(timeIntervalSince1970: 2))
         let unique = FleetTestSupport.task(id: "local:unique", createdAt: Date(timeIntervalSince1970: 3))
 
-        let selected = FleetScheduler.tasksToDispatch([duplicateB, unique, duplicateA], maxConcurrentAgents: 3)
+        let selected = FleetScheduler(maxConcurrentAgents: 3).dispatch([duplicateB, unique, duplicateA])
 
         #expect(selected.map(\.id.rawValue) == ["local:dup", "local:unique"])
     }

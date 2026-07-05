@@ -1,11 +1,18 @@
 /// Computes deterministic Fleet retry backoff delays.
 public struct FleetBackoff: Sendable {
+    /// The maximum delay in milliseconds.
+    public var maxMS: Int
+
+    /// Creates a retry backoff policy.
+    /// - Parameter maxMS: The maximum delay in milliseconds.
+    public init(maxMS: Int = 300_000) {
+        self.maxMS = maxMS
+    }
+
     /// Returns the exponential retry delay for a one-based attempt.
-    /// - Parameters:
-    ///   - attempt: The one-based attempt number; values below one are treated as one.
-    ///   - maxMS: The maximum delay in milliseconds.
+    /// - Parameter attempt: The one-based attempt number; values below one are treated as one.
     /// - Returns: `min(10_000 * 2^(attempt - 1), maxMS)`, without integer overflow.
-    public static func delayMS(attempt: Int, maxMS: Int) -> Int {
+    public func delayMS(attempt: Int) -> Int {
         let limit = max(0, maxMS)
         guard limit > 0 else {
             return 0

@@ -22,7 +22,7 @@ struct FleetTaskStateTests {
 
     @Test func transitionTableMatchesExpectedEdges() {
         let expected: [FleetTaskState: Set<FleetTaskState>] = [
-            .queued: [.queued, .cancelled],
+            .queued: [.queued, .provisioning, .cancelled],
             .provisioning: [.provisioning, .launching, .failed, .cancelled],
             .launching: [.launching, .running, .retryBackoff, .awaitingReview, .failed, .cancelled],
             .running: [.running, .needsInput, .retryBackoff, .awaitingReview, .failed, .cancelled],
@@ -46,7 +46,7 @@ struct FleetTaskStateTests {
         for scenario in SupervisorSignalKind.allCases {
             for state in FleetTaskState.allCases {
                 let task = FleetTestSupport.task(state: state)
-                let reduced = FleetSupervisor.reduce(
+                let reduced = FleetSupervisor().reduce(
                     task: task,
                     signal: scenario.signal(at: FleetTestSupport.eventDate)
                 )

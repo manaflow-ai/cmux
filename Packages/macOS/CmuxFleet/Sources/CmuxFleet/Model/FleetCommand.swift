@@ -12,8 +12,8 @@ public enum FleetCommand: Equatable, Codable, Sendable {
     /// Kill the currently supervised agent for a task.
     case killAgent(task: FleetTask)
 
-    /// Schedule a retry backoff timer for a task.
-    case scheduleBackoff(taskID: FleetTaskID, delayMS: Int)
+    /// Schedule a retry backoff timer for a specific task attempt.
+    case scheduleBackoff(taskID: FleetTaskID, attempt: Int, delayMS: Int)
 
     /// Cancel a retry backoff timer for a task.
     case cancelBackoff(taskID: FleetTaskID)

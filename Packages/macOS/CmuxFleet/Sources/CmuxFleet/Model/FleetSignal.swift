@@ -5,6 +5,9 @@ public enum FleetSignal: Equatable, Codable, Sendable {
     /// A work source produced a fresh normalized task list.
     case sourceSync(tasks: [FleetTask], at: Date)
 
+    /// The scheduler dispatched a queued task for workspace provisioning.
+    case dispatched(taskID: FleetTaskID, at: Date)
+
     /// Workspace provisioning succeeded for a task.
     case provisioned(taskID: FleetTaskID, path: String, isBrandNew: Bool, at: Date)
 
@@ -35,8 +38,8 @@ public enum FleetSignal: Equatable, Codable, Sendable {
     /// Fleet's stall timeout elapsed for a task.
     case stallTimeout(taskID: FleetTaskID, at: Date)
 
-    /// A scheduled retry backoff elapsed for a task.
-    case backoffElapsed(taskID: FleetTaskID, at: Date)
+    /// A scheduled retry backoff elapsed for a specific task attempt.
+    case backoffElapsed(taskID: FleetTaskID, attempt: Int, at: Date)
 
     /// The workspace attached to a task was closed.
     case workspaceClosed(taskID: FleetTaskID, at: Date)

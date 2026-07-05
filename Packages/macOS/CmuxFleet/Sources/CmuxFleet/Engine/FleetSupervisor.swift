@@ -2,20 +2,38 @@ import Foundation
 
 /// Reduces one Fleet task snapshot with one deterministic supervision signal.
 public struct FleetSupervisor: Sendable {
+    /// The supervision limits used for retry decisions.
+    public var config: FleetSupervisionConfig
+
+    /// Creates a deterministic Fleet supervisor reducer.
+    /// - Parameter config: The supervision limits used for retry decisions.
+    public init(config: FleetSupervisionConfig = FleetSupervisionConfig()) {
+        self.config = config
+    }
+
     /// Applies a signal to a task without performing I/O or reading the clock.
     /// - Parameters:
     ///   - task: The current task snapshot.
     ///   - signal: The deterministic signal to apply.
-    ///   - config: The supervision limits used for retry decisions.
     /// - Returns: The next task snapshot and imperative commands for the engine.
-    public static func reduce(
+    public func reduce(
         task: FleetTask,
-        signal: FleetSignal,
-        config: FleetSupervisionConfig = FleetSupervisionConfig()
+        signal: FleetSignal
     ) -> (FleetTask, [FleetCommand]) {
         switch signal {
         case .sourceSync:
             return (task, [])
+        case let .dispatched(taskID, at):
+            guard taskID == task.id, task.state == .queued else {
+                return (task, [])
+            }
+            let transitioned = transition(task: task, to: .provisioning, at: at)
+            guard transitioned.0.state == .provisioning else {
+                return (task, [])
+            }
+            return (transitioned.0, transitioned.1 + [
+                .provisionWorkspace(task: transitioned.0),
+            ])
         case let .provisioned(taskID, path, _, at):
             guard taskID == task.id, task.state == .provisioning else {
                 return (task, [])
@@ -74,19 +92,28 @@ public struct FleetSupervisor: Sendable {
             if task.pr != nil {
                 return transition(task: task, to: .awaitingReview, at: at)
             }
-            return retryOrFail(task: task, config: config, at: at, killAgent: false)
-        case let .pidExited(taskID, at), let .promptIdleObserved(taskID, at):
+            return retryOrFail(task: task, at: at, killAgent: false)
+        case let .pidExited(taskID, at):
+            guard taskID == task.id, task.state == .launching || task.state == .running
+                || task.state == .needsInput
+            else {
+                return (task, [])
+            }
+            return retryOrFail(task: task, at: at, killAgent: false)
+        case let .promptIdleObserved(taskID, at):
             guard taskID == task.id, task.state == .running else {
                 return (task, [])
             }
-            return retryOrFail(task: task, config: config, at: at, killAgent: false)
+            return retryOrFail(task: task, at: at, killAgent: false)
         case let .stallTimeout(taskID, at):
-            guard taskID == task.id, task.state == .running || task.state == .needsInput else {
+            guard taskID == task.id, task.state == .launching || task.state == .running
+                || task.state == .needsInput
+            else {
                 return (task, [])
             }
-            return retryOrFail(task: task, config: config, at: at, killAgent: true)
-        case let .backoffElapsed(taskID, at):
-            guard taskID == task.id, task.state == .retryBackoff else {
+            return retryOrFail(task: task, at: at, killAgent: true)
+        case let .backoffElapsed(taskID, attempt, at):
+            guard taskID == task.id, task.state == .retryBackoff, attempt == task.attempts else {
                 return (task, [])
             }
             return startAttempt(
@@ -115,14 +142,14 @@ public struct FleetSupervisor: Sendable {
             guard taskID == task.id else {
                 return (task, [])
             }
-            if task.state == .queued {
-                return transition(task: task, to: .cancelled, at: at)
-            }
             if task.state == .awaitingReview, task.pr?.isTerminal == true {
                 let transitioned = transition(task: task, to: .done, at: at)
                 return (transitioned.0, transitioned.1 + [.cleanupWorkspace(task: transitioned.0)])
             }
-            return (task, [])
+            guard !task.state.isTerminal else {
+                return (task, [])
+            }
+            return cancelForTerminalSource(task: task, at: at)
         case let .userRetry(taskID, at):
             guard taskID == task.id, task.state == .failed || task.state == .cancelled
                 || task.state == .awaitingReview
@@ -146,7 +173,7 @@ public struct FleetSupervisor: Sendable {
         }
     }
 
-    private static func acceptsAgentStop(from state: FleetTaskState) -> Bool {
+    private func acceptsAgentStop(from state: FleetTaskState) -> Bool {
         switch state {
         case .launching, .running, .needsInput, .stalled:
             true
@@ -156,7 +183,7 @@ public struct FleetSupervisor: Sendable {
         }
     }
 
-    private static func startAttempt(
+    private func startAttempt(
         task: FleetTask,
         command: (FleetTask, Int) -> FleetCommand,
         at: Date
@@ -169,12 +196,14 @@ public struct FleetSupervisor: Sendable {
         guard transitioned.0.state == .launching else {
             return (task, [])
         }
-        return (transitioned.0, [command(transitioned.0, transitioned.0.attempts)])
+        return (
+            transitioned.0,
+            transitioned.1 + [command(transitioned.0, transitioned.0.attempts)]
+        )
     }
 
-    private static func retryOrFail(
+    private func retryOrFail(
         task: FleetTask,
-        config: FleetSupervisionConfig,
         at: Date,
         killAgent: Bool
     ) -> (FleetTask, [FleetCommand]) {
@@ -193,16 +222,31 @@ public struct FleetSupervisor: Sendable {
             commands.append(.killAgent(task: task))
         }
         if canRetry {
-            let delay = FleetBackoff.delayMS(
-                attempt: max(task.attempts, 1),
-                maxMS: config.maxRetryBackoffMS
-            )
-            commands.append(.scheduleBackoff(taskID: task.id, delayMS: delay))
+            let delay = FleetBackoff(maxMS: config.maxRetryBackoffMS)
+                .delayMS(attempt: max(task.attempts, 1))
+            commands.append(.scheduleBackoff(taskID: task.id, attempt: task.attempts, delayMS: delay))
         }
         return (transitioned.0, commands)
     }
 
-    private static func transition(
+    private func cancelForTerminalSource(
+        task: FleetTask,
+        at: Date
+    ) -> (FleetTask, [FleetCommand]) {
+        let transitioned = transition(task: task, to: .cancelled, at: at)
+        guard transitioned.0.state == .cancelled else {
+            return (task, [])
+        }
+
+        var commands = transitioned.1
+        if task.state.isActive {
+            commands.insert(.killAgent(task: task), at: 0)
+        }
+        commands.append(.cleanupWorkspace(task: transitioned.0))
+        return (transitioned.0, commands)
+    }
+
+    private func transition(
         task: FleetTask,
         to state: FleetTaskState,
         at: Date
@@ -215,6 +259,9 @@ public struct FleetSupervisor: Sendable {
         next.state = state
         next.updatedAt = at
         next.lastActivityAt = at
-        return (next, [])
+        let commands: [FleetCommand] = task.state == .retryBackoff && state != .retryBackoff
+            ? [.cancelBackoff(taskID: task.id)]
+            : []
+        return (next, commands)
     }
 }

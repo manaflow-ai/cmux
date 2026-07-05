@@ -1,16 +1,24 @@
 /// Selects queued Fleet tasks for deterministic dispatch.
 public struct FleetScheduler: Sendable {
-    /// Returns queued tasks that can be dispatched without exceeding caps.
+    /// The maximum number of active agent tasks.
+    public var maxConcurrentAgents: Int
+
+    /// The maximum number of tasks provisioning at once.
+    public var provisioningCap: Int
+
+    /// Creates a deterministic Fleet scheduler.
     /// - Parameters:
-    ///   - tasks: The current Fleet task snapshots.
-    ///   - maxConcurrentAgents: The maximum active task count.
+    ///   - maxConcurrentAgents: The maximum number of active agent tasks.
     ///   - provisioningCap: The maximum number of tasks provisioning at once.
+    public init(maxConcurrentAgents: Int, provisioningCap: Int = 2) {
+        self.maxConcurrentAgents = maxConcurrentAgents
+        self.provisioningCap = provisioningCap
+    }
+
+    /// Returns queued tasks that can be dispatched without exceeding caps.
+    /// - Parameter tasks: The current Fleet task snapshots.
     /// - Returns: Queued tasks ordered by priority, age, and identifier.
-    public static func tasksToDispatch(
-        _ tasks: [FleetTask],
-        maxConcurrentAgents: Int,
-        provisioningCap: Int = 2
-    ) -> [FleetTask] {
+    public func dispatch(_ tasks: [FleetTask]) -> [FleetTask] {
         let activeCount = tasks.filter { task in
             switch task.state {
             case .provisioning, .launching, .running, .needsInput:

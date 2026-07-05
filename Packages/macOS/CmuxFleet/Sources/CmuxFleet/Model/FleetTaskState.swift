@@ -66,7 +66,7 @@ public enum FleetTaskState: String, CaseIterable, Codable, Sendable {
 
         return switch from {
         case .queued:
-            to == .cancelled
+            to == .provisioning || to == .cancelled
         case .provisioning:
             to == .launching || to == .failed || to == .cancelled
         case .launching:
