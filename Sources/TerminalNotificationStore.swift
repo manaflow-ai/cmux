@@ -1253,7 +1253,28 @@ final class TerminalNotificationStore: ObservableObject {
             // mutated above, so it includes this notification); the server
             // stamps it as `aps.badge` so the icon badge is SET, not incremented.
             if effects.desktop {
-                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
+                // The phone push leaves the Mac entirely, so it must carry the
+                // same scrubbed banner content as the desktop notification, not
+                // the raw stored fields (which can still hold secrets/tokens
+                // from a completion body assembled before the banner
+                // materialization point).
+                let banner = bannerContent(for: notification)
+                let scrubbedNotification = TerminalNotification(
+                    id: notification.id,
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId,
+                    panelId: notification.panelId,
+                    title: banner.title,
+                    subtitle: banner.subtitle,
+                    body: banner.body,
+                    agentId: notification.agentId,
+                    workspaceTitle: notification.workspaceTitle,
+                    createdAt: notification.createdAt,
+                    isRead: notification.isRead,
+                    paneFlash: notification.paneFlash,
+                    clickAction: notification.clickAction
+                )
+                let queued = PhonePushClient.shared.forward(scrubbedNotification, badgeCount: indexes.unreadCount)
                 // Only once the replacement banner push is queued is it safe to
                 // clear the superseded banners it replaces (deferred from
                 // `recordNotification`); a throttled push leaves them stashed

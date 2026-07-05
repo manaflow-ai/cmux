@@ -17,6 +17,10 @@ enum NotificationBannerComposer {
         workspaceTitle: String?,
         appName: String
     ) -> NotificationBannerContent {
+        // Banner text leaves the app (Notification Center, lock screen, custom
+        // notification commands), so redact the free-text body for every
+        // producer here, at the single materialization point.
+        let body = notificationBannerScrubber.scrub(body)
         let legacyTitle = title.isEmpty ? (notificationBannerNonEmpty(appName) ?? "cmux") : title
         let agentTitle = notificationBannerNonEmpty(title) ?? notificationBannerNonEmpty(appName) ?? "cmux"
         let workspace = notificationBannerNonEmpty(workspaceTitle)
@@ -92,13 +96,16 @@ enum NotificationBannerComposer {
         return NotificationBannerContent(
             title: title,
             subtitle: [sourceDisplayName, kind].compactMap(notificationBannerNonEmpty).joined(separator: " · "),
-            body: feedNotificationBodyScrubber.scrub(body)
+            body: notificationBannerScrubber.scrub(body)
         )
     }
 
     static nonisolated func notificationBannerSnippet(_ value: String?, maxLength: Int) -> String? {
         guard let value else { return nil }
-        let normalized = value
+        // Redact BEFORE truncating: a credential straddling the length
+        // boundary would otherwise be cut mid-pattern and leak a partial
+        // secret the scrubber can no longer match.
+        let normalized = notificationBannerScrubber.scrub(value)
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -124,9 +131,9 @@ enum NotificationBannerComposer {
     }
 }
 
-/// Redacts secrets, URL credentials, emails, and home paths from feed banner
-/// bodies before they reach OS notification surfaces. Pure and Sendable.
-private nonisolated let feedNotificationBodyScrubber = SentryScrubber()
+/// Redacts secrets, URL credentials, emails, and home paths from banner text
+/// before it reaches OS notification surfaces. Pure and Sendable.
+private nonisolated let notificationBannerScrubber = SentryScrubber()
 
 private nonisolated func feedNotificationSourceDisplayName(_ source: String) -> String {
     RestorableAgentKind(rawValue: source)?.displayName
