@@ -19,10 +19,10 @@ final class SidebarInlineRenameCoordinator: NSObject, NSTextFieldDelegate {
 
     /// Commit/cancel fire exactly once: Enter, Escape, and focus-loss can all
     /// reach here, but only the first wins.
-    private func commitOnce(_ field: NSControl) {
+    private func commitOnce(_ draft: String) {
         guard !hasResolved else { return }
         hasResolved = true
-        onCommit(field.stringValue)
+        onCommit(draft)
     }
 
     /// Cancels the rename once, discarding the draft.
@@ -38,7 +38,7 @@ final class SidebarInlineRenameCoordinator: NSObject, NSTextFieldDelegate {
 
         switch resolver.action(for: commandSelector, hasMovedCaretToStart: hasMovedCaretToStart) {
         case .commit:
-            commitOnce(control)
+            commitOnce(textView.string)
             return true
         case .caretToStart:
             textView.setSelectedRange(NSRange(location: 0, length: 0))
@@ -55,6 +55,6 @@ final class SidebarInlineRenameCoordinator: NSObject, NSTextFieldDelegate {
     /// Treats focus loss as a commit, unless Enter or Escape already resolved.
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let field = obj.object as? NSControl else { return }
-        commitOnce(field)
+        commitOnce(field.stringValue)
     }
 }

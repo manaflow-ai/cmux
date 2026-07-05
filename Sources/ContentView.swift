@@ -13732,7 +13732,7 @@ struct TabItemView: View, Equatable {
                             defaultValue: "Workspace name"
                         ),
                         onCommit: { newName in
-                            if let title = SidebarInlineRenameCommit.titleToCommit(
+                            if let title = SidebarInlineRenameCommit().titleToCommit(
                                 draft: newName,
                                 baseline: renameDraft,
                                 baselineHadUserCustomTitle: renameBaselineHadUserCustomTitle

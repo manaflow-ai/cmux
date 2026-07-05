@@ -12,6 +12,7 @@ import Testing
 @MainActor
 @Suite struct SidebarInlineRenameKeyResolverTests {
     private let resolver = SidebarInlineRenameKeyResolver()
+    private let commitPolicy = SidebarInlineRenameCommit()
 
     @Test func enterCommitsRegardlessOfCaretState() {
         #expect(resolver.action(for: #selector(NSResponder.insertNewline(_:)), hasMovedCaretToStart: false) == .commit)
@@ -103,24 +104,24 @@ import Testing
     }
 
     @Test func normalizeTrimsAndKeepsNonEmpty() {
-        #expect(SidebarInlineRenameCommit.normalized("  Renamed  ") == "Renamed")
+        #expect(commitPolicy.normalized("  Renamed  ") == "Renamed")
     }
 
     @Test func normalizeReturnsNilForEmptyOrWhitespace() {
-        #expect(SidebarInlineRenameCommit.normalized("") == nil)
-        #expect(SidebarInlineRenameCommit.normalized("   \n\t ") == nil)
+        #expect(commitPolicy.normalized("") == nil)
+        #expect(commitPolicy.normalized("   \n\t ") == nil)
     }
 
     @Test func titleToCommitReturnsNilForEmptyDraft() {
-        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "   ", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
+        #expect(commitPolicy.titleToCommit(draft: "   ", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
     }
 
     @Test func titleToCommitSkipsUnchangedAutoTitle() {
-        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
+        #expect(commitPolicy.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
     }
 
     @Test func titleToCommitWritesChangedNameForAutoTitle() {
-        #expect(SidebarInlineRenameCommit.titleToCommit(
+        #expect(commitPolicy.titleToCommit(
             draft: "  My Work  ",
             baseline: "zsh",
             baselineHadUserCustomTitle: false
@@ -128,16 +129,16 @@ import Testing
     }
 
     @Test func titleToCommitWritesWhenBaselineHadUserCustomTitle() {
-        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "Foo", baseline: "Foo", baselineHadUserCustomTitle: true) == "Foo")
+        #expect(commitPolicy.titleToCommit(draft: "Foo", baseline: "Foo", baselineHadUserCustomTitle: true) == "Foo")
     }
 
     @Test func titleToCommitSkipsStaleBaselineWhenAutoTitleChangedMidEdit() {
         // Regression: the decision is based on the edit-begin baseline, not a
         // live title read at commit. Committing the unchanged baseline of an
         // auto-titled workspace is skipped even if the process title moved on.
-        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
+        #expect(commitPolicy.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
         // ...but a real edit still writes, regardless of any mid-edit drift.
-        #expect(SidebarInlineRenameCommit.titleToCommit(
+        #expect(commitPolicy.titleToCommit(
             draft: "vim",
             baseline: "zsh",
             baselineHadUserCustomTitle: false
@@ -152,7 +153,7 @@ import Testing
 
         #expect(!baselineHadUserCustomTitle)
         #expect(
-            SidebarInlineRenameCommit.titleToCommit(
+            commitPolicy.titleToCommit(
                 draft: "Fix auth bug",
                 baseline: "Fix auth bug",
                 baselineHadUserCustomTitle: baselineHadUserCustomTitle
