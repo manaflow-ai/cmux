@@ -1114,6 +1114,7 @@
 		A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */; };
 		D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */; };
 		C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */; };
+		C0DE00000000000000000C89 /* TerminalController+WorkspaceMove.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C88 /* TerminalController+WorkspaceMove.swift */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
 		C0DE00000000000000000C32 /* TerminalControllerControlCommandContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C31 /* TerminalControllerControlCommandContext.swift */; };
 		C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */; };
@@ -2415,6 +2416,7 @@
 		95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmux.swift"; sourceTree = "<group>"; };
 		D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowDockBrowserRouting.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreate.swift"; sourceTree = "<group>"; };
+		C0DE00000000000000000C88 /* TerminalController+WorkspaceMove.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceMove.swift"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
 		C0DE00000000000000000C31 /* TerminalControllerControlCommandContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerControlCommandContext.swift; sourceTree = "<group>"; };
 		C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerPaneResizeSupport.swift; sourceTree = "<group>"; };
@@ -3196,6 +3198,7 @@
 				C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */,
 				C0DE00000000000000000D83 /* TerminalController+ControlPaneDock.swift */,
 				C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */,
+				C0DE00000000000000000C88 /* TerminalController+WorkspaceMove.swift */,
 				C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */,
 				C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */,
 				C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */,
@@ -5109,6 +5112,7 @@
 				A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */,
 				D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */,
 				C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */,
+				C0DE00000000000000000C89 /* TerminalController+WorkspaceMove.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,
 				C0DE00000000000000000C32 /* TerminalControllerControlCommandContext.swift in Sources */,
 				C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */,

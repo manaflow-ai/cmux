@@ -34,7 +34,6 @@ struct MobileHostAuthorizationTests {
             ttl: 3600,
             now: now.addingTimeInterval(1)
         )
-
         #expect(first.authToken != second.authToken)
         #expect(store.validTicket(authToken: first.authToken, now: now.addingTimeInterval(2))?.authToken == first.authToken)
         #expect(store.validTicket(authToken: second.authToken, now: now.addingTimeInterval(2))?.authToken == second.authToken)
@@ -70,9 +69,7 @@ struct MobileHostAuthorizationTests {
             params: [:],
             auth: nil
         )
-
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
-
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "workspace.list should require mobile authorization")
         }
@@ -85,9 +82,7 @@ struct MobileHostAuthorizationTests {
             params: [:],
             auth: nil
         )
-
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
-
         #expect(result == nil)
     }
 
@@ -123,17 +118,13 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: "cmux-dev-token"
             )
         )
-
         let result = await service.debugAuthorizationError(for: request)
-
         #expect(result == nil)
     }
     #endif
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
-
         let result = MobileHostRPCEnvelope.decodeRequest(data)
-
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "Invalid params shape should be rejected")
         }
@@ -142,9 +133,7 @@ struct MobileHostAuthorizationTests {
     }
     @Test func testMobileHostRPCRejectsInvalidAuthShape() {
         let data = Data(#"{"id":"bad-auth","method":"workspace.list","auth":"token"}"#.utf8)
-
         let result = MobileHostRPCEnvelope.decodeRequest(data)
-
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "Invalid auth shape should be rejected")
         }
@@ -153,9 +142,7 @@ struct MobileHostAuthorizationTests {
     }
     @Test func testMobileHostRPCIgnoresRefreshTokenOnlyAuth() {
         let data = Data(#"{"id":"refresh-only","method":"workspace.list","auth":{"stack_refresh_token":"secret"}}"#.utf8)
-
         let result = MobileHostRPCEnvelope.decodeRequest(data)
-
         guard case let .success(request) = result else {
             return #expect(Bool(false), "Refresh-token-only auth should decode as an unauthenticated request")
         }
@@ -345,9 +332,7 @@ struct MobileHostAuthorizationTests {
             params: [:],
             auth: nil
         )
-
         let result = await MobileHostService.shared.debugAuthorizationError(for: request)
-
         guard case let .failure(error) = result else {
             return #expect(Bool(false), "mobile.attach_ticket.create should require mobile authorization")
         }
@@ -364,9 +349,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error?.code == "forbidden")
     }
     @Test func testScopedAttachTicketRejectsTerminalAliasIgnoredByHandlers() throws {
@@ -383,9 +366,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error?.code == "forbidden")
     }
     @Test func testAttachTicketAcceptsUnscopedWorkspaceListForPairedDevice() throws {
@@ -399,9 +380,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
@@ -418,9 +397,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testAttachTicketAcceptsTerminalCreateForPairedDevice() throws {
@@ -436,9 +413,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testAttachTicketAcceptsWorkspaceCreateForPairedDevice() throws {
@@ -452,9 +427,40 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
+        #expect(error == nil)
+    }
+    @Test func testWorkspaceMoveRejectsForeignWorkspaceForWorkspaceScopedTicket() throws {
+        let error = try workspaceMoveAuthorizationError(
+            ticketWorkspaceID: "workspace",
+            workspaceID: "other-workspace",
+            params: ["before_workspace_id": "workspace"]
+        )
+        #expect(error?.code == "forbidden")
+    }
+    @Test func testWorkspaceMoveAcceptsMatchingWorkspaceForWorkspaceScopedTicket() throws {
+        let error = try workspaceMoveAuthorizationError(
+            ticketWorkspaceID: "workspace",
+            workspaceID: "workspace",
+            params: ["before_workspace_id": "other-workspace"]
+        )
+        #expect(error == nil)
+    }
+    @Test func testWorkspaceMoveAcceptsCreatedWorkspaceForWorkspaceScopedTicket() throws {
+        let error = try workspaceMoveAuthorizationError(
+            ticketWorkspaceID: "workspace",
+            workspaceID: "created-workspace",
+            params: ["group_id": "group"],
+            createdWorkspaceIDs: ["created-workspace"]
+        )
+        #expect(error == nil)
+    }
+    @Test func testWorkspaceMoveAcceptsMacScopedTicket() throws {
+        let error = try workspaceMoveAuthorizationError(
+            ticketWorkspaceID: "",
+            workspaceID: "other-workspace",
+            params: ["group_id": "group"]
+        )
         #expect(error == nil)
     }
     @Test func testAttachTicketAcceptsReplayForCreatedWorkspace() throws {
@@ -471,13 +477,11 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(
             ticket: ticket,
             request: request,
             createdWorkspaceIDs: ["created-workspace"]
         )
-
         #expect(error == nil)
     }
     @Test func testAttachTicketAcceptsReplayForCreatedTerminal() throws {
@@ -494,13 +498,11 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(
             ticket: ticket,
             request: request,
             createdTerminalIDs: ["created-terminal"]
         )
-
         #expect(error == nil)
     }
     @Test func testWorkspaceScopedAttachTicketAcceptsTerminalCreate() throws {
@@ -514,9 +516,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testTerminalScopedAttachTicketRejectsConflictingTerminalAliases() throws {
@@ -534,9 +534,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error?.code == "forbidden")
     }
     @Test func testScopedAttachTicketAcceptsHandlerParameterNames() throws {
@@ -553,9 +551,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testScopedAttachTicketAcceptsNamedTerminalReplay() throws {
@@ -572,9 +568,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testTerminalScopedAttachTicketRejectsDifferentTerminalInput() throws {
@@ -592,9 +586,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error?.code == "forbidden")
     }
     @Test func testTerminalScopedAttachTicketRejectsUnscopedTerminalReplay() throws {
@@ -608,9 +600,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error?.code == "forbidden")
     }
     @Test func testWorkspaceScopedAttachTicketRejectsTerminalReplayOutsideWorkspace() throws {
@@ -627,9 +617,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error?.code == "forbidden")
     }
     @Test func testWorkspaceScopedAttachTicketAcceptsTerminalReplayInWorkspace() throws {
@@ -646,9 +634,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testMacScopedAttachTicketAcceptsTerminalReplayInAnyWorkspace() throws {
@@ -665,9 +651,7 @@ struct MobileHostAuthorizationTests {
                 stackAccessToken: nil
             )
         )
-
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
-
         #expect(error == nil)
     }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
@@ -697,11 +681,9 @@ struct MobileHostAuthorizationTests {
 
         service.debugResetMobileLifecycleStateForTesting()
         service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
-
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == Set(["ios-client"]))
 
         service.debugRemoveConnectionForTesting(id: connectionID)
-
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
@@ -711,7 +693,6 @@ struct MobileHostAuthorizationTests {
             MobileHostRequestActivity.endConnection()
             MobileHostRequestActivity.resetForTesting()
         }
-
         #expect(!MobileHostRequestActivity.hasActiveRequest)
         #expect(!MobileHostRequestActivity.hasRecentActivity(within: 60))
         #expect(MobileHostRequestActivity.quietDelay(for: 60) == 0)
@@ -739,7 +720,6 @@ struct MobileHostAuthorizationTests {
         service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
 
         service.debugRemoveConnectionForTesting(id: connectionID)
-
         #expect(
             terminalController.debugMobileViewportReportClientIDsForTesting(surfaceID: surfaceID) == Set(["ipad-client"]),
             "Closing one mobile RPC connection should clear only that connection's viewport reports."
@@ -763,13 +743,11 @@ struct MobileHostAuthorizationTests {
             .failed(.posix(.ECONNRESET)),
             generation: staleGeneration
         )
-
         #expect(service.debugListenerGenerationForTesting() == currentGeneration)
         #expect(service.debugListenerUsesEphemeralFallbackForTesting())
         #expect(service.debugListenerPortForTesting() == 61234)
 
         service.debugHandleListenerStateForTesting(.cancelled, generation: staleGeneration)
-
         #expect(service.debugListenerGenerationForTesting() == currentGeneration)
         #expect(service.debugListenerUsesEphemeralFallbackForTesting())
         #expect(service.debugListenerPortForTesting() == 61234)
@@ -934,13 +912,11 @@ struct MobileHostAuthorizationTests {
 
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
         await drainMobileHostMainQueue()
-
         #expect(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
         #expect(observer.debugIsRetainingNotificationDemandForTesting)
 
         _ = await session.unsubscribe(streamID: "events")
         await drainMobileHostMainQueue()
-
         #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
         #expect(!observer.debugIsRetainingNotificationDemandForTesting)
     }
@@ -960,7 +936,6 @@ struct MobileHostAuthorizationTests {
             tabs: [workspace],
             selectedTabID: workspace.id
         )
-
         #expect(initial != afterWorkspaceDirectory)
 
         workspace.panelDirectories[UUID()] = "/tmp/mobile-terminal"
@@ -968,7 +943,6 @@ struct MobileHostAuthorizationTests {
             tabs: [workspace],
             selectedTabID: workspace.id
         )
-
         #expect(afterWorkspaceDirectory != afterTerminalDirectory)
     }
     @Test func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
@@ -1118,6 +1092,31 @@ struct MobileHostAuthorizationTests {
             routes: [route],
             expiresAt: Date().addingTimeInterval(3600),
             authToken: "ticket-secret"
+        )
+    }
+
+    private func workspaceMoveAuthorizationError(
+        ticketWorkspaceID: String,
+        workspaceID: String,
+        params additionalParams: [String: String],
+        createdWorkspaceIDs: Set<String> = []
+    ) throws -> MobileHostRPCError? {
+        let ticket = try scopedAttachTicket(workspaceID: ticketWorkspaceID, terminalID: nil)
+        var params = additionalParams
+        params["workspace_id"] = workspaceID
+        let request = MobileHostRPCRequest(
+            id: "workspace-move",
+            method: "workspace.move",
+            params: params,
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+        return MobileHostService.debugTicketAuthorizationError(
+            ticket: ticket,
+            request: request,
+            createdWorkspaceIDs: createdWorkspaceIDs
         )
     }
 

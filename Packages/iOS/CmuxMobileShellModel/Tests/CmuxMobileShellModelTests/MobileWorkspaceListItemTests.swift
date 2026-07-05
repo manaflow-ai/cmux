@@ -177,4 +177,71 @@ import Testing
             .workspace(workspace("mid"), indented: false),
         ])
     }
+
+    // MARK: Drop intent
+
+    @Test func dropIntentReordersWithinUngroupedRegion() {
+        let intent = MobileWorkspaceDropIntentResolver().intent(
+            workspaces: [workspace("a"), workspace("b"), workspace("c")],
+            groups: [],
+            draggedWorkspaceID: "c",
+            target: .beforeWorkspace("a")
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "a"))
+    }
+
+    @Test func dropIntentAppendsOntoGroupHeader() {
+        let intent = MobileWorkspaceDropIntentResolver().intent(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("member", group: "g"),
+                workspace("dragged"),
+                workspace("tail"),
+            ],
+            groups: [group("g", anchor: "anchor")],
+            draggedWorkspaceID: "dragged",
+            target: .groupHeader("g")
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "tail"))
+    }
+
+    @Test func dropIntentMovesBetweenGroupMembers() {
+        let intent = MobileWorkspaceDropIntentResolver().intent(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("first", group: "g"),
+                workspace("second", group: "g"),
+                workspace("dragged"),
+            ],
+            groups: [group("g", anchor: "anchor")],
+            draggedWorkspaceID: "dragged",
+            target: .beforeWorkspace("second")
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: "g", beforeWorkspaceID: "second"))
+    }
+
+    @Test func dropIntentUngroupsIntoUngroupedRegion() {
+        let intent = MobileWorkspaceDropIntentResolver().intent(
+            workspaces: [
+                workspace("anchor", group: "g"),
+                workspace("dragged", group: "g"),
+                workspace("top"),
+                workspace("bottom"),
+            ],
+            groups: [group("g", anchor: "anchor")],
+            draggedWorkspaceID: "dragged",
+            target: .beforeWorkspace("bottom")
+        )
+        #expect(intent == MobileWorkspaceMoveIntent(groupID: nil, beforeWorkspaceID: "bottom"))
+    }
+
+    @Test func dropIntentIgnoresSelfDrop() {
+        let intent = MobileWorkspaceDropIntentResolver().intent(
+            workspaces: [workspace("a"), workspace("b")],
+            groups: [],
+            draggedWorkspaceID: "a",
+            target: .beforeWorkspace("a")
+        )
+        #expect(intent == nil)
+    }
 }

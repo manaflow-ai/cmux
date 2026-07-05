@@ -4103,9 +4103,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         body(&state.workspaces)
         workspacesByMac[key] = state
     }
-
     /// Create a workspace locally or through the connected Mac, then select it.
-    public func createWorkspace() {
+    public func createWorkspace(inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil) {
         guard remoteClient == nil else {
             guard createWorkspaceTask == nil else { return }
             let taskID = UUID()
@@ -4113,10 +4112,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             createWorkspaceTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateWorkspaceTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteWorkspace()
+                await self.createRemoteWorkspace(inGroup: groupID)
             }
             return
         }
+        guard groupID == nil else { return }
         if createLocalWorkspaceWithoutTerminalForDelayedUITestIfNeeded() { return }
         let nextIndex = workspaces.count + 1
         let workspace = MobileWorkspacePreview(
@@ -5843,12 +5843,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func createRemoteWorkspace() async {
+    private func createRemoteWorkspace(inGroup groupID: MobileWorkspaceGroupPreview.ID? = nil) async {
         guard let client = remoteClient else { return }
         let generation = connectionGeneration
         do {
+            var params: [String: Any] = [:]
+            if let groupID {
+                params["group_id"] = groupID.rawValue
+            }
             let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "workspace.create")
+                MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
@@ -5863,10 +5867,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             syncSelectedTerminalForWorkspace()
             if createdWorkspace != nil {
-                // A "+" actually created and selected a new workspace, so its
-                // terminal is freshly created: don't pop the keyboard on mount.
-                // When no workspace was created the selection never moved, so we
-                // must not suppress the user's current terminal.
+                // A "+" actually created and selected a new workspace, so its terminal is freshly created.
                 suppressTerminalAutoFocusOnNextAttach(for: selectedTerminalID)
             }
         } catch {
@@ -5876,7 +5877,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyOperationalError(error)
         }
     }
-
     private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }

@@ -91,6 +91,32 @@ extension MobileShellComposite {
         )
     }
 
+    /// Move a workspace to a new group/order on the Mac, then re-sync the list.
+    /// - Parameters:
+    ///   - id: The workspace to move.
+    ///   - groupID: The target group, or `nil` to ungroup.
+    ///   - beforeWorkspaceID: The workspace that should follow the moved row.
+    public func moveWorkspace(
+        id: MobileWorkspacePreview.ID,
+        toGroup groupID: MobileWorkspaceGroupPreview.ID?,
+        before beforeWorkspaceID: MobileWorkspacePreview.ID?
+    ) async {
+        guard workspaceActionCapabilities(for: id).supportsWorkspaceActions else { return }
+        var params = workspaceMutationParams(id: id)
+        if let groupID {
+            params["group_id"] = groupID.rawValue
+        }
+        if let beforeWorkspaceID {
+            params["before_workspace_id"] = remoteWorkspaceID(for: beforeWorkspaceID).rawValue
+        }
+        await sendWorkspaceMutation(
+            method: "workspace.move",
+            params: params,
+            id: id,
+            actionName: "move"
+        )
+    }
+
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
         workspaces.first { $0.id == id }?.actionCapabilities ?? .none
     }

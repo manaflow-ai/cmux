@@ -1390,6 +1390,8 @@ final class MobileHostService {
             return nil
         case "workspace.create":
             return nil
+        case "workspace.move":
+            return ticketWorkspaceAuthorizationError(authorization: authorization, workspaceSelection: workspaceSelection.value)
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
             // terminal selection), so it is Mac-scoped like the workspace list and
@@ -1418,11 +1420,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketTerminalAuthorizationError(
-        authorization: MobileAttachTicketAuthorization,
-        workspaceSelection: String?,
-        terminalSelection: String?
-    ) -> MobileHostRPCError? {
+    private static func ticketTerminalAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?, terminalSelection: String?) -> MobileHostRPCError? {
         if let terminalSelection,
            authorization.createdTerminalIDs.contains(terminalSelection) {
             return nil
@@ -1431,38 +1429,32 @@ final class MobileHostService {
            authorization.createdWorkspaceIDs.contains(workspaceSelection) {
             return nil
         }
-
         let ticket = authorization.ticket
         let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Empty workspaceID means the ticket is Mac-wide (general pairing).
-        // Allow any workspace/terminal under it.
-        if ticketWorkspaceID.isEmpty {
-            return nil
-        }
+        // Empty workspaceID means the ticket is Mac-wide (general pairing), so allow any workspace/terminal.
+        if ticketWorkspaceID.isEmpty { return nil }
         if let workspaceSelection, workspaceSelection != ticketWorkspaceID {
             return scopedTicketError
         }
-
         if let terminalID = ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !terminalID.isEmpty {
-            guard terminalSelection == terminalID else {
-                return scopedTicketError
-            }
+            guard terminalSelection == terminalID else { return scopedTicketError }
             return nil
         }
+        guard workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
+        return nil
+    }
 
-        guard workspaceSelection == ticketWorkspaceID else {
-            return scopedTicketError
+    private static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
+        if let workspaceSelection, authorization.createdWorkspaceIDs.contains(workspaceSelection) { return nil }
+        let ticket = authorization.ticket
+        if !ticket.workspaceID.isEmpty {
+            guard let workspaceSelection, workspaceSelection == ticket.workspaceID else { return scopedTicketError }
         }
         return nil
     }
 
-    static func debugTicketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest,
-        createdWorkspaceIDs: Set<String> = [],
-        createdTerminalIDs: Set<String> = []
-    ) -> MobileHostRPCError? {
+    static func debugTicketAuthorizationError(ticket: CmxAttachTicket, request: MobileHostRPCRequest, createdWorkspaceIDs: Set<String> = [], createdTerminalIDs: Set<String> = []) -> MobileHostRPCError? {
         ticketAuthorizationError(
             authorization: MobileAttachTicketAuthorization(
                 ticket: ticket,
@@ -1473,12 +1465,7 @@ final class MobileHostService {
         )
     }
 
-    private static var scopedTicketError: MobileHostRPCError {
-        MobileHostRPCError(
-            code: "forbidden",
-            message: "Attach ticket is not valid for this workspace or terminal."
-        )
-    }
+    private static var scopedTicketError: MobileHostRPCError { MobileHostRPCError(code: "forbidden", message: "Attach ticket is not valid for this workspace or terminal.") }
 
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil

@@ -13206,6 +13206,8 @@ class TerminalController {
             result = v2MobileTerminalMouse(params: request.params)
         case "workspace.action":
             result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.move":
+            result = v2MobileWorkspaceMove(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":
@@ -13348,7 +13350,6 @@ class TerminalController {
         }
         return v2WorkspaceAction(params: params)
     }
-
     private func mobileHostResult(_ result: V2CallResult) -> MobileHostRPCResult {
         switch result {
         case let .ok(payload):
@@ -13359,7 +13360,6 @@ class TerminalController {
             return .failure(MobileHostRPCError(code: code, message: safeMessage, data: safeData))
         }
     }
-
     func v2MobileHostStatus(
         params: [String: Any],
         includePrivateMetadata: Bool = true
@@ -13517,7 +13517,7 @@ class TerminalController {
         }
     }
 
-    private func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
+    func mobileWorkspaceIDValidationError(params: [String: Any]) -> V2CallResult? {
         guard v2HasNonNullParam(params, "workspace_id"),
               v2UUID(params, "workspace_id") == nil else {
             return nil

@@ -21,6 +21,8 @@ struct WorkspaceGroupHeaderRow: View {
     let isAnchorSelected: Bool
     /// Select the anchor workspace in sidebar layouts.
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
+    /// Create a new workspace inside this group. Hidden when `nil`.
+    var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     /// Toggle the group's collapsed state on the Mac. When `nil` (previews, or a
     /// Mac without the groups capability), the chevron renders without a tap
     /// action.
@@ -130,6 +132,22 @@ struct WorkspaceGroupHeaderRow: View {
                 : Color.clear
         )
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .contextMenu {
+            if let createWorkspaceInGroup {
+                Button {
+                    createWorkspaceInGroup(group.id)
+                } label: {
+                    Label(
+                        L10n.string(
+                            "mobile.workspaceGroup.newWorkspace",
+                            defaultValue: "New Workspace in Group"
+                        ),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceGroupNewWorkspace-\(group.id.rawValue)")
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceGroupHeader-\(group.id.rawValue)")
     }
