@@ -70,6 +70,9 @@ final class CmuxFeatureFlags {
     }
 
     private func applyLoadedFlags() {
+        let previousProUpgradeUIEnabled = isProUpgradeUIEnabled
+        let previousMobileConnectButtonEnabled = isMobileConnectButtonEnabled
+
         isProUpgradeUIEnabled = Self.boolFlag(
             Self.proUpgradeUIKey,
             default: Self.proUpgradeUIDefault
@@ -78,9 +81,43 @@ final class CmuxFeatureFlags {
             Self.mobileConnectButtonKey,
             default: Self.mobileConnectButtonDefault
         )
+
+        if isProUpgradeUIEnabled != previousProUpgradeUIEnabled ||
+            isMobileConnectButtonEnabled != previousMobileConnectButtonEnabled {
+            NotificationCenter.default.post(name: .cmuxFeatureFlagsDidChange, object: self)
+        }
     }
 
     private static func boolFlag(_ key: String, default fallback: Bool) -> Bool {
-        PostHogSDK.shared.getFeatureFlag(key) as? Bool ?? fallback
+        coerceBoolFlagValue(PostHogSDK.shared.getFeatureFlag(key), default: fallback)
     }
+
+    nonisolated static func coerceBoolFlagValue(_ value: Any?, default fallback: Bool) -> Bool {
+        guard let value else { return fallback }
+
+        if let boolValue = value as? Bool {
+            return boolValue
+        }
+
+        if let numberValue = value as? NSNumber {
+            return numberValue.boolValue
+        }
+
+        if let stringValue = value as? String {
+            switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true":
+                return true
+            case "false":
+                return false
+            default:
+                return fallback
+            }
+        }
+
+        return fallback
+    }
+}
+
+extension Notification.Name {
+    static let cmuxFeatureFlagsDidChange = Notification.Name("cmuxFeatureFlagsDidChange")
 }

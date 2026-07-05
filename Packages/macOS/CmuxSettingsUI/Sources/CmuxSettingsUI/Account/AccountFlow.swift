@@ -61,6 +61,6 @@ public protocol AccountFlow: AnyObject {
 
     /// Whether the Pro upgrade row should render. The host backs this with
     /// a remotely toggleable feature flag; `true` when flags are
-    /// unavailable so the row degrades to always-on.
+    /// unavailable only in explicit dogfood builds whose flag default is on.
     var isProUpgradeAvailable: Bool { get }
 }

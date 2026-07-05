@@ -146,6 +146,7 @@ private final class NativePricingPlanStore: ObservableObject {
     @Published private(set) var state: LoadState = .idle
 
     private var refreshTask: Task<Void, Never>?
+    private var activeRequestID: UUID?
 
     deinit {
         refreshTask?.cancel()
@@ -159,12 +160,14 @@ private final class NativePricingPlanStore: ObservableObject {
 
     func refresh() {
         refreshTask?.cancel()
+        let requestID = UUID()
         state = .loading
+        activeRequestID = requestID
         refreshTask = Task { [weak self] in
-            let state = await Self.loadPlanState()
-            guard !Task.isCancelled else { return }
+            let loadedState = await Self.loadPlanState()
             await MainActor.run {
-                self?.state = state
+                guard self?.activeRequestID == requestID else { return }
+                self?.state = Task.isCancelled ? .idle : loadedState
             }
         }
     }

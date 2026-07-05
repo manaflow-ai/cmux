@@ -19,7 +19,6 @@ enum CmuxHelpResource {
     case changelog
     case githubIssues
     case discord
-    case upgradeToPro
 
     var title: String {
         switch self {
@@ -59,8 +58,6 @@ enum CmuxHelpResource {
             return String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues")
         case .discord:
             return String(localized: "sidebar.help.discord", defaultValue: "Discord")
-        case .upgradeToPro:
-            return String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
         }
     }
 
@@ -102,8 +99,6 @@ enum CmuxHelpResource {
             return URL(string: "https://github.com/manaflow-ai/cmux/issues")!
         case .discord:
             return URL(string: "https://discord.gg/xsgFEVrWCZ")!
-        case .upgradeToPro:
-            return AuthEnvironment.pricingURL
         }
     }
 }
