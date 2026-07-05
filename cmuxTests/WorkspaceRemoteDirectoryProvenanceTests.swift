@@ -128,6 +128,30 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
     }
 
+    @MainActor
+    @Test("generic surface directory reports remain untrusted for remote panels")
+    func genericSurfaceDirectoryReportsRemainUntrustedForRemotePanels() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: localDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == nil)
+        #expect(workspace.trustedRemoteCurrentDirectory == nil)
+
+        manager.updateRemoteSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
+        #expect(workspace.reportedPanelDirectory(panelId: remotePanelId) == remoteDirectory)
+        #expect(workspace.trustedRemoteCurrentDirectory == remoteDirectory)
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
