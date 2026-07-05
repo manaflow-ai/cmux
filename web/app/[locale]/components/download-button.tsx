@@ -16,6 +16,16 @@ import { ctaButtonStyle } from "./cta-styles";
 import { PlatformIcon } from "./platform-icons";
 import { WaitlistDialog } from "./waitlist-dialog";
 
+// Per-size pill padding in px. downloadRight = gap LEFT of the divider,
+// caretLeft = gap RIGHT of it. Applied as inline styles (not Tailwind classes)
+// because the tuned values include odd px like 9/11 that have no spacing token,
+// and because arbitrary values like `pr-[9px]` did not reliably resolve on the
+// base-ui Menu.Trigger button; inline px renders the exact value in dev + prod.
+const PILL_PADDING = {
+  default: { downloadLeft: 20, downloadRight: 9, caretLeft: 7, caretRight: 11 },
+  sm: { downloadLeft: 12, downloadRight: 7, caretLeft: 5, caretRight: 9 },
+} as const;
+
 export function DownloadButton({
   size = "default",
   location = "hero",
@@ -48,6 +58,18 @@ export function DownloadButton({
   const onConfirmationPage = pathname === DOWNLOAD_CONFIRMATION_PATH;
   const macHref = onConfirmationPage ? DOWNLOAD_URL : DOWNLOAD_CONFIRMATION_HREF;
 
+  // Resolve padding from the per-size config; applied inline so odd px render
+  // exactly.
+  const pad = PILL_PADDING[isSmall ? "sm" : "default"];
+  const downloadStyle = {
+    paddingLeft: pad.downloadLeft,
+    paddingRight: pad.downloadRight,
+  };
+  const caretStyle = {
+    paddingLeft: pad.caretLeft,
+    paddingRight: pad.caretRight,
+  };
+
   // The split button is one pill with two zones (Mac download + platform caret)
   // that tint independently on hover. `overflow-hidden` clips the hover tint to
   // the rounded corners; the divider and caret are kept barely-there so the
@@ -57,14 +79,16 @@ export function DownloadButton({
   // under `dark:` to keep the split affordance equally quiet.
   // Slightly more breathing room after the label than the caret zone's
   // padding, so the divider sits a touch closer to the caret than to "Mac".
-  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
-    isSmall
-      ? "gap-2 pl-4 pr-2.5 py-1.5 text-xs"
-      : "gap-2.5 pl-5 pr-3 py-2.5 text-[15px]"
+  // The hover tint is applied without a CSS transition on purpose: animating
+  // background-color/opacity here promotes the sub-pixel-positioned zone into
+  // its own WebKit compositing layer, which snaps to the device-pixel grid and
+  // makes the label/caret visibly jump on hover (Safari only, worst at the
+  // small size). Instant tint avoids the promotion, so nothing shifts.
+  const downloadZone = `flex items-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
+    isSmall ? "gap-2 py-1.5 text-xs" : "gap-2.5 py-2.5 text-[15px]"
   }`;
-  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
-    isSmall ? "px-2" : "px-2.5"
-  }`;
+  const caretZone =
+    "group flex items-center justify-center hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03]";
 
   const captureMac = () =>
     posthog.capture("cmuxterm_download_clicked", { location, platform: "mac" });
@@ -100,7 +124,7 @@ export function DownloadButton({
       strokeWidth="2.25"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="opacity-40 transition-opacity group-hover:opacity-70 group-data-[popup-open]:opacity-70 dark:opacity-30 dark:group-hover:opacity-55 dark:group-data-[popup-open]:opacity-55"
+      className="opacity-40 group-hover:opacity-70 group-data-[popup-open]:opacity-70 dark:opacity-30 dark:group-hover:opacity-55 dark:group-data-[popup-open]:opacity-55"
       aria-hidden="true"
     >
       <path d="m6 9 6 6 6-6" />
@@ -110,18 +134,35 @@ export function DownloadButton({
   return (
     <>
       <div
+        // No CSS transition on the hover tint and no forced GPU layer (e.g.
+        // `translateZ(0)`) on this pill: either one makes WebKit composite the
+        // sub-pixel-positioned zones and snap them to the device-pixel grid on
+        // hover, which reads as the label/caret jumping (Safari only, worst at
+        // the small size). Keeping the hover repaint on the main thread matches
+        // Chrome and stays stable; overflow-hidden still clips the tint since
+        // the zones never get their own layer.
         className={`inline-flex items-stretch overflow-hidden whitespace-nowrap rounded-full bg-foreground font-medium ${
           className ?? ""
         }`}
         style={ctaButtonStyle}
       >
         {onConfirmationPage ? (
-          <a href={macHref} onClick={captureMac} className={downloadZone}>
+          <a
+            href={macHref}
+            onClick={captureMac}
+            className={downloadZone}
+            style={downloadStyle}
+          >
             {macIcon}
             {t("downloadForMac")}
           </a>
         ) : (
-          <Link href={macHref} onClick={captureMac} className={downloadZone}>
+          <Link
+            href={macHref}
+            onClick={captureMac}
+            className={downloadZone}
+            style={downloadStyle}
+          >
             {macIcon}
             {t("downloadForMac")}
           </Link>
@@ -132,6 +173,7 @@ export function DownloadButton({
         <Menu.Root>
           <Menu.Trigger
             className={caretZone}
+            style={caretStyle}
             aria-label={t("otherPlatforms")}
           >
             {caretIcon}
