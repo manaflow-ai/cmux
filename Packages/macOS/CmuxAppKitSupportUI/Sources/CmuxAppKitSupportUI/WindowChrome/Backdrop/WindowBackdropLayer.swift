@@ -41,7 +41,8 @@ public struct WindowBackdropLayer: View {
                         opacity: materialPolicy.opacity,
                         tintColor: materialPolicy.tintColor,
                         cornerRadius: materialPolicy.cornerRadius,
-                        preferLiquidGlass: materialPolicy.preferLiquidGlass
+                        preferLiquidGlass: materialPolicy.preferLiquidGlass,
+                        appearanceName: materialPolicy.appearanceName
                     )
                 }
                 if !materialPolicy.usesWindowLevelGlass && !usingNativeLiquidGlass {

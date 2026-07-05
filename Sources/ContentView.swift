@@ -10015,6 +10015,10 @@ struct VerticalTabsSidebar: View {
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
     let observedWindow: NSWindow?
+    // Sidebar content scheme (injected via `.environment(\.colorScheme,
+    // appearance.sidebarContentColorScheme)`) so the trailing border uses the
+    // fixed Linear chrome border per scheme rather than a terminal-derived tone.
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var tabManager: TabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
@@ -10537,11 +10541,14 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
-            WindowChromeBorder(
-                orientation: .vertical,
-                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
-                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
-            )
+            // Fixed Linear chrome hairline (light #E1E1E1, dark #24252D) — the
+            // same border the bonsplit tab bar uses — instead of a tone derived
+            // from the terminal background.
+            Rectangle()
+                .fill(Color(nsColor: NSColor(hex: SidebarChromeColors.borderHex(for: colorScheme)) ?? .separatorColor))
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .ignoresSafeArea()
         }
         .background(
             WindowAccessor(refreshID: showModifierHoldHints) { window in
@@ -13536,7 +13543,7 @@ struct TabItemView: View, Equatable {
         // title is full-strength; inactive rows use Linear's muted grey #5F5F66
         // so the focused row and the terminal lead.
         // Focused row: pure white on the dark #282833 selection block; in
-        // light mode the block is Linear's #ECECED, so primary text stays primary.
+        // light mode the block is Linear's #E5E5E6, so primary text stays primary.
         if isActive {
             return colorScheme == .dark ? .white : .primary
         }

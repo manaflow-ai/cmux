@@ -2829,13 +2829,21 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
-    /// Scheme driving the fixed Linear chrome palette. Defaults to the app's
-    /// effective appearance so chrome tracks macOS light/dark; tests pass an
-    /// explicit value.
+    /// Scheme driving the fixed Linear chrome palette. Follows the app's
+    /// persisted appearance mode — the same source of truth the terminal and
+    /// sidebar use — so the tab-bar chrome never lags behind or inverts relative
+    /// to the terminal when `NSApp.effectiveAppearance` is stale during a live
+    /// light/dark toggle. Only `system` mode defers to the effective appearance.
+    /// Tests pass an explicit `appAppearance`; pass `overrideRawValue` to force a
+    /// mode deterministically.
     nonisolated static func currentChromeColorScheme(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance,
+        overrideRawValue: String? = UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
     ) -> ColorScheme {
-        appAppearance?.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .light : .dark
+        if let override = AppearanceSettings.colorSchemeOverride(for: overrideRawValue) {
+            return override
+        }
+        return appAppearance?.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .light : .dark
     }
 
     nonisolated static func bonsplitChromeColors(

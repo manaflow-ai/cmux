@@ -64,20 +64,20 @@ public struct SidebarBackdropSettingsSnapshot {
         let materialOption = WindowChromeSidebarMaterialOption(rawValue: materialRawValue)
         let blendingMode = WindowChromeSidebarBlendModeOption(rawValue: blendModeRawValue)?.mode ?? .behindWindow
         let state = WindowChromeSidebarStateOption(rawValue: stateRawValue)?.state ?? .active
-        let tintDefaults = WindowChromeSidebarTintDefaults()
-        let resolvedHex: String
-        if colorScheme == .dark {
-            resolvedHex = tintHexDark ?? tintHex
-        } else {
-            // Light mode must not fall back to the *default* dark base tint
-            // (#000000) — that black-washes the light sidebar material. A
-            // user-customized base tint still applies; only the legacy default
-            // is swapped for Linear's light chrome neutral.
-            resolvedHex = tintHexLight ?? (tintHex == tintDefaults.hex ? tintDefaults.lightHex : tintHex)
-        }
-        let fallbackHex = colorScheme == .light ? tintDefaults.lightHex : tintHex
-        let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: fallbackHex) ?? .black)
-            .withAlphaComponent(tintOpacity)
+        // The sidebar reads as a flat Linear chrome panel per scheme (light
+        // #F3F3F4, dark #13141C — matching the tab-bar strip) rather than a
+        // translucent tint over a native `.sidebar` material, whose vibrancy
+        // follows the window's NSAppearance and can stay dark in Light mode
+        // regardless of a forced view appearance. Drawing an *opaque* scheme
+        // color as the top tint layer makes the sidebar correct in both schemes.
+        // A user-customized per-scheme tint override still applies translucently.
+        let linearChromeHex = colorScheme == .dark ? "#13141C" : "#F3F3F4"
+        let overrideHex = colorScheme == .dark ? tintHexDark : tintHexLight
+        let resolvedHex = overrideHex ?? linearChromeHex
+        let resolvedOpacity = overrideHex != nil ? tintOpacity : 1.0
+        let fallbackColor: NSColor = colorScheme == .dark ? .black : .white
+        let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: linearChromeHex) ?? fallbackColor)
+            .withAlphaComponent(resolvedOpacity)
         let preferLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let usesWindowLevelGlass = preferLiquidGlass && blendingMode == .behindWindow
 
@@ -89,7 +89,11 @@ public struct SidebarBackdropSettingsSnapshot {
             tintColor: tintColor,
             cornerRadius: CGFloat(max(0, cornerRadius)),
             preferLiquidGlass: preferLiquidGlass,
-            usesWindowLevelGlass: usesWindowLevelGlass
+            usesWindowLevelGlass: usesWindowLevelGlass,
+            // Force the native material's appearance to the app scheme so a
+            // `.sidebar` NSVisualEffectView renders light in Light mode even if
+            // the host window's NSAppearance is still dark.
+            appearanceName: colorScheme == .dark ? .darkAqua : .aqua
         )
     }
 

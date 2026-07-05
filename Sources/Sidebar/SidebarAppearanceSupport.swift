@@ -198,10 +198,9 @@ enum SidebarChromeColors {
         colorScheme == .dark ? "#191A23" : "#FCFCFD"
     }
 
-    /// Active workspace-row selection block. Dark #282833; light #ECECED is
-    /// lch(93.44% 0.5 282).
+    /// Active workspace-row selection block. Dark #282833; light #E5E5E6.
     static func selectedRowHex(for colorScheme: ColorScheme) -> String {
-        colorScheme == .dark ? "#282833" : "#ECECED"
+        colorScheme == .dark ? "#282833" : "#E5E5E6"
     }
 
     /// Chrome hairlines/borders (tab separators, bar↔pane divider). Dark
@@ -423,7 +422,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     case .leftRail:
         if isActive {
             // Linear selection: a solid neutral block (dark #282833, light
-            // #ECECED) with scheme-native text — no accent wash.
+            // #E5E5E6) with scheme-native text — no accent wash.
             if let selected = NSColor(hex: SidebarChromeColors.selectedRowHex(for: colorScheme)) {
                 return SidebarWorkspaceRowBackgroundStyle(color: selected, opacity: 1)
             }

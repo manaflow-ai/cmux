@@ -11,6 +11,7 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
     let tintColor: NSColor?
     let cornerRadius: CGFloat
     let preferLiquidGlass: Bool
+    let appearanceName: NSAppearance.Name?
 
     init(
         material: NSVisualEffectView.Material = .hudWindow,
@@ -19,7 +20,8 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
         opacity: Double = 1.0,
         tintColor: NSColor? = nil,
         cornerRadius: CGFloat = 0,
-        preferLiquidGlass: Bool = false
+        preferLiquidGlass: Bool = false,
+        appearanceName: NSAppearance.Name? = nil
     ) {
         self.material = material
         self.blendingMode = blendingMode
@@ -28,6 +30,12 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
         self.tintColor = tintColor
         self.cornerRadius = cornerRadius
         self.preferLiquidGlass = preferLiquidGlass
+        self.appearanceName = appearanceName
+    }
+
+    /// Resolved appearance to force on the effect view, or `nil` to inherit.
+    private var resolvedAppearance: NSAppearance? {
+        appearanceName.flatMap(NSAppearance.init(named:))
     }
 
     static var liquidGlassAvailable: Bool {
@@ -39,6 +47,7 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
             let glass = glassClass.init(frame: .zero)
             glass.autoresizingMask = [.width, .height]
             glass.wantsLayer = true
+            glass.appearance = resolvedAppearance
             return glass
         }
 
@@ -46,11 +55,15 @@ struct SidebarVisualEffectBackground: NSViewRepresentable {
         view.autoresizingMask = [.width, .height]
         view.wantsLayer = true
         view.layerContentsRedrawPolicy = .onSetNeedsDisplay
+        view.appearance = resolvedAppearance
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let clampedOpacity = max(0.0, min(1.0, opacity))
+        // Force the effect view's appearance so the native material renders in
+        // the app color scheme even when the host window's NSAppearance differs.
+        nsView.appearance = resolvedAppearance
         if nsView.className == "NSGlassEffectView" {
             nsView.alphaValue = clampedOpacity
             nsView.layer?.cornerRadius = cornerRadius

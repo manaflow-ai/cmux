@@ -26,6 +26,11 @@ public struct SidebarBackdropMaterialPolicy {
     /// Whether the material is supplied by the window-level glass root.
     public let usesWindowLevelGlass: Bool
 
+    /// Appearance to force on the material view so the native `.sidebar`
+    /// material matches the app color scheme instead of the window's
+    /// NSAppearance (which may still be dark in Light mode). `nil` inherits.
+    public let appearanceName: NSAppearance.Name?
+
     /// Creates resolved material settings for a sidebar backdrop.
     public init(
         material: NSVisualEffectView.Material?,
@@ -35,7 +40,8 @@ public struct SidebarBackdropMaterialPolicy {
         tintColor: NSColor,
         cornerRadius: CGFloat,
         preferLiquidGlass: Bool,
-        usesWindowLevelGlass: Bool
+        usesWindowLevelGlass: Bool,
+        appearanceName: NSAppearance.Name? = nil
     ) {
         self.material = material
         self.blendingMode = blendingMode
@@ -45,5 +51,6 @@ public struct SidebarBackdropMaterialPolicy {
         self.cornerRadius = cornerRadius
         self.preferLiquidGlass = preferLiquidGlass
         self.usesWindowLevelGlass = usesWindowLevelGlass
+        self.appearanceName = appearanceName
     }
 }

@@ -191,7 +191,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
             sidebarSelectionColorHex: nil
         )
 
-        // Left-rail selection is the neutral Linear block (light #ECECED),
+        // Left-rail selection is the neutral Linear block (light #E5E5E6),
         // never the workspace's custom color.
         XCTAssertEqual(
             background.color?.hexString(),
