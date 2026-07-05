@@ -25,6 +25,7 @@ final class SharedLiveAgentIndex {
     private let indexLoader: @Sendable () -> RestorableAgentSessionIndex
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
+    private let processScopeFingerprintProvider: @MainActor () -> Set<String>
 
     init(
         indexLoader: @escaping @Sendable () -> RestorableAgentSessionIndex = {
@@ -35,11 +36,15 @@ final class SharedLiveAgentIndex {
         },
         dateProvider: @escaping @MainActor () -> Date = {
             Date()
+        },
+        processScopeFingerprintProvider: @escaping @MainActor () -> Set<String> = {
+            []
         }
     ) {
         self.indexLoader = indexLoader
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
+        self.processScopeFingerprintProvider = processScopeFingerprintProvider
     }
 
     deinit {
