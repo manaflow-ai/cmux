@@ -1135,7 +1135,8 @@
           "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
         },
         "fileEditor": {
-          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "syntaxHighlighting": "Colorize recognized source files in the built-in file preview, using a palette that follows the light or dark background. Large files render as plain text."
         },
         "sidebar": {
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
@@ -1157,6 +1158,7 @@
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
       "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+      "exampleFileEditorSyntaxHighlighting": "Colorize recognized source files in the built-in file preview.",
       "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
       "shortcutsWhenIntro": "Optional per-action context predicates (VS Code-style when clauses), keyed by cmux action id. A binding only fires — and only conflicts with another binding on the same keystroke — when its clause holds. Omit a clause to keep the action's built-in context. The clause vocabulary:",
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",

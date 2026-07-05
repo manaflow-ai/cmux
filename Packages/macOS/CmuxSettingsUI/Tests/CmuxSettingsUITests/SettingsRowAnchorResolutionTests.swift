@@ -80,6 +80,7 @@ struct SettingsRowAnchorResolutionTests {
         "canvas.paneGap",
         "canvas.snappingEnabled",
         "customSidebars.renderer",
+        "fileEditor.syntaxHighlighting",
         "fileEditor.wordWrap",
         "notifications.agentIdleReminder",
         "notifications.agentPermissionPrompt",

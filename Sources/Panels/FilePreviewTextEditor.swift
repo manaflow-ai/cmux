@@ -20,9 +20,13 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
-    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
-    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
+    let syntaxLanguage: FilePreviewSyntaxLanguage?
+    let syntaxHighlightingEnabled: Bool
+
+    private var prefersDarkSyntaxPalette: Bool {
+        FilePreviewSyntaxTheme.prefersDarkPalette(foreground: themeForegroundColor)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -52,6 +56,12 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             foregroundColor: themeForegroundColor,
             drawsBackground: drawsBackground
         )
+        textView.configureSyntaxHighlighting(
+            language: syntaxLanguage,
+            prefersDarkPalette: prefersDarkSyntaxPalette,
+            enabled: syntaxHighlightingEnabled
+        )
+        textView.refreshSyntaxHighlighting()
         return scrollView
     }
 
@@ -69,10 +79,30 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
-        guard textView.string != panel.textContent else { return }
-        context.coordinator.isApplyingPanelUpdate = true
-        textView.string = panel.textContent
-        context.coordinator.isApplyingPanelUpdate = false
+
+        let highlightConfigChanged = textView.configureSyntaxHighlighting(
+            language: syntaxLanguage,
+            prefersDarkPalette: prefersDarkSyntaxPalette,
+            enabled: syntaxHighlightingEnabled
+        )
+
+        let textChanged = textView.string != panel.textContent
+        if textChanged {
+            context.coordinator.isApplyingPanelUpdate = true
+            textView.string = panel.textContent
+            context.coordinator.isApplyingPanelUpdate = false
+        }
+
+        if textChanged || highlightConfigChanged {
+            textView.refreshSyntaxHighlighting()
+        }
+    }
+
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        guard let textView = scrollView.documentView as? SavingTextView else { return }
+        textView.cancelSyntaxHighlightingWork()
+        textView.delegate = nil
+        textView.panel = nil
     }
 
     static func applyTheme(
@@ -226,6 +256,17 @@ final class SavingTextView: NSTextView {
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
+    private var syntaxLanguage: FilePreviewSyntaxLanguage?
+    private var syntaxPrefersDarkPalette = true
+    private var syntaxHighlightingEnabled = FilePreviewSyntaxHighlightSettings.defaultEnabled
+    private var syntaxHighlightGeneration = 0
+    private var hasSyntaxHighlightingAttributes = false
+    private var pendingSyntaxHighlightTask: Task<Void, Never>?
+
+    private static let maximumHighlightedUTF16Length = 600_000
+    private static let maximumHighlightedTokenCount = 12_000
+    private static let syntaxHighlightDebounceDuration: Duration = .milliseconds(180)
+
     convenience init() {
         self.init(frame: .zero, textContainer: nil)
     }
@@ -240,7 +281,7 @@ final class SavingTextView: NSTextView {
         installFontMagnificationObserver()
     }
 
-    deinit {}
+    deinit { cancelSyntaxHighlightingWork() }
 
     private func installFontMagnificationObserver() {
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
@@ -329,6 +370,109 @@ final class SavingTextView: NSTextView {
         let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        guard canApplySyntaxHighlighting || hasSyntaxHighlightingAttributes else { return }
+        scheduleSyntaxHighlightRefresh()
+    }
+
+    // MARK: - Syntax highlighting
+
+    private var canApplySyntaxHighlighting: Bool { syntaxHighlightingEnabled && syntaxLanguage != nil && (string as NSString).length <= Self.maximumHighlightedUTF16Length }
+
+    @discardableResult
+    func configureSyntaxHighlighting(
+        language: FilePreviewSyntaxLanguage?,
+        prefersDarkPalette: Bool,
+        enabled: Bool
+    ) -> Bool {
+        let changed = language != syntaxLanguage
+            || prefersDarkPalette != syntaxPrefersDarkPalette
+            || enabled != syntaxHighlightingEnabled
+        syntaxLanguage = language
+        syntaxPrefersDarkPalette = prefersDarkPalette
+        syntaxHighlightingEnabled = enabled
+        return changed
+    }
+
+    func refreshSyntaxHighlighting() {
+        pendingSyntaxHighlightTask?.cancel()
+        pendingSyntaxHighlightTask = nil
+        syntaxHighlightGeneration &+= 1
+        let generation = syntaxHighlightGeneration
+
+        guard syntaxHighlightingEnabled, let language = syntaxLanguage else {
+            clearSyntaxHighlighting()
+            return
+        }
+        guard (string as NSString).length <= Self.maximumHighlightedUTF16Length else {
+            clearSyntaxHighlighting()
+            return
+        }
+
+        let source = string
+        let prefersDark = syntaxPrefersDarkPalette
+        let tokenizerTask = Task.detached(priority: .userInitiated) { FilePreviewSyntaxTokenizer.tokens(in: source, language: language) }
+        pendingSyntaxHighlightTask = Task { [weak self] in
+            let tokens = await withTaskCancellationHandler {
+                await tokenizerTask.value
+            } onCancel: {
+                tokenizerTask.cancel()
+            }
+            guard !Task.isCancelled,
+                  let self,
+                  self.syntaxHighlightGeneration == generation else { return }
+            guard tokens.count <= Self.maximumHighlightedTokenCount else { self.clearSyntaxHighlighting(); return }
+            self.applySyntaxTokens(tokens, prefersDark: prefersDark)
+        }
+    }
+
+    private func scheduleSyntaxHighlightRefresh() {
+        pendingSyntaxHighlightTask?.cancel()
+        pendingSyntaxHighlightTask = Task { [weak self] in
+            try? await ContinuousClock().sleep(for: Self.syntaxHighlightDebounceDuration) // Cancellable edit debounce.
+            guard !Task.isCancelled, let self else { return }
+            self.refreshSyntaxHighlighting()
+        }
+    }
+
+    func cancelSyntaxHighlightingWork() {
+        pendingSyntaxHighlightTask?.cancel()
+        pendingSyntaxHighlightTask = nil
+        syntaxHighlightGeneration &+= 1
+    }
+
+    private func applySyntaxTokens(_ tokens: [FilePreviewSyntaxToken], prefersDark: Bool) {
+        guard let layoutManager = textContainer?.layoutManager else { return }
+        let theme = FilePreviewSyntaxTheme.theme(prefersDark: prefersDark)
+        let length = (string as NSString).length
+        if hasSyntaxHighlightingAttributes {
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: NSRange(location: 0, length: length))
+        }
+        for token in tokens {
+            let range = token.range
+            guard range.length > 0,
+                  range.location >= 0,
+                  range.location + range.length <= length else { continue }
+            layoutManager.addTemporaryAttributes(
+                [.foregroundColor: theme.color(for: token.kind)],
+                forCharacterRange: range
+            )
+        }
+        hasSyntaxHighlightingAttributes = !tokens.isEmpty
+    }
+
+    private func clearSyntaxHighlighting() {
+        guard hasSyntaxHighlightingAttributes else { return }
+        guard let layoutManager = textContainer?.layoutManager else { return }
+        let length = (string as NSString).length
+        layoutManager.removeTemporaryAttribute(
+            .foregroundColor,
+            forCharacterRange: NSRange(location: 0, length: length)
+        )
+        hasSyntaxHighlightingAttributes = false
     }
 
     private func clearPendingShortcutChordPrefixes() {
