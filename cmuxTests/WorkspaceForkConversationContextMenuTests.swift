@@ -329,10 +329,10 @@ struct WorkspaceForkConversationContextMenuTests {
                 == sessionId
         )
 
-        now.withLock { $0 = Date(timeIntervalSince1970: 0.5) }
+        now.withLock { $0 = Date(timeIntervalSince1970: 30) }
         #expect(
             sharedIndex.prepareForkAvailabilityProbe(),
-            "A fresh completed fork probe should stay usable without another process scan."
+            "A completed fork probe should stay usable for the normal cache window without another process scan."
         )
 
         now.withLock { $0 = Date(timeIntervalSince1970: 61) }
