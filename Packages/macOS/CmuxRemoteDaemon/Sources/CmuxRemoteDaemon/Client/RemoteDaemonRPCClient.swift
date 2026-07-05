@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 public import CmuxCore
 
 /// Synchronous JSON-RPC client for a cmuxd-remote daemon over one of three
@@ -78,6 +78,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let configuration: WorkspaceRemoteConfiguration
     let remotePath: String
     let strings: RemoteDaemonStrings
+    let keepaliveInterval: TimeInterval
+    let keepaliveTimeout: TimeInterval
+    let transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
@@ -119,11 +122,17 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         strings: RemoteDaemonStrings,
+        keepaliveInterval: TimeInterval = 5.0,
+        keepaliveTimeout: TimeInterval = 10.0,
+        transportExecutableOverride: String? = nil,
         onUnexpectedTermination: @escaping (String) -> Void
     ) {
         self.configuration = configuration
         self.remotePath = remotePath
         self.strings = strings
+        self.keepaliveInterval = keepaliveInterval
+        self.keepaliveTimeout = keepaliveTimeout
+        self.transportExecutableOverride = transportExecutableOverride
         self.onUnexpectedTermination = onUnexpectedTermination
     }
 
