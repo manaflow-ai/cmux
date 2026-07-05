@@ -32,7 +32,7 @@ extension RemoteSessionCoordinator {
             // force` cannot CRLF-corrupt parsed pipes. Placed before the
             // configuration's options: OpenSSH honors the first value per
             // option, so these also win over caller-supplied conflicts.
-            args += SSHHostConfiguredRemoteCommand.overrideArguments
+            args += SSHHostConfiguredRemoteCommand().overrideArguments
             args += ["-o", "RequestTTY=no"]
         }
         if let port = configuration.port {

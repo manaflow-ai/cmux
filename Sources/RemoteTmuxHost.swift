@@ -185,7 +185,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         // Every ssh-tmux invocation supplies its own remote command (`true`,
         // `tmux -CC …`, one-shot discovery), which OpenSSH refuses while a
         // host-configured RemoteCommand is in effect (issue #7246).
-        var args = SSHHostConfiguredRemoteCommand.overrideArguments
+        var args = SSHHostConfiguredRemoteCommand().overrideArguments
         args += [
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=\(controlSocketPath)",

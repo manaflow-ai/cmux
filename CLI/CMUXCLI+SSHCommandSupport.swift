@@ -11,9 +11,9 @@ extension CMUXCLI {
     /// hop keeps its explicit `-o RemoteCommand=<bootstrap>`.
     internal func sshArgumentsOverridingHostRemoteCommand(_ arguments: [String]) -> [String] {
         guard arguments.first == "ssh" else {
-            return SSHHostConfiguredRemoteCommand.overrideArguments + arguments
+            return SSHHostConfiguredRemoteCommand().overrideArguments + arguments
         }
-        return [arguments[0]] + SSHHostConfiguredRemoteCommand.overrideArguments + arguments.dropFirst()
+        return [arguments[0]] + SSHHostConfiguredRemoteCommand().overrideArguments + arguments.dropFirst()
     }
 
     internal func openSSHLocalCommandValue(shellScript: String?) -> String? {

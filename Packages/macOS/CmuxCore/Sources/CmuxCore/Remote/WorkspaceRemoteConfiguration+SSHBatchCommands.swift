@@ -32,7 +32,7 @@ extension WorkspaceRemoteConfiguration {
         let script = "exec \(daemonCommand)"
         let command = "sh -c \(script.shellSingleQuoted)"
         return ["-T"]
-            + SSHHostConfiguredRemoteCommand.overrideArguments
+            + SSHHostConfiguredRemoteCommand().overrideArguments
             + batchSSHArguments()
             + ["-o", "RequestTTY=no", destination, command]
     }

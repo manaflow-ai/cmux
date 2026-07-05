@@ -109,7 +109,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         }
         // The command-line `true` below conflicts with a host-configured
         // RemoteCommand unless overridden (issue #7246).
-        arguments += SSHHostConfiguredRemoteCommand.overrideArguments
+        arguments += SSHHostConfiguredRemoteCommand().overrideArguments
         arguments += ["-T", auth.destination, "true"]
         return arguments.map(shellQuote).joined(separator: " ")
     }

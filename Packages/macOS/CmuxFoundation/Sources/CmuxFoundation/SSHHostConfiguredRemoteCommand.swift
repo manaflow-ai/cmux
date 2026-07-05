@@ -26,12 +26,14 @@ import Foundation
 /// invocations that intentionally carry cmux's own
 /// `-o RemoteCommand=<bootstrap>` — or run no remote command at all — must
 /// not apply this override.
-public enum SSHHostConfiguredRemoteCommand {
+public struct SSHHostConfiguredRemoteCommand: Sendable {
     /// `RemoteCommand=none` — the option text for string-composed ssh
     /// command lines.
-    public static let overrideOption = "RemoteCommand=none"
+    public let overrideOption = "RemoteCommand=none"
 
     /// `-o RemoteCommand=none` as an argv fragment, inserted before the
     /// destination.
-    public static let overrideArguments: [String] = ["-o", overrideOption]
+    public var overrideArguments: [String] { ["-o", overrideOption] }
+
+    public init() {}
 }
