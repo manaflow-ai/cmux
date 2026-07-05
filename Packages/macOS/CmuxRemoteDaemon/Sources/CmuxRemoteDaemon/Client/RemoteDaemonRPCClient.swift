@@ -82,6 +82,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let keepaliveTimeout: TimeInterval
     let transportExecutableOverride: String?
     let onUnexpectedTermination: (String) -> Void
+    let transportKeepaliveQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.keepalive.\(UUID().uuidString)")
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
     let pendingCalls = RemoteDaemonPendingCallRegistry()
@@ -99,6 +100,10 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var webSocketKeepaliveTimer: (any DispatchSourceTimer)?
     var webSocketKeepaliveTimeoutWorkItem: DispatchWorkItem?
     var webSocketKeepaliveInFlight = false
+    var transportKeepaliveTimer: (any DispatchSourceTimer)?
+    var transportKeepaliveTimeoutWorkItem: DispatchWorkItem?
+    var transportKeepaliveInFlight = false
+    var lastInboundFrameAt: DispatchTime = .now()
     var isClosed = true
     var shouldReportTermination = true
 
@@ -163,6 +168,9 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
                 throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
                     NSLocalizedDescriptionKey: strings.missingRequiredCapabilitiesMessage(missingCapabilities),
                 ])
+            }
+            if configuration.transport != .websocket {
+                startTransportKeepalive()
             }
         } catch {
             stop(suppressTerminationCallback: true)
@@ -244,6 +252,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             let capturedWebSocketSession = webSocketSession
 
             stopWebSocketKeepaliveLocked()
+            stopTransportKeepaliveLocked()
             process = nil
             stdinPipe = nil
             stdoutPipe = nil
