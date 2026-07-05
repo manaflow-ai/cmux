@@ -1031,6 +1031,14 @@ final class TerminalNotificationStore: ObservableObject {
         clickAction: TerminalNotificationClickAction?
     ) {
         let payload = envelope.notification
+        // A notification hook that rewrote any text field owns the banner
+        // verbatim: drop the workspace title so the workspace-aware agent
+        // recomposition (which would demote a hook-provided title into the
+        // subtitle) never overrides hook output. Untouched notifications keep
+        // the composed banner.
+        let hookModifiedText = payload.title != request.title
+            || payload.subtitle != request.subtitle
+            || payload.body != request.body
         applyNotification(
             request: TerminalNotificationPolicyRequest(
                 tabId: request.tabId,
@@ -1047,7 +1055,7 @@ final class TerminalNotificationStore: ObservableObject {
             now: now,
             cooldownReservation: cooldownReservation,
             agentId: agentId,
-            workspaceTitle: workspaceTitle,
+            workspaceTitle: hookModifiedText ? nil : workspaceTitle,
             clickAction: clickAction
         )
     }
