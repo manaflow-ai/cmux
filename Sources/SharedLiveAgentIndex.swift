@@ -27,7 +27,7 @@ final class SharedLiveAgentIndex {
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var forkAvailabilityProbeCompletedAt: Date?
     private var validatedForkSnapshots = Set<ForkValidationKey>()
-    private var validatedMissingForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
+    private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
@@ -114,7 +114,8 @@ final class SharedLiveAgentIndex {
             return false
         }
         guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
-            if validatedMissingForkPanels.contains(panelKey), hasFreshForkAvailabilityProbe {
+            if let validatedAt = validatedMissingForkPanels[panelKey],
+               dateProvider().timeIntervalSince(validatedAt) < Self.minEventReloadInterval {
                 return true
             }
             requestForkAvailabilityRefresh(validating: panelKey)
@@ -262,7 +263,7 @@ final class SharedLiveAgentIndex {
                     )
                 )
             } else {
-                validatedMissingForkPanels.insert(panelKey)
+                validatedMissingForkPanels[panelKey] = dateProvider()
             }
         }
         pendingForkValidationPanels.removeAll()

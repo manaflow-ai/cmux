@@ -11340,7 +11340,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
     /// palette path that performs that probe first.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
-        forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
+        forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable
     }
 
     /// Snapshot used by the right-click fork path. Prefers restored snapshots, then asks
