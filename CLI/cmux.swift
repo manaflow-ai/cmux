@@ -11169,6 +11169,7 @@ struct CMUXCLI {
             return decoded
         }
         var bridgeReachedReady = false
+        var sessionLostWillRespawn = false
         var attachFinished = false
         var attachmentToken = ""
         defer {
@@ -11180,7 +11181,7 @@ struct CMUXCLI {
                     sessionID: sessionID,
                     attachmentID: attachmentID,
                     attachmentToken: attachmentToken,
-                    clearLocalSurface: !bridgeReachedReady
+                    clearLocalSurface: !bridgeReachedReady && !sessionLostWillRespawn
                 )
             }
         }
@@ -11232,6 +11233,17 @@ struct CMUXCLI {
             attachmentToken = try readSSHPTYBridgeReady(fd: fd)
             bridgeReachedReady = true
         } catch {
+            // A `pty_session_not_found` failure (exit 253) under
+            // --require-existing is immediately retried by the ssh-pty-attach
+            // command handler with a fresh non-require-existing attach on the
+            // same surface (`runSSHPTYAttach`'s only call sites are that
+            // initial attempt and that retry). Keep the app-side surface
+            // tracking intact across the respawn: sending pty_attach_end here
+            // would untrack the surface and mark it ended while the
+            // replacement shell is about to run on it.
+            if requireExisting, let cliError = error as? CLIError, cliError.exitCode == 253 {
+                sessionLostWillRespawn = true
+            }
             if let connectedFD {
                 Darwin.close(connectedFD)
             }

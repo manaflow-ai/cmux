@@ -127,6 +127,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return (request["params"] as? [String: Any])?["require_existing"] as? Bool
         }
         XCTAssertEqual(bridgeRequireExisting, [true, false])
+
+        // The session-lost respawn must keep the app-side surface tracking
+        // intact between the failed require-existing attach and the fresh
+        // attach: a pty_attach_end fired in that window untracks the surface
+        // and marks it ended while the replacement shell is about to run. The
+        // only legitimate attach_end is the final one, after the respawned
+        // bridge closed and pty_sessions confirmed the remote PTY exited.
+        let methods = requests.compactMap { $0["method"] as? String }
+        XCTAssertEqual(
+            methods.filter { $0 == "workspace.remote.pty_attach_end" }.count,
+            1,
+            "expected only the final post-exit pty_attach_end: \(methods)"
+        )
+        let bridgeIndices = methods.indices.filter { methods[$0] == "workspace.remote.pty_bridge" }
+        XCTAssertEqual(bridgeIndices.count, 2, "expected two pty_bridge requests: \(methods)")
+        if bridgeIndices.count == 2 {
+            XCTAssertFalse(
+                methods[..<bridgeIndices[1]].contains("workspace.remote.pty_attach_end"),
+                "pty_attach_end must not fire before the respawn bridge request: \(methods)"
+            )
+        }
     }
 
     private func startBridgeErrorServer(listenerFD: Int32, message: String, code: String) -> XCTestExpectation {
