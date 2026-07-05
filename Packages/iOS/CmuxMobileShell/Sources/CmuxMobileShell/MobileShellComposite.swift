@@ -480,42 +480,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// writing the previous user's state under ids the next account may reuse. Not
     /// observed: it gates async hand-backs, not view state.
     @ObservationIgnored private var signInGeneration = 0
+    @ObservationIgnored private var createdTerminalSelection: CreatedTerminalSelection?
     public var selectedWorkspaceID: MobileWorkspacePreview.ID? {
         didSet {
             syncSelectedTerminalForWorkspace()
         }
     }
-    /// The terminal whose surface (and composer draft) is currently shown.
-    ///
-    /// Changing it swaps the composer draft: `willSet` captures the outgoing
-    /// terminal's draft before the id lands, `didSet` persists it under the old
-    /// key and loads the incoming terminal's saved draft.
     public var selectedTerminalID: MobileTerminalPreview.ID? {
         willSet {
-            // Capture the draft of the terminal we are leaving BEFORE the new id
-            // lands, so `swapDraft(from:to:)` can persist it under the correct
-            // (old) key. A no-op when the id is unchanged.
             guard newValue != selectedTerminalID else { return }
             draftedOutgoingTerminalID = selectedTerminalID
             draftedOutgoingText = terminalInputText
         }
         didSet {
             guard selectedTerminalID != oldValue else { return }
+            if selectedTerminalID != createdTerminalSelection?.terminalID {
+                createdTerminalSelection = nil
+            }
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
             draftedOutgoingText = ""
-            // Switching terminals rebuilds the surface (and the composer view with
-            // it). When the user was actively composing — the field held first
-            // responder at the moment of the switch — ask the incoming terminal's
-            // composer to re-take focus so the keyboard hands over in place
-            // instead of dropping. A default-open-but-unfocused composer issues no
-            // request, so a mere switch never pops the keyboard.
             if composerFieldIsFocused, isComposerPresented {
                 requestComposerFieldFocus()
             } else {
-                // Any switch that does not arm a new handshake invalidates a
-                // stale unconsumed one, so a plain switch back to a terminal
-                // can never pop the keyboard off an old request.
+                // Plain switches invalidate stale composer-focus handshakes.
                 composerFocusRequestPending = false
                 composerFocusRequestTerminalID = nil
             }
@@ -702,9 +690,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
-    /// The user pull-to-refresh round-trip, kept on its own handle so the
-    /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
-    /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
+    /// User pull-to-refresh round-trip; separate so event refresh restarts cannot
+    /// truncate the spinner the pull awaits. Rapid pulls coalesce onto this task.
     private var pullToRefreshTask: Task<Void, Never>?
     private var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
@@ -723,15 +710,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connection drives terminal I/O and the connected UI.
     private var connections: [String: MacConnection] = [:]
     var foregroundMacDeviceID: String? {
-        didSet { recomputeDerivedWorkspaceState() }
+        didSet {
+            if oldValue == nil, let foregroundMacDeviceID { createdTerminalSelection?.adoptMacDeviceIDIfMissing(foregroundMacDeviceID) }
+            recomputeDerivedWorkspaceState()
+        }
     }
-    /// Persistent read-only connections to the NON-foreground Macs, each holding a
-    /// live `workspace.updated` subscription that keeps its ``workspacesByMac``
-    /// entry current (slice 3). Best-effort and fully additive: any failure tears
-    /// the entry down and the pull-to-refresh / foreground re-aggregate path
-    /// remains as the fallback. Keyed by `macDeviceID`. Today these are N direct
-    /// phone->Mac connections; the same per-Mac entries would be fed by one
-    /// phone->Durable Object stream in the planned end-state.
+    /// Persistent best-effort read-only connections to non-foreground Macs.
     var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
     /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
     /// switch can cancel it; its scope guards then bail before any cross-account
@@ -3905,7 +3889,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let remapped = previousSelection.flatMap { previous in
                 derived.first {
                     $0.rpcWorkspaceID == previous.rpcWorkspaceID
-                        && $0.macDeviceID == previous.macDeviceID
+                        && MacDeviceID($0.macDeviceID).matchesPrevious(previous.macDeviceID, foreground: foregroundMacDeviceID)
                 }
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
@@ -4071,22 +4055,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// connected Mac as "not connected" (foregroundMacDeviceID never matched) and
     /// secondary aggregation, which excludes `foregroundMacDeviceID`, can open a
     /// DUPLICATE read-only connection to the very Mac that is already foreground.
-    private func adoptForegroundMacIdentity(_ macDeviceID: String) {
+    func adoptForegroundMacIdentity(_ macDeviceID: String) {
         guard !macDeviceID.isEmpty, foregroundMacDeviceID != macDeviceID else { return }
         let oldKey = foregroundMacKey
         foregroundMacDeviceID = macDeviceID
         guard oldKey != macDeviceID else { return }
         if var state = workspacesByMac[oldKey] {
-            workspacesByMac[oldKey] = nil
+            var updatedStates = workspacesByMac
+            updatedStates[oldKey] = nil
             state.macDeviceID = macDeviceID
             state.workspaces = state.workspaces.map { workspace in
                 var copy = workspace
                 copy.macDeviceID = macDeviceID
                 return copy
             }
-            // Don't clobber a (somehow) pre-existing real-id entry; merge by keeping
-            // the live foreground rows.
-            workspacesByMac[macDeviceID] = state
+            // If a real-id entry somehow exists, keep the live foreground rows.
+            updatedStates[macDeviceID] = state
+            workspacesByMac = updatedStates
         }
         if let connection = connections[oldKey] {
             connections[oldKey] = nil
@@ -4142,12 +4127,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
-            // Bail BEFORE pinning selection when a create is already in flight,
-            // so a second "+" on another workspace can't strand the UI on that
-            // workspace with no new terminal while the earlier RPC still runs.
             guard createTerminalTask == nil else { return }
-            // Pin selection to the target so the async create + the resulting
-            // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
             let taskID = UUID()
             createTerminalTaskID = taskID
@@ -4172,6 +4152,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 list[index].terminals.append(terminal)
             }
         }
+        createdTerminalSelection = CreatedTerminalSelection(workspace: workspace, terminalID: terminal.id)
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
     }
@@ -5696,6 +5677,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             selectedTerminalID = nil
             return
         }
+        if let created = createdTerminalSelection, selectedTerminalID == created.terminalID {
+            if created.matches(workspace: selectedWorkspace),
+               let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == created.terminalID }) {
+                guard selectedTerminal.isReady else { return }
+            }
+            createdTerminalSelection = nil
+        }
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
@@ -5880,7 +5868,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
-        let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
+        let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
+        let requestedWorkspaceID = requestedRow?.rpcWorkspaceID ?? rowWorkspaceID
+        let requestedMacDeviceID = MacDeviceID(requestedRow?.macDeviceID)
+        let requestedNilOwnerForegroundMacDeviceID = requestedMacDeviceID.rawValue == nil ? foregroundMacDeviceID : nil
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -5893,9 +5884,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            if selectedWorkspaceID == rowWorkspaceID,
-               let createdID = response.createdTerminalID {
+            let selectedRow = explicitlySelectedWorkspace
+            if let selectedRow, let createdID = response.createdTerminalID,
+               selectedRow.id == rowWorkspaceID
+                   || (requestedRow != nil
+                       && selectedRow.rpcWorkspaceID == requestedWorkspaceID
+                       && MacDeviceID(selectedRow.macDeviceID) == requestedMacDeviceID)
+                   || (requestedRow != nil && requestedMacDeviceID.rawValue == nil
+                       && selectedRow.rpcWorkspaceID == requestedWorkspaceID
+                       && MacDeviceID(selectedRow.macDeviceID) == MacDeviceID(requestedNilOwnerForegroundMacDeviceID ?? foregroundMacDeviceID)) {
                 let createdTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
+                createdTerminalSelection = CreatedTerminalSelection(workspace: selectedRow, terminalID: createdTerminalID)
                 selectedTerminalID = createdTerminalID
                 suppressTerminalAutoFocusOnNextAttach(for: createdTerminalID)
             }
