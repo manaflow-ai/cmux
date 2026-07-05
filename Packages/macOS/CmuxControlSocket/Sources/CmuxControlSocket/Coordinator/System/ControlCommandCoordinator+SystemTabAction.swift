@@ -20,6 +20,7 @@ extension ControlCommandCoordinator {
             routing: routingSelectors(params),
             actionKey: action,
             title: string(params, "title"),
+            titleSource: string(params, "title_source"),
             rawURL: string(params, "url"),
             surfaceID: uuid(params, "surface_id") ?? uuid(params, "tab_id"),
             requestedFocus: bool(params, "focus") ?? false,
@@ -57,6 +58,14 @@ extension ControlCommandCoordinator {
             )
         case .invalidTitle:
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        case .invalidTitleSource(let rawValue, let message):
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object(["title_source": .string(rawValue)])
+            )
+        case .titleUserOwned(let message):
+            return .err(code: "title_user_owned", message: message, data: nil)
         case .invalidURL(let rawURL):
             return .err(
                 code: "invalid_params",

@@ -32,6 +32,7 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        titleSource: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
@@ -108,7 +109,30 @@ extension TerminalController {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle)
+            let normalizedTitleSource = titleSource?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let source: Workspace.CustomTitleSource
+            switch normalizedTitleSource {
+            case nil, "":
+                source = .user
+            case "auto":
+                source = .auto
+            case .some(let rawValue):
+                return .invalidTitleSource(
+                    rawValue: rawValue,
+                    message: String(
+                        localized: "socket.action.error.invalidTitleSource",
+                        defaultValue: "Unsupported title_source"
+                    )
+                )
+            }
+            guard workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle, source: source) else {
+                return .titleUserOwned(message: String(
+                    localized: "socket.tabAction.error.titleUserOwned",
+                    defaultValue: "Tab title is user-owned"
+                ))
+            }
             return finish(.title(trimmedTitle))
 
         case "clear_name":

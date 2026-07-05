@@ -240,6 +240,7 @@
 		D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */; };
 		A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */; };
 		C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */; };
+		A57057050000000000000002 /* ClaudeConversationTitleApplyDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57057050000000000000001 /* ClaudeConversationTitleApplyDecision.swift */; };
 		C7A534000000000000000002 /* ClaudeHookFeedTelemetrySwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */; };
 		A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */; };
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
@@ -1608,6 +1609,7 @@
 		D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEMarkedSelectionTests.swift; sourceTree = "<group>"; };
 		A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBackgroundWorkNotifyTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
+		A57057050000000000000001 /* ClaudeConversationTitleApplyDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConversationTitleApplyDecision.swift; sourceTree = "<group>"; };
 		C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookFeedTelemetrySwiftTests.swift; sourceTree = "<group>"; };
 		A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSurfaceResolutionSwiftTests.swift; sourceTree = "<group>"; };
 		A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeNotificationStatusLifecycleTests.swift; sourceTree = "<group>"; };
@@ -3637,6 +3639,7 @@
 			isa = PBXGroup;
 			children = (
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
+				A57057050000000000000001 /* ClaudeConversationTitleApplyDecision.swift */,
 				REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */,
 				1E4DB33FA55F1B13C60EFFC8 /* SSHPTYAttachReconnectInputFilter.swift */,
 				E60610200000000000000001 /* SSHPTYAttachReconnectInputFilterControl.swift */,
@@ -5247,6 +5250,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
+				A57057050000000000000002 /* ClaudeConversationTitleApplyDecision.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,

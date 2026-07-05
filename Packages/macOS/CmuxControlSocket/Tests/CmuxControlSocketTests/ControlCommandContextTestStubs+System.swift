@@ -37,6 +37,7 @@ extension ControlSystemContext {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        titleSource: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,

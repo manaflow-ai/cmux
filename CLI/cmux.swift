@@ -15,10 +15,12 @@ import Security
 struct CLIError: Error, CustomStringConvertible {
     let message: String
     let exitCode: Int32
+    let v2Code: String?
 
-    init(message: String, exitCode: Int32 = 1) {
+    init(message: String, exitCode: Int32 = 1, v2Code: String? = nil) {
         self.message = message
         self.exitCode = exitCode
+        self.v2Code = v2Code
     }
 
     var description: String { message }
@@ -186,6 +188,20 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameLastAttemptAt: TimeInterval?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
+    /// Legacy combined marker from the first Claude conversation-title rollout.
+    var claudeConversationLastAppliedTitle: String?
+    /// Last Claude transcript `ai-title` cmux applied as a user-owned workspace
+    /// rename. Tracked separately from tab application so partial socket
+    /// failures retry only the missing half.
+    var claudeConversationLastAppliedWorkspaceTitle: String?
+    /// Last Claude transcript `ai-title` cmux applied as a user-owned tab
+    /// rename. Tracked separately from workspace application so partial socket
+    /// failures retry only the missing half.
+    var claudeConversationLastAppliedTabTitle: String?
+    /// Last Claude transcript `ai-title` cmux skipped for the tab because the
+    /// target tab was user-owned. This suppresses permanent rejection loops
+    /// without masking transient socket failures.
+    var claudeConversationLastSkippedUserOwnedTabTitle: String?
     /// Whether the most recent Stop reported unfinished background work
     /// (a running `background_tasks` entry or a pending `session_crons`).
     /// Cached here because the ~60s-later `idle_prompt` Notification payload
@@ -399,6 +415,75 @@ final class ClaudeHookSessionStore {
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
             }
             record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
+    func beginClaudeConversationTitleApply(
+        sessionId: String,
+        title: String,
+        workspaceId: String,
+        surfaceId: String,
+        allowWorkspaceRename: Bool,
+        now: Date
+    ) throws -> ClaudeConversationTitleApplyDecision {
+        let normalized = normalizeSessionId(sessionId)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !trimmed.isEmpty else {
+            return ClaudeConversationTitleApplyDecision(shouldRenameWorkspace: false, shouldRenameTab: false)
+        }
+        return try withLockedState { state in
+            let nowInterval = now.timeIntervalSince1970
+            let record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: nowInterval
+            )
+            let legacyTitle = record.claudeConversationLastAppliedTitle
+            let workspaceTitle = record.claudeConversationLastAppliedWorkspaceTitle ?? legacyTitle
+            let tabTitle = record.claudeConversationLastSkippedUserOwnedTabTitle
+                ?? record.claudeConversationLastAppliedTabTitle
+                ?? legacyTitle
+            let decision = ClaudeConversationTitleApplyDecision(
+                shouldRenameWorkspace: allowWorkspaceRename && workspaceTitle != trimmed,
+                shouldRenameTab: tabTitle != trimmed
+            )
+            guard decision.shouldApply else { return decision }
+            if state.sessions[normalized] == nil {
+                state.sessions[normalized] = record
+            }
+            return decision
+        }
+    }
+
+    func recordClaudeConversationTitleApplied(
+        sessionId: String,
+        title: String,
+        workspaceApplied: Bool,
+        tabApplied: Bool,
+        tabSkippedUserOwned: Bool,
+        now: Date
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, !trimmed.isEmpty, workspaceApplied || tabApplied || tabSkippedUserOwned else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            if workspaceApplied {
+                record.claudeConversationLastAppliedWorkspaceTitle = trimmed
+            }
+            if tabApplied {
+                record.claudeConversationLastAppliedTabTitle = trimmed
+                record.claudeConversationLastSkippedUserOwnedTabTitle = nil
+            } else if tabSkippedUserOwned {
+                record.claudeConversationLastSkippedUserOwnedTabTitle = trimmed
+            }
+            if workspaceApplied && tabApplied {
+                record.claudeConversationLastAppliedTitle = trimmed
+            }
+            record.updatedAt = now.timeIntervalSince1970
             state.sessions[normalized] = record
         }
     }
@@ -2621,7 +2706,8 @@ final class SocketClient {
                     action: action,
                     reason: reason,
                     details: safeV2Details(error["details"])
-                )
+                ),
+                v2Code: code
             )
         }
 

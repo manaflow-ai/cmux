@@ -181,6 +181,46 @@ import Testing
         #expect(engine.extractMessages(fromTranscriptLines: ["", "garbage", "{}"]).isEmpty)
     }
 
+    @Test func latestClaudeConversationTitleUsesNewestAiTitle() {
+        let lines = [
+            #"{"type":"ai-title","aiTitle":"Old implementation plan"}"#,
+            jsonlLine(role: "user", content: "Fix the auth bug"),
+            #"{"type":"ai-title","aiTitle":"\"Rename Claude tabs\""}"#
+        ]
+
+        #expect(engine.latestClaudeConversationTitle(fromTranscriptLines: lines) == "Rename Claude tabs")
+    }
+
+    @Test func latestClaudeConversationTitleFiltersBySessionId() {
+        let lines = [
+            #"{"type":"ai-title","sessionId":"target-session","aiTitle":"Matching title"}"#,
+            #"{"type":"ai-title","session_id":"other-session","aiTitle":"Unrelated newer title"}"#
+        ]
+
+        #expect(
+            engine.latestClaudeConversationTitle(
+                fromTranscriptLines: lines,
+                matchingSessionId: "target-session"
+            ) == "Matching title"
+        )
+        #expect(
+            engine.latestClaudeConversationTitle(
+                fromTranscriptLines: lines,
+                matchingSessionId: "missing-session"
+            ) == nil
+        )
+    }
+
+    @Test func latestClaudeConversationTitleIgnoresGenericAndMalformedTitles() {
+        let lines = [
+            #"{"type":"ai-title","aiTitle":"✳ Claude Code"}"#,
+            #"{"type":"ai-title"}"#,
+            #"{"type":"user","message":{"content":"not a title"}}"#
+        ]
+
+        #expect(engine.latestClaudeConversationTitle(fromTranscriptLines: lines) == nil)
+    }
+
     @Test func contextCombinesHeadUserMessagesAndTailWithTruncation() throws {
         let longText = String(repeating: "x", count: config.contextMessageMaxChars + 100)
         var messages: [AutoNamingTranscriptMessage] = [
