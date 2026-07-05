@@ -277,9 +277,9 @@ extension ContentView {
 }
 
 // `AgentConversationForkDestination` and its configured-default reader now live
-// in `CMUXAgentLaunch` (the `AgentForkCoordinator` `Destination` vocabulary). The
-// localized display titles stay app-side here because `String(localized:)` must
-// resolve against the app bundle, not the package bundle.
+// in `CMUXAgentLaunch` (the `AgentForkCoordinator` `Destination` vocabulary).
+// App-only command titles and settings descriptions stay here; `settingsTitle`
+// resolves to the package member.
 extension AgentConversationForkDestination {
     var title: String {
         switch self {
@@ -295,23 +295,6 @@ extension AgentConversationForkDestination {
             return String(localized: "command.forkAgentConversationNewTab.title", defaultValue: "Fork Conversation to New Tab")
         case .newWorkspace:
             return String(localized: "command.forkAgentConversationNewWorkspace.title", defaultValue: "Fork Conversation to New Workspace")
-        }
-    }
-
-    var settingsTitle: String {
-        switch self {
-        case .right:
-            return String(localized: "forkConversation.destination.right", defaultValue: "Right Split")
-        case .left:
-            return String(localized: "forkConversation.destination.left", defaultValue: "Left Split")
-        case .top:
-            return String(localized: "forkConversation.destination.top", defaultValue: "Top Split")
-        case .bottom:
-            return String(localized: "forkConversation.destination.bottom", defaultValue: "Bottom Split")
-        case .newTab:
-            return String(localized: "forkConversation.destination.newTab", defaultValue: "New Tab")
-        case .newWorkspace:
-            return String(localized: "forkConversation.destination.newWorkspace", defaultValue: "New Workspace")
         }
     }
 

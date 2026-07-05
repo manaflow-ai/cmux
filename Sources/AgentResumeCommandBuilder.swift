@@ -22,15 +22,18 @@ struct AgentResumeCommandBuilder {
 
     private let shellQuoting: TerminalStartupShellQuoting
     private let resumeArgv: AgentResumeArgv
+    private let forkArgv: AgentForkArgv
     private let workingDirectoryPrefix: TerminalStartupWorkingDirectoryPrefix
 
     init(
         shellQuoting: TerminalStartupShellQuoting = TerminalStartupShellQuoting(),
         resumeArgv: AgentResumeArgv = AgentResumeArgv(),
+        forkArgv: AgentForkArgv = AgentForkArgv(),
         workingDirectoryPrefix: TerminalStartupWorkingDirectoryPrefix = TerminalStartupWorkingDirectoryPrefix()
     ) {
         self.shellQuoting = shellQuoting
         self.resumeArgv = resumeArgv
+        self.forkArgv = forkArgv
         self.workingDirectoryPrefix = workingDirectoryPrefix
     }
 
@@ -121,19 +124,31 @@ struct AgentResumeCommandBuilder {
                 workingDirectory: cwd
             )
             : commandParts
-        // Render the claude executable as the wrapper shim token so the executed
-        // command routes through cmux's `claude` wrapper (re-injecting the hook
-        // --settings) even inside the `$SHELL -lic` restore launcher, where the
-        // shell integration's PATH shim / `claude()` function are not active and an
+        // Render wrapper-managed executables as shim tokens so the executed
+        // command routes through cmux's agent wrapper (re-injecting hooks) even
+        // inside the `$SHELL -lic` restore launcher, where the shell
+        // integration's PATH shim / shell functions are not active and an
         // `env`-prefixed invocation would otherwise hit the user's real binary.
         // The token is POSIX-only, and the launcher dispatches through the user's
         // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
         // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
         // cd-prefix rewriting keeps composing.
         // https://github.com/manaflow-ai/cmux/issues/5639
-        let shellCommand = kind == .claude
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: sanitizedCommandParts, quote: shellQuoting.singleQuoted)
-            : sanitizedCommandParts.map(shellQuoting.singleQuoted).joined(separator: " ")
+        let shellCommand: String
+        switch kind {
+        case .claude:
+            shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: shellQuoting.singleQuoted
+            )
+        case .codex:
+            shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: shellQuoting.singleQuoted
+            )
+        default:
+            shellCommand = sanitizedCommandParts.map(shellQuoting.singleQuoted).joined(separator: " ")
+        }
         return workingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
@@ -233,63 +248,19 @@ struct AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?
     ) -> [String]? {
-        switch launchCommand?.launcher {
-        case "claudeTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "claude-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedClaudeTeamsLaunchArguments(args: args) else { return nil }
-            return [original.executable, "claude-teams", "--resume", sessionId, "--fork-session"] + preserved
-        case "codexTeams":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "codex-teams" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "fork", sessionId] + preserved
-        case "omo":
-            let original = commandParts(
-                launchCommand: launchCommand,
-                fallbackExecutable: "cmux"
-            )
-            var args = original.tail
-            if args.first == "omo" {
-                args.removeFirst()
-            }
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: args) else { return nil }
-            return [original.executable, "omo", "--session", sessionId, "--fork"] + preserved
-        case "omx", "omc":
-            return nil
-        default:
+        switch forkArgv.launcherResolution(
+            launcher: launchCommand?.launcher,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        ) {
+        case .resolved(let argv):
+            return argv
+        case .passthrough:
             break
         }
 
-        switch kind {
-        case .claude:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "claude")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "claude", args: original.tail) else { return nil }
-            // Mirror the resume path: route through the `claude` wrapper (not the
-            // captured real binary) so cmux hooks fire on the forked session.
-            // See https://github.com/manaflow-ai/cmux/issues/5427.
-            return ["claude", "--resume", sessionId, "--fork-session"] + preserved
-        case .codex:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "fork", sessionId] + preserved
-        case .opencode:
-            let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
-            guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
-            return [original.executable, "--session", sessionId, "--fork"] + preserved
-        case .custom:
+        if case .custom = kind {
             // Custom Vault agents fork via their registration's `forkCommand`
             // template (nil when the agent has no fork capability).
             guard let customRegistration else { return nil }
@@ -300,9 +271,14 @@ struct AgentResumeCommandBuilder {
                 workingDirectory: workingDirectory
             )
             return arguments.isEmpty ? nil : arguments
-        default:
-            return nil
         }
+
+        return forkArgv.builtInKind(
+            kind: kind.rawValue,
+            sessionId: sessionId,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        )
     }
 
     private func customResumeArguments(
