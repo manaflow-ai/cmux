@@ -47,7 +47,8 @@ The top entry's version MUST equal the checked-in `MARKETING_VERSION` in
 ### Internal
 
 - Voice Mode: mic icon on the workspace list turns the phone into a microphone for the connected Mac. The Mac streams its focused workspace/pane in real time (click a pane with the mouse to retarget); finalized utterances insert into that pane, with an Auto-submit toggle. Needs a Mac build with `voice.input.v1`.
-- Voice engines: Settings > Voice picks between Apple speech recognition (default) and a downloadable Parakeet v3 model (~480 MB, on-device, 25 languages). The choice also drives composer dictation. Download/cancel/delete from Settings.
+- Voice engines: Settings > Voice picks between Apple speech recognition (default) and downloadable NVIDIA Parakeet models: v3 (483 MB, 25 languages), v3 Compact (336 MB), v2 (464 MB, English). Real byte progress, resumable downloads, one at a time. The choice also drives composer dictation.
+- Custom vocabulary: Settings > Voice > Custom Vocabulary biases recognition toward your terms on both engines; Voice Mode also auto-boosts words visible in your Mac panes. Parakeet boosting needs the explicit 103 MB add-on on that page.
 - Settings restructured into nested pages: Terminal, Browser (search engine picker), Voice, Notifications, About (privacy policy/terms/support links, licenses), Privacy, Troubleshooting.
 - Disconnected "Your Computers" screen rebuilt: coalesced one-row-per-Mac list (no more duplicate dev-build pills), online/last-seen status, tap to reconnect with spinner and failure alert, swipe to remove.
 - Composer: iMessage-style terminal composer, open by default, inline send, drafts saved per terminal (#5876).
