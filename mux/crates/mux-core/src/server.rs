@@ -147,6 +147,9 @@ enum Command {
     BrowserReload {
         surface: SurfaceId,
     },
+    BrowserActivate {
+        surface: SurfaceId,
+    },
     NewWorkspace {
         #[serde(default)]
         name: Option<String>,
@@ -600,6 +603,12 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &LineWriter) -> anyhow::
             let surface = get_surface(mux, surface)?;
             require_browser(&surface)?;
             surface.browser_reload()?;
+            Ok(json!({}))
+        }
+        Command::BrowserActivate { surface } => {
+            let surface = get_surface(mux, surface)?;
+            require_browser(&surface)?;
+            surface.browser_activate()?;
             Ok(json!({}))
         }
         Command::NewWorkspace { name, cols, rows } => {

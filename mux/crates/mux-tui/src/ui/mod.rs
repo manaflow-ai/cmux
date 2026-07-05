@@ -4,6 +4,7 @@
 //! pushes a [`Hit`] so clicks always match what is on screen.
 
 pub mod graphics;
+pub mod omnibar;
 mod overlay;
 mod pane;
 mod scrollbar;

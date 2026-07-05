@@ -135,6 +135,63 @@ fn fake_cdp_flat_sessions_correlation_events_and_screencast_ack() {
 }
 
 #[test]
+fn fake_cdp_activate_target_then_bring_page_to_front() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+
+        let activate = read_json(&mut ws);
+        assert_eq!(activate["method"], "Target.activateTarget");
+        assert_eq!(activate["params"]["targetId"], "target-1");
+        assert!(activate.get("sessionId").is_none());
+        write_json(&mut ws, json!({"id": activate["id"], "result": {}}));
+
+        let front = read_json(&mut ws);
+        assert_eq!(front["method"], "Page.bringToFront");
+        assert_eq!(front["sessionId"], "session-1");
+        write_json(&mut ws, json!({"id": front["id"], "result": {}}));
+    });
+
+    let (event_tx, _event_rx) = std::sync::mpsc::channel();
+    let client =
+        CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+    client.activate_target("target-1", "session-1").unwrap();
+    server.join().unwrap();
+}
+
+#[test]
+fn fake_cdp_dispatches_button_none_mouse_move_without_click_count() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut ws = accept(stream).unwrap();
+
+        let request = read_json(&mut ws);
+        assert_eq!(request["method"], "Input.dispatchMouseEvent");
+        assert_eq!(request["sessionId"], "session-1");
+        assert_eq!(request["params"]["type"], "mouseMoved");
+        assert_eq!(request["params"]["x"], 22.0);
+        assert_eq!(request["params"]["y"], 18.0);
+        assert_eq!(request["params"]["button"], "none");
+        assert!(request["params"].get("clickCount").is_none());
+        write_json(&mut ws, json!({"id": request["id"], "result": {}}));
+    });
+
+    let (event_tx, _event_rx) = std::sync::mpsc::channel();
+    let client =
+        CdpClient::connect(&format!("ws://{addr}/devtools/browser/fake"), event_tx).unwrap();
+    client.dispatch_mouse_event("session-1", "mouseMoved", 22.0, 18.0, Some("none"), None).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
 fn resolves_json_version_and_discovers_loopback_port() {
     let _guard = TEST_LOCK.lock().unwrap();
     let (port, expected, server) = serve_json_version_once();

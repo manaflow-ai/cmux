@@ -260,6 +260,12 @@ impl CdpClient {
         self.call("Page.reload", json!({}), Some(session_id)).map(|_| ())
     }
 
+    pub fn activate_target(&self, target_id: &str, session_id: &str) -> anyhow::Result<()> {
+        self.call("Target.activateTarget", json!({ "targetId": target_id }), None)?;
+        let _ = self.call("Page.bringToFront", json!({}), Some(session_id));
+        Ok(())
+    }
+
     pub fn handle_javascript_dialog(&self, session_id: &str, accept: bool) -> anyhow::Result<()> {
         self.call("Page.handleJavaScriptDialog", json!({ "accept": accept }), Some(session_id))
             .map(|_| ())

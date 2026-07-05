@@ -710,6 +710,11 @@ impl BrowserSurface {
         Ok(())
     }
 
+    pub fn activate(&self) -> anyhow::Result<()> {
+        let session = self.require_live_session()?;
+        session.runtime.client.activate_target(&session.target_id, &session.session_id)
+    }
+
     fn handle_javascript_dialog(&self, accept: bool) -> anyhow::Result<()> {
         let session = self.require_live_session()?;
         session.runtime.client.handle_javascript_dialog(&session.session_id, accept)

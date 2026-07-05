@@ -1,7 +1,9 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
-use mux_core::{Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind, WorkspaceId};
+use mux_core::{
+    BrowserSource, Node, PaneId, ScreenId, SplitDir, State, SurfaceId, SurfaceKind, WorkspaceId,
+};
 use serde_json::Value;
 
 #[derive(Clone, Default)]
@@ -44,6 +46,7 @@ pub struct TabView {
     pub name: Option<String>,
     pub title: String,
     pub kind: SurfaceKind,
+    pub browser_source: Option<BrowserSource>,
 }
 
 impl TreeView {
@@ -137,6 +140,7 @@ pub fn tree_from_state(state: &State) -> TreeView {
                     name: state.surfaces.get(sid).and_then(|s| s.name()),
                     title: state.surfaces.get(sid).map(|s| s.title()).unwrap_or_default(),
                     kind: state.surfaces.get(sid).map(|s| s.kind()).unwrap_or(SurfaceKind::Pty),
+                    browser_source: state.surfaces.get(sid).and_then(|s| s.browser_source()),
                 })
                 .collect(),
         })
@@ -212,6 +216,12 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                             kind: match tab.get("kind").and_then(|v| v.as_str()) {
                                 Some("browser") => SurfaceKind::Browser,
                                 _ => SurfaceKind::Pty,
+                            },
+                            browser_source: match tab.get("browser_source").and_then(|v| v.as_str())
+                            {
+                                Some("external") => Some(BrowserSource::External),
+                                Some("launched") => Some(BrowserSource::Launched),
+                                _ => None,
                             },
                         })
                     })

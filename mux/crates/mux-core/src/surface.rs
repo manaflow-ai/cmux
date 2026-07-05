@@ -532,6 +532,13 @@ impl Surface {
         };
         browser.reload()
     }
+
+    pub fn browser_activate(&self) -> anyhow::Result<()> {
+        let Some(browser) = self.as_browser() else {
+            anyhow::bail!("PTY surface is not a browser surface");
+        };
+        browser.activate()
+    }
 }
 
 impl PtySurface {

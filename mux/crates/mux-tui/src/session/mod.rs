@@ -583,12 +583,17 @@ impl SurfaceHandle {
         self.browser_nav_command("browser-reload")
     }
 
+    pub fn browser_activate(&self) -> anyhow::Result<()> {
+        self.browser_nav_command("browser-activate")
+    }
+
     fn browser_nav_command(&self, cmd: &str) -> anyhow::Result<()> {
         match self {
             SurfaceHandle::Local(surface) => match cmd {
                 "browser-back" => surface.browser_back(),
                 "browser-forward" => surface.browser_forward(),
                 "browser-reload" => surface.browser_reload(),
+                "browser-activate" => surface.browser_activate(),
                 _ => unreachable!(),
             },
             SurfaceHandle::Remote(surface, session) if surface.kind == SurfaceKind::Browser => {

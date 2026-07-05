@@ -239,6 +239,7 @@ fn draw_content(
     let surface = app.session.surface(area.surface)?;
     surface.take_dirty();
     if surface.kind() == SurfaceKind::Browser {
+        super::omnibar::draw(app, frame, area);
         draw_browser_content(app, frame, area, &surface);
         return None;
     }

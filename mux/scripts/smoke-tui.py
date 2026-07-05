@@ -26,6 +26,7 @@ def active_screen(ws):
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
+    os.environ["CMUX_MUX_CDP_URL"] = "http://127.0.0.1:1/"
     os.environ.pop("NO_COLOR", None)
     os.execv(BIN, [BIN, "--session", SESSION])
 
@@ -125,18 +126,26 @@ assert " 1 " in text, text[-500:]
 assert " + " in text, text[-500:]
 print("always-on tab bar with numbered tab ok")
 
-# Prefix-B opens the browser URL prompt; Esc cancels without requiring
-# Chrome to be installed or creating a tab.
+# Prefix-B creates a browser tab immediately and focuses its in-pane
+# omnibar. The dead CDP endpoint keeps this Chrome-free and fast.
 before_tabs = len(panes[0]["tabs"])
 os.write(fd, b"\x02B")
 drain(0.8)
+screen0 = active_screen(tree()[0])
+tabs = screen0["panes"][0]["tabs"]
+assert len(tabs) == before_tabs + 1, screen0
+assert tabs[-1]["kind"] == "browser", tabs
+os.write(fd, b"example.com")
+drain(0.5)
 text = output.decode("utf-8", "replace")
-assert "New browser tab" in text and "https://" in text, text[-800:]
+assert "example.com" in text, text[-800:]
 os.write(fd, b"\x1b")
 drain(0.5)
+os.write(fd, b"\x02x")
+drain(0.8)
 screen0 = active_screen(tree()[0])
 assert len(screen0["panes"][0]["tabs"]) == before_tabs, screen0
-print("prefix-B browser prompt opens and Esc cancels ok")
+print("prefix-B browser omnibar focuses, Esc blurs, and close works ok")
 
 # Host OSC replies must be consumed by the startup probe, not forwarded as
 # keystrokes into the child shell.
