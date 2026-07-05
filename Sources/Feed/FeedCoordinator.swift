@@ -554,6 +554,23 @@ enum FeedCoordinatorTestHooks {
 // MARK: - Socket-layer helpers
 
 extension FeedCoordinator {
+    /// Clamps feed-banner effects when the owning workspace has notifications
+    /// muted. Resolves the workspace the same way `makeFeedNotificationPolicyContext`
+    /// does (so the identity matches the effects passed in) and routes through the
+    /// shared `TerminalNotificationStore.isWorkspaceNotificationsMuted` predicate +
+    /// `suppressedForMutedWorkspace()` so the feed path and the terminal path mute
+    /// through one decision. Returns the effects unchanged when not muted.
+    @MainActor
+    static func muteClampedEffects(
+        _ effects: TerminalNotificationPolicyEffects,
+        for event: WorkstreamEvent
+    ) -> TerminalNotificationPolicyEffects {
+        guard let workspaceId = event.workspaceId.flatMap(UUID.init(uuidString:)),
+              TerminalNotificationStore.shared.isWorkspaceNotificationsMuted(tabId: workspaceId)
+        else { return effects }
+        return effects.suppressedForMutedWorkspace()
+    }
+
     /// Thread-safe snapshot of the store's items; hops to main to read
     /// the observable state (only if called off-main).
     func snapshot(pendingOnly: Bool) -> [WorkstreamItem] {
@@ -864,6 +881,12 @@ private extension FeedCoordinator {
         body: String,
         effects: TerminalNotificationPolicyEffects
     ) {
+        // Honor the per-workspace "Mute Notifications" toggle for agent
+        // permission/plan/question banners too. These are delivered here rather
+        // than through `TerminalNotificationStore.applyNotification`, so they must
+        // consult the same shared mute predicate; otherwise a muted workspace
+        // would still alert on agent decisions.
+        let effects = Self.muteClampedEffects(effects, for: event)
         guard isAwaitingDecision(requestId: requestId),
               effects.desktop || effects.sound || effects.command
         else { return }
