@@ -1,3 +1,4 @@
+public import AppKit
 public import Foundation
 
 /// The irreducible live-AppKit and app-target operations the quit / terminate
@@ -6,16 +7,24 @@ public import Foundation
 /// ``ApplicationTerminateReplyCoordinator`` owns the reply policy (the one-shot
 /// reply latch, the kill-before-quit deferral, the watchdog Clock task, and the
 /// quit-warning-confirmed flag). The concrete work it sequences — replying to
-/// `NSApplication`, the remote-tmux kill/marked-window operations, the
-/// session-snapshot and inspector teardown, the dirty-workspace probe, the
-/// breadcrumb sink, and presenting the localized confirmation alert — stays in
-/// the app target and is reached only through this seam.
+/// `NSApplication`, the remote-tmux kill/marked-window operations, the active
+/// quit-confirmation presenter ownership, the session-snapshot and inspector
+/// teardown, the dirty-workspace probe, the breadcrumb sink, and presenting the
+/// localized confirmation alert — stays in the app target and is reached only
+/// through this seam.
 ///
 /// Every member is `@MainActor`: each terminate mutator originates on the main
 /// actor in the app delegate, mirroring the ``SocketListenerLifecycleHost``
 /// ruling that co-locates the policy with its main-actor callers.
 @MainActor
 public protocol ApplicationTerminationHost: AnyObject {
+    /// Returns the existing pending terminate reply when a confirmation or
+    /// kill-before-quit operation is already active.
+    ///
+    /// This mirrors the legacy app delegate's `pendingTerminateReply(...)`
+    /// helper while keeping the active presenter object in the app target.
+    func pendingTerminateReply(isAwaitingTerminateKills: Bool) -> NSApplication.TerminateReply?
+
     /// Replies to the pending `applicationShouldTerminate(_:)` request. Wraps
     /// `NSApp.reply(toApplicationShouldTerminate:)`.
     func replyToApplicationShouldTerminate(_ shouldTerminate: Bool)
@@ -107,12 +116,19 @@ public protocol ApplicationTerminationHost: AnyObject {
     func enableSuddenTerminationIfNeeded()
 
     /// Presents the localized quit-confirmation alert asynchronously and reports
-    /// the user's choice (`true` = quit) back on the main actor.
+    /// the modal response plus suppression-checkbox state back on the main actor.
     ///
     /// The app target owns the presentation so all `String(localized:)` alert
-    /// text and the suppression-button persistence stay app-side. The deferral
-    /// (the legacy `DispatchQueue.main.async` wrapper) lets
+    /// text and active-presenter ownership stay app-side. The deferral lets
     /// ``ApplicationTerminateReplyCoordinator/applicationShouldTerminate(isDevBuild:buildFlavorRawValue:)``
     /// return `.terminateLater` before the modal runs.
-    func presentQuitConfirmation(_ completion: @escaping @MainActor (Bool) -> Void)
+    ///
+    /// - Parameters:
+    ///   - ownsTerminateRequest: Whether the confirmation owns the current
+    ///     `applicationShouldTerminate(_:)` reply.
+    ///   - completion: Receives the alert response and suppression-button state.
+    func presentQuitConfirmation(
+        ownsTerminateRequest: Bool,
+        completion: @escaping @MainActor (NSApplication.ModalResponse, NSControl.StateValue) -> Void
+    )
 }

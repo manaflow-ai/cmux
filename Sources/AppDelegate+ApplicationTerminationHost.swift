@@ -1,7 +1,6 @@
 import AppKit
 import CmuxBrowser
 import CmuxControlSocket
-import CmuxSettings
 import Foundation
 
 /// `AppDelegate`'s conformance to the quit / terminate reply seam.
@@ -110,24 +109,4 @@ extension AppDelegate: ApplicationTerminationHost {
         GhosttyCrashBreadcrumb.markCleanExit()
     }
 
-    func presentQuitConfirmation(_ completion: @escaping @MainActor (Bool) -> Void) {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-            alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-            alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
-
-            let response = alert.runModal()
-            if alert.suppressionButton?.state == .on {
-                QuitConfirmationStore(defaults: .standard).setEnabled(false)
-            }
-
-            let shouldQuit = response == .alertFirstButtonReturn
-            completion(shouldQuit)
-        }
-    }
 }

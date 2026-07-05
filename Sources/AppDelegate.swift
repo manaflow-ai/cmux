@@ -1572,6 +1572,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// stays here behind the ``ApplicationTerminationHost`` seam this delegate
     /// conforms to.
     private lazy var terminateReply = ApplicationTerminateReplyCoordinator(host: self)
+    private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
+    private var activeQuitConfirmationOwnsTerminateRequest = false
     /// Owns the application activation / resign lifecycle sequencing (pre/post
     /// activation window visibility, the did-become-active breadcrumb + analytics,
     /// the notification activation/unread reconcile, and the resign-time chord
@@ -2307,6 +2309,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         activationCoordinator.applicationDidBecomeActive()
     }
 
+    // `hasQuitConfirmationDirtyWorkspaces()` lives in
+    // `QuitConfirmationAlertPresenter.swift` (it also folds in the per-window
+    // Dock dirty check), and witnesses the `ApplicationTerminationHost`
+    // requirement from there.
+
+    func pendingTerminateReply(isAwaitingTerminateKills: Bool) -> NSApplication.TerminateReply? {
+        Self.pendingTerminateReply(
+            isAwaitingTerminateKills: isAwaitingTerminateKills,
+            hasActiveQuitConfirmation: activeQuitConfirmationAlertPresenter != nil,
+            activeQuitConfirmationOwnsTerminateRequest: activeQuitConfirmationOwnsTerminateRequest
+        )
+    }
+
+    func presentQuitConfirmation(
+        ownsTerminateRequest: Bool,
+        completion: @escaping @MainActor (NSApplication.ModalResponse, NSControl.StateValue) -> Void
+    ) {
+        guard activeQuitConfirmationAlertPresenter == nil else { return }
+        let presenter = QuitConfirmationAlertPresenter { [weak self] response, suppressionState in
+            guard let self else { return }
+            self.activeQuitConfirmationAlertPresenter = nil
+            self.activeQuitConfirmationOwnsTerminateRequest = false
+            completion(response, suppressionState)
+        }
+        activeQuitConfirmationOwnsTerminateRequest = ownsTerminateRequest
+        activeQuitConfirmationAlertPresenter = presenter
+        presenter.present()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let buildFlavor = BuildFlavor.current
         return terminateReply.applicationShouldTerminate(
@@ -2314,11 +2345,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             buildFlavorRawValue: buildFlavor.rawValue
         )
     }
-
-    // `hasQuitConfirmationDirtyWorkspaces()` lives in
-    // `QuitConfirmationAlertPresenter.swift` (it also folds in the per-window
-    // Dock dirty check), and witnesses the `ApplicationTerminationHost`
-    // requirement from there.
 
     // Internal (not private) so the `ApplicationTerminationHost` conformance in
     // `AppDelegate+ApplicationTerminationHost.swift` can witness it.
@@ -7303,6 +7329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
+        guard activeQuitConfirmationAlertPresenter == nil else { return true }
         if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
@@ -7312,25 +7339,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
-        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
-        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+        presentQuitConfirmation(ownsTerminateRequest: false) { [weak self] response, suppressionState in
+            if suppressionState == .on {
+                QuitConfirmationStore(defaults: .standard).setEnabled(false)
+            }
 
-        let response = alert.runModal()
-        if alert.suppressionButton?.state == .on {
-            QuitConfirmationStore(defaults: .standard).setEnabled(false)
-        }
-
-        if response == .alertFirstButtonReturn {
-            // Mark as confirmed so applicationShouldTerminate does not show a
-            // second alert when NSApp.terminate re-enters the delegate callback.
-            terminateReply.markQuitWarningConfirmed()
-            NSApp.terminate(nil)
+            if response == .alertFirstButtonReturn {
+                // Mark as confirmed so applicationShouldTerminate does not show a
+                // second alert when NSApp.terminate re-enters the delegate callback.
+                self?.terminateReply.markQuitWarningConfirmed()
+                NSApp.terminate(nil)
+            }
         }
         return true
     }

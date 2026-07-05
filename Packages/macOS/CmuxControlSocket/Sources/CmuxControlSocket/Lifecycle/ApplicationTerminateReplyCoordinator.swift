@@ -6,12 +6,13 @@ import Foundation
 /// the app delegate.
 ///
 /// This coordinator sequences `applicationShouldTerminate(_:)`: it reads the
-/// quit-confirmation policy from ``QuitConfirmationStore``, drives the optional
-/// confirmation alert, defers the reply for remote-tmux kill-before-quit, and
-/// holds the one-shot reply latch plus the watchdog Clock task. Every live
-/// effect (replying to `NSApplication`, the remote-tmux kill/marked-window
-/// operations, session-snapshot and inspector teardown, breadcrumbs, the
-/// localized alert) stays in the composition root behind
+/// quit-confirmation policy from ``QuitConfirmationStore``, consults the
+/// app-owned active confirmation presenter state before showing another alert,
+/// defers the reply for remote-tmux kill-before-quit, and holds the one-shot
+/// reply latch plus the watchdog Clock task. Every live effect (replying to
+/// `NSApplication`, the remote-tmux kill/marked-window operations,
+/// session-snapshot and inspector teardown, breadcrumbs, the localized alert)
+/// stays in the composition root behind
 /// ``ApplicationTerminationHost``; the coordinator never names an app-target
 /// type.
 ///
@@ -53,21 +54,23 @@ public final class ApplicationTerminateReplyCoordinator {
     /// Runs the ordered `applicationWillTerminate(_:)` teardown sequence.
     ///
     /// This coordinator owns the ORDER; every step forwards to the still-app-owned
-    /// subsystem through ``ApplicationTerminationHost``. The begin/complete
-    /// breadcrumbs bracket the per-subsystem stop/detach/flush operations exactly
-    /// as the delegate's legacy body did.
+    /// subsystem through ``ApplicationTerminationHost``. The begin breadcrumb,
+    /// terminating flag, full session snapshot, and closed-item flush precede the
+    /// per-subsystem stop/detach/flush operations exactly as the delegate's
+    /// legacy body did. The legacy hard termination watchdog arm is intentionally
+    /// not part of this refactor seam yet.
     public func performTeardown() {
         host.recordTerminateBreadcrumb("appDelegate.willTerminate.begin", fields: [:])
-        host.stopSentryMemoryContextRefresh()
         host.setTerminatingApp(true)
+        host.saveSessionSnapshotBeforeTerminate()
+        host.flushPendingClosedItemSaves()
+        host.stopSentryMemoryContextRefresh()
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
         host.detachAllRemoteTmuxClients()
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         host.notifyPresenceAppWillTerminate()
         host.closeAllWebInspectorsBeforeAppTeardown()
-        host.saveSessionSnapshotBeforeTerminate()
-        host.flushPendingClosedItemSaves()
         host.stopSessionAutosaveTimer()
         host.terminateAllCloudVMActions()
         host.terminateAllSSHURLLaunches()
@@ -106,8 +109,9 @@ public final class ApplicationTerminateReplyCoordinator {
         isDevBuild: Bool,
         buildFlavorRawValue: String
     ) -> NSApplication.TerminateReply {
-        // A re-entrant terminate must wait for the in-flight kill-before-quit reply.
-        if isAwaitingTerminateKills { return .terminateLater }
+        if let pendingReply = host.pendingTerminateReply(isAwaitingTerminateKills: isAwaitingTerminateKills) {
+            return pendingReply
+        }
         let quitConfirmationStore = QuitConfirmationStore(defaults: .standard)
         let hasDirtyWorkspaces = host.hasQuitConfirmationDirtyWorkspaces()
         let confirmQuitMode = quitConfirmationStore.confirmQuitMode
@@ -122,9 +126,6 @@ public final class ApplicationTerminateReplyCoordinator {
                 "quitWarningEnabled": quitConfirmationStore.isEnabled ? "1" : "0"
             ]
         )
-        host.setTerminatingApp(true)
-        host.saveSessionSnapshotBeforeTerminate()
-        host.flushPendingClosedItemSaves()
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
@@ -133,6 +134,7 @@ public final class ApplicationTerminateReplyCoordinator {
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: isDevBuild
         ) {
+            prepareForConfirmedAppTermination()
             host.closeAllWebInspectorsBeforeAppTeardown()
             let reason: String
             if isQuitWarningConfirmed {
@@ -153,25 +155,46 @@ public final class ApplicationTerminateReplyCoordinator {
 
         // Show the same confirmation dialog used by the Cmd+Q shortcut path,
         // then reply asynchronously so we can return .terminateLater now.
-        host.presentQuitConfirmation { [weak self] shouldQuit in
-            guard let self else { return }
-            if shouldQuit {
-                self.isQuitWarningConfirmed = true
-                self.host.closeAllWebInspectorsBeforeAppTeardown()
-                self.host.recordTerminateBreadcrumb("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
-                if self.deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
-                    return
-                }
-            } else {
-                // Reset so that the next quit attempt can show the dialog again.
-                self.host.setTerminatingApp(false)
-                self.clearMarkedRemoteTmuxKills()
-                self.host.recordTerminateBreadcrumb("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
-            }
-            self.replyToTerminateOnce(shouldQuit)
+        host.presentQuitConfirmation(ownsTerminateRequest: true) { [weak self] response, suppressionState in
+            self?.handleApplicationTerminateQuitConfirmationResponse(
+                response,
+                suppressionState: suppressionState
+            )
         }
         host.recordTerminateBreadcrumb("appDelegate.shouldTerminate.later", fields: [:])
         return .terminateLater
+    }
+
+    private func prepareForConfirmedAppTermination() {
+        host.setTerminatingApp(true)
+        host.saveSessionSnapshotBeforeTerminate()
+        host.flushPendingClosedItemSaves()
+    }
+
+    private func handleApplicationTerminateQuitConfirmationResponse(
+        _ response: NSApplication.ModalResponse,
+        suppressionState: NSControl.StateValue
+    ) {
+        if suppressionState == .on {
+            QuitConfirmationStore(defaults: .standard).setEnabled(false)
+        }
+
+        let shouldQuit = response == .alertFirstButtonReturn
+        if shouldQuit {
+            prepareForConfirmedAppTermination()
+            isQuitWarningConfirmed = true
+            host.closeAllWebInspectorsBeforeAppTeardown()
+            host.recordTerminateBreadcrumb("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
+            if deferTerminateForMarkedRemoteTmuxKills(reason: "confirmedDialog") {
+                return
+            }
+        } else {
+            // Reset so that the next quit attempt can show the dialog again.
+            host.setTerminatingApp(false)
+            clearMarkedRemoteTmuxKills()
+            host.recordTerminateBreadcrumb("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
+        }
+        replyToTerminateOnce(shouldQuit)
     }
 
     /// Sole caller of the host's `NSApp.reply(toApplicationShouldTerminate:)`.
