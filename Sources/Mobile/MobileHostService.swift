@@ -1448,8 +1448,9 @@ final class MobileHostService {
     private static func ticketWorkspaceAuthorizationError(authorization: MobileAttachTicketAuthorization, workspaceSelection: String?) -> MobileHostRPCError? {
         if let workspaceSelection, authorization.createdWorkspaceIDs.contains(workspaceSelection) { return nil }
         let ticket = authorization.ticket
-        if !ticket.workspaceID.isEmpty {
-            guard let workspaceSelection, workspaceSelection == ticket.workspaceID else { return scopedTicketError }
+        let ticketWorkspaceID = ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !ticketWorkspaceID.isEmpty {
+            guard let workspaceSelection, workspaceSelection == ticketWorkspaceID else { return scopedTicketError }
         }
         return nil
     }

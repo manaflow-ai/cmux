@@ -455,6 +455,22 @@ struct MobileHostAuthorizationTests {
         )
         #expect(error == nil)
     }
+    @Test func testWorkspaceMoveTrimsTicketWorkspaceIDBeforeMatching() throws {
+        let error = try workspaceMoveAuthorizationError(
+            ticketWorkspaceID: " workspace ",
+            workspaceID: "workspace",
+            params: ["before_workspace_id": "other-workspace"]
+        )
+        #expect(error == nil)
+    }
+    @Test func testWorkspaceMoveTreatsWhitespaceTicketWorkspaceIDAsMacScoped() throws {
+        let error = try workspaceMoveAuthorizationError(
+            ticketWorkspaceID: "  ",
+            workspaceID: "other-workspace",
+            params: ["group_id": "group"]
+        )
+        #expect(error == nil)
+    }
     @Test func testWorkspaceMoveAcceptsMacScopedTicket() throws {
         let error = try workspaceMoveAuthorizationError(
             ticketWorkspaceID: "",
