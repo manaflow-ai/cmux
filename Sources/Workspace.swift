@@ -9618,6 +9618,9 @@ final class Workspace: Identifiable, ObservableObject {
                 installAgentSessionPanelSubscription(agentPanel)
             }
         }
+        if detached.directoryIsTrustedRemoteReport {
+            remoteDirectoryReportPanelIds.insert(detached.panelId); remoteDirectoryTrustRequiredPanelIds.insert(detached.panelId)
+        }
         let didAdoptWorkspaceRemoteTracking = shouldAdoptDetachedWorkspaceRemoteTracking(detached)
         if didAdoptWorkspaceRemoteTracking,
            let remotePTYSessionID = normalizedRemotePTYSessionID(detached.remotePTYSessionID) {

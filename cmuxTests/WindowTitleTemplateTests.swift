@@ -464,6 +464,21 @@ struct WindowTitleTemplateTests {
         #expect(workspace.presentedCurrentDirectory == localDirectory)
     }
 
+    private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-window-title-\(UUID().uuidString).sock",
+            terminalStartupCommand: command
+        )
+    }
+
     private func isolatedDefaults() throws -> UserDefaults {
         let suiteName = "cmux.WindowTitleTemplateTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
