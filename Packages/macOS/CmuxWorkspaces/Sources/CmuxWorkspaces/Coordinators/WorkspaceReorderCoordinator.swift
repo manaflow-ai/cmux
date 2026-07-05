@@ -199,7 +199,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
         if let afterId {
             guard let idx = model.tabs.firstIndex(where: { $0.id == afterId }) else { return nil }
-            return workspaceReorderPlan(tabId: tabId, toIndex: idx + 1)
+            let targetIndex = currentIndex < idx ? idx : idx + 1
+            return workspaceReorderPlan(tabId: tabId, toIndex: targetIndex)
         }
         return nil
     }
