@@ -1,9 +1,10 @@
 # cmux-mux
 
-`cmux-mux` is a tmux-style terminal multiplexer for cmux. The backend owns sessions, workspaces, screens, split panes, and tabs, while PTY surfaces are parsed by Ghostty's VT engine and rendered by the bundled Ratatui TUI. Browser panes are local Chrome/Chromium pages driven through CDP and drawn with kitty graphics when the host terminal supports it.
+`cmux-mux` is the Rust TUI multiplexer in this repository. It keeps a tmux-style tree of workspaces, screens, split panes, and tabs, uses Ghostty's VT engine for PTY state, and exposes the same state over a JSON-lines control socket for attach clients and other frontends.
 
 ## Documentation
 
+- [Docs index](docs/README.md)
 - [Getting started](docs/getting-started.md)
 - [Concepts](docs/concepts.md)
 - [Keyboard](docs/keyboard.md)
@@ -12,37 +13,41 @@
 - [Control socket protocol](docs/protocol.md)
 - [Browser panes](docs/browser-panes.md)
 
-## Layout
+## Build
 
-- `crates/ghostty-vt-sys` is the raw Ghostty VT FFI. Its build script compiles `libghostty-vt.a` from the `ghostty` submodule with zig and generates bindings from `include/ghostty/vt.h`.
-- `crates/ghostty-vt` is the safe Rust wrapper around terminal parsing, render snapshots, VT replay, palette state, and Ghostty key encoding.
-- `crates/mux-cdp` contains the synchronous CDP transport and Chrome lifecycle helpers for browser panes.
-- `crates/mux-core` is the backend session model, surface runtime, shared layout math, browser runtime, and JSON control socket.
-- `crates/mux-tui` builds the `cmux-mux` binary with crossterm, Ratatui, config loading, local sessions, and attach clients.
+Builds need zig 0.15.2, a Rust toolchain, and the `ghostty` submodule initialized. The `ghostty-vt-sys` crate builds `libghostty-vt.a` from the submodule with zig before compiling the Rust crates.
 
-## Build and run
+```bash
+cd mux
+cargo build -p mux-tui
+```
 
-Requires zig 0.15.2, a Rust toolchain, and an initialized `ghostty` submodule.
+## Run
 
 ```bash
 cd mux
 cargo run -p mux-tui
+cargo run -p mux-tui -- --session agents
 cargo run -p mux-tui -- --headless --session agents
 cargo run -p mux-tui -- attach --session agents
+```
+
+The default session is `main`. Default sockets live at `$TMPDIR/cmux-mux-<uid>/<session>.sock`; use `--socket <path>` for an explicit path. Detach from an attached TUI with prefix `d`, which is `Ctrl-b d` by default.
+
+Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xterm-256color`; `CMUX_MUX_TERM` can override the process default in the surface layer.
+
+## Development
+
+```bash
+cd mux
 cargo test
 ```
 
-Use `--term <value>` or `CMUX_MUX_TERM` for child shells when the default `xterm-256color` is not what you want.
-
-## Smoke checks
-
-Every running server exposes a JSON-lines Unix socket. The default path is `$TMPDIR/cmux-mux-<uid>/<session>.sock`.
+The smoke scripts expect a built `cmux-mux` binary unless `CMUX_MUX_BIN` is set.
 
 ```bash
-SOCK="${TMPDIR:-/tmp}/cmux-mux-$(id -u)/main.sock"
-printf '%s\n' '{"id":1,"cmd":"identify"}' | nc -U "$SOCK"
-printf '%s\n' '{"id":2,"cmd":"list-workspaces"}' | nc -U "$SOCK"
-printf '%s\n' '{"id":3,"cmd":"new-tab"}' | nc -U "$SOCK"
+cd mux
+cargo build -p mux-tui
+python3 scripts/smoke-tui.py
+python3 scripts/smoke-attach.py
 ```
-
-Detach an attached TUI with prefix `d`; the headless server keeps the session alive. A local non-attach TUI owns its in-process session and shuts it down when it exits.
