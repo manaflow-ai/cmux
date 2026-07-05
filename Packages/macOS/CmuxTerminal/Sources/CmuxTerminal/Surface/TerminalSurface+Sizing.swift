@@ -251,21 +251,29 @@ extension TerminalSurface {
         // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
         // surfaces' first applied resize — the LISTENER owns the policy of
         // what a hidden report may do.
-        if manualIO, let report = onManualSizeApplied,
-           let attachedView, attachedView.window != nil {
-            let applied = ghostty_surface_size(surface)
-            let cols = Int(applied.columns)
-            let rows = Int(applied.rows)
-            if cols > 1, rows > 1 {
-                report(TerminalSurfaceRawSizingSample(
-                    columns: cols, rows: rows,
-                    cellWidthPx: Int(applied.cell_width_px),
-                    cellHeightPx: Int(applied.cell_height_px),
-                    surfaceWidthPx: Int(applied.width_px),
-                    surfaceHeightPx: Int(applied.height_px),
-                    viewBoundsPt: attachedView.bounds.size,
-                    backingScale: attachedView.window?.backingScaleFactor
-                ))
+        if manualIO, let report = onManualSizeApplied {
+            if let attachedView, attachedView.window != nil {
+                manualSizeReportPendingWindowAttach = false
+                let applied = ghostty_surface_size(surface)
+                let cols = Int(applied.columns)
+                let rows = Int(applied.rows)
+                if cols > 1, rows > 1 {
+                    report(TerminalSurfaceRawSizingSample(
+                        columns: cols, rows: rows,
+                        cellWidthPx: Int(applied.cell_width_px),
+                        cellHeightPx: Int(applied.cell_height_px),
+                        surfaceWidthPx: Int(applied.width_px),
+                        surfaceHeightPx: Int(applied.height_px),
+                        viewBoundsPt: attachedView.bounds.size,
+                        backingScale: attachedView.window?.backingScaleFactor
+                    ))
+                }
+            } else {
+                // Off-window apply (portal churn during attach, hidden tab
+                // setup): remember that a report is owed. If the grid is
+                // already final when the view enters a window, no further
+                // apply will fire — the attach flush is the only delivery.
+                manualSizeReportPendingWindowAttach = true
             }
         }
 
@@ -470,6 +478,22 @@ extension TerminalSurface {
             viewBoundsPt: attachedView?.bounds.size,
             backingScale: attachedView?.window?.backingScaleFactor
         )
+    }
+
+    /// Delivers the manual-size report that was skipped because the view was
+    /// outside any window when the size applied (see
+    /// ``manualSizeReportPendingWindowAttach``). Called from the attach path;
+    /// a no-op unless a report is actually owed and deliverable.
+    @MainActor
+    public func flushPendingManualSizeReportIfAttached() {
+        guard manualSizeReportPendingWindowAttach,
+              let report = onManualSizeApplied,
+              attachedView?.window != nil,
+              let sample = rawSizingSample(),
+              sample.columns > 1, sample.rows > 1
+        else { return }
+        manualSizeReportPendingWindowAttach = false
+        report(sample)
     }
 
     /// Which of ``renderedGridCells()``'s nil conditions currently hold —

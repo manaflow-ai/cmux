@@ -2,16 +2,17 @@ import SwiftUI
 
 /// Renders a mirrored tmux window's multi-pane layout as nested splits inside a
 /// single cmux tab. Each pane is a real ``TerminalPanel`` (rendered via
-/// ``TerminalPanelView`` for native chrome) topped with a small control header
-/// (split / close) that doubles as a clearly visible separator between panes.
+/// ``TerminalPanelView`` for native chrome); the rows between panes are drawn
+/// as tmux-style hairline strips carrying each pane's title and the
+/// active-pane dot. Split/close live in each pane's context menu.
 @MainActor
 struct RemoteTmuxWindowMirrorView: View {
     let mirror: RemoteTmuxWindowMirror
     let appearance: PanelAppearance
     let isVisibleInUI: Bool
     let portalPriority: Int
-    /// Pane-header ✕ handler — owned by the workspace layer so the kill-pane can
-    /// be gated on a close confirmation (the view stays dialog-free).
+    /// Close Pane (context menu) handler — owned by the workspace layer so the
+    /// kill-pane can be gated on a close confirmation (the view stays dialog-free).
     let onClosePane: (Int) -> Void
     @Environment(\.displayScale) private var displayScale
     /// The container size, fed by `onGeometryChange` (an event, not a layout

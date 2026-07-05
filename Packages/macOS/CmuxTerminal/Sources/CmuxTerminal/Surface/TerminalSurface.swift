@@ -180,6 +180,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// geometry so listeners calibrate from exactly what was applied instead
     /// of re-querying the live surface later.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
+    /// A manual size was applied while the view was outside any window, so
+    /// the `onManualSizeApplied` report was skipped. The report is state,
+    /// not an edge: flushed by ``flushPendingManualSizeReportIfAttached()``
+    /// when the view (re)enters a window — otherwise a listener waiting for
+    /// its first sample (a hidden mirror's one-time size claim) never hears
+    /// about a grid that settled entirely off-window.
+    @MainActor var manualSizeReportPendingWindowAttach = false
     /// For MANUAL-I/O remote tmux display surfaces: whether to suppress
     /// ghostty primary-screen reflow on resize.
     var manualIONoReflow = true

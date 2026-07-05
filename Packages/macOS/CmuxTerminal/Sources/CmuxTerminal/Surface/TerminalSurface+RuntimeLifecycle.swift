@@ -391,6 +391,10 @@ extension TerminalSurface {
         // itself is unchanged.
         if attachedView === view && surface != nil {
             releaseHeadlessStartupWindowIfNeeded(for: view)
+            // The view may have just (re)entered a window: deliver a manual
+            // size that applied while it was detached (the report is state —
+            // a listener's first sample must not depend on attach timing).
+            flushPendingManualSizeReportIfAttached()
 #if DEBUG
             logDebugEvent("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view as NSView).toOpaque())")
 #endif

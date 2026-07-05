@@ -11,11 +11,12 @@ enum RemoteTmuxControlCommandKind: Equatable {
     /// A per-window `refresh-client -C '@id:WxH'` — an %error reply means
     /// the server predates the form and sizing falls back session-wide.
     case perWindowSize(Int)
-    /// A `list-panes` fetch of one window's REAL pane rectangles. The layout
-    /// string alone is not truth: under `pane-border-status` tmux publishes
-    /// the pre-title tree while the displayed panes sit one row lower and
+    /// A `list-panes` fetch of one window's REAL pane rectangles, tagged
+    /// with the pending-layout generation it publishes. The layout string
+    /// alone is not truth: under `pane-border-status` tmux publishes the
+    /// pre-title tree while the displayed panes sit one row lower and
     /// shorter, so rendering from the layout string draws every pane a row
-    /// deep. The rects are.
-    case paneRects(Int)
+    /// deep. The rects are; a reply whose generation is stale is discarded.
+    case paneRects(Int, Int)
     case other
 }

@@ -63,6 +63,25 @@ final class RemoteTmuxSizingUITests: XCTestCase {
 
     override func tearDown() {
         _ = tmux(["kill-server"])
+        // That kill rides the APP's socket, and a wedged app is exactly what
+        // can't answer — leaving the probe-forking lab server burning until
+        // the NEXT run's setup reaps it (stacked across a few dead runs,
+        // that load is what times out this suite's own 10s socket calls).
+        // Also kill the lab server directly, scoped to its socket dir so a
+        // developer's own tmux servers are untouchable by construction.
+        // Best-effort: the sandboxed runner may not reach /tmp sockets; a
+        // failure here just falls back to the setup-time reap.
+        if let tmuxBin {
+            let reap = Process()
+            reap.executableURL = URL(fileURLWithPath: tmuxBin)
+            reap.arguments = ["kill-server"]
+            var env = ProcessInfo.processInfo.environment
+            env["TMUX_TMPDIR"] = tmuxTmpDir
+            env.removeValue(forKey: "TMUX")
+            reap.environment = env
+            try? reap.run()
+            reap.waitUntilExit()
+        }
         try? FileManager.default.removeItem(atPath: socketPath)
         super.tearDown()
     }
@@ -77,6 +96,11 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         defer { app.terminate() }
         try buildLabSession()
         attachSession()
+        // Pin the mirror window to a known size: the app restores persisted
+        // window geometry, so without this the scenario runs at whatever
+        // frame an earlier app run left behind — small enough, and the pane
+        // surfaces can never produce the measured constants sizing needs.
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
         try assertSettles(selectedWindow: 0, within: 15, context: "after attach")
     }
 
@@ -175,6 +199,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         try buildLabSession()
         _ = tmux(["set", "-w", "-t", "\(sessionName):0", "pane-border-status", "top"])
         attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
         try assertSettles(selectedWindow: 0, within: 15, context: "with pane-border-status top")
     }
 
@@ -187,6 +212,7 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         defer { app.terminate() }
         try buildLabSession()
         attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
         try assertSettles(selectedWindow: 0, within: 15, context: "before foreign resize")
 
         let panes = try splitWindowPaneIds()
@@ -310,7 +336,9 @@ final class RemoteTmuxSizingUITests: XCTestCase {
                   let id = Int(idString.dropFirst()) else { continue }
             guard let base = window["base"] as? [String: Any] else { continue }
             guard let pushed = window["pushed"] as? [String: Any] else {
-                return "\(idString) never claimed a size"
+                // The full snapshot: which link is missing (no panes? no
+                // rendered grids? no calibration?) matters more than the id.
+                return "\(idString) never claimed a size: \(window)"
             }
             if base["cols"] as? Int != pushed["cols"] as? Int
                 || base["rows"] as? Int != pushed["rows"] as? Int {
@@ -318,6 +346,16 @@ final class RemoteTmuxSizingUITests: XCTestCase {
             }
             guard id == selectedWindow, let panes = window["panes"] as? [[String: Any]] else { continue }
             for pane in panes {
+                // A pane tmux itself squeezed to a 1-cell axis (an attach's
+                // 80x24 transit permanently flattens ratios — reproducible in
+                // raw tmux) has no renderable grid, and pane ratios are user
+                // state cmux must never rewrite. The render contract applies
+                // to renderable panes only.
+                if let assigned = pane["assigned"] as? [String: Any],
+                   let cols = assigned["cols"] as? Int, let rows = assigned["rows"] as? Int,
+                   cols <= 1 || rows <= 1 {
+                    continue
+                }
                 guard pane["rendered"] != nil else {
                     return "pane \(pane["pane_id"] ?? "?") has no rendered grid yet: \(pane)"
                 }
@@ -378,6 +416,10 @@ final class RemoteTmuxSizingUITests: XCTestCase {
         _ = tmux(["split-window", "-v", "-t", "\(sessionName):2"])
         _ = tmux(["split-window", "-v", "-t", "\(sessionName):2"])
         _ = tmux(["select-layout", "-t", "\(sessionName):2", "even-vertical"])
+        // One NON-first zoo window runs with tmux title rows so the sweep
+        // covers the batch list-windows + pane-rects path where the layout
+        // string's geometry is wrong (tmux publishes the pre-title tree).
+        _ = tmux(["set", "-w", "-t", "\(sessionName):2", "pane-border-status", "top"])
         _ = tmux(["new-window", "-t", sessionName, "-n", "grid4"])
         _ = tmux(["split-window", "-h", "-t", "\(sessionName):3"])
         _ = tmux(["split-window", "-v", "-t", "\(sessionName):3.0"])

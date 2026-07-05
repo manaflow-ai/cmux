@@ -90,6 +90,32 @@ final class RemoteTmuxWindowMirror {
     /// minimum permanently below truth and overshoot f by a column.
     @ObservationIgnored private var minNonGridWidthPxByScale: [CGFloat: Int] = [:]
     @ObservationIgnored private var minNonGridHeightPxByScale: [CGFloat: Int] = [:]
+    /// Divider-strip thickness for the TRANSIENT render, matching the cell
+    /// rows/columns tmux allocates to separators and title rows — so the
+    /// drag-time chrome occupies exactly the space the imposed render's
+    /// strips do and the mode switch is seamless. Falls back to a thin gap
+    /// while the render constants are still unknown.
+    var stripRowHeightPt: CGFloat {
+        guard let geometry = currentGeometry() else { return 2 }
+        return CGFloat(geometry.cellHeightPx) / max(1, geometry.scale)
+    }
+
+    var stripColumnWidthPt: CGFloat {
+        guard let geometry = currentGeometry() else { return 2 }
+        return CGFloat(geometry.cellWidthPx) / max(1, geometry.scale)
+    }
+
+    /// Whether tmux itself is drawing header rows for this window
+    /// (`pane-border-status top`). The strips show label text ONLY then —
+    /// a stock tmux displays no titles anywhere, and faithful means matching
+    /// that; the active-pane dot is cmux's one addition in both modes.
+    private(set) var tmuxTitleRowsVisible = false
+    /// Header-strip labels per pane (the expanded `pane-border-format`,
+    /// style tokens stripped), copied from the
+    /// connection on every reconcile so the view reads stored state, never
+    /// the connection. Rendered on the strip above each pane.
+    private(set) var paneHeaderLabels: [Int: String] = [:]
+
     /// The render constants the view actually uses, updated ONLY on event
     /// paths (applied-resize reports, client-size pushes) and read by the
     /// render projection. Keeping the render on a stored snapshot — instead
@@ -176,6 +202,7 @@ final class RemoteTmuxWindowMirror {
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
+            connection?.unsubscribePaneHeader(paneId: paneId)
             panelsByPaneId[paneId] = nil
             syntheticPaneIds[paneId] = nil
             if activePaneId == paneId { activePaneId = nil }
@@ -188,6 +215,31 @@ final class RemoteTmuxWindowMirror {
             layoutStructureVersion += 1
         }
         if layout != newLayout { layout = newLayout }
+        let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
+        if labels != paneHeaderLabels { paneHeaderLabels = labels }
+        let titleRows = connection?.windowTitleRowsVisible[windowId] ?? false
+        if tmuxTitleRowsVisible != titleRows { tmuxTitleRowsVisible = titleRows }
+        // Adopt tmux's known active pane when this mirror has none yet: on
+        // first attach the rects reply emits the active-pane event BEFORE the
+        // topology publish creates this mirror, so the event-driven path
+        // (noteRemoteActivePane) can't have delivered it.
+        if activePaneId == nil,
+           let remoteActive = connection?.activePaneByWindow[windowId],
+           livePaneIds.contains(remoteActive) {
+            activePaneId = remoteActive
+        }
+        // Drive the ONE-TIME claim from topology publishes too, not just view
+        // geometry and surface reports. Without this a hidden window can
+        // deadlock unclaimed: the claim needs a calibration sample, a sample
+        // needs a surface resize, and tmux only resizes the window once it is
+        // claimed — while topology publishes (the one event an attaching
+        // session always keeps producing) sweep live samples and break the
+        // cycle. Echo-safe: once claimed this never runs again, and f reads
+        // no tmux geometry, so a reconcile-triggered push recomputes the
+        // identical size and dedups.
+        if let connection, connection.lastWindowSizes[windowId] == nil {
+            updateClientSize()
+        }
     }
 
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).
@@ -272,6 +324,14 @@ final class RemoteTmuxWindowMirror {
             return true
         }
         refreshGeometryConstants()
+        #if DEBUG
+        cmuxDebugLog(
+            "remote.rects.push @\(windowId) container="
+                + (containerSizePt.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil")
+                + " scale=\(containerScale ?? 0) geom=\(currentGeometry() != nil ? 1 : 0)"
+                + " visible=\(isVisibleForSizing ? 1 : 0) panels=\(panelsByPaneId.count)"
+        )
+        #endif
         guard let containerSizePt, let containerScale,
               containerSizePt.width > 1, containerSizePt.height > 1,
               let geometry = currentGeometry()
@@ -319,6 +379,14 @@ final class RemoteTmuxWindowMirror {
         case let .vertical(children):
             return "v(" + children.map(structureSignature(of:)).joined(separator: ",") + ")"
         }
+    }
+
+    /// Records tmux's active pane as reported by the remote
+    /// (`%window-pane-changed` or the rects fetch) — the strip dot follows
+    /// tmux truth, not local focus alone. Tolerates unknown panes: the
+    /// matching layout may still be pending its rects publication.
+    func noteRemoteActivePane(_ paneId: Int) {
+        if activePaneId != paneId { activePaneId = paneId }
     }
 
     /// Records the user-focused pane and asks tmux to make it active.
@@ -443,6 +511,7 @@ final class RemoteTmuxWindowMirror {
         for paneId in panelsByPaneId.keys {
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
+            connection?.unsubscribePaneHeader(paneId: paneId)
         }
         for panel in panelsByPaneId.values { panel.close() }
         panelsByPaneId.removeAll()

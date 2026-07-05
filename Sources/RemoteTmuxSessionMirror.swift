@@ -396,6 +396,9 @@ final class RemoteTmuxSessionMirror {
     /// window tab when the active pane changes, so switching panes updates the
     /// folder immediately (rather than waiting for that pane's next `cd`).
     private func handleActivePaneChanged(windowId: Int, paneId: Int) {
+        // The strip dot must show TMUX's active pane, not just local focus:
+        // a co-attached client's pane switch arrives here and nowhere else.
+        windowMirrorByWindowId[windowId]?.noteRemoteActivePane(paneId)
         guard let workspace,
               windowMirrorByWindowId[windowId] != nil,
               let panelId = panelIdByWindow[windowId],
