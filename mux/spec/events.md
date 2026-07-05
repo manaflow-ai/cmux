@@ -7,7 +7,8 @@ Implemented event lines can appear on two stream types:
 | Stream | How to start | Event names |
 | --- | --- | --- |
 | Subscribe stream | `subscribe` command | `tree-changed`, `surface-output`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `empty` |
-| Attach stream | `attach-surface` command | `vt-state`, `output`, `detached` |
+| Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached` |
+| Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `detached` |
 
 Events and command responses share one JSON-lines connection. Clients must route lines by checking for `event`. If `event` is absent, the line is a command response and should be matched by `id`.
 
@@ -22,6 +23,8 @@ For a single subscription, events are delivered in the order the mux broadcasts 
 `subscribe` does not send an initial tree snapshot. Clients that need the current tree must call `list-workspaces`, then subscribe, then reconcile any events that arrive between the two operations according to application needs.
 
 `attach-surface` has a stronger ordering contract. The server takes the VT replay snapshot and registers the live output tap under the same terminal lock. The attach stream therefore has no gap and no duplicated bytes between the `vt-state` replay and subsequent `output` chunks. In v5, the `vt-state` event is sent before the `attach-surface` command response.
+
+Protocol v6 attach streams are ordered as `vt-state -> (resized | output)* -> detached`. The v6 `resized` event carries a fresh replay, and attach clients must replace their mirror terminal from that replay before applying later `output` chunks. Clients that support only protocol 5 or older must refuse protocol v6 attach streams. The field name `replay` on the v6 `resized` event could not be verified against this branch's code.
 
 When a surface exits, the mux removes it from the tree itself. Subscribe streams normally receive `tree-changed` and possibly `empty` before `surface-exited` for that surface. By the time `surface-exited` is observed, frontends should consider the surface reaped from authoritative tree state.
 
@@ -225,6 +228,28 @@ Example:
 
 ```json
 {"event":"output","surface":1,"data":"bHMNCg=="}
+```
+
+### resized
+
+| Field | Value |
+| --- | --- |
+| event | `resized` |
+| status | implemented in protocol 6 attach stream |
+| since | protocol 6 |
+
+Payload:
+
+```text
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay:Base64}
+```
+
+Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Clients must create a fresh terminal mirror at `cols` by `rows`, replay `replay`, then continue applying later `output` chunks. The `replay` field name could not be verified against this branch's `server.rs`.
+
+Example:
+
+```json
+{"event":"resized","surface":1,"cols":100,"rows":30,"replay":"G1s/bA=="}
 ```
 
 ### detached

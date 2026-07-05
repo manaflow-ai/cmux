@@ -151,7 +151,7 @@ GET /api/v1/attach/{surface}
 
 `{surface}` accepts an implemented numeric id or, when protocol v6 short ids are enabled, a short id. WebSocket messages are text JSON objects using the same `vt-state`, `output`, and `detached` event schemas from `events.md`.
 
-The attach ordering contract is identical to the socket `attach-surface` command: `vt-state` is first, then live `output`, then `detached`.
+The attach ordering contract is identical to the socket `attach-surface` command for the negotiated protocol. Protocol v5 sends `vt-state`, then live `output`, then `detached`. Protocol v6 sends `vt-state`, then zero or more `resized` or `output` events, then `detached`; each `resized` event carries a fresh replay and requires the client to replace its mirror before applying later output.
 
 ## HTTP Auth
 

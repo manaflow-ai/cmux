@@ -15,7 +15,7 @@ Bindings must:
 | Version check | Call `identify` or require the caller to supply protocol compatibility before using newer features |
 | Error handling | Preserve the server error string and expose a typed transport vs command distinction |
 | Events | Route response lines and event lines correctly on full-duplex connections |
-| Attach | Preserve attach ordering: `vt-state`, then `output`, then `detached` |
+| Attach | Preserve attach ordering for the negotiated protocol: v5 `vt-state`, then `output`, then `detached`; v6 `vt-state`, then `(resized | output)*`, then `detached` |
 | JSON mode | Provide a way to send raw command JSON for forward compatibility |
 | Timeouts | Let callers configure request timeout without changing wire schema |
 | Ids | Use numeric ids for v5 and `IdRef` for proposed v6 |
@@ -66,17 +66,68 @@ Errors should use checked or clearly documented runtime exceptions with separate
 
 ## Conformance Suite
 
-Every generated binding and CLI implementation must pass the same conformance suite against a real headless server. The suite lives under a future `mux/spec/fixtures/` directory.
+Every generated binding and CLI implementation must pass the same conformance suite against a real headless server. The suite lives under `mux/bindings/conformance/` and is run with:
+
+```bash
+python3 mux/bindings/conformance/runner.py
+```
 
 ### Fixture File Format
 
-Conformance fixtures are JSON files with ordered steps. A step that sends a command has `type:"command"`, a `request` object, an `expect` response object, optional `match`, optional `bind`, and optional `timeout_ms`.
+Conformance fixtures use a file wrapper:
+
+```text
+object{
+  defaults?: object{timeout_ms?: uint64},
+  fixtures: array<Fixture>
+}
+```
+
+`Fixture`:
+
+```text
+object{
+  name: string,
+  requires?: object{commands?: array<string>},
+  timeout_ms?: uint64,
+  steps: array<Step>
+}
+```
+
+`requires.commands` is a fixture-level skip gate. Before running the fixture, the runner probes each command. If the server lacks a required command, the fixture is reported as `SKIP`, not `PASS` and not `FAIL`. Skipped fixtures are counted separately in the summary and indicate an honest coverage gap for the tested server.
+
+A command step sends one command and checks the response:
+
+```text
+object{
+  type: "command",
+  request: object,
+  expect: object,
+  match?: "exact"|"partial",
+  bind?: object<string,string>,
+  timeout_ms?: uint64
+}
+```
 
 `match:"exact"` requires exact JSON equality. `match:"partial"` requires the expected object to be a recursive subset of the actual object. For arrays in partial mode, expected entries match by index and extra actual entries are ignored.
 
 `bind` maps variable names to JSON paths evaluated against that step's command response. Paths are dot-separated and start at the response object, such as `data.surface` or `data.workspaces[0].screens[0].panes[0].id`. A later request, expectation, or event predicate may use `"$name"` to substitute the bound JSON value. Missing paths fail the fixture.
 
 Every step has a timeout. `timeout_ms` on the step wins; otherwise the fixture runner uses `defaults.timeout_ms`; otherwise it uses 5000 ms.
+
+A `wait_contains` step repeats a command until the response value at `path` contains `contains` or the timeout expires:
+
+```text
+object{
+  type: "wait_contains",
+  request: object,
+  path: string,
+  contains: string,
+  timeout_ms?: uint64
+}
+```
+
+This is used for PTY output assertions where `send` and terminal rendering are asynchronous.
 
 ### Event Transcript Format
 
@@ -94,79 +145,82 @@ This fixture uses only protocol v5 commands and can run against a headless serve
 
 ```json
 {
-  "name": "subscribe-new-tab",
-  "protocol": 5,
   "defaults": { "timeout_ms": 5000 },
-  "steps": [
+  "fixtures": [
     {
-      "type": "command",
-      "request": { "id": 1, "cmd": "new-workspace", "cols": 80, "rows": 24 },
-      "expect": { "id": 1, "ok": true },
-      "match": "partial",
-      "bind": { "surface0": "data.surface" }
-    },
-    {
-      "type": "command",
-      "request": { "id": 2, "cmd": "list-workspaces" },
-      "expect": { "id": 2, "ok": true },
-      "match": "partial",
-      "bind": {
-        "workspace0": "data.workspaces[0].id",
-        "screen0": "data.workspaces[0].screens[0].id",
-        "pane0": "data.workspaces[0].screens[0].panes[0].id"
-      }
-    },
-    {
-      "type": "stream",
-      "name": "events",
-      "request": { "id": 3, "cmd": "subscribe" },
-      "expect": { "id": 3, "ok": true },
-      "match": "partial"
-    },
-    {
-      "type": "command",
-      "request": { "id": 4, "cmd": "new-tab", "pane": "$pane0" },
-      "expect": { "id": 4, "ok": true },
-      "match": "partial",
-      "bind": { "surface1": "data.surface" }
-    },
-    {
-      "type": "expect_events",
-      "stream": "events",
-      "expect": [
-        { "event": "tree-changed" }
-      ]
-    },
-    {
-      "type": "command",
-      "request": { "id": 5, "cmd": "list-workspaces" },
-      "expect": {
-        "id": 5,
-        "ok": true,
-        "data": {
-          "workspaces": [
-            {
-              "id": "$workspace0",
-              "screens": [
+      "name": "subscribe-new-tab",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "list-workspaces" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial",
+          "bind": {
+            "workspace0": "data.workspaces[0].id",
+            "screen0": "data.workspaces[0].screens[0].id",
+            "pane0": "data.workspaces[0].screens[0].panes[0].id"
+          }
+        },
+        {
+          "type": "stream",
+          "name": "events",
+          "request": { "id": 3, "cmd": "subscribe" },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "new-tab", "pane": "$pane0" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial",
+          "bind": { "surface1": "data.surface" }
+        },
+        {
+          "type": "expect_events",
+          "stream": "events",
+          "expect": [
+            { "event": "tree-changed" }
+          ]
+        },
+        {
+          "type": "command",
+          "request": { "id": 5, "cmd": "list-workspaces" },
+          "expect": {
+            "id": 5,
+            "ok": true,
+            "data": {
+              "workspaces": [
                 {
-                  "id": "$screen0",
-                  "panes": [
+                  "id": "$workspace0",
+                  "screens": [
                     {
-                      "id": "$pane0",
-                      "active_tab": 1,
-                      "tabs": [
-                        { "surface": "$surface0" },
-                        { "surface": "$surface1" }
+                      "id": "$screen0",
+                      "panes": [
+                        {
+                          "id": "$pane0",
+                          "active_tab": 1,
+                          "tabs": [
+                            { "surface": "$surface0" },
+                            { "surface": "$surface1" }
+                          ]
+                        }
                       ]
                     }
                   ]
                 }
               ]
             }
-          ]
+          },
+          "match": "partial"
         }
-      },
-      "match": "partial"
+      ]
     }
   ]
 }

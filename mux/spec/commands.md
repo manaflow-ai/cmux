@@ -1276,6 +1276,104 @@ Example:
 {"id":25,"ok":true,"data":{}}
 ```
 
+### move-tab
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab` |
+| status | implemented |
+| since | protocol 5 |
+
+Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Surface tab to move |
+| `pane` | `Id` | required | Destination pane |
+| `index` | `usize` | required | Zero-based destination index |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `unknown pane <id>` | Destination pane does not exist |
+| `bad request: ...` | Missing fields or wrong JSON type |
+| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `move-tab` |
+| Flags | `--surface <id> --pane <id> --index <n>` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":26,"cmd":"move-tab","surface":1,"pane":2,"index":0}
+{"id":26,"ok":true,"data":{}}
+```
+
+### move-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-workspace` |
+| status | implemented |
+| since | protocol 5 |
+
+Moves an existing workspace to zero-based `index`. Moving a workspace to its current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `workspace` | `Id` | required | Workspace to move |
+| `index` | `usize` | required | Zero-based destination index |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown workspace <id>` | Workspace id does not exist |
+| `bad request: ...` | Missing fields or wrong JSON type |
+| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
+
+CLI mapping:
+
+| Item | Value |
+| --- | --- |
+| Verb | `move-workspace` |
+| Flags | `--workspace <id> --index <n>` |
+| Plain stdout | no output |
+| JSON stdout | exact result object |
+| Exit codes | common |
+
+Example:
+
+```json
+{"id":27,"cmd":"move-workspace","workspace":4,"index":0}
+{"id":27,"ok":true,"data":{}}
+```
+
 ### scroll-surface
 
 | Field | Value |
@@ -1375,7 +1473,9 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Attaches the connection to a PTY surface stream. The server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
+Attaches the connection to a PTY surface stream. In protocol v5, the server first sends a `vt-state` event for the current surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
+
+Protocol v6 changes the attach stream ordering to `vt-state -> (resized | output)* -> detached`. A v6 `resized` attach event carries a fresh replay and requires clients to discard the old mirror and replace it from that replay. Clients that support only protocol 5 or older must refuse protocol v6 attach streams rather than treating `resized` as a normal resize. The v6 field name `replay` could not be verified against this branch's code.
 
 Params:
 
@@ -1911,7 +2011,7 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | Resize command | `resize-surface` does not report whether size changed or final clamped size | Return `{changed,cols,rows}` |
 | Ratio command | `set-ratio` silently clamps and does not return final ratio | Return `{ratio}` after clamping |
 | Naming commands | Empty string clears pane/surface/screen names but stores an empty workspace name | Make empty string clear all optional display names, including workspace |
-| Attach response ordering | `attach-surface` sends `vt-state` before the command response | Either document as permanent or return the initial `vt-state` in the response and reserve events for live stream |
+| Attach response ordering | v5 `attach-surface` sends `vt-state` before the command response | v6 keeps attach as an event stream and adds `resized` replay events; clients must gate behavior by protocol |
 | Error taxonomy | Errors are strings from `anyhow`, IO, base64, and terminal layers | Add stable machine error codes while preserving messages |
 | Optional size pair | Supplying only one of `cols` or `rows` is silently ignored | Reject partial size pairs |
 | Unknown fields | Unknown request fields are ignored by serde | Reject unknown fields or define extension slots |

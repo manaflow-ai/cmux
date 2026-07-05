@@ -38,6 +38,6 @@ The generator must preserve the wire command names, parameter names, result shap
 
 ## Implemented Inventory
 
-Protocol v5 implements 28 socket commands and 10 event names. The command inventory is listed in `commands.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
+Protocol v5 implements 30 socket commands and 10 event names in the consumer-side contract. The command inventory is listed in `commands.md`. Events include subscribe events, attach-stream events, and the implemented `empty` and `detached` lifecycle events.
 
-`move-tab` and `move-workspace` are not implemented in this tree.
+The current branch's `server.rs` predates the landed `move-tab`, `move-workspace`, and protocol v6 attach resize replay behavior. Those entries are marked with verification notes where field names or runtime behavior could not be checked against this branch.

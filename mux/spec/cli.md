@@ -75,6 +75,8 @@ The generated CLI requires one of `--index` or `--delta` for `select-tab`, `sele
 | `select-tab` | implemented | one of `--index`, `--delta` | `--pane <id>` | none |
 | `select-screen` | implemented | one of `--index`, `--delta` | none | none |
 | `select-workspace` | implemented | one of `--index`, `--delta` | none | none |
+| `move-tab` | implemented | `--surface <id> --pane <id> --index <n>` | none | none |
+| `move-workspace` | implemented | `--workspace <id> --index <n>` | none | none |
 | `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
 | `subscribe` | implemented | none | none in v5 | event JSON lines |
 | `attach-surface` | implemented | `--surface <id>` | none | event JSON lines |
