@@ -47,6 +47,10 @@ describe("Vault route helper", () => {
       "/api/vault/test failed",
       {},
       handler,
+      // Pin the auth outcome: other suites mock.module app/lib/stack in the
+      // shared bun process, which would otherwise make the real verifyRequest
+      // return a fake user depending on file order.
+      async () => null,
     );
     await provider.forceFlush();
 

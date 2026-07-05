@@ -55,9 +55,12 @@ export async function withAuthedVaultApiRoute(
   failureLog: string,
   verifyOptions: VerifyRequestOptions,
   handler: (context: AuthedVaultRouteContext) => Promise<Response>,
+  // Injectable so tests can pin the auth outcome regardless of module mocks
+  // other suites install for app/lib/stack in the shared bun test process.
+  verify: typeof verifyRequest = verifyRequest,
 ): Promise<Response> {
   return withVaultApiRoute(request, route, attributes, failureLog, async (context) => {
-    const user = await verifyRequest(request, verifyOptions);
+    const user = await verify(request, verifyOptions);
     if (!user) return unauthorized();
     setSpanAttributes(context.span, { "cmux.vault.user_id": user.id });
     return handler({ ...context, user });
