@@ -148,7 +148,12 @@ final class SharedLiveAgentIndex {
 
     func scheduleRefreshIfStale(validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil) {
         ensureWatchingHookStoreDirectory()
-        guard refreshTask == nil, forkAvailabilityRefreshTask == nil else { return }
+        guard refreshTask == nil, forkAvailabilityRefreshTask == nil else {
+            if let panelKey {
+                pendingForkValidationPanels.insert(panelKey)
+            }
+            return
+        }
         if let loadedAt, dateProvider().timeIntervalSince(loadedAt) < Self.cacheTTL {
             return
         }
