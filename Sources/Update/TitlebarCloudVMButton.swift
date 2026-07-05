@@ -430,7 +430,7 @@ private final class CloudVMMouseDownMenuItemView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard isHighlighted else { return }
-        NSColor.selectedMenuItemColor.setFill()
+        NSColor.selectedContentBackgroundColor.setFill()
         bounds.insetBy(dx: 5, dy: 2).fill()
     }
 }
