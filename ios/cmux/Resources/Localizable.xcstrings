@@ -681,6 +681,142 @@
         }
       }
     },
+    "mobile.addDevice.trustAccountBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac checks that this phone is signed in to the same cmux account before it allows workspace access, terminal input, or notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac は、ワークスペースへのアクセス、ターミナル入力、通知を許可する前に、この iPhone が同じ cmux アカウントでサインインしていることを確認します。"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.trustAccountTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses your cmux account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アカウントを使用"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.trustMacBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing approves this signed-in iPhone for the Mac shown by the QR/link. A copied or photographed code is not enough on its own."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングは、QR/リンクに表示された Mac に対して、このサインイン済み iPhone を承認します。コピーまたは撮影されたコードだけでは十分ではありません。"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.trustMacTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusts this Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を信頼"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.trustRouteBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The QR/link carries reachable addresses and non-secret app/account metadata. Terminal traffic uses the route you choose, usually Tailscale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR/リンクには到達可能なアドレスと、秘密ではないアプリ/アカウントのメタデータが含まれます。ターミナル通信は、通常は Tailscale など、選択した経路を使います。"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.trustRouteTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses your network route"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク経路を使用"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.trustSectionFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The QR/link does not contain your password or a long-lived access token."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR/リンクには、パスワードや長期有効なアクセストークンは含まれません。"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.trustSectionTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How pairing works"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングの仕組み"
+          }
+        }
+      }
+    },
     "mobile.common.ok": {
       "extractionState": "manual",
       "localizations": {
