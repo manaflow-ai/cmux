@@ -82,7 +82,7 @@ final class SharedLiveAgentIndex {
 
     /// Read the cached snapshot for the Fork Conversation context menu. Never blocks.
     func snapshotForForkAvailability(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        guard hasCompletedForkAvailabilityProbe,
+        guard hasFreshForkAvailabilityProbe,
               !isForkAvailabilityRefreshInFlight,
               let index else {
             return nil
@@ -277,10 +277,6 @@ final class SharedLiveAgentIndex {
     private var hasFreshForkAvailabilityProbe: Bool {
         guard let forkAvailabilityProbeCompletedAt else { return false }
         return dateProvider().timeIntervalSince(forkAvailabilityProbeCompletedAt) < Self.cacheTTL
-    }
-
-    private var hasCompletedForkAvailabilityProbe: Bool {
-        forkAvailabilityProbeCompletedAt != nil
     }
 
     private var isForkAvailabilityRefreshInFlight: Bool {
