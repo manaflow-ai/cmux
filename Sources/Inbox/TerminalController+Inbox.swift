@@ -438,9 +438,7 @@ private extension TerminalController {
         }
     }
 
-    // Not shared/static: `ISO8601DateFormatter` is not `Sendable`, so a
-    // `nonisolated static let` can't hold one. These serializers run at most
-    // a few dozen times per socket call, so a fresh formatter per use is cheap.
+    // ISO8601DateFormatter isn't Sendable, so no shared nonisolated static let; per-call creation is cheap here.
     nonisolated static func date(_ value: Any?) -> Date? {
         if let number = value as? NSNumber { return Date(timeIntervalSince1970: number.doubleValue) }
         if let double = value as? Double { return Date(timeIntervalSince1970: double) }
