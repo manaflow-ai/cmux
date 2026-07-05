@@ -95,9 +95,12 @@ extension Workspace {
         resolvedPanelDirectories: [UUID: String]
     ) -> String? {
         guard usesRemoteDirectoryProvenance else { return FileManager.default.homeDirectoryForCurrentUser.path }
+        let trustedRemoteDirectories = resolvedPanelDirectories.keys.compactMap {
+            trustedReportedPanelDirectory(panelId: $0)
+        }
         return SidebarBranchOrdering().inferredRemoteHomeDirectory(
-            from: Array(resolvedPanelDirectories.values),
-            fallbackDirectory: reportedRemoteCurrentDirectory
+            from: trustedRemoteDirectories,
+            fallbackDirectory: trustedRemoteCurrentDirectory
         )
     }
 

@@ -323,6 +323,35 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [localPanel.id]).map(\.label) == ["#7"])
     }
 
+    @MainActor
+    @Test("local fallback directory does not define remote home")
+    func localFallbackDirectoryDoesNotDefineRemoteHome() throws {
+        let localDirectory = "/Users/alice/development"
+        let localProjectDirectory = "/Users/alice/project"
+        let remoteProjectDirectory = "~/project"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteProjectDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: localProjectDirectory,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        workspace.panelDirectories.removeValue(forKey: localPanel.id)
+
+        #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [
+            remotePanelId,
+            localPanel.id,
+        ]) == [
+            remoteProjectDirectory,
+            localProjectDirectory,
+        ])
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
