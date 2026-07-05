@@ -17,6 +17,7 @@ done
 if [ -z "$TMUX_BIN" ]; then echo "SKIP: no tmux binary"; exit 0; fi
 
 LAB="$(mktemp -d /tmp/shimchk.XXXXXX)"
+ERRF="$LAB/shim.err"
 export TMUX_TMPDIR="$LAB"
 unset TMUX
 cleanup() {
@@ -57,9 +58,9 @@ check "2  -O exit" 0 $?
 check "3  warm ('true')" 0 $?
 
 # 4. list-sessions through the resolver; format string carries tabs.
-OUT="$("$SHIM" "${CTL[@]}" -- fakehost "$(tmux_remote list-sessions -F '#{session_name}	#{session_windows}')" </dev/null 2>/tmp/shimchk-err)"
+OUT="$("$SHIM" "${CTL[@]}" -- fakehost "$(tmux_remote list-sessions -F '#{session_name}	#{session_windows}')" </dev/null 2>"$ERRF")"
 RC=$?; EXTRA=1
-[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q "^sizing	1$" && [ ! -s /tmp/shimchk-err ] && EXTRA=0
+[ "$RC" = 0 ] && printf '%s' "$OUT" | grep -q "^sizing	1$" && [ ! -s "$ERRF" ] && EXTRA=0
 check "4  list-sessions -F (tabs, stdout only)" 0 "$RC" "$EXTRA"
 
 # 5. tmux -V through the resolver.
@@ -73,16 +74,16 @@ check "6  display-message -p" 0 $?
 
 # 7. refresh-client -B probe MUST fail with classifiable stderr ("no current
 #    client") on stderr, nothing on stdout — pty would merge/blank these.
-OUT="$("$SHIM" "${CTL[@]}" -- fakehost "$(tmux_remote refresh-client -B 'cmux_probe::#{version}')" </dev/null 2>/tmp/shimchk-err)"
+OUT="$("$SHIM" "${CTL[@]}" -- fakehost "$(tmux_remote refresh-client -B 'cmux_probe::#{version}')" </dev/null 2>"$ERRF")"
 RC=$?; EXTRA=1
-[ "$RC" != 0 ] && grep -q "current client" /tmp/shimchk-err && [ -z "$OUT" ] && EXTRA=0
+[ "$RC" != 0 ] && grep -q "current client" "$ERRF" && [ -z "$OUT" ] && EXTRA=0
 check "7  refresh-client -B fails w/ stderr text" 1 "$([ "$RC" != 0 ] && echo 1 || echo 0)" "$EXTRA"
 
 # 8. "no server running" classification (fresh empty TMUX_TMPDIR).
 EMPTY="$(mktemp -d /tmp/shimchk-empty.XXXXXX)"
-OUT="$(TMUX_TMPDIR="$EMPTY" "$SHIM" "${CTL[@]}" -- fakehost "$(tmux_remote list-sessions -F 'x')" </dev/null 2>/tmp/shimchk-err)"
+OUT="$(TMUX_TMPDIR="$EMPTY" "$SHIM" "${CTL[@]}" -- fakehost "$(tmux_remote list-sessions -F 'x')" </dev/null 2>"$ERRF")"
 RC=$?; EXTRA=1
-[ "$RC" != 0 ] && grep -Eq "no server running|error connecting" /tmp/shimchk-err && EXTRA=0
+[ "$RC" != 0 ] && grep -Eq "no server running|error connecting" "$ERRF" && EXTRA=0
 rm -rf "$EMPTY"
 check "8  no-server stderr classification" 1 "$([ "$RC" != 0 ] && echo 1 || echo 0)" "$EXTRA"
 

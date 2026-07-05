@@ -35,7 +35,12 @@ PROBE_LOCAL="$REPO_DIR/scripts/remote-tmux-width-probe.sh"
 # as assignments when the payload is packed below.
 REMOTE_BODY=$(cat <<'REMOTE'
 set -euo pipefail
-PROBE="/tmp/remote-tmux-width-probe-$(id -un).sh"
+# mktemp, not a predictable /tmp name: the remote may be multi-user, and a
+# fixed path could be pre-created (or symlinked) by someone else. Deleting on
+# exit is safe: the builder confirms every probe is RUNNING (each pane's bash
+# holds an open fd on the script) before this shell exits.
+PROBE="$(mktemp "${TMPDIR:-/tmp}/remote-tmux-width-probe.XXXXXX")"
+trap 'rm -f "$PROBE"' EXIT
 printf '%s' "$PROBE_B64" | base64 -d > "$PROBE"
 
 # Resolve tmux the way the app's ssh transport does: PATH first, then the
@@ -92,6 +97,8 @@ T select-layout -t "$SESSION:5" even-horizontal
 T new-window -t "$SESSION" -n mainh
 T split-window -v -t "$SESSION:6"
 T split-window -h -t "$SESSION:6.1"
+T split-window -h -t "$SESSION:6.1"
+T select-layout -t "$SESSION:6" main-horizontal
 
 T new-window -t "$SESSION" -n plain
 
