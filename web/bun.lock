@@ -65,6 +65,9 @@
     "sharp",
     "unrs-resolver",
   ],
+  "patchedDependencies": {
+    "@stackframe/stack@2.8.89": "patches/@stackframe%2Fstack@2.8.89.patch",
+  },
   "overrides": {
     "fast-xml-builder": "^1.2.0",
     "flatted": "^3.4.2",
