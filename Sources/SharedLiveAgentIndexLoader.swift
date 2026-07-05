@@ -71,9 +71,7 @@ struct SharedLiveAgentIndexLoader {
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
-                String(process.parentPID),
-                process.name,
-                process.path ?? ""
+                String(process.parentPID)
             ].joined(separator: "|")
         })
     }
