@@ -89,7 +89,7 @@ final class CuaDriverManagerTests: XCTestCase {
         from updates: CuaDriverStateUpdateIterator,
         matching predicate: @escaping @Sendable (CuaDriverManager.State) -> Bool
     ) async -> CuaDriverManager.State? {
-        let readTask = Task { @MainActor in
+        let readTask = Task { @MainActor () -> CuaDriverManager.State? in
             while let state = await updates.next() {
                 if predicate(state) {
                     return state
@@ -157,7 +157,10 @@ private final class CuaDriverStateUpdateIterator {
     }
 
     func next() async -> CuaDriverManager.State? {
-        await iterator.next()
+        var current = iterator
+        let value = await current.next()
+        iterator = current
+        return value
     }
 }
 
