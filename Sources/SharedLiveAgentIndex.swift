@@ -59,11 +59,11 @@ final class SharedLiveAgentIndex: ObservableObject {
 
     func prepareForkAvailabilityProbe() -> Bool {
         scheduleRefreshIfStale()
-        let hasCompletedProbe = forkAvailabilityProbeCompletedAt != nil
-        if !hasFreshForkAvailabilityProbe {
+        guard hasFreshForkAvailabilityProbe else {
             requestForkAvailabilityRefresh()
+            return false
         }
-        return hasCompletedProbe
+        return true
     }
 
     /// Current cached index. Never blocks.
