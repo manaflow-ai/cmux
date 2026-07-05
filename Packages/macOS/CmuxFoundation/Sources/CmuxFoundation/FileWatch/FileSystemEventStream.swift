@@ -27,6 +27,10 @@ import Foundation
 /// after `FSEventStreamInvalidate`. No callback ever touches a freed instance,
 /// so a separately retained context box is unnecessary.
 final class FileSystemEventStream: @unchecked Sendable {
+    /// Upper bound on FSEvents exclusion paths. `FSEventStreamSetExclusionPaths`
+    /// accepts at most 8 entries and silently ignores the rest, so this stream and
+    /// its ``RecursivePathWatcher`` owner truncate to this single shared limit.
+    static let maximumExclusionPathCount = 8
     private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private static let queue: DispatchQueue = {
         let queue = DispatchQueue(label: "com.cmux.recursive-path-watcher", qos: .utility)
@@ -55,15 +59,23 @@ final class FileSystemEventStream: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - paths: The files and directories to watch. Must be non-empty.
+    ///   - excludedPaths: Descendant paths ignored by the stream. Use this for
+    ///     high-churn subtrees that should not wake downstream reloads.
     ///   - latency: The FSEvents coalescing latency in seconds.
     ///   - onEvent: A non-blocking sink invoked on the shared queue for each
     ///     coalesced batch of filesystem events.
     /// - Returns: `nil` if `paths` is empty or the underlying `FSEventStream`
     ///   could not be created or started.
-    init?(paths: [String], latency: TimeInterval, onEvent: @escaping @Sendable () -> Void) {
+    init?(
+        paths: [String],
+        excludedPaths: [String] = [],
+        latency: TimeInterval,
+        onEvent: @escaping @Sendable () -> Void
+    ) {
         guard !paths.isEmpty else { return nil }
         self.onEvent = onEvent
         self.stream = nil
+        let effectiveExcludedPaths = Array(excludedPaths.prefix(Self.maximumExclusionPathCount))
 
         var context = FSEventStreamContext(
             version: 0,
@@ -85,6 +97,12 @@ final class FileSystemEventStream: @unchecked Sendable {
             return nil
         }
         self.stream = stream
+        if !effectiveExcludedPaths.isEmpty {
+            guard FSEventStreamSetExclusionPaths(stream, effectiveExcludedPaths as CFArray) else {
+                stop()
+                return nil
+            }
+        }
         FSEventStreamSetDispatchQueue(stream, Self.queue)
         guard FSEventStreamStart(stream) else {
             stop()

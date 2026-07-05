@@ -116,6 +116,37 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
 
 // MARK: - Store Tests
 
+/// Result of the timed `gitMetadataDirectory` probe in
+/// `testGitMetadataDirectoryRejectsFIFOGitEntry`. The `timedOut` case lets a regression
+/// that reintroduces the blocking `open()` fail the test cleanly instead of wedging the
+/// whole test process on a FIFO that never gets a writer.
+private enum GitMetadataProbeOutcome: Sendable {
+    case completed(String?)
+    case timedOut
+}
+
+/// Guards the single legal `resume` of a checked continuation shared by a detached
+/// probe thread and a timeout that race to settle it. Whichever fires first wins; the
+/// loser's `resume` is dropped. `@unchecked Sendable` because `settled` is only ever
+/// read or written under `lock`, and the stored continuation is resumed exactly once.
+private final class SingleResume<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var settled = false
+    private let continuation: CheckedContinuation<Value, Never>
+
+    init(_ continuation: CheckedContinuation<Value, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ value: Value) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !settled else { return }
+        settled = true
+        continuation.resume(returning: value)
+    }
+}
+
 /// The store's `@Published` state is driven by unstructured `Task { ... }` calls that
 /// hop to `@MainActor`. Pinning the test class to `@MainActor` keeps observations on
 /// the same actor as the mutations, so reads see a consistent snapshot.
@@ -184,6 +215,43 @@ struct FileExplorerStoreTests {
         #expect(store.rootNodes[0].isDirectory)
         #expect(store.rootNodes[1].name == "README.md")
         #expect(!(store.rootNodes[1].isDirectory))
+    }
+
+    @Test
+    func testLocalFileTreeRefreshesExpandedFolderAfterNestedFileCreate() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-refresh-\(UUID().uuidString)", isDirectory: true)
+        let sourceURL = rootURL.appendingPathComponent("Sources", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try "initial\n".write(
+            to: sourceURL.appendingPathComponent("Initial.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(.local(workspaceId: UUID(), path: rootURL.path))
+        try await waitFor("root directory loaded") {
+            store.rootNodes.map(\.name) == ["Sources"]
+        }
+
+        let sourceNode = try #require(store.rootNodes.first { $0.name == "Sources" })
+        store.expand(node: sourceNode)
+        try await waitFor("expanded source directory loaded") {
+            store.rootNodes.first { $0.name == "Sources" }?.children?.map(\.name) == ["Initial.swift"]
+        }
+
+        try "created\n".write(
+            to: sourceURL.appendingPathComponent("Created.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try await waitFor("nested file create refreshed expanded directory") {
+            let childNames = store.rootNodes.first { $0.name == "Sources" }?.children?.map(\.name) ?? []
+            return childNames == ["Created.swift", "Initial.swift"]
+        }
     }
 
     @Test
@@ -615,6 +683,207 @@ struct FileExplorerStoreTests {
         store.expand(node: node)
         #expect(!(store.isExpanded(node)))
     }
+
+    @Test("gitMetadataDirectory resolves plausible .git dirs and worktree/submodule gitdir files, rejecting others")
+    func testGitMetadataDirectoryResolution() throws {
+        let fileManager = FileManager.default
+        let workspaceBase = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-git-metadata-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: workspaceBase, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workspaceBase) }
+        // Resolve /var -> /private/var up front so expected paths match the
+        // store's lexical standardization regardless of temp-dir symlinks.
+        let workspace = workspaceBase.resolvingSymlinksInPath()
+
+        func makeDirectory(_ name: String) throws -> URL {
+            let url = workspace.appendingPathComponent(name, isDirectory: true)
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
+        func write(_ contents: String, to url: URL) throws {
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+        }
+        // Gives `directory` the minimal Git metadata shape the resolver requires.
+        func populateGitMetadata(_ directory: URL, marker: String) throws {
+            try write("ref: refs/heads/main\n", to: directory.appendingPathComponent("HEAD"))
+            try write("", to: directory.appendingPathComponent(marker))
+        }
+        func writeGitPointer(_ contents: String, in root: URL) throws {
+            try write(contents, to: root.appendingPathComponent(".git"))
+        }
+
+        // No `.git` entry → nil.
+        let plainRoot = try makeDirectory("plain")
+        #expect(FileExplorerStore.gitMetadataDirectory(under: plainRoot.path) == nil)
+
+        // Plausible `.git` directory → the directory itself.
+        let repoRoot = try makeDirectory("repo")
+        let repoGitDir = repoRoot.appendingPathComponent(".git", isDirectory: true)
+        try fileManager.createDirectory(at: repoGitDir, withIntermediateDirectories: true)
+        try populateGitMetadata(repoGitDir, marker: "config")
+        #expect(FileExplorerStore.gitMetadataDirectory(under: repoRoot.path) == repoGitDir.path)
+
+        // `.git` directory without the Git metadata shape → nil.
+        let bareRoot = try makeDirectory("bare")
+        try fileManager.createDirectory(
+            at: bareRoot.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        #expect(FileExplorerStore.gitMetadataDirectory(under: bareRoot.path) == nil)
+
+        // Worktree layout: `.git` file with an absolute `gitdir:` pointer.
+        let worktreeRoot = try makeDirectory("worktree")
+        let externalGitDir = try makeDirectory("main/.git/worktrees/wt")
+        try populateGitMetadata(externalGitDir, marker: "commondir")
+        try writeGitPointer("gitdir: \(externalGitDir.path)\n", in: worktreeRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: worktreeRoot.path) == externalGitDir.path)
+
+        // Submodule layout: `.git` file with a relative `gitdir:` pointer.
+        let submoduleRoot = try makeDirectory("submodule")
+        let submoduleGitDir = try makeDirectory("shared-modules")
+        try populateGitMetadata(submoduleGitDir, marker: "config")
+        try writeGitPointer("gitdir: ../shared-modules\n", in: submoduleRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: submoduleRoot.path) == submoduleGitDir.path)
+
+        // `gitdir:` aimed at a real but non-Git directory → nil (trust boundary).
+        let untrustedRoot = try makeDirectory("untrusted")
+        let arbitraryDir = try makeDirectory("arbitrary-secrets")
+        try writeGitPointer("gitdir: \(arbitraryDir.path)\n", in: untrustedRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: untrustedRoot.path) == nil)
+
+        // `gitdir:` pointing at a non-existent directory → nil.
+        let danglingRoot = try makeDirectory("dangling")
+        try writeGitPointer("gitdir: \(workspace.appendingPathComponent("missing").path)\n", in: danglingRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: danglingRoot.path) == nil)
+
+        // Oversized `.git` file: a valid pointer buried past the read cap is not
+        // parsed, so the read stays bounded → nil.
+        let oversizedRoot = try makeDirectory("oversized")
+        let oversizedTargetDir = try makeDirectory("oversized-gitdir")
+        try populateGitMetadata(oversizedTargetDir, marker: "config")
+        let padding = String(repeating: "#\n", count: 40_000) // > 64 KiB
+        try writeGitPointer(padding + "gitdir: \(oversizedTargetDir.path)\n", in: oversizedRoot)
+        #expect(FileExplorerStore.gitMetadataDirectory(under: oversizedRoot.path) == nil)
+    }
+
+    @Test("gitMetadataDirectory rejects a FIFO .git entry without blocking on open()")
+    func testGitMetadataDirectoryRejectsFIFOGitEntry() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-git-fifo-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        // A repository-controlled `.git` can be a FIFO. `fileExists` reports it as a
+        // non-directory, so without the regular-file guard the resolver would open it
+        // with `FileHandle(forReadingFrom:)`, which blocks on open() until a writer
+        // appears — hanging watcher setup on the main actor. The guard must reject it.
+        let gitPath = root.appendingPathComponent(".git").path
+        try #require(mkfifo(gitPath, 0o600) == 0)
+
+        // Race the resolver against a timeout so a regression fails cleanly here rather
+        // than blocking forever on the FIFO's open(). The probe runs on a *detached*
+        // thread, not a structured child: `withTaskGroup` cannot return from its scope
+        // until every child finishes, and `cancelAll()` cannot interrupt a synchronous
+        // `open()`, so a regressed blocking open would wedge the group (and CI) instead
+        // of reaching the `.timedOut` assertion below. A detached thread can simply be
+        // abandoned — on timeout it stays parked in `open()` and is leaked, which is
+        // harmless because the test has already failed and the process is torn down.
+        let outcome: GitMetadataProbeOutcome = await withCheckedContinuation { continuation in
+            let race = SingleResume(continuation)
+            Thread.detachNewThread {
+                race.resume(.completed(FileExplorerStore.gitMetadataDirectory(under: root.path)))
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
+                race.resume(.timedOut)
+            }
+        }
+
+        switch outcome {
+        case .completed(let metadata):
+            #expect(metadata == nil, "A FIFO .git entry must resolve to nil, not be read")
+        case .timedOut:
+            Issue.record("gitMetadataDirectory blocked on a FIFO .git entry — regular-file guard missing")
+        }
+    }
+
+    @Test("git-creation bootstrap watcher excludes churn dirs but never .git itself")
+    func testGitCreationWatcherExclusionsOmitDotGit() {
+        // Any absolute path works — these are pure string builders. Both helpers
+        // apply the same `standardizedFileURL` normalization, so the `.git` entry
+        // compares equal without needing the directory to exist on disk.
+        let root = "/tmp/cmux-git-creation-\(UUID().uuidString)"
+        let mainExclusions = FileExplorerStore.recursiveWatcherExcludedPaths(under: root)
+        let creationExclusions = FileExplorerStore.gitCreationWatcherExcludedPaths(under: root)
+        let gitPath = FileExplorerStore.rootLevelGitPath(under: root)
+
+        // Premise: the main tree watcher excludes `.git`. That exclusion is exactly
+        // why `git init` (which writes only under `.git`) produces no main-watcher
+        // event, so the git-state watcher would never install on its own.
+        #expect(mainExclusions.contains(gitPath))
+
+        // The bootstrap watcher must NOT exclude `.git`, or it could never observe
+        // `.git`'s creation — reintroducing the "git init leaves status badges
+        // stale until an unrelated tree change" regression. If someone reuses
+        // `recursiveWatcherExcludedPaths` here (which excludes `.git`), this fails.
+        #expect(!creationExclusions.contains(gitPath))
+
+        // It keeps every *other* high-churn exclusion so it stays cheap while it
+        // waits on a folder that may never become a repository.
+        #expect(Set(creationExclusions) == Set(mainExclusions).subtracting([gitPath]))
+        #expect(creationExclusions.contains { $0.hasSuffix("/node_modules") })
+    }
+
+    // A folder can be opened before it becomes a Git repository; when `git init`
+    // later creates `.git`, the bootstrap watcher installs the git-state watcher.
+    // That watcher only refreshes on *subsequent* `.git` changes, so installing it
+    // must itself kick off a status refresh — otherwise the badges stay empty until
+    // an unrelated change fires (the exact git-init-after-open regression).
+    @Test(.enabled(if: FileExplorerStoreTests.hasGit(), "git is required to create a repository fixture"))
+    func testGitStateWatcherInstallTriggersStatusRefresh() throws {
+        let repo = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-git-refresh-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try Self.runGit(["init"], in: repo)
+
+        let store = FileExplorerStore()
+        defer { store.stopDirectoryWatcher() }
+
+        // No refresh has been requested yet, so any in-flight refresh observed after
+        // the install must have been triggered by the install path itself.
+        #expect(!store.isGitStatusRefreshInFlight)
+
+        // Drive the shared "a repository appeared after the folder was opened" path
+        // directly (reaching internal state via `@testable import`): point the store
+        // at the repo as its watched directory without starting real FSEvents
+        // watchers, then run the metadata-watcher install path exactly as the
+        // bootstrap creation watcher would once `.git` shows up.
+        store.rootPath = repo.path
+        store.directoryWatchPath = repo.path
+        store.installGitStateWatcherIfNeeded()
+
+        #expect(store.gitStateWatcher != nil, "git-state watcher should install once .git exists")
+        #expect(
+            store.isGitStatusRefreshInFlight,
+            "installing the git-state watcher for a repo that appeared after open must eagerly refresh git status"
+        )
+    }
+
+    private nonisolated static func hasGit() -> Bool {
+        FileManager.default.isExecutableFile(atPath: "/usr/bin/git")
+    }
+
+    private nonisolated static func runGit(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        process.currentDirectoryURL = directory
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+    }
 }
 
 @MainActor
@@ -839,12 +1108,12 @@ struct FileSearchControllerTests {
             let store = FileExplorerStore()
             let state = FileExplorerState()
             let searchController = SpyFileSearchController()
-            var openedPaths: [String] = []
+            var openedRequests: [(path: String, lineNumber: Int?, columnNumber: Int?)] = []
             let coordinator = FileExplorerPanelView.Coordinator(
                 store: store,
                 state: state,
-                onOpenFilePreview: { path in
-                    openedPaths.append(path)
+                onOpenFilePreview: { request in
+                    openedRequests.append(request)
                 }
             )
             let container = FileExplorerContainerView(
@@ -861,7 +1130,7 @@ struct FileSearchControllerTests {
             KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelectionFinderAlias)
 
             let searchField = try #require(Self.findSearchField(in: container))
-            let result = Self.searchResult(relativePath: "selected.txt")
+            let result = Self.searchResult(relativePath: "selected.txt", lineNumber: 42, columnNumber: 14)
             searchController.publish(FileSearchSnapshot(
                 query: "needle",
                 results: [result],
@@ -876,7 +1145,11 @@ struct FileSearchControllerTests {
             )
 
             #expect(handled)
-            #expect(openedPaths == [result.path])
+            let openedRequest = try #require(openedRequests.first)
+            #expect(openedRequests.count == 1)
+            #expect(openedRequest.path == result.path)
+            #expect(openedRequest.lineNumber == 42)
+            #expect(openedRequest.columnNumber == 14)
         }
     }
 
@@ -1099,12 +1372,16 @@ struct FileSearchControllerTests {
         #expect(!(message.contains("%@")))
     }
 
-    private static func searchResult(relativePath: String) -> FileSearchResult {
+    private static func searchResult(
+        relativePath: String,
+        lineNumber: Int = 1,
+        columnNumber: Int = 1
+    ) -> FileSearchResult {
         FileSearchResult(
             path: "/tmp/cmux-find-content-revision-test/\(relativePath)",
             relativePath: relativePath,
-            lineNumber: 1,
-            columnNumber: 1,
+            lineNumber: lineNumber,
+            columnNumber: columnNumber,
             preview: "needle"
         )
     }

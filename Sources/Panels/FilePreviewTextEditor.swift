@@ -429,6 +429,7 @@ extension FilePreviewPanel {
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
         focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+        applyPendingTextNavigationIfReady()
     }
 
     @discardableResult

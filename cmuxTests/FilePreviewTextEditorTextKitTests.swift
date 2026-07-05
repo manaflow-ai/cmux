@@ -47,6 +47,199 @@ struct FilePreviewTextEditorTextKitTests {
         #expect(textView.layoutManager?.allowsNonContiguousLayout == true)
     }
 
+    @Test("search navigation selects the requested loaded line and column")
+    func searchNavigationSelectsRequestedLoadedLineAndColumn() async throws {
+        let content = """
+        first
+        second
+        abcd needle
+        """
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: { _ in .loaded(content: content, encoding: .utf8) }
+        )
+        defer { panel.close() }
+
+        panel.navigateToTextPosition(lineNumber: 3, columnNumber: 6)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        panel.attachTextView(textView)
+
+        #expect(textView.selectedRange().location == (content as NSString).range(of: "needle").location)
+    }
+
+    @Test("line scan counts a CRLF line ending as a single line break")
+    func textLocationCountsCRLFAsSingleLineBreak() {
+        // `\r\n` is one Swift `Character` (grapheme cluster) whose `isNewline` is true
+        // exactly once, so a CRLF line ending must advance the line counter once, not
+        // twice. If it were miscounted as two breaks, line 3 would resolve into
+        // "second" and the offset would be wrong. Pure-function regression guard for
+        // the file-preview line counter, independent of NSTextView line-ending handling.
+        let crlf = "first\r\nsecond\r\nabcd needle"
+        #expect(
+            FilePreviewPanel.textLocation(lineNumber: 3, columnNumber: 6, in: crlf)
+                == (crlf as NSString).range(of: "needle").location
+        )
+
+        // The same document with LF endings resolves through the identical code path,
+        // confirming there is no CRLF-specific branch — only the grapheme-cluster step.
+        let lf = "first\nsecond\nabcd needle"
+        #expect(
+            FilePreviewPanel.textLocation(lineNumber: 3, columnNumber: 1, in: lf)
+                == (lf as NSString).range(of: "abcd").location
+        )
+    }
+
+    @Test("search navigation treats columns as UTF-8 byte offsets")
+    func searchNavigationUsesUTF8ByteColumnOffset() async throws {
+        let content = "first\n🔍 needle\n"
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-utf8-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: { _ in .loaded(content: content, encoding: .utf8) }
+        )
+        defer { panel.close() }
+
+        panel.navigateToTextPosition(lineNumber: 2, columnNumber: 6)
+        await panel.loadTextContent().value
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        panel.attachTextView(textView)
+
+        #expect(textView.selectedRange().location == (content as NSString).range(of: "needle").location)
+    }
+
+    @Test("search navigation preserves markdown surface routing")
+    func searchNavigationPreservesMarkdownSurfaceRouting() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("md")
+        try "# Title\n\nneedle\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+
+        let openedPanels = workspace.openFileSurfacesNavigatingTextPosition(
+            inPane: pane,
+            filePath: url.path,
+            lineNumber: 3,
+            columnNumber: 1,
+            focus: false,
+            reuseExisting: true
+        )
+
+        let markdownPanel = try #require(openedPanels.first as? MarkdownPanel)
+        #expect(markdownPanel.filePath == url.path)
+        #expect((openedPanels.first as? FilePreviewPanel) == nil)
+    }
+
+    @Test("search navigation preserves Xcode project surface routing")
+    func searchNavigationPreservesXcodeProjectSurfaceRouting() throws {
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).xcodeproj", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+
+        let openedPanels = workspace.openFileSurfacesNavigatingTextPosition(
+            inPane: pane,
+            filePath: projectURL.path,
+            lineNumber: 1,
+            columnNumber: 1,
+            focus: false,
+            reuseExisting: true
+        )
+
+        let projectPanel = try #require(openedPanels.first as? ProjectPanel)
+        #expect(projectPanel.projectURL.path == projectURL.path)
+        #expect((openedPanels.first as? FilePreviewPanel) == nil)
+    }
+
+    @Test("unavailable dirty load clears pending search navigation")
+    func unavailableDirtyLoadClearsPendingSearchNavigation() async throws {
+        let loader = PreviewTextLoaderStub(result: .loaded(content: "clean\n", encoding: .utf8))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-unavailable-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try "clean\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: loader.load
+        )
+        defer { panel.close() }
+
+        await panel.loadTextContent().value
+        panel.updateTextContent("dirty needle\n")
+        #expect(panel.isDirty)
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        panel.attachTextView(textView)
+
+        loader.result = FilePreviewTextLoader.Result.unavailable
+        await panel.navigateToTextPosition(lineNumber: 1, columnNumber: 7)?.value
+
+        #expect(textView.selectedRange().location == 0)
+    }
+
+    @Test("loaded dirty buffer clears pending search navigation when content differs")
+    func loadedDirtyBufferClearsPendingSearchNavigationWhenContentDiffers() async throws {
+        let onDiskContent = "first\nneedle\n"
+        let loader = PreviewTextLoaderStub(result: .loaded(content: onDiskContent, encoding: .utf8))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-preview-dirty-loaded-navigation-\(UUID().uuidString)")
+            .appendingPathExtension("swift")
+        try onDiskContent.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: url.path,
+            textLoader: loader.load
+        )
+        defer { panel.close() }
+
+        await panel.loadTextContent().value
+        panel.updateTextContent("dirty\nfirst\nneedle\n")
+        #expect(panel.isDirty)
+
+        let textView = SavingTextView.makeFilePreviewTextView()
+        textView.string = panel.textContent
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        panel.attachTextView(textView)
+
+        await panel.navigateToTextPosition(lineNumber: 2, columnNumber: 1)?.value
+
+        #expect(textView.selectedRange().location == 0)
+    }
+
     @Test("text preview editor handles standard zoom key equivalents")
     func editorHandlesStandardZoomKeyEquivalents() throws {
         try withDefaultShortcutSettings {
@@ -334,5 +527,17 @@ struct FilePreviewTextEditorTextKitTests {
             saveCount += 1
             return nil
         }
+    }
+}
+
+private final class PreviewTextLoaderStub: @unchecked Sendable {
+    var result: FilePreviewTextLoader.Result
+
+    init(result: FilePreviewTextLoader.Result) {
+        self.result = result
+    }
+
+    func load(_ url: URL) async -> FilePreviewTextLoader.Result {
+        result
     }
 }

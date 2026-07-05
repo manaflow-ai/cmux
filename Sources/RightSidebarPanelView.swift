@@ -114,7 +114,7 @@ struct RightSidebarPanelView: View {
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
-    let onOpenFilePreview: (String) -> Void
+    let onOpenFilePreview: FileExplorerPreviewOpenHandler
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 

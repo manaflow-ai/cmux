@@ -365,6 +365,34 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
     }
 
+    // Regression: a search-result open queues a text-position jump; if the same file is
+    // then reopened normally (no line target) before the text finishes loading, the stale
+    // jump must be discarded rather than firing when the load completes and scrolling the
+    // reused panel to the old search location.
+    func testNilLineOpenClearsPendingSearchNavigation() throws {
+        let url = try temporaryTextFile(contents: "l1\nl2\nl3\nl4\nl5\n", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+
+        // Queue a search-result jump. With no text view attached the jump cannot be
+        // applied yet, so it stays pending exactly as it would while the file is loading.
+        panel.navigateToTextPosition(lineNumber: 3, columnNumber: 1)
+        XCTAssertTrue(
+            panel.hasPendingTextNavigationForTesting,
+            "A line-carrying open should queue a pending text-position jump"
+        )
+
+        // Reopening without a line target is an explicit no-navigation request and must
+        // discard the queued jump.
+        panel.navigateToTextPosition(lineNumber: nil, columnNumber: nil)
+        XCTAssertFalse(
+            panel.hasPendingTextNavigationForTesting,
+            "A nil-line open must clear a previously queued search-result jump"
+        )
+    }
+
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
