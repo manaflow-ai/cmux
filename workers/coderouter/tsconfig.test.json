@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  },
+  "include": [
+    "test/**/*.ts",
+    "src/acquirePolicy.ts",
+    "src/families.ts",
+    "src/internalAuth.ts",
+    "src/keys.ts",
+    "src/limits.ts",
+    "src/oauthRefresh.ts",
+    "src/pricing.ts",
+    "src/secrets.ts",
+    "src/select.ts",
+    "src/sessionKey.ts",
+    "src/sse.ts",
+    "src/types.ts",
+    "src/usageFlush.ts",
+    "src/usagePoll.ts"
+  ]
+}

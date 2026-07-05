@@ -1,0 +1,28 @@
+# DEV-ONLY config for cmux-coderouter-dev: same worker + DO as production, but
+# on the workers.dev URL, NOT the production coderouter.cmux.dev custom domain.
+# Use:
+#   bunx wrangler deploy --config wrangler.dev.toml
+#
+# Durable Object migrations are append-only. Never hand-edit past migration
+# tags; append a new migration when a storage class changes.
+#
+# Secrets are provisioned with `wrangler secret put`, not [vars].
+
+name = "cmux-coderouter-dev"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+workers_dev = true
+
+[vars]
+CONTROL_PLANE_BASE_URL = "https://cmux.com"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "POOL"
+class_name = "PoolCoordinator"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PoolCoordinator"]

@@ -1,0 +1,42 @@
+# cmux coderouter service — Cloudflare Worker + SQLite Durable Objects.
+#
+# One PoolCoordinator Durable Object per team/family owns synced caller keys,
+# credential metadata, OAuth token chains, sticky conversation assignments,
+# limit state, and buffered usage events. The web control plane is authoritative
+# for team membership, key minting, credential metadata, and billing.
+#
+# Deploys should run from a path-filtered workflow on push to main. The
+# [[migrations]] block below is the service's schema migration story: wrangler
+# applies Durable Object class migrations atomically with every deploy, so the
+# code and its storage classes can never drift the way lagging SQL migrations
+# can. Never hand-edit past migration tags; append a new one.
+#
+# Secrets are intentionally NOT in [vars]: values set here overwrite
+# dashboard-set values on every deploy. Provision them once as Worker secrets:
+#   wrangler secret put CODEROUTER_KEY_SIGNING_SECRET
+#   wrangler secret put CODEROUTER_INTERNAL_TOKEN
+#   wrangler secret put CODEROUTER_MASTER_KEY
+#   wrangler secret put MANAGED_ANTHROPIC_API_KEY
+#   wrangler secret put MANAGED_OPENAI_API_KEY
+
+name = "cmux-coderouter"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[vars]
+CONTROL_PLANE_BASE_URL = "https://cmux.com"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "POOL"
+class_name = "PoolCoordinator"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PoolCoordinator"]
+
+[[routes]]
+pattern = "coderouter.cmux.dev"
+custom_domain = true
