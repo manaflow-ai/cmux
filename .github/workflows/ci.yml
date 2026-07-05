@@ -524,6 +524,30 @@ jobs:
             -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
             test
 
+      - name: Run ssh-session-attach anchor regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7367.
+          # The full "Run unit tests" step tolerates any xcodebuild failure
+          # whose last test summary reports "(0 unexpected)", and test
+          # assertion failures never increment the unexpected count on these
+          # runners — so a failing regression assertion in the sharded run
+          # cannot turn the shard red. Keep this targeted only-testing
+          # invocation as a non-tolerant guard for the ssh-session-attach
+          # split-anchor regression.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CLISSHSessionAttachAnchorTests \
+            test
+
       - name: Run unit tests
         run: |
           set -euo pipefail

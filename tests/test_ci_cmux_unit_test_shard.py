@@ -108,6 +108,7 @@ def main() -> int:
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
             for focused_selector in (
                 "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
+                "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
             ):
                 if focused_selector in shard_selectors:
