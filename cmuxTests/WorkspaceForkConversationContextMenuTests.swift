@@ -202,10 +202,13 @@ struct WorkspaceForkConversationContextMenuTests {
             },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            processIsRunningProvider: {
+                $0 == processId
             }
         )
 
-        await sharedIndex.refreshForkAvailabilityNow()
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: staleWorkspaceId, panelId: stalePanelId)
         #expect(
             sharedIndex.index?.snapshot(
                 workspaceId: staleWorkspaceId,
@@ -349,10 +352,7 @@ struct WorkspaceForkConversationContextMenuTests {
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-live-agent-missing-probe-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: root) }
-        try fm.createDirectory(
-            at: root.appendingPathComponent(".cmuxterm", isDirectory: true),
-            withIntermediateDirectories: true
-        )
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
 
         let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
         let sharedIndex = SharedLiveAgentIndex(
@@ -362,11 +362,7 @@ struct WorkspaceForkConversationContextMenuTests {
                     fileManager: fm,
                     registry: CmuxVaultAgentRegistry(registrations: []),
                     processSnapshotProvider: {
-                        CmuxTopProcessSnapshot(
-                            processes: [],
-                            sampledAt: now.withLock { $0 },
-                            includesProcessDetails: true
-                        )
+                        CmuxTopProcessSnapshot(processes: [], sampledAt: now.withLock { $0 }, includesProcessDetails: true)
                     },
                     capturedAtProvider: { now.withLock { $0 }.timeIntervalSince1970 },
                     processArgumentsProvider: { _ in nil }
@@ -381,10 +377,16 @@ struct WorkspaceForkConversationContextMenuTests {
             }
         )
 
-        await sharedIndex.refreshForkAvailabilityNow()
         now.withLock { $0 = Date(timeIntervalSince1970: 30) }
+        let missingWorkspaceId = UUID()
+        let missingPanelId = UUID()
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: missingWorkspaceId, panelId: missingPanelId)
+        #expect(sharedIndex.prepareForkAvailabilityProbe(workspaceId: missingWorkspaceId, panelId: missingPanelId))
+
+        let unvalidatedWorkspaceId = UUID()
+        let unvalidatedPanelId = UUID()
         #expect(
-            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: UUID(), panelId: UUID()),
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: unvalidatedWorkspaceId, panelId: unvalidatedPanelId),
             "A missing panel snapshot should trigger an off-main refresh even inside the cache window."
         )
     }

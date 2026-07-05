@@ -6,12 +6,29 @@ import Foundation
 final class SharedLiveAgentIndex {
     static let shared = SharedLiveAgentIndex()
 
+    private struct ForkValidationKey: Hashable {
+        let workspaceId: UUID
+        let panelId: UUID
+        let kind: RestorableAgentKind
+        let sessionId: String
+
+        init(workspaceId: UUID, panelId: UUID, snapshot: SessionRestorableAgentSnapshot) {
+            self.workspaceId = workspaceId
+            self.panelId = panelId
+            self.kind = snapshot.kind
+            self.sessionId = snapshot.sessionId
+        }
+    }
+
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var forkAvailabilityProbeCompletedAt: Date?
+    private var validatedForkSnapshots = Set<ForkValidationKey>()
+    private var validatedMissingForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
+    private var pendingForkValidationPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTask: Task<Void, Never>?
@@ -70,25 +87,53 @@ final class SharedLiveAgentIndex {
               let index else {
             return nil
         }
-        guard cachedLiveProcessIDsAreRunning(index.processIDs(workspaceId: workspaceId, panelId: panelId)) else {
+        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
             return nil
         }
-        return index.snapshot(workspaceId: workspaceId, panelId: panelId)
+        let processIDs = index.processIDs(workspaceId: workspaceId, panelId: panelId)
+        guard cachedLiveProcessIDsAreRunning(processIDs) else {
+            return nil
+        }
+        if processIDs.isEmpty,
+           !validatedForkSnapshots.contains(
+               ForkValidationKey(workspaceId: workspaceId, panelId: panelId, snapshot: snapshot)
+           ) {
+            return nil
+        }
+        return snapshot
     }
 
     func prepareForkAvailabilityProbe(workspaceId: UUID, panelId: UUID) -> Bool {
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
         scheduleRefreshIfStale()
         guard !isForkAvailabilityRefreshInFlight else {
             return false
         }
-        guard let index,
-              index.snapshot(workspaceId: workspaceId, panelId: panelId) != nil,
-              cachedLiveProcessIDsAreRunning(index.processIDs(workspaceId: workspaceId, panelId: panelId)) else {
-            requestForkAvailabilityRefresh()
+        guard let index else {
+            requestForkAvailabilityRefresh(validating: panelKey)
+            return false
+        }
+        guard let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId) else {
+            if validatedMissingForkPanels.contains(panelKey), hasFreshForkAvailabilityProbe {
+                return true
+            }
+            requestForkAvailabilityRefresh(validating: panelKey)
+            return false
+        }
+        let processIDs = index.processIDs(workspaceId: workspaceId, panelId: panelId)
+        guard cachedLiveProcessIDsAreRunning(processIDs) else {
+            requestForkAvailabilityRefresh(validating: panelKey)
+            return false
+        }
+        if processIDs.isEmpty,
+           !validatedForkSnapshots.contains(
+               ForkValidationKey(workspaceId: workspaceId, panelId: panelId, snapshot: snapshot)
+           ) {
+            requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
         guard hasFreshForkAvailabilityProbe else {
-            requestForkAvailabilityRefresh()
+            requestForkAvailabilityRefresh(validating: panelKey)
             return false
         }
         return !isForkAvailabilityRefreshInFlight
@@ -109,13 +154,19 @@ final class SharedLiveAgentIndex {
         startReload()
     }
 
-    func refreshForkAvailabilityNow() async {
+    func refreshForkAvailabilityNow(workspaceId: UUID? = nil, panelId: UUID? = nil) async {
+        if let workspaceId, let panelId {
+            pendingForkValidationPanels.insert(
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+            )
+        }
         if await reloadIfLiveAgentProcessFingerprintChanged() {
             forkAvailabilityProbeCompletedAt = dateProvider()
         }
     }
 
-    private func requestForkAvailabilityRefresh() {
+    private func requestForkAvailabilityRefresh(validating panelKey: RestorableAgentSessionIndex.PanelKey) {
+        pendingForkValidationPanels.insert(panelKey)
         guard refreshTask == nil,
               forkAvailabilityRefreshTask == nil else {
             return
@@ -178,6 +229,7 @@ final class SharedLiveAgentIndex {
             self.loadedAt = loadedAt
             self.processScopeFingerprint = result.processScopeFingerprint
         }
+        applyPendingForkValidations()
     }
 
     private func applyReloadedIndex(
@@ -189,8 +241,31 @@ final class SharedLiveAgentIndex {
         index = newIndex
         self.loadedAt = loadedAt
         self.forkAvailabilityProbeCompletedAt = loadedAt
+        validatedForkSnapshots.removeAll()
+        validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+    }
+
+    private func applyPendingForkValidations() {
+        guard let index else {
+            pendingForkValidationPanels.removeAll()
+            return
+        }
+        for panelKey in pendingForkValidationPanels {
+            if let snapshot = index.snapshot(workspaceId: panelKey.workspaceId, panelId: panelKey.panelId) {
+                validatedForkSnapshots.insert(
+                    ForkValidationKey(
+                        workspaceId: panelKey.workspaceId,
+                        panelId: panelKey.panelId,
+                        snapshot: snapshot
+                    )
+                )
+            } else {
+                validatedMissingForkPanels.insert(panelKey)
+            }
+        }
+        pendingForkValidationPanels.removeAll()
     }
 
     private var hasFreshForkAvailabilityProbe: Bool {
