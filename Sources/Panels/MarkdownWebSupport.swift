@@ -21,6 +21,14 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    /// Test-only seam for the preview find path. A headless `WKWebView` with no
+    /// loaded document does not accept the synthesized Cmd+F/G/E find chords, so
+    /// `performKeyEquivalent(with:)` returns `false` and find-routing assertions
+    /// would be non-deterministic. Unit tests assign this to both observe the
+    /// synthesized event and report the chord as handled. Always `nil` in
+    /// production, where WebKit's own key-equivalent handling drives the find UI.
+    var performKeyEquivalentHandler: ((NSEvent) -> Bool)?
+    var cancelOperationHandler: (() -> Bool)?
     /// Invoked when the view leaves its window (the detach half of a pane
     /// re-parent). Lets the renderer coordinator record whether the document
     /// was healthy at detach time so re-entry recovery can tell a detach
@@ -40,6 +48,20 @@ final class MarkdownWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if performKeyEquivalentHandler?(event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        if cancelOperationHandler?() == true {
+            return
+        }
+        super.cancelOperation(sender)
     }
 
     override func viewDidMoveToWindow() {
@@ -130,6 +152,10 @@ struct MarkdownWebTheme: Equatable {
 @MainActor
 final class MarkdownRendererSession {
     private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
+
+    var webView: WKWebView? {
+        ownedCoordinator.webView
+    }
 
     func coordinator(
         panelId: UUID,

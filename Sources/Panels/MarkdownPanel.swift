@@ -47,6 +47,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Whether the file has been deleted or is unreadable.
     @Published private(set) var isFileUnavailable: Bool = false
 
+    /// Whether this panel has opened WebKit's native preview find UI.
+    @Published private(set) var isPreviewFindVisible: Bool = false
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -261,14 +264,32 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
+        if displayMode == .preview {
+            isPreviewFindVisible = false
+        }
         displayMode = mode
         if mode == .text {
             focus()
         }
     }
 
+    func setPreviewFindVisible(_ isVisible: Bool) {
+        guard isPreviewFindVisible != isVisible else { return }
+        isPreviewFindVisible = isVisible
+    }
+
     func attachTextView(_ textView: NSTextView) {
+        // Use the inline find bar rather than the shared editor's default
+        // floating Find panel (`usesFindPanel`). The find bar lives in the
+        // scroll view's `NSTextFinderBarContainer`, so `isFindVisible` can
+        // detect an open raw-text find UI and keep `TabManager.isFindVisible`
+        // (and the Find menu's Hide command) in sync with reality.
+        textView.usesFindBar = true
         self.textView = textView
+    }
+
+    var attachedTextViewForFind: NSTextView? {
+        textView
     }
 
     func retryPendingFocus() {

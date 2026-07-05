@@ -679,6 +679,7 @@
 		F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */; };
 		F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */; };
 		D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */; };
+		1DE3FF4658874EA4B6D17946 /* MarkdownPanel+Find.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC91F9FC3084B9194AC3B62 /* MarkdownPanel+Find.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F0 /* MarkdownPanelFileLinkResolver.swift */; };
 		D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3664001D3664001D3664001 /* MarkdownPanelTests.swift */; };
@@ -1062,6 +1063,7 @@
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
+		83C8B97C6E1449DD815073C2 /* TabManager+Find.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E26346CF1B40F8904264F7 /* TabManager+Find.swift */; };
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
@@ -1994,6 +1996,7 @@
 		F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontSizeSettings.swift; sourceTree = "<group>"; };
 		F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownMaxWidthSettings.swift; sourceTree = "<group>"; };
 		D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMermaidZoomTests.swift; sourceTree = "<group>"; };
+		CAC91F9FC3084B9194AC3B62 /* MarkdownPanel+Find.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/MarkdownPanel+Find.swift"; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A50014F0 /* MarkdownPanelFileLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelFileLinkResolver.swift; sourceTree = "<group>"; };
 		D3664001D3664001D3664001 /* MarkdownPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanelTests.swift; sourceTree = "<group>"; };
@@ -2363,6 +2366,7 @@
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
+		50E26346CF1B40F8904264F7 /* TabManager+Find.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+Find.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
@@ -3065,6 +3069,7 @@
 				C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */,
 				A5001013 /* TabManager.swift */,
 				DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */,
+				50E26346CF1B40F8904264F7 /* TabManager+Find.swift */,
 				C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */,
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
@@ -3419,6 +3424,7 @@
 				A5010000000000000000001D /* BrowserWebAuthnTransport.swift */,
 				A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */,
 				A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */,
+				CAC91F9FC3084B9194AC3B62 /* MarkdownPanel+Find.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */,
@@ -4824,6 +4830,7 @@
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
 				F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */,
 				F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */,
+				1DE3FF4658874EA4B6D17946 /* MarkdownPanel+Find.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
@@ -5067,6 +5074,7 @@
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
+				83C8B97C6E1449DD815073C2 /* TabManager+Find.swift in Sources */,
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,

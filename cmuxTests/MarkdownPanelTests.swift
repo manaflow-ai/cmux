@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import WebKit
 import XCTest
@@ -234,6 +235,14 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertNil(workspace.filePreviewPanel(for: openedPanelId))
         XCTAssertEqual(payload["panel_type"] as? String, PanelType.markdown.rawValue)
         XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.preview.rawValue)
+
+        workspace.focusPanel(panel.id)
+        try assertStartSearchRoutesToFocusedMarkdownPreviewPanel(
+            manager: manager,
+            workspace: workspace,
+            panel: panel,
+            filePath: fileURL.path
+        )
     }
 
     func testExternalFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
@@ -301,6 +310,79 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(reopenedMarkdownPanels.contains { ObjectIdentifier($0) == originalMarkdownPanelID })
     }
 
+    private func assertStartSearchRoutesToFocusedMarkdownPreviewPanel(
+        manager: TabManager,
+        workspace: Workspace,
+        panel: MarkdownPanel,
+        filePath: String
+    ) throws {
+        let webView = MarkdownWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: WKWebViewConfiguration())
+        var capturedEvents: [NSEvent] = []
+        var didCancelFind = false
+        webView.performKeyEquivalentHandler = { event in
+            capturedEvents.append(event)
+            return true
+        }
+        webView.cancelOperationHandler = {
+            didCancelFind = true
+            return true
+        }
+        panel.rendererSession
+            .coordinator(panelId: panel.id, workspaceId: workspace.id, filePath: filePath)
+            .webView = webView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? webView.bounds)
+        contentView.addSubview(webView)
+        window.contentView = contentView
+        window.makeFirstResponder(webView)
+        defer { window.close() }
+
+        XCTAssertEqual(workspace.focusedPanelId, panel.id)
+        XCTAssertEqual(panel.displayMode, .preview)
+        XCTAssertFalse(manager.isFindVisible)
+        XCTAssertTrue(
+            manager.startSearch(),
+            "Cmd+F should be handled by the focused Markdown preview panel instead of being dropped."
+        )
+        XCTAssertTrue(manager.isFindVisible)
+        let event = try XCTUnwrap(capturedEvents.last)
+        XCTAssertEqual(event.charactersIgnoringModifiers, "f")
+        XCTAssertEqual(event.keyCode, UInt16(kVK_ANSI_F))
+        XCTAssertTrue(event.modifierFlags.contains(.command))
+        XCTAssertFalse(event.modifierFlags.contains(.shift))
+
+        XCTAssertTrue(manager.canUseSelectionForFind)
+        manager.searchSelection()
+        let useSelectionEvent = try XCTUnwrap(capturedEvents.last)
+        XCTAssertEqual(useSelectionEvent.charactersIgnoringModifiers, "e")
+        XCTAssertEqual(useSelectionEvent.keyCode, UInt16(kVK_ANSI_E))
+        XCTAssertTrue(useSelectionEvent.modifierFlags.contains(.command))
+
+        manager.findNext()
+        let nextEvent = try XCTUnwrap(capturedEvents.last)
+        XCTAssertEqual(nextEvent.charactersIgnoringModifiers, "g")
+        XCTAssertEqual(nextEvent.keyCode, UInt16(kVK_ANSI_G))
+        XCTAssertTrue(nextEvent.modifierFlags.contains(.command))
+        XCTAssertFalse(nextEvent.modifierFlags.contains(.shift))
+
+        manager.findPrevious()
+        let previousEvent = try XCTUnwrap(capturedEvents.last)
+        XCTAssertEqual(previousEvent.charactersIgnoringModifiers, "g")
+        XCTAssertEqual(previousEvent.keyCode, UInt16(kVK_ANSI_G))
+        XCTAssertTrue(previousEvent.modifierFlags.contains(.command))
+        XCTAssertTrue(previousEvent.modifierFlags.contains(.shift))
+
+        manager.hideFind()
+        XCTAssertTrue(didCancelFind)
+        XCTAssertFalse(manager.isFindVisible)
+    }
+
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -355,7 +437,8 @@ final class MarkdownPanelTests: XCTestCase {
             fontFamily: MarkdownFontFamily.systemDefault,
             maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
             session: session,
-            onRequestPanelFocus: {}
+            onRequestPanelFocus: {},
+            onCancelFind: {}
         )
         let firstCoordinator = firstRenderer.makeCoordinator()
 
@@ -370,7 +453,8 @@ final class MarkdownPanelTests: XCTestCase {
             fontFamily: MarkdownFontFamily.systemDefault,
             maxContentWidth: MarkdownMaxWidthSettings.defaultCSSPixels,
             session: session,
-            onRequestPanelFocus: {}
+            onRequestPanelFocus: {},
+            onCancelFind: {}
         )
         let recreatedCoordinator = recreatedRenderer.makeCoordinator()
 
