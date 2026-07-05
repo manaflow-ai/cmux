@@ -6,33 +6,52 @@ import SwiftUI
 
 struct MobileVoiceSettingsPage: View {
     @Environment(VoiceSettingsStore.self) private var voiceSettings
-    @Environment(ParakeetModelStore.self) private var parakeetModelStore
+    @Environment(ParakeetModelCatalogStore.self) private var modelCatalog
 
     let canOpenVoiceMode: Bool
     let openVoiceMode: () -> Void
 
     var body: some View {
-        let rows = voiceEngineRows(
+        let appleRow = appleEngineRow(selectedEngine: voiceSettings.selectedEngine)
+        let downloadableRows = downloadableEngineRows(
             selectedEngine: voiceSettings.selectedEngine,
-            parakeetState: parakeetModelStore.state,
-            parakeetInstalled: parakeetModelStore.isInstalled
+            stores: modelCatalog.stores,
+            anyDownloadInProgress: modelCatalog.isDownloadingAnyModel
         )
         let actions = VoiceEngineRowActions(
             select: { engine in voiceSettings.selectedEngine = engine },
-            download: { parakeetModelStore.downloadModel() },
-            cancel: { parakeetModelStore.cancelDownload() },
-            delete: { deleteParakeetModel() }
+            download: { engine in modelCatalog.downloadModel(for: engine) },
+            cancel: { engine in modelCatalog.store(for: engine)?.cancelDownload() },
+            delete: { engine in deleteModel(for: engine) }
         )
 
         Form {
             Section {
-                ForEach(rows) { row in
+                VoiceEngineSettingsRow(row: appleRow, actions: actions)
+            } header: {
+                Text(L10n.string("mobile.settings.voice.appleSection", defaultValue: "Apple"))
+            }
+
+            Section {
+                ForEach(downloadableRows) { row in
                     VoiceEngineSettingsRow(row: row, actions: actions)
                 }
             } header: {
-                Text(L10n.string("mobile.settings.voice.engine", defaultValue: "Engine"))
+                Text(L10n.string("mobile.settings.voice.downloadableSection", defaultValue: "Downloadable models"))
             } footer: {
                 Text(L10n.string("mobile.settings.voice.footer", defaultValue: "Parakeet always transcribes on this iPhone from a downloaded CoreML model. The Apple engine prefers on-device recognition; when your language does not support it, Apple's servers may process the audio."))
+            }
+
+            Section {
+                NavigationLink {
+                    MobileVoiceVocabularySettingsPage()
+                } label: {
+                    Label(
+                        L10n.string("mobile.settings.voice.vocabulary", defaultValue: "Custom Vocabulary"),
+                        systemImage: "text.badge.plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileSettingsVoiceVocabulary")
             }
 
             if canOpenVoiceMode {
@@ -52,43 +71,54 @@ struct MobileVoiceSettingsPage: View {
         .accessibilityIdentifier("MobileSettingsVoicePage")
     }
 
-    private func deleteParakeetModel() {
+    private func deleteModel(for engine: VoiceEngineID) {
         // Only flip the engine back to Apple when the files are actually gone; a
         // failed delete leaves the model installed and the selection matching reality.
-        if (try? parakeetModelStore.deleteModel()) != nil,
-           voiceSettings.selectedEngine == .parakeetV3 {
+        if (try? modelCatalog.deleteModel(for: engine)) != nil,
+           voiceSettings.selectedEngine == engine {
             voiceSettings.selectedEngine = .apple
         }
     }
 
-    private func voiceEngineRows(
+    private func appleEngineRow(selectedEngine: VoiceEngineID) -> VoiceEngineSettingsRowModel {
+        VoiceEngineSettingsRowModel(
+            engine: .apple,
+            displayName: VoiceEngineID.apple.displayName,
+            caption: nil,
+            downloadSizeDescription: nil,
+            isSelected: selectedEngine == .apple,
+            isSelectable: true,
+            isDownloadEnabled: false,
+            accessory: .none,
+            accessibilityIdentifier: "MobileSettingsVoiceEngineApple",
+            downloadAccessibilityIdentifier: nil,
+            deleteAccessibilityIdentifier: nil,
+            failedAccessibilityIdentifier: nil
+        )
+    }
+
+    private func downloadableEngineRows(
         selectedEngine: VoiceEngineID,
-        parakeetState: ParakeetDownloadState,
-        parakeetInstalled: Bool
+        stores: [ParakeetModelStore],
+        anyDownloadInProgress: Bool
     ) -> [VoiceEngineSettingsRowModel] {
-        VoiceEngineID.allCases.map { engine in
-            switch engine {
-            case .apple:
-                return VoiceEngineSettingsRowModel(
-                    engine: engine,
-                    displayName: engine.displayName,
-                    downloadSizeDescription: nil,
-                    isSelected: selectedEngine == engine,
-                    isSelectable: true,
-                    accessory: .none,
-                    accessibilityIdentifier: "MobileSettingsVoiceEngineApple"
-                )
-            case .parakeetV3:
-                return VoiceEngineSettingsRowModel(
-                    engine: engine,
-                    displayName: engine.displayName,
-                    downloadSizeDescription: engine.downloadSizeDescription,
-                    isSelected: selectedEngine == engine && parakeetInstalled,
-                    isSelectable: parakeetInstalled,
-                    accessory: parakeetAccessory(for: parakeetState),
-                    accessibilityIdentifier: "MobileSettingsVoiceEngineParakeet"
-                )
-            }
+        stores.map { store in
+            let engine = store.engineID
+            let installed = store.isInstalled
+            return VoiceEngineSettingsRowModel(
+                engine: engine,
+                displayName: engine.displayName,
+                caption: engine.caption,
+                downloadSizeDescription: engine.downloadSizeDescription,
+                isSelected: selectedEngine == engine && installed,
+                isSelectable: installed,
+                isDownloadEnabled: !anyDownloadInProgress || store.state.isDownloading,
+                accessory: parakeetAccessory(for: store.state),
+                accessibilityIdentifier: accessibilityIdentifier(for: engine),
+                downloadAccessibilityIdentifier: downloadAccessibilityIdentifier(for: engine),
+                deleteAccessibilityIdentifier: deleteAccessibilityIdentifier(for: engine),
+                failedAccessibilityIdentifier: failedAccessibilityIdentifier(for: engine)
+            )
         }
     }
 
@@ -104,16 +134,73 @@ struct MobileVoiceSettingsPage: View {
             return .failed(message)
         }
     }
+
+    private func accessibilityIdentifier(for engine: VoiceEngineID) -> String {
+        switch engine {
+        case .apple:
+            return "MobileSettingsVoiceEngineApple"
+        case .parakeetV3:
+            return "MobileSettingsVoiceEngineParakeet"
+        case .parakeetV3Int4:
+            return "MobileSettingsVoiceEngineParakeetCompact"
+        case .parakeetV2:
+            return "MobileSettingsVoiceEngineParakeetV2"
+        }
+    }
+
+    private func downloadAccessibilityIdentifier(for engine: VoiceEngineID) -> String? {
+        switch engine {
+        case .apple:
+            return nil
+        case .parakeetV3:
+            return "MobileSettingsVoiceDownloadParakeet"
+        case .parakeetV3Int4:
+            return "MobileSettingsVoiceDownloadParakeetCompact"
+        case .parakeetV2:
+            return "MobileSettingsVoiceDownloadParakeetV2"
+        }
+    }
+
+    private func deleteAccessibilityIdentifier(for engine: VoiceEngineID) -> String? {
+        switch engine {
+        case .apple:
+            return nil
+        case .parakeetV3:
+            return "MobileSettingsVoiceDeleteParakeet"
+        case .parakeetV3Int4:
+            return "MobileSettingsVoiceDeleteParakeetCompact"
+        case .parakeetV2:
+            return "MobileSettingsVoiceDeleteParakeetV2"
+        }
+    }
+
+    private func failedAccessibilityIdentifier(for engine: VoiceEngineID) -> String? {
+        switch engine {
+        case .apple:
+            return nil
+        case .parakeetV3:
+            return "MobileSettingsVoiceParakeetFailed"
+        case .parakeetV3Int4:
+            return "MobileSettingsVoiceParakeetCompactFailed"
+        case .parakeetV2:
+            return "MobileSettingsVoiceParakeetV2Failed"
+        }
+    }
 }
 
 private struct VoiceEngineSettingsRowModel: Identifiable, Equatable {
     let engine: VoiceEngineID
     let displayName: String
+    let caption: String?
     let downloadSizeDescription: String?
     let isSelected: Bool
     let isSelectable: Bool
+    let isDownloadEnabled: Bool
     let accessory: VoiceEngineAccessory
     let accessibilityIdentifier: String
+    let downloadAccessibilityIdentifier: String?
+    let deleteAccessibilityIdentifier: String?
+    let failedAccessibilityIdentifier: String?
 
     var id: VoiceEngineID { engine }
 }
@@ -128,9 +215,9 @@ private enum VoiceEngineAccessory: Equatable {
 
 private struct VoiceEngineRowActions {
     let select: (VoiceEngineID) -> Void
-    let download: () -> Void
-    let cancel: () -> Void
-    let delete: () -> Void
+    let download: (VoiceEngineID) -> Void
+    let cancel: (VoiceEngineID) -> Void
+    let delete: (VoiceEngineID) -> Void
 }
 
 private struct VoiceEngineSettingsRow: View {
@@ -147,6 +234,11 @@ private struct VoiceEngineSettingsRow: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(row.displayName)
                             .foregroundStyle(row.isSelectable ? .primary : .secondary)
+                        if let caption = row.caption {
+                            Text(caption)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         if let downloadSizeDescription = row.downloadSizeDescription {
                             Text(downloadSizeDescription)
                                 .font(.caption)
@@ -174,14 +266,14 @@ private struct VoiceEngineSettingsRow: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if row.accessory == .installed {
                 Button(role: .destructive) {
-                    actions.delete()
+                    actions.delete(row.engine)
                 } label: {
                     Label(
                         L10n.string("mobile.common.delete", defaultValue: "Delete"),
                         systemImage: "trash"
                     )
                 }
-                .accessibilityIdentifier("MobileSettingsVoiceDeleteParakeet")
+                .accessibilityIdentifier(row.deleteAccessibilityIdentifier ?? "MobileSettingsVoiceDeleteModel")
             }
         }
         .accessibilityIdentifier(row.accessibilityIdentifier)
@@ -195,12 +287,13 @@ private struct VoiceEngineSettingsRow: View {
         case .download:
             VStack(alignment: .trailing, spacing: 3) {
                 Button {
-                    actions.download()
+                    actions.download(row.engine)
                 } label: {
                     Text(L10n.string("mobile.settings.voice.getModel", defaultValue: "Get"))
                 }
                 .buttonStyle(.bordered)
-                .accessibilityIdentifier("MobileSettingsVoiceDownloadParakeet")
+                .disabled(!row.isDownloadEnabled)
+                .accessibilityIdentifier(row.downloadAccessibilityIdentifier ?? "MobileSettingsVoiceDownloadModel")
 
                 if let downloadSizeDescription = row.downloadSizeDescription {
                     Text(downloadSizeDescription)
@@ -230,27 +323,28 @@ private struct VoiceEngineSettingsRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
-                    actions.cancel()
+                    actions.cancel(row.engine)
                 }
                 .buttonStyle(.bordered)
             }
             .accessibilityIdentifier("MobileSettingsVoiceDownloadProgress")
         case .installed:
             Button(role: .destructive) {
-                actions.delete()
+                actions.delete(row.engine)
             } label: {
                 Text(L10n.string("mobile.common.delete", defaultValue: "Delete"))
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("MobileSettingsVoiceDeleteParakeet")
+            .accessibilityIdentifier(row.deleteAccessibilityIdentifier ?? "MobileSettingsVoiceDeleteModel")
         case .failed:
             Button {
-                actions.download()
+                actions.download(row.engine)
             } label: {
                 Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("MobileSettingsVoiceParakeetFailed")
+            .disabled(!row.isDownloadEnabled)
+            .accessibilityIdentifier(row.failedAccessibilityIdentifier ?? "MobileSettingsVoiceModelFailed")
         }
     }
 

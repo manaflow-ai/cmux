@@ -7,13 +7,20 @@ import Foundation
 @MainActor
 public final class AppleComposerDictationRecognitionBackend: ComposerDictationRecognitionBackend {
     private let recognizer: SFSpeechRecognizer?
+    private let contextualStrings: [String]
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
 
     /// Creates an Apple Speech backend.
-    /// - Parameter recognizer: The speech recognizer to use. Defaults to the current locale.
-    public init(recognizer: SFSpeechRecognizer? = SFSpeechRecognizer()) {
+    /// - Parameters:
+    ///   - recognizer: The speech recognizer to use. Defaults to the current locale.
+    ///   - contextualStrings: Terms to bias Apple Speech recognition toward.
+    public init(
+        recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(),
+        contextualStrings: [String] = []
+    ) {
         self.recognizer = recognizer
+        self.contextualStrings = contextualStrings
     }
 
     /// Whether the user's locale has a recognizer.
@@ -66,6 +73,7 @@ public final class AppleComposerDictationRecognitionBackend: ComposerDictationRe
     public func makeTapBlock() -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        request.contextualStrings = contextualStrings
         if recognizer?.supportsOnDeviceRecognition == true {
             request.requiresOnDeviceRecognition = true
         }

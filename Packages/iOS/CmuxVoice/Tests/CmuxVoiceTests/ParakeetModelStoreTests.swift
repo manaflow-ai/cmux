@@ -28,7 +28,7 @@ import Testing
     @Test func progressMapsToDownloadingThenInstalled() async throws {
         let harness = try Harness()
 
-        harness.downloader.onDownload = { directory, progress in
+        harness.downloader.onDownload = { _, directory, progress in
             progress(ParakeetDownloadProgress(fractionCompleted: 0.25, phaseDescription: "downloading"))
             try Harness.installMarker(in: directory)
         }
@@ -40,7 +40,7 @@ import Testing
 
     @Test func failureMovesToFailedState() async throws {
         let harness = try Harness()
-        harness.downloader.onDownload = { _, _ in
+        harness.downloader.onDownload = { _, _, _ in
             throw TestError.expected
         }
 
@@ -59,7 +59,7 @@ import Testing
 
     @Test func cancelResetsToIdleWhenNoModelWasInstalled() async throws {
         let harness = try Harness()
-        harness.downloader.onDownload = { _, _ in
+        harness.downloader.onDownload = { _, _, _ in
             try await Task.sleep(for: .seconds(60 * 60))
         }
 
@@ -72,7 +72,7 @@ import Testing
 
     @Test func urlSessionCancellationResetsToIdleWhenNoModelWasInstalled() async throws {
         let harness = try Harness()
-        harness.downloader.onDownload = { _, _ in
+        harness.downloader.onDownload = { _, _, _ in
             throw URLError(.cancelled)
         }
 
@@ -85,7 +85,7 @@ import Testing
     @Test func supersededCancelledAttemptCannotClobberNewDownload() async throws {
         let harness = try Harness()
         let coordinator = SupersededDownloadCoordinator()
-        harness.downloader.onDownload = { directory, _ in
+        harness.downloader.onDownload = { _, directory, _ in
             let call = await coordinator.registerCall()
             if call == 1 {
                 await coordinator.waitForFirstRelease()
@@ -163,16 +163,17 @@ import Testing
 
 // Test-only fake is mutated before each serialized test starts its download.
 private final class FakeDownloader: ParakeetModelDownloading, @unchecked Sendable {
-    var onDownload: (@Sendable (URL, @escaping @Sendable (ParakeetDownloadProgress) -> Void) async throws -> Void)?
+    var onDownload: (@Sendable (ParakeetModelDescriptor, URL, @escaping @Sendable (ParakeetDownloadProgress) -> Void) async throws -> Void)?
     private let state = FakeDownloaderState()
 
     func download(
+        _ descriptor: ParakeetModelDescriptor,
         to directory: URL,
         progress: @escaping @Sendable (ParakeetDownloadProgress) -> Void
     ) async throws {
         await state.markStarted()
         do {
-            try await onDownload?(directory, progress)
+            try await onDownload?(descriptor, directory, progress)
             await state.markFinished()
         } catch {
             await state.markFinished()

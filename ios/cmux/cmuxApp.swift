@@ -77,7 +77,9 @@ struct cmuxApp: App {
             displaySettings: Self.root.displaySettings,
             browserSettings: Self.root.browserSettings,
             voiceSettings: Self.root.voiceSettings,
-            parakeetModelStore: Self.root.parakeetModelStore,
+            voiceVocabularyStore: Self.root.voiceVocabularyStore,
+            parakeetModelCatalogStore: Self.root.parakeetModelCatalogStore,
+            parakeetVocabularyBoostStore: Self.root.parakeetVocabularyBoostStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
             diagnosticLog: Self.root.diagnosticLog
@@ -92,7 +94,9 @@ struct cmuxApp: App {
             displaySettings: Self.root.displaySettings,
             browserSettings: Self.root.browserSettings,
             voiceSettings: Self.root.voiceSettings,
-            parakeetModelStore: Self.root.parakeetModelStore,
+            voiceVocabularyStore: Self.root.voiceVocabularyStore,
+            parakeetModelCatalogStore: Self.root.parakeetModelCatalogStore,
+            parakeetVocabularyBoostStore: Self.root.parakeetVocabularyBoostStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor
         )

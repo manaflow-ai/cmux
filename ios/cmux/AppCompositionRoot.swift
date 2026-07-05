@@ -29,7 +29,9 @@ final class AppCompositionRoot {
     let displaySettings: MobileDisplaySettings
     let browserSettings: MobileBrowserSettings
     let voiceSettings: VoiceSettingsStore
-    let parakeetModelStore: ParakeetModelStore
+    let voiceVocabularyStore: VoiceVocabularyStore
+    let parakeetModelCatalogStore: ParakeetModelCatalogStore
+    let parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore
     /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
     /// Built with `forceSeen` set when a UI-test mock harness or a dogfood
     /// auto-pair attach URL is active, so neither path is wedged behind the
@@ -68,10 +70,14 @@ final class AppCompositionRoot {
         self.displaySettings = MobileDisplaySettings()
         self.browserSettings = MobileBrowserSettings()
         self.voiceSettings = VoiceSettingsStore()
-        self.parakeetModelStore = ParakeetModelStore()
+        self.voiceVocabularyStore = VoiceVocabularyStore()
+        self.parakeetModelCatalogStore = ParakeetModelCatalogStore()
+        self.parakeetVocabularyBoostStore = ParakeetVocabularyBoostStore()
         Self.configureComposerDictationBackend(
             voiceSettings: voiceSettings,
-            parakeetModelStore: parakeetModelStore
+            voiceVocabularyStore: voiceVocabularyStore,
+            parakeetModelCatalogStore: parakeetModelCatalogStore,
+            parakeetVocabularyBoostStore: parakeetVocabularyBoostStore
         )
         // Skip the one-time onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
@@ -93,15 +99,26 @@ final class AppCompositionRoot {
 
     private static func configureComposerDictationBackend(
         voiceSettings: VoiceSettingsStore,
-        parakeetModelStore: ParakeetModelStore
+        voiceVocabularyStore: VoiceVocabularyStore,
+        parakeetModelCatalogStore: ParakeetModelCatalogStore,
+        parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore
     ) {
         ComposerDictationController.backendFactory = {
-            switch voiceSettings.effectiveEngine(modelInstalled: parakeetModelStore.isInstalled) {
+            let engine = voiceSettings.effectiveEngine(
+                installedEngines: parakeetModelCatalogStore.installedEngineIDs
+            )
+            let vocabularyTerms = voiceVocabularyStore.recognitionTerms()
+            switch engine {
             case .apple:
-                return AppleComposerDictationRecognitionBackend()
-            case .parakeetV3:
+                return AppleComposerDictationRecognitionBackend(contextualStrings: vocabularyTerms)
+            case .parakeetV3, .parakeetV3Int4, .parakeetV2:
+                guard let store = parakeetModelCatalogStore.store(for: engine) else {
+                    return AppleComposerDictationRecognitionBackend(contextualStrings: vocabularyTerms)
+                }
                 return ParakeetComposerDictationRecognitionBackend(
-                    modelDirectory: parakeetModelStore.modelDirectory
+                    modelStore: store,
+                    vocabularyTerms: vocabularyTerms,
+                    vocabularyBoostDirectory: parakeetVocabularyBoostStore.installedDirectoryForRecognition
                 )
             }
         }

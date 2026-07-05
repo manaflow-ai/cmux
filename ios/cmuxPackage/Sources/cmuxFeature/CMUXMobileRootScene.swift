@@ -41,7 +41,9 @@ public struct CMUXMobileRootScene: View {
     private let displaySettings: MobileDisplaySettings
     private let browserSettings: MobileBrowserSettings
     private let voiceSettings: VoiceSettingsStore
-    private let parakeetModelStore: ParakeetModelStore
+    private let voiceVocabularyStore: VoiceVocabularyStore
+    private let parakeetModelCatalogStore: ParakeetModelCatalogStore
+    private let parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore
     /// The first-run onboarding "seen" flag store, injected into the root view so
     /// it gates the one-time onboarding screen ahead of the never-paired
     /// add-device state.
@@ -80,7 +82,9 @@ public struct CMUXMobileRootScene: View {
     ///     the environment (drives workspace-title wrapping).
     ///   - browserSettings: The app-root browser settings.
     ///   - voiceSettings: The app-root voice settings.
-    ///   - parakeetModelStore: The app-root Parakeet model store.
+    ///   - voiceVocabularyStore: The app-root voice vocabulary store.
+    ///   - parakeetModelCatalogStore: The app-root Parakeet model catalog.
+    ///   - parakeetVocabularyBoostStore: The app-root Parakeet vocabulary boost store.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -96,7 +100,9 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         browserSettings: MobileBrowserSettings,
         voiceSettings: VoiceSettingsStore,
-        parakeetModelStore: ParakeetModelStore,
+        voiceVocabularyStore: VoiceVocabularyStore,
+        parakeetModelCatalogStore: ParakeetModelCatalogStore,
+        parakeetVocabularyBoostStore: ParakeetVocabularyBoostStore,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         diagnosticLog: DiagnosticLog? = nil
@@ -109,7 +115,9 @@ public struct CMUXMobileRootScene: View {
         self.displaySettings = displaySettings
         self.browserSettings = browserSettings
         self.voiceSettings = voiceSettings
-        self.parakeetModelStore = parakeetModelStore
+        self.voiceVocabularyStore = voiceVocabularyStore
+        self.parakeetModelCatalogStore = parakeetModelCatalogStore
+        self.parakeetVocabularyBoostStore = parakeetVocabularyBoostStore
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
@@ -250,7 +258,9 @@ public struct CMUXMobileRootScene: View {
             .environment(displaySettings)
             .environment(browserSettings)
             .environment(voiceSettings)
-            .environment(parakeetModelStore)
+            .environment(voiceVocabularyStore)
+            .environment(parakeetModelCatalogStore)
+            .environment(parakeetVocabularyBoostStore)
             #endif
     }
 

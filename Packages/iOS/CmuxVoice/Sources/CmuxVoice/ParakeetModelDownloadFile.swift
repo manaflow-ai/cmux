@@ -8,7 +8,10 @@ struct ParakeetModelDownloadFile: Equatable, Sendable {
         path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
     }
 
-    static func files(fromHuggingFaceTreeJSON data: Data) throws -> [ParakeetModelDownloadFile] {
+    static func files(
+        fromHuggingFaceTreeJSON data: Data,
+        requiredFiles: ParakeetRequiredFileSet = ParakeetModelDescriptor.parakeetV3Int8.requiredFiles
+    ) throws -> [ParakeetModelDownloadFile] {
         let entries: [HuggingFaceTreeEntry]
         do {
             entries = try JSONDecoder().decode([HuggingFaceTreeEntry].self, from: data)
@@ -17,7 +20,7 @@ struct ParakeetModelDownloadFile: Equatable, Sendable {
         }
 
         var filesByPath: [String: ParakeetModelDownloadFile] = [:]
-        for entry in entries where entry.type == "file" && isRequiredPath(entry.path) {
+        for entry in entries where entry.type == "file" && requiredFiles.contains(entry.path) {
             guard let size = entry.size else {
                 throw ParakeetDownloadError.missingFileSize(path: entry.path)
             }
@@ -49,14 +52,6 @@ struct ParakeetModelDownloadFile: Equatable, Sendable {
         let attributes = try fileManager.attributesOfItem(atPath: url.path)
         let byteCount = (attributes[.size] as? NSNumber)?.int64Value ?? -1
         return byteCount == size ? size : nil
-    }
-
-    private static func isRequiredPath(_ path: String) -> Bool {
-        path == "parakeet_vocab.json"
-            || path.hasPrefix("Preprocessor.mlmodelc/")
-            || path.hasPrefix("Encoder.mlmodelc/")
-            || path.hasPrefix("Decoder.mlmodelc/")
-            || path.hasPrefix("JointDecisionv3.mlmodelc/")
     }
 }
 

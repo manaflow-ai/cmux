@@ -30,6 +30,62 @@ import Testing
         #expect(ParakeetModelDownloadFile.totalBytes(in: files) == 508)
     }
 
+    @Test func filtersV3CompactAndV2SpecificFiles() throws {
+        let json = """
+        [
+          {"type":"file","path":"Encoder.mlmodelc/weights/weight.bin","size":100},
+          {"type":"file","path":"EncoderInt4.mlmodelc/weights/weight.bin","size":40},
+          {"type":"file","path":"JointDecision.mlmodelc/coremldata.bin","size":20},
+          {"type":"file","path":"JointDecisionv3.mlmodelc/coremldata.bin","size":30},
+          {"type":"file","path":"Preprocessor.mlmodelc/model.mil","size":10},
+          {"type":"file","path":"Decoder.mlmodelc/coremldata.bin","size":20},
+          {"type":"file","path":"parakeet_vocab.json","size":3}
+        ]
+        """.data(using: .utf8)!
+
+        let compactFiles = try ParakeetModelDownloadFile.files(
+            fromHuggingFaceTreeJSON: json,
+            requiredFiles: ParakeetModelDescriptor.parakeetV3Int4.requiredFiles
+        )
+        #expect(compactFiles.map(\.path).contains("EncoderInt4.mlmodelc/weights/weight.bin"))
+        #expect(!compactFiles.map(\.path).contains("Encoder.mlmodelc/weights/weight.bin"))
+        #expect(!compactFiles.map(\.path).contains("JointDecision.mlmodelc/coremldata.bin"))
+
+        let v2Files = try ParakeetModelDownloadFile.files(
+            fromHuggingFaceTreeJSON: json,
+            requiredFiles: ParakeetModelDescriptor.parakeetV2Int8.requiredFiles
+        )
+        #expect(v2Files.map(\.path).contains("JointDecision.mlmodelc/coremldata.bin"))
+        #expect(!v2Files.map(\.path).contains("JointDecisionv3.mlmodelc/coremldata.bin"))
+    }
+
+    @Test func filtersVocabularyBoostRequiredFiles() throws {
+        let json = """
+        [
+          {"type":"directory","path":"AudioEncoder.mlmodelc"},
+          {"type":"file","path":"AudioEncoder.mlmodelc/weights/weight.bin","size":90},
+          {"type":"file","path":"MelSpectrogram.mlmodelc/model.mil","size":7},
+          {"type":"file","path":"vocab.json","size":3},
+          {"type":"file","path":"tokenizer.json","size":4},
+          {"type":"file","path":"CtcHead.mlmodelc/model.mil","size":999},
+          {"type":"file","path":"README.md","size":12}
+        ]
+        """.data(using: .utf8)!
+
+        let files = try ParakeetModelDownloadFile.files(
+            fromHuggingFaceTreeJSON: json,
+            requiredFiles: ParakeetVocabularyBoostDescriptor.ctc110m.requiredFiles
+        )
+
+        #expect(files.map(\.path) == [
+            "AudioEncoder.mlmodelc/weights/weight.bin",
+            "MelSpectrogram.mlmodelc/model.mil",
+            "tokenizer.json",
+            "vocab.json",
+        ])
+        #expect(ParakeetModelDownloadFile.totalBytes(in: files) == 104)
+    }
+
     @Test func throttlesByteProgressByByteOrFractionThreshold() {
         var throttler = ParakeetDownloadProgressThrottler(totalBytes: 100_000_000)
 

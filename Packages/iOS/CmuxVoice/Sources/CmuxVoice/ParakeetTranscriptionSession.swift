@@ -28,17 +28,68 @@ public final class ParakeetTranscriptionSession: VoiceTranscriptionSession {
     private static let maxBufferedAudioChunks = 1024
 
     /// Creates and starts a Parakeet transcription session.
-    /// - Parameter modelDirectory: The directory containing the downloaded Parakeet model.
-    public convenience init(modelDirectory: URL) {
+    /// - Parameters:
+    ///   - modelDirectory: The directory containing the downloaded Parakeet model.
+    ///   - vocabularyTerms: Custom vocabulary terms for FluidAudio vocabulary boosting.
+    public convenience init(
+        modelDirectory: URL,
+        vocabularyTerms: [String] = [],
+        vocabularyBoostDirectory: URL? = nil
+    ) {
+        self.init(
+            modelDirectory: modelDirectory,
+            descriptor: .parakeetV3Int8,
+            vocabularyTerms: vocabularyTerms,
+            vocabularyBoostDirectory: vocabularyBoostDirectory
+        )
+    }
+
+    /// Creates and starts a Parakeet transcription session for a model store.
+    /// - Parameters:
+    ///   - modelStore: The installed model store to use.
+    ///   - vocabularyTerms: Custom vocabulary terms for FluidAudio vocabulary boosting.
+    public convenience init(
+        modelStore: ParakeetModelStore,
+        vocabularyTerms: [String] = [],
+        vocabularyBoostDirectory: URL? = nil
+    ) {
+        self.init(
+            modelDirectory: modelStore.modelDirectory,
+            descriptor: modelStore.descriptor,
+            vocabularyTerms: vocabularyTerms,
+            vocabularyBoostDirectory: vocabularyBoostDirectory
+        )
+    }
+
+    private convenience init(
+        modelDirectory: URL,
+        descriptor: ParakeetModelDescriptor,
+        vocabularyTerms: [String],
+        vocabularyBoostDirectory: URL?
+    ) {
         let manager = SlidingWindowAsrManager()
+        let vocabularyBoost = ParakeetVocabularyBoostRunner(
+            vocabularyTerms: vocabularyTerms,
+            directory: vocabularyBoostDirectory
+        )
         self.init(
             startup: {
                 let models = try await AsrModels.downloadAndLoad(
                     to: modelDirectory,
-                    version: .v3,
-                    encoderPrecision: .int8
+                    version: descriptor.version,
+                    encoderPrecision: descriptor.encoderPrecision
                 )
                 try await manager.loadModels(models)
+                _ = await vocabularyBoost.configure { vocabularyContext, directory in
+                    guard ParakeetVocabularyBoostStore.modelsExist(at: directory) else { return }
+                    let ctcModels = try await CtcModels.loadDirect(from: directory)
+                    try await manager.configureVocabularyBoosting(
+                        vocabulary: vocabularyContext,
+                        ctcModels: ctcModels
+                    )
+                } onFailure: { error in
+                    parakeetSessionLog.error("Parakeet vocabulary boosting disabled after configuration failure: \(error.localizedDescription, privacy: .public)")
+                }
                 try await manager.startStreaming(source: .microphone)
                 return true
             },

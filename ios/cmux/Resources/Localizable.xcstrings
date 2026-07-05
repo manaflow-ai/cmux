@@ -1061,13 +1061,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parakeet v3: Installed · %@"
+            "value": "%@ · %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parakeet v3: インストール済み ・ %@"
+            "value": "%@ ・ %@"
           }
         }
       }
@@ -1078,13 +1078,47 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parakeet v3: Not installed"
+            "value": "Parakeet models: Not installed"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parakeet v3: 未インストール"
+            "value": "Parakeetモデル: 未インストール"
+          }
+        }
+      }
+    },
+    "mobile.diagnostics.vocabularyBoostInstalledFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet vocabulary boost: Installed · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet語彙ブースト: インストール済み ・ %@"
+          }
+        }
+      }
+    },
+    "mobile.diagnostics.vocabularyBoostNotInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet vocabulary boost: Not installed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet語彙ブースト: 未インストール"
           }
         }
       }
@@ -9861,6 +9895,40 @@
         }
       }
     },
+    "mobile.settings.voice.appleSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.downloadableSection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloadable models"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード可能なモデル"
+          }
+        }
+      }
+    },
     "mobile.settings.voice.optimizing": {
       "extractionState": "manual",
       "localizations": {
@@ -9891,6 +9959,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "準備中…"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabularyBoost.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional CTC add-on for Parakeet custom terms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeetのカスタム語句用の任意CTCアドオン"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabularyBoost.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download this add-on to apply custom vocabulary to Parakeet. Apple uses custom vocabulary without a download."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeetにカスタム語彙を適用するには、このアドオンをダウンロードします。Appleはダウンロードなしでカスタム語彙を使います。"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabularyBoost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet vocabulary boost · 103 MB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet語彙ブースト ・ 103 MB"
           }
         }
       }
@@ -9976,6 +10095,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "音声モードを開く"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Vocabulary"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム語彙"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary.addButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary.addPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add term"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語句を追加"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary.autoBias": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use visible Mac terms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに表示中の語句を使う"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary.autoBiasFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Voice Mode starts, cmux also boosts words visible in your Mac workspace and pane titles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Modeの開始時に、Macのワークスペース名とペイン名に表示されている語句も優先します。"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terms yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語句はまだありません"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom vocabulary improves recognition of technical terms, repo names, and commands."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム語彙は、技術用語、リポジトリ名、コマンドの認識精度を高めます。"
+          }
+        }
+      }
+    },
+    "mobile.settings.voice.vocabulary.terms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語句"
           }
         }
       }
@@ -10082,6 +10337,74 @@
         }
       }
     },
+    "mobile.voice.engine.parakeetV2": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NVIDIA Parakeet v2 (English)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NVIDIA Parakeet v2（英語）"
+          }
+        }
+      }
+    },
+    "mobile.voice.engine.parakeetV2.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "English only · fastest English"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "英語のみ・英語で最速"
+          }
+        }
+      }
+    },
+    "mobile.voice.engine.parakeetV2.downloadSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "464 MB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "464 MB"
+          }
+        }
+      }
+    },
+    "mobile.voice.engine.parakeetV3.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "25 languages · best accuracy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "25言語・最高精度"
+          }
+        }
+      }
+    },
     "mobile.voice.engine.parakeetV3.downloadSize": {
       "extractionState": "manual",
       "localizations": {
@@ -10095,6 +10418,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "483 MB"
+          }
+        }
+      }
+    },
+    "mobile.voice.engine.parakeetV3Int4": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NVIDIA Parakeet v3 Compact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NVIDIA Parakeet v3 Compact"
+          }
+        }
+      }
+    },
+    "mobile.voice.engine.parakeetV3Int4.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "25 languages · smaller download"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "25言語・小さいダウンロード"
+          }
+        }
+      }
+    },
+    "mobile.voice.engine.parakeetV3Int4.downloadSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "336 MB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "336 MB"
           }
         }
       }

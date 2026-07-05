@@ -12,8 +12,36 @@ public final class ParakeetComposerDictationRecognitionBackend: ComposerDictatio
 
     /// Creates a composer backend for an installed Parakeet model.
     /// - Parameter modelDirectory: The downloaded model directory.
-    public convenience init(modelDirectory: URL) {
-        self.init(makeSession: { ParakeetTranscriptionSession(modelDirectory: modelDirectory) })
+    public convenience init(
+        modelDirectory: URL,
+        vocabularyTerms: [String] = [],
+        vocabularyBoostDirectory: URL? = nil
+    ) {
+        self.init(makeSession: {
+            ParakeetTranscriptionSession(
+                modelDirectory: modelDirectory,
+                vocabularyTerms: vocabularyTerms,
+                vocabularyBoostDirectory: vocabularyBoostDirectory
+            )
+        })
+    }
+
+    /// Creates a composer backend for an installed catalog model.
+    /// - Parameters:
+    ///   - modelStore: The downloaded model store.
+    ///   - vocabularyTerms: Custom vocabulary terms to bias recognition.
+    public convenience init(
+        modelStore: ParakeetModelStore,
+        vocabularyTerms: [String] = [],
+        vocabularyBoostDirectory: URL? = nil
+    ) {
+        self.init(makeSession: {
+            ParakeetTranscriptionSession(
+                modelStore: modelStore,
+                vocabularyTerms: vocabularyTerms,
+                vocabularyBoostDirectory: vocabularyBoostDirectory
+            )
+        })
     }
 
     /// Creates a composer backend with an injected session factory.

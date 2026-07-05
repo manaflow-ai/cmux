@@ -13,17 +13,20 @@ private let parakeetPendingDeletePrefix = ".pending-delete-"
 @Observable
 public final class ParakeetModelStore {
     /// The directory name FluidAudio uses for Parakeet v3.
-    public static let modelDirectoryName = "parakeet-tdt-0.6b-v3"
+    public static let modelDirectoryName = ParakeetModelDescriptor.parakeetV3Int8.folderName
 
     /// Current installation/download state.
     public private(set) var state: ParakeetDownloadState
 
     /// The directory passed to FluidAudio for model storage.
     public let modelDirectory: URL
+    /// Engine this store downloads and detects.
+    public let engineID: VoiceEngineID
 
     private let fileManager: FileManager
     private let downloader: any ParakeetModelDownloading
     private let installedDetector: @Sendable (URL) -> Bool
+    let descriptor: ParakeetModelDescriptor
     private var downloadTask: Task<Void, Never>?
     private var downloadAttemptID = UUID()
 
@@ -34,19 +37,24 @@ public final class ParakeetModelStore {
     ///   - fileManager: File manager used for disk operations.
     ///   - downloader: Downloader implementation. Tests pass a fake.
     public init(
+        descriptor: ParakeetModelDescriptor = .parakeetV3Int8,
         applicationSupportDirectory: URL? = nil,
         fileManager: FileManager = .default,
         downloader: any ParakeetModelDownloading = FluidAudioParakeetModelDownloader(),
-        installedDetector: @escaping @Sendable (URL) -> Bool = { FluidAudioParakeetModelDownloader.modelsExist(at: $0) }
+        installedDetector: (@Sendable (URL) -> Bool)? = nil
     ) {
         self.fileManager = fileManager
         self.downloader = downloader
-        self.installedDetector = installedDetector
+        self.descriptor = descriptor
+        self.engineID = descriptor.engineID
+        self.installedDetector = installedDetector ?? { directory in
+            FluidAudioParakeetModelDownloader.modelsExist(at: directory, descriptor: descriptor)
+        }
         let baseDirectory = applicationSupportDirectory ?? Self.defaultApplicationSupportDirectory(fileManager: fileManager)
         self.modelDirectory = baseDirectory
             .appendingPathComponent("cmux-voice-models", isDirectory: true)
-            .appendingPathComponent(Self.modelDirectoryName, isDirectory: true)
-        self.state = installedDetector(modelDirectory) ? .installed : .idle
+            .appendingPathComponent(descriptor.folderName, isDirectory: true)
+        self.state = self.installedDetector(modelDirectory) ? .installed : .idle
         sweepPendingDeletes(in: modelDirectory.deletingLastPathComponent())
     }
 
@@ -71,7 +79,7 @@ public final class ParakeetModelStore {
             guard let self else { return }
             do {
                 try Self.prepareModelDirectory(self.modelDirectory, fileManager: self.fileManager)
-                try await self.downloader.download(to: self.modelDirectory) { [weak self] progress in
+                try await self.downloader.download(self.descriptor, to: self.modelDirectory) { [weak self] progress in
                     Task { @MainActor [weak self] in
                         guard let self, self.downloadAttemptID == attemptID, self.state.isDownloading else { return }
                         self.state = .downloading(progress)
@@ -125,18 +133,36 @@ public final class ParakeetModelStore {
     /// `isInstalled` flips immediately and a failure still throws), and the
     /// actual byte removal runs on a detached utility task. Orphaned rename
     /// targets from a mid-delete crash are swept by `sweepPendingDeletes()`.
-    public func deleteModel() throws {
+    public func deleteModel(preservingSharedFiles: Bool = false) throws {
         cancelDownload()
-        if fileManager.fileExists(atPath: modelDirectory.path) {
-            let pendingDelete = modelDirectory.deletingLastPathComponent()
-                .appendingPathComponent("\(parakeetPendingDeletePrefix)\(UUID().uuidString)", isDirectory: true)
-            try fileManager.moveItem(at: modelDirectory, to: pendingDelete)
-            // The byte removal deliberately uses FileManager.default instead of
-            // capturing the injected instance: FileManager is not Sendable, and
-            // remote/CI toolchains reject any capture in this sending closure.
-            // Both operate on the same real filesystem path.
-            Task.detached(priority: .utility) {
-                try? FileManager.default.removeItem(at: pendingDelete)
+        guard fileManager.fileExists(atPath: modelDirectory.path) else {
+            state = .idle
+            return
+        }
+
+        if preservingSharedFiles {
+            let pendingDeletes = try moveModelSpecificItemsAside()
+            try Self.removeDirectoryIfEmpty(modelDirectory, fileManager: fileManager)
+            if !pendingDeletes.isEmpty {
+                // The byte removal deliberately uses FileManager.default instead of
+                // capturing the injected instance: FileManager is not Sendable, and
+                // remote/CI toolchains reject any capture in this sending closure.
+                // Both operate on the same real filesystem path.
+                Task.detached(priority: .utility) {
+                    for pendingDelete in pendingDeletes {
+                        try? FileManager.default.removeItem(at: pendingDelete)
+                    }
+                }
+            }
+        } else {
+            if let pendingDelete = try moveModelDirectoryAside() {
+                // The byte removal deliberately uses FileManager.default instead of
+                // capturing the injected instance: FileManager is not Sendable, and
+                // remote/CI toolchains reject any capture in this sending closure.
+                // Both operate on the same real filesystem path.
+                Task.detached(priority: .utility) {
+                    try? FileManager.default.removeItem(at: pendingDelete)
+                }
             }
         }
         state = .idle
@@ -168,6 +194,11 @@ public final class ParakeetModelStore {
         FluidAudioParakeetModelDownloader.modelsExist(at: directory)
     }
 
+    /// Returns whether FluidAudio can find the descriptor's required files.
+    public nonisolated static func modelsExist(at directory: URL, descriptor: ParakeetModelDescriptor) -> Bool {
+        FluidAudioParakeetModelDownloader.modelsExist(at: directory, descriptor: descriptor)
+    }
+
     private static func defaultApplicationSupportDirectory(fileManager: FileManager) -> URL {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
@@ -191,5 +222,38 @@ public final class ParakeetModelStore {
         if error is CancellationError { return true }
         if let urlError = error as? URLError, urlError.code == .cancelled { return true }
         return Task.isCancelled
+    }
+
+    private func moveModelDirectoryAside() throws -> URL? {
+        guard fileManager.fileExists(atPath: modelDirectory.path) else { return nil }
+        let pending = modelDirectory.deletingLastPathComponent()
+            .appendingPathComponent("\(parakeetPendingDeletePrefix)\(UUID().uuidString)-\(modelDirectory.lastPathComponent)", isDirectory: true)
+        try fileManager.moveItem(at: modelDirectory, to: pending)
+        return pending
+    }
+
+    private func moveModelSpecificItemsAside() throws -> [URL] {
+        var pendingDeletes: [URL] = []
+        for name in descriptor.modelSpecificTopLevelNames {
+            let source = modelDirectory.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            let pending = modelDirectory.deletingLastPathComponent()
+                .appendingPathComponent("\(parakeetPendingDeletePrefix)\(UUID().uuidString)-\(name)", isDirectory: true)
+            try fileManager.moveItem(at: source, to: pending)
+            pendingDeletes.append(pending)
+        }
+        return pendingDeletes
+    }
+
+    private static func removeDirectoryIfEmpty(_ directory: URL, fileManager: FileManager) throws {
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        let contents = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        if contents.isEmpty {
+            try fileManager.removeItem(at: directory)
+        }
     }
 }

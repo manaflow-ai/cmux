@@ -33,9 +33,17 @@ public final class VoiceSettingsStore {
     /// - Parameter modelInstalled: Whether the Parakeet model exists on disk.
     /// - Returns: ``VoiceEngineID/apple`` when the selected Parakeet model is missing.
     public func effectiveEngine(modelInstalled: Bool) -> VoiceEngineID {
-        if selectedEngine == .parakeetV3, !modelInstalled {
+        if selectedEngine.requiresDownload, !modelInstalled {
             return .apple
         }
         return selectedEngine
+    }
+
+    /// Returns the engine that should actually run for the current catalog state.
+    /// - Parameter installedEngines: Downloadable engines whose models exist on disk.
+    /// - Returns: ``VoiceEngineID/apple`` when the selected downloadable model is missing.
+    public func effectiveEngine(installedEngines: Set<VoiceEngineID>) -> VoiceEngineID {
+        guard selectedEngine.requiresDownload else { return selectedEngine }
+        return installedEngines.contains(selectedEngine) ? selectedEngine : .apple
     }
 }

@@ -8,7 +8,9 @@ import SwiftUI
 /// Full-screen iPhone microphone mode for sending transcribed speech to the focused Mac terminal.
 struct VoiceModeView: View {
     @Environment(VoiceSettingsStore.self) private var voiceSettings
-    @Environment(ParakeetModelStore.self) private var parakeetModelStore
+    @Environment(VoiceVocabularyStore.self) private var voiceVocabulary
+    @Environment(ParakeetModelCatalogStore.self) private var modelCatalog
+    @Environment(ParakeetVocabularyBoostStore.self) private var vocabularyBoostStore
     @Environment(\.dismiss) private var dismiss
 
     let store: CMUXMobileShellStore
@@ -206,7 +208,10 @@ struct VoiceModeView: View {
         let generation = sessionGeneration
         errorMessage = nil
         isStarting = true
-        let engine = voiceSettings.effectiveEngine(modelInstalled: parakeetModelStore.isInstalled)
+        let engine = voiceSettings.effectiveEngine(installedEngines: modelCatalog.installedEngineIDs)
+        let vocabularyTerms = voiceVocabulary.recognitionTerms(
+            screenStrings: Self.screenVocabularyStrings(from: store.voiceFocusSnapshot)
+        )
         let permitted = await VoicePermissionRequester().requestPermissions(for: engine)
         // A stop (or a newer start) may have superseded this attempt while the
         // permission prompt was up; it must not spin up a session.
@@ -227,9 +232,18 @@ struct VoiceModeView: View {
         let session: any VoiceTranscriptionSession
         switch engine {
         case .apple:
-            session = AppleVoiceTranscriptionSession()
-        case .parakeetV3:
-            session = ParakeetTranscriptionSession(modelDirectory: parakeetModelStore.modelDirectory)
+            session = AppleVoiceTranscriptionSession(contextualStrings: vocabularyTerms)
+        case .parakeetV3, .parakeetV3Int4, .parakeetV2:
+            guard let modelStore = modelCatalog.store(for: engine) else {
+                isStarting = false
+                errorMessage = L10n.string("mobile.voiceMode.audioUnavailable", defaultValue: "The microphone could not start.")
+                return
+            }
+            session = ParakeetTranscriptionSession(
+                modelStore: modelStore,
+                vocabularyTerms: vocabularyTerms,
+                vocabularyBoostDirectory: vocabularyBoostStore.installedDirectoryForRecognition
+            )
         }
         self.session = session
         updateTask = Task { @MainActor in
@@ -367,6 +381,21 @@ struct VoiceModeView: View {
             return false
         }
         return code == "target_changed"
+    }
+
+    private static func screenVocabularyStrings(from snapshot: MobileFocusSnapshot?) -> [String] {
+        guard let snapshot else { return [] }
+        var values = [String]()
+        if let workspaceTitle = snapshot.workspaceTitle {
+            values.append(workspaceTitle)
+        }
+        if let surfaceTitle = snapshot.surfaceTitle {
+            values.append(surfaceTitle)
+        }
+        if let layout = snapshot.layout {
+            values.append(contentsOf: layout.panes.compactMap(\.title))
+        }
+        return values
     }
 }
 #endif

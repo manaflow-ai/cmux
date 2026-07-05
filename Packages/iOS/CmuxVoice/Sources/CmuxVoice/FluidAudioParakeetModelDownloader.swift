@@ -2,14 +2,8 @@
 import FluidAudio
 public import Foundation
 
-/// Downloads Parakeet v3 through FluidAudio.
-public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
-    private static let repositoryTreeURL = URL(
-        string: "https://huggingface.co/api/models/FluidInference/parakeet-tdt-0.6b-v3-coreml/tree/main?recursive=true"
-    )!
-    private static let repositoryResolveBaseURL = URL(
-        string: "https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml/resolve/main/"
-    )!
+/// Downloads Parakeet CoreML assets with byte-level progress.
+public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading, ParakeetVocabularyBoostDownloading {
     private static let maxDownloadAttempts = 3
     private static let streamBufferSize = 64 * 1024
 
@@ -18,25 +12,28 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
 
     /// Download the Parakeet v3 int8 model and compile it for CoreML.
     /// - Parameters:
+    ///   - descriptor: Model catalog entry to download.
     ///   - directory: The custom model directory root.
     ///   - progress: Receives mapped progress snapshots.
     public func download(
+        _ descriptor: ParakeetModelDescriptor = .parakeetV3Int8,
         to directory: URL,
         progress: @escaping @Sendable (ParakeetDownloadProgress) -> Void
     ) async throws {
         let session = URLSession(configuration: .default)
         defer { session.invalidateAndCancel() }
         progress(ParakeetDownloadProgress(fractionCompleted: 0, phaseDescription: "listing"))
-        let files = try await listRequiredFiles(session: session)
-        try await download(files: files, to: directory, session: session, progress: progress)
+        let spec = descriptor.downloadSpec
+        let files = try await listRequiredFiles(spec: spec, session: session)
+        try await download(files: files, spec: spec, to: directory, session: session, progress: progress)
 
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
         _ = try await AsrModels.downloadAndLoad(
             to: directory,
             configuration: configuration,
-            version: .v3,
-            encoderPrecision: .int8,
+            version: descriptor.version,
+            encoderPrecision: descriptor.encoderPrecision,
             encoderComputeUnits: nil,
             progressHandler: { fluidProgress in
                 progress(Self.progress(from: fluidProgress))
@@ -44,11 +41,50 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
         )
     }
 
+    /// Downloads the optional CTC vocabulary-boost add-on without loading it.
+    /// - Parameters:
+    ///   - descriptor: Add-on descriptor to download.
+    ///   - directory: The exact FluidAudio default cache directory.
+    ///   - progress: Receives mapped progress snapshots.
+    public func downloadVocabularyBoost(
+        _ descriptor: ParakeetVocabularyBoostDescriptor = .ctc110m,
+        to directory: URL,
+        progress: @escaping @Sendable (ParakeetDownloadProgress) -> Void
+    ) async throws {
+        let session = URLSession(configuration: .default)
+        defer { session.invalidateAndCancel() }
+        progress(ParakeetDownloadProgress(fractionCompleted: 0, phaseDescription: "listing"))
+        let spec = descriptor.downloadSpec
+        let files = try await listRequiredFiles(spec: spec, session: session)
+        try await download(files: files, spec: spec, to: directory, session: session, progress: progress)
+    }
+
     /// Returns whether the FluidAudio-required v3 int8 model files exist.
     /// - Parameter directory: The custom model directory root.
     /// - Returns: `true` when the model is installed.
     public static func modelsExist(at directory: URL) -> Bool {
-        AsrModels.modelsExist(at: directory, version: .v3, encoderPrecision: .int8)
+        modelsExist(at: directory, descriptor: .parakeetV3Int8)
+    }
+
+    /// Returns whether the FluidAudio-required model files exist.
+    /// - Parameters:
+    ///   - directory: The custom model directory root.
+    ///   - descriptor: Model catalog entry to check.
+    /// - Returns: `true` when the model is installed.
+    public static func modelsExist(at directory: URL, descriptor: ParakeetModelDescriptor) -> Bool {
+        AsrModels.modelsExist(
+            at: directory,
+            version: descriptor.version,
+            encoderPrecision: descriptor.encoderPrecision
+        )
+    }
+
+    /// Returns whether the CTC vocabulary-boost files exist.
+    public static func vocabularyBoostModelsExist(
+        at directory: URL,
+        descriptor: ParakeetVocabularyBoostDescriptor = .ctc110m
+    ) -> Bool {
+        descriptor.requiredFiles.exists(at: directory)
     }
 
     static func progress(from progress: DownloadUtils.DownloadProgress) -> ParakeetDownloadProgress {
@@ -70,14 +106,21 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
         }
     }
 
-    private func listRequiredFiles(session: URLSession) async throws -> [ParakeetModelDownloadFile] {
-        let (data, response) = try await session.data(from: Self.repositoryTreeURL)
+    private func listRequiredFiles(
+        spec: ParakeetDownloadDescriptor,
+        session: URLSession
+    ) async throws -> [ParakeetModelDownloadFile] {
+        let (data, response) = try await session.data(from: Self.repositoryTreeURL(for: spec))
         try Self.validateHTTPResponse(response, path: "repository tree")
-        return try ParakeetModelDownloadFile.files(fromHuggingFaceTreeJSON: data)
+        return try ParakeetModelDownloadFile.files(
+            fromHuggingFaceTreeJSON: data,
+            requiredFiles: spec.requiredFiles
+        )
     }
 
     private func download(
         files: [ParakeetModelDownloadFile],
+        spec: ParakeetDownloadDescriptor,
         to directory: URL,
         session: URLSession,
         progress: @escaping @Sendable (ParakeetDownloadProgress) -> Void
@@ -110,6 +153,7 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
             try await downloadFileWithRetry(
                 file,
                 to: destination,
+                spec: spec,
                 session: session,
                 downloadedBytes: &downloadedBytes,
                 throttler: &throttler,
@@ -125,6 +169,7 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
     private func downloadFileWithRetry(
         _ file: ParakeetModelDownloadFile,
         to destination: URL,
+        spec: ParakeetDownloadDescriptor,
         session: URLSession,
         downloadedBytes: inout Int64,
         throttler: inout ParakeetDownloadProgressThrottler,
@@ -136,6 +181,7 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
                 try await downloadFile(
                     file,
                     to: destination,
+                    spec: spec,
                     session: session,
                     downloadedBytes: &downloadedBytes,
                     throttler: &throttler,
@@ -158,6 +204,7 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
     private func downloadFile(
         _ file: ParakeetModelDownloadFile,
         to destination: URL,
+        spec: ParakeetDownloadDescriptor,
         session: URLSession,
         downloadedBytes: inout Int64,
         throttler: inout ParakeetDownloadProgressThrottler,
@@ -173,7 +220,7 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
             }
         }
 
-        let url = Self.resolveURL(for: file.path)
+        let url = Self.resolveURL(for: file.path, spec: spec)
         let (bytes, response) = try await session.bytes(from: url)
         try Self.validateHTTPResponse(response, path: file.path)
 
@@ -224,8 +271,16 @@ public struct FluidAudioParakeetModelDownloader: ParakeetModelDownloading {
         didFinish = true
     }
 
-    private static func resolveURL(for path: String) -> URL {
-        path.split(separator: "/", omittingEmptySubsequences: true).reduce(Self.repositoryResolveBaseURL) { url, component in
+    private static func repositoryTreeURL(for spec: ParakeetDownloadDescriptor) -> URL {
+        URL(string: "https://huggingface.co/api/models/\(spec.repositoryPath)/tree/main?recursive=true")!
+    }
+
+    private static func repositoryResolveBaseURL(for spec: ParakeetDownloadDescriptor) -> URL {
+        URL(string: "https://huggingface.co/\(spec.repositoryPath)/resolve/main/")!
+    }
+
+    private static func resolveURL(for path: String, spec: ParakeetDownloadDescriptor) -> URL {
+        path.split(separator: "/", omittingEmptySubsequences: true).reduce(repositoryResolveBaseURL(for: spec)) { url, component in
             url.appendingPathComponent(String(component))
         }
     }

@@ -16,10 +16,14 @@ public final class AppleVoiceTranscriptionSession: VoiceTranscriptionSession {
     private let stream: AsyncStream<VoiceTranscriptionUpdate>
 
     /// Creates and starts an Apple Speech transcription session.
-    public init(recognizer: SFSpeechRecognizer? = SFSpeechRecognizer()) {
+    public init(
+        recognizer: SFSpeechRecognizer? = SFSpeechRecognizer(),
+        contextualStrings: [String] = []
+    ) {
         self.recognizer = recognizer
         self.request = SFSpeechAudioBufferRecognitionRequest()
         self.request.shouldReportPartialResults = true
+        self.request.contextualStrings = contextualStrings
         if recognizer?.supportsOnDeviceRecognition == true {
             self.request.requiresOnDeviceRecognition = true
         }

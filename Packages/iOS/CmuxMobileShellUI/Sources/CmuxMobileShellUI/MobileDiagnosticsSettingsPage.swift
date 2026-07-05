@@ -14,7 +14,8 @@ import UserNotifications
 struct MobileDiagnosticsSettingsPage: View {
     @Environment(AuthCoordinator.self) private var authCoordinator
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
-    @Environment(ParakeetModelStore.self) private var parakeetModelStore
+    @Environment(ParakeetModelCatalogStore.self) private var parakeetModelCatalog
+    @Environment(ParakeetVocabularyBoostStore.self) private var parakeetVocabularyBoostStore
 
     let store: CMUXMobileShellStore?
 
@@ -205,22 +206,36 @@ struct MobileDiagnosticsSettingsPage: View {
 
     private func voiceModelRow() async -> MobileDiagnosticsReportRow {
         let label = L10n.string("mobile.diagnostics.voiceModel", defaultValue: "Voice Model")
-        guard parakeetModelStore.isInstalled else {
-            return row(
-                id: "VoiceModel",
-                label: label,
-                value: L10n.string("mobile.diagnostics.parakeetNotInstalled", defaultValue: "Parakeet v3: Not installed"),
-                status: .info
-            )
-        }
+        let installedStores = parakeetModelCatalog.stores.filter(\.isInstalled)
 
-        let size = await directorySizeString(at: parakeetModelStore.modelDirectory)
-            ?? L10n.string("mobile.diagnostics.sizeUnknown", defaultValue: "Size unknown")
-        let value = String(
-            format: L10n.string("mobile.diagnostics.parakeetInstalledFormat", defaultValue: "Parakeet v3: Installed · %@"),
-            size
-        )
-        return row(id: "VoiceModel", label: label, value: value, status: .pass)
+        var values: [String] = []
+        if installedStores.isEmpty {
+            values.append(L10n.string("mobile.diagnostics.parakeetNotInstalled", defaultValue: "Parakeet models: Not installed"))
+        }
+        for store in installedStores {
+            let size = await directorySizeString(at: store.modelDirectory)
+                ?? L10n.string("mobile.diagnostics.sizeUnknown", defaultValue: "Size unknown")
+            values.append(String(
+                format: L10n.string("mobile.diagnostics.parakeetInstalledFormat", defaultValue: "%@ · %@"),
+                store.engineID.displayName,
+                size
+            ))
+        }
+        if parakeetVocabularyBoostStore.isInstalled {
+            let size = await directorySizeString(at: parakeetVocabularyBoostStore.modelDirectory)
+                ?? L10n.string("mobile.diagnostics.sizeUnknown", defaultValue: "Size unknown")
+            values.append(String(
+                format: L10n.string("mobile.diagnostics.vocabularyBoostInstalledFormat", defaultValue: "Parakeet vocabulary boost: Installed · %@"),
+                size
+            ))
+        } else {
+            values.append(L10n.string(
+                "mobile.diagnostics.vocabularyBoostNotInstalled",
+                defaultValue: "Parakeet vocabulary boost: Not installed"
+            ))
+        }
+        let value = values.joined(separator: "\n")
+        return row(id: "VoiceModel", label: label, value: value, status: installedStores.isEmpty ? .info : .pass)
     }
 
     private func report() -> MobileDiagnosticsReport {
