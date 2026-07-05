@@ -356,6 +356,35 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         ])
     }
 
+    @MainActor
+    @Test("git probe ignores remote workspace current directory fallback")
+    func gitProbeIgnoresRemoteWorkspaceCurrentDirectoryFallback() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let manager = TabManager(
+            initialWorkspaceTitle: "Remote",
+            initialWorkingDirectory: localDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanel = try #require(workspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: nil,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        workspace.currentDirectory = remoteDirectory
+
+        #expect(workspace.terminalPanel(for: localPanel.id)?.requestedWorkingDirectory == nil)
+        #expect(workspace.allowsLocalDirectoryFallback(panelId: localPanel.id))
+        #expect(manager.gitProbeDirectory(for: workspace, panelId: localPanel.id) == nil)
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",

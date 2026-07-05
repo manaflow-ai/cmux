@@ -699,7 +699,7 @@ class TabManager: ObservableObject {
         // still probe git metadata before OSC 7 has reported a live cwd.
         if let directory = workspace.reportedPanelDirectory(panelId: panelId) { return normalizedWorkingDirectory(directory) }
         guard workspace.allowsLocalDirectoryFallback(panelId: panelId) else { return nil }
-        let rawDirectory = workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory ?? (workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
+        let rawDirectory = workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory ?? (!workspace.usesRemoteDirectoryProvenance && workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
         return rawDirectory.flatMap(normalizedWorkingDirectory)
     }
 
