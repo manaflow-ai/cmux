@@ -143,6 +143,17 @@ enum AppearanceSettings {
         colorSchemeOverride(for: rawValue) ?? fallback
     }
 
+    /// Resolves the color scheme the chrome should render with. Explicit modes
+    /// win; system mode resolves from the app's live effectiveAppearance, which
+    /// (unlike the AppleInterfaceStyle default) stays fresh on scripted
+    /// appearance changes.
+    @MainActor
+    static func effectiveColorScheme(for rawValue: String?, fallback: ColorScheme) -> ColorScheme {
+        if let override = colorSchemeOverride(for: rawValue) { return override }
+        guard let app = NSApp else { return fallback }
+        return app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+    }
+
     @discardableResult
     static func selectMode(
         _ mode: AppearanceMode,
@@ -329,17 +340,12 @@ extension NSKeyValueObservation: EffectiveAppearanceObservation {}
 /// when the OS switches Light/Dark, but the SwiftUI hosting layer does not
 /// reliably re-resolve the ambient `colorScheme` for already-visible windows
 /// (visible when the switch is triggered by Shortcuts' "Set Appearance" or the
-/// scheduled Auto switch, #6385). This observer KVO-watches
-/// `NSApp.effectiveAppearance` and, in system mode, briefly re-applies the
-/// freshly resolved concrete appearance and restores `nil` on the next runloop
-/// tick — forcing the hosting layer to pick up the new scheme without giving up
-/// system-follow — then posts `.systemAppearanceDidChange` so cached chrome
-/// snapshots can invalidate.
-///
-/// The nil restore is deliberately deferred to the next runloop tick: AppKit
-/// coalesces same-tick `NSApplication.appearance` writes, so a synchronous
-/// concrete→nil round-trip would never reach the hosting layer. `nil` is the
-/// steady state being restored, so a late restore is always safe.
+/// scheduled Auto switch, #6385). This observer is detect-and-notify only: it
+/// KVO-watches `NSApp.effectiveAppearance` and, in system mode, diffs the
+/// freshly resolved value against the last-resolved one, and — only on an
+/// actual change — posts `.systemAppearanceDidChange` so interested views
+/// (see `AppearanceColorSchemeModifier`) can re-resolve their color scheme
+/// directly from `NSApp.effectiveAppearance` and force a body recomputation.
 ///
 /// It is intentionally separate from `AppIconAppearanceObserver`, which observes
 /// the same key path but is torn down whenever the app icon isn't in automatic
@@ -347,16 +353,20 @@ extension NSKeyValueObservation: EffectiveAppearanceObservation {}
 /// own different lifecycles on purpose: the icon observer's teardown is keyed
 /// to icon mode, while chrome refresh must stay armed for the whole app
 /// lifetime — a single shared observer would couple those lifecycles.
+///
+/// The AppleInterfaceStyle default is NOT a reliable fresh source here: on
+/// scripted appearance changes (Shortcuts "Set Appearance"), this process's
+/// CFPreferences view of the global domain can remain stale long after AppKit
+/// has resolved the new effectiveAppearance — runtime traces show both the
+/// direct and globalDomain reads returning the pre-toggle value.
+/// effectiveAppearance is the ground truth for this observer.
 @MainActor
 final class SystemAppearanceObserver {
     struct Environment {
         let startEffectiveAppearanceObservation: (@escaping () -> Void) -> EffectiveAppearanceObservation?
         let currentAppearanceModeRawValue: () -> String?
-        let systemPrefersDark: () -> Bool
-        let setApplicationAppearance: (NSAppearance?) -> Void
-        let synchronizeTerminalThemeWithAppearance: (NSAppearance?, String) -> Void
+        let effectivePrefersDark: () -> Bool
         let postSystemAppearanceDidChange: () -> Void
-        let scheduleOnMainQueue: (@escaping () -> Void) -> Void
 
         static func live() -> Environment {
             Environment(
@@ -377,20 +387,13 @@ final class SystemAppearanceObserver {
                 currentAppearanceModeRawValue: {
                     UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
                 },
-                systemPrefersDark: { AppearanceSettings.SystemAppearance.current().prefersDark },
-                setApplicationAppearance: { appearance in
+                effectivePrefersDark: {
                     MainActor.assumeIsolated {
-                        NSApplication.shared.appearance = appearance
+                        NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                     }
-                },
-                synchronizeTerminalThemeWithAppearance: { appearance, source in
-                    GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
                 },
                 postSystemAppearanceDidChange: {
                     NotificationCenter.default.post(name: .systemAppearanceDidChange, object: nil)
-                },
-                scheduleOnMainQueue: { work in
-                    DispatchQueue.main.async { work() }
                 }
             )
         }
@@ -399,19 +402,16 @@ final class SystemAppearanceObserver {
     static let shared = SystemAppearanceObserver()
 
     private let environment: Environment
-    private let source: String
     private var observation: EffectiveAppearanceObservation?
     private var lastResolvedPrefersDark: Bool?
-    private var kickGeneration = 0
 
-    init(environment: Environment = .live(), source: String = "cmuxApp.systemAppearanceObserver") {
+    init(environment: Environment = .live()) {
         self.environment = environment
-        self.source = source
     }
 
     func startObserving() {
         guard observation == nil else { return }
-        lastResolvedPrefersDark = environment.systemPrefersDark()
+        lastResolvedPrefersDark = environment.effectivePrefersDark()
         observation = environment.startEffectiveAppearanceObservation { [weak self] in
             // `startEffectiveAppearanceObservation`'s handler parameter is plain/non-isolated
             // (see `Environment.live()`), but it is only ever invoked via
@@ -431,35 +431,46 @@ final class SystemAppearanceObserver {
     }
 
     private func handleEffectiveAppearanceChange() {
+        // Stale-fire guard: the KVO handler can still be in flight (or
+        // re-entrantly triggered, see below) after `stopObserving()` has run.
         guard observation != nil else { return }
         guard AppearanceSettings.mode(for: environment.currentAppearanceModeRawValue()) == .system else { return }
-        let prefersDark = environment.systemPrefersDark()
+        let prefersDark = environment.effectivePrefersDark()
         guard prefersDark != lastResolvedPrefersDark else { return }
         lastResolvedPrefersDark = prefersDark
-        kickGeneration += 1
-        let generation = kickGeneration
-        let appearance = NSAppearance(named: prefersDark ? .darkAqua : .aqua)
-        environment.setApplicationAppearance(appearance)
-        environment.scheduleOnMainQueue { [weak self] in
-            guard let self, self.kickGeneration == generation else { return }
-            guard AppearanceSettings.mode(for: self.environment.currentAppearanceModeRawValue()) == .system else { return }
-            self.environment.setApplicationAppearance(nil)
-        }
-        environment.synchronizeTerminalThemeWithAppearance(appearance, source)
+        cmuxDebugLog("systemAppearance.observer.change prefersDark=\(prefersDark)")
         environment.postSystemAppearanceDidChange()
     }
 }
 
+/// Re-resolves and re-injects the color scheme at the window root.
+///
+/// In system mode, the ambient `colorScheme` supplied by the hosting bridge's
+/// `@Environment` can go stale on scripted OS appearance changes (Shortcuts'
+/// "Set Appearance", #6385) — SwiftUI doesn't reliably re-resolve it for
+/// already-visible windows. So in system mode this modifier ignores the
+/// ambient value and instead resolves fresh from `NSApp.effectiveAppearance`
+/// (see `AppearanceSettings.effectiveColorScheme`), then re-injects the result
+/// at the window root via `.environment(\.colorScheme, ...)` so it propagates
+/// to every descendant that reads the ambient color scheme. Re-resolution is
+/// keyed off `.systemAppearanceDidChange`, which `SystemAppearanceObserver`
+/// posts whenever the effective appearance actually changes while in system
+/// mode.
 private struct AppearanceColorSchemeModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @State private var systemAppearanceGeneration = 0
     let rawValue: String?
 
     func body(content: Content) -> some View {
         let override = AppearanceSettings.colorSchemeOverride(for: rawValue)
-        let effective = AppearanceSettings.colorScheme(for: rawValue, fallback: colorScheme)
+        let _ = systemAppearanceGeneration
+        let effective = AppearanceSettings.effectiveColorScheme(for: rawValue, fallback: colorScheme)
         content
             .environment(\.colorScheme, effective)
             .preferredColorScheme(override)
+            .onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in
+                systemAppearanceGeneration &+= 1
+            }
     }
 }
 

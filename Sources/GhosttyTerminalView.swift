@@ -1850,25 +1850,49 @@ class GhosttyApp {
         }
     }
 
-    func synchronizeThemeWithAppearance(_: NSAppearance?, source: String) {
-        let currentColorScheme = GhosttyConfig.currentColorSchemePreference()
+    /// Resolves the terminal color-scheme preference for an appearance-sync
+    /// pass and reloads Ghostty's configuration if it changed.
+    ///
+    /// `appearance` comes from AppKit's live appearance cascade (a view's
+    /// `effectiveAppearance`, or an explicit app-level override). On scripted
+    /// OS appearance changes (e.g. Shortcuts' "Set Appearance"), that cascade
+    /// stays fresh, while this process's CFPreferences view of
+    /// `AppleInterfaceStyle` (what the defaults-based resolution below reads)
+    /// can remain stale on exactly that path. So when the app is following
+    /// the system (`AppearanceMode.system`) and a non-nil appearance was
+    /// passed in, it is the more trustworthy source and wins over the
+    /// defaults-based read. Explicit light/dark modes always win over both,
+    /// and a `nil` appearance (as passed by `AppearanceSettings.applyLiveMode`
+    /// when steady-state in system mode) falls back to the existing
+    /// defaults-based resolution unchanged.
+    func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
+        let isSystemMode = AppearanceSettings.mode(
+            for: UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey)
+        ) == .system
+        let usedPassedAppearance = isSystemMode && appearance != nil
+        let currentColorScheme: GhosttyConfig.ColorSchemePreference
+        if isSystemMode, let appearance {
+            currentColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        } else {
+            currentColorScheme = GhosttyConfig.currentColorSchemePreference()
+        }
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme
         )
+        let previousLabel: String
+        switch lastAppearanceColorScheme {
+        case .light:
+            previousLabel = "light"
+        case .dark:
+            previousLabel = "dark"
+        case nil:
+            previousLabel = "nil"
+        }
+        let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
         if backgroundLogEnabled {
-            let previousLabel: String
-            switch lastAppearanceColorScheme {
-            case .light:
-                previousLabel = "light"
-            case .dark:
-                previousLabel = "dark"
-            case nil:
-                previousLabel = "nil"
-            }
-            let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
             logBackground(
-                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
+                "appearance sync source=\(source) usedPassedAppearance=\(usedPassedAppearance) previous=\(previousLabel) current=\(currentLabel) reload=\(plan.shouldReloadConfiguration)"
             )
         }
         guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }

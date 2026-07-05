@@ -1980,10 +1980,10 @@ struct ContentView: View {
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
-        return windowChrome.appearanceSnapshot(
+        let snapshot = windowChrome.appearanceSnapshot(
             settings: WindowAppearanceUserSettingsSnapshot(
                 unifySurfaceBackdrops: sidebarMatchTerminalBackground,
-                colorScheme: AppearanceSettings.colorScheme(for: appearanceMode, fallback: colorScheme),
+                colorScheme: AppearanceSettings.effectiveColorScheme(for: appearanceMode, fallback: colorScheme),
                 sidebarMaterial: sidebarMaterial,
                 sidebarBlendMode: sidebarBlendMode,
                 sidebarState: sidebarStateSetting,
@@ -1998,6 +1998,7 @@ struct ContentView: View {
                 bgGlassTintOpacity: bgGlassTintOpacity
             )
         )
+        return snapshot
     }
 
     private func fakeTitlebarTextColor(appearance: WindowAppearanceSnapshot) -> Color {

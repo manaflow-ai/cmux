@@ -397,6 +397,15 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertEqual(AppearanceSettings.colorScheme(for: AppearanceMode.system.rawValue, fallback: .dark), .dark)
     }
 
+    func testEffectiveColorSchemeExplicitModesShortCircuit() {
+        // Only the explicit-mode short-circuit is covered here since it doesn't
+        // touch NSApp. The "system" branch is covered by the
+        // SystemAppearanceObserver tests via the injected `effectivePrefersDark`
+        // closure, plus manual QA.
+        XCTAssertEqual(AppearanceSettings.effectiveColorScheme(for: AppearanceMode.light.rawValue, fallback: .dark), .light)
+        XCTAssertEqual(AppearanceSettings.effectiveColorScheme(for: AppearanceMode.dark.rawValue, fallback: .light), .dark)
+    }
+
     func testSelectingDarkModeAppliesRuntimeAppearanceAndSynchronizesTerminalTheme() {
         let suiteName = "AppearanceSettingsTests.SelectDark.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -591,11 +600,9 @@ final class SystemAppearanceObserverTests: XCTestCase {
         var prefersDark = false
         var startObservationReturnsNil = false
         var startObservationCallCount = 0
-        var systemPrefersDarkCallCount = 0
         var events: [String] = []
-        var onSetApplicationAppearance: ((NSAppearance?) -> Void)?
+        var onPostSystemAppearanceDidChange: (() -> Void)?
         private(set) var appearanceChangedHandler: (() -> Void)?
-        private(set) var scheduledBlock: (() -> Void)?
         let observation = ObservationToken()
 
         lazy var environment = SystemAppearanceObserver.Environment(
@@ -607,99 +614,59 @@ final class SystemAppearanceObserverTests: XCTestCase {
             currentAppearanceModeRawValue: { [unowned self] in
                 self.modeRawValue
             },
-            systemPrefersDark: { [unowned self] in
-                self.systemPrefersDarkCallCount += 1
+            effectivePrefersDark: { [unowned self] in
+                self.events.append("effectivePrefersDark(\(self.prefersDark))")
                 return self.prefersDark
-            },
-            setApplicationAppearance: { [unowned self] appearance in
-                self.events.append("setApplicationAppearance(\(appearance?.name.rawValue ?? "nil"))")
-                self.onSetApplicationAppearance?(appearance)
-            },
-            synchronizeTerminalThemeWithAppearance: { [unowned self] appearance, source in
-                self.events.append("synchronizeTerminalThemeWithAppearance(\(appearance?.name.rawValue ?? "nil"), \(source))")
             },
             postSystemAppearanceDidChange: { [unowned self] in
                 self.events.append("postSystemAppearanceDidChange")
-            },
-            scheduleOnMainQueue: { [unowned self] block in
-                self.scheduledBlock = block
+                self.onPostSystemAppearanceDidChange?()
             }
         )
 
         func fireEffectiveAppearanceChanged() {
             appearanceChangedHandler?()
         }
-
-        func runScheduledBlock() {
-            let block = scheduledBlock
-            scheduledBlock = nil
-            block?()
-        }
     }
 
-    func testSystemModeAppearanceFlipKicksConcreteThenNilAndPostsNotification() {
+    // (a) System-mode appearance flip posts the notification exactly once.
+    func testSystemModeAppearanceFlipPostsNotificationExactlyOnce() {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
         observer.startObserving()
-
         XCTAssertEqual(harness.startObservationCallCount, 1)
-        XCTAssertTrue(harness.events.isEmpty)
+        XCTAssertEqual(harness.events, ["effectivePrefersDark(false)"])
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
 
-        let darkAquaName = NSAppearance.Name.darkAqua.rawValue
         XCTAssertEqual(harness.events, [
-            "setApplicationAppearance(\(darkAquaName))",
-            "synchronizeTerminalThemeWithAppearance(\(darkAquaName), cmuxApp.systemAppearanceObserver)",
-            "postSystemAppearanceDidChange"
+            "effectivePrefersDark(false)",
+            "effectivePrefersDark(true)",
+            "postSystemAppearanceDidChange",
         ])
-
-        harness.runScheduledBlock()
-
-        XCTAssertEqual(harness.events.count, 4)
-        XCTAssertEqual(harness.events.last, "setApplicationAppearance(nil)")
+        XCTAssertEqual(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count, 1)
     }
 
-    func testSystemModeAppearanceFlipToLightKicksConcreteThenNilAndPostsNotification() {
-        let harness = Harness()
-        harness.prefersDark = true
-        let observer = SystemAppearanceObserver(environment: harness.environment)
-
-        observer.startObserving()
-
-        XCTAssertTrue(harness.events.isEmpty)
-
-        harness.prefersDark = false
-        harness.fireEffectiveAppearanceChanged()
-
-        let aquaName = NSAppearance.Name.aqua.rawValue
-        XCTAssertEqual(harness.events, [
-            "setApplicationAppearance(\(aquaName))",
-            "synchronizeTerminalThemeWithAppearance(\(aquaName), cmuxApp.systemAppearanceObserver)",
-            "postSystemAppearanceDidChange"
-        ])
-
-        harness.runScheduledBlock()
-
-        XCTAssertEqual(harness.events.count, 4)
-        XCTAssertEqual(harness.events.last, "setApplicationAppearance(nil)")
-    }
-
-    func testExplicitModeIgnoresEffectiveAppearanceChanges() {
+    // (b) Explicit (non-system) mode: a KVO fire produces no notification and
+    // does not even read effectivePrefersDark — the guard short-circuits
+    // before the read.
+    func testExplicitModeIgnoresEffectiveAppearanceChangesWithoutReadingEffectivePrefersDark() {
         let harness = Harness()
         harness.modeRawValue = AppearanceMode.dark.rawValue
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
         observer.startObserving()
-        let callCountBeforeFire = harness.systemPrefersDarkCallCount
+        let eventsAfterStart = harness.events
+
         harness.fireEffectiveAppearanceChanged()
 
-        XCTAssertTrue(harness.events.isEmpty)
-        XCTAssertEqual(harness.systemPrefersDarkCallCount, callCountBeforeFire)
+        XCTAssertEqual(harness.events, eventsAfterStart)
     }
 
+    // (c) An unchanged value is coalesced (no duplicate post) — including
+    // immediately after a real prior transition.
     func testUnchangedResolvedAppearanceIsCoalesced() {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
@@ -708,34 +675,32 @@ final class SystemAppearanceObserverTests: XCTestCase {
         harness.fireEffectiveAppearanceChanged()
         harness.fireEffectiveAppearanceChanged()
 
-        XCTAssertTrue(harness.events.isEmpty)
+        XCTAssertEqual(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count, 0)
 
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
 
-        let darkAquaName = NSAppearance.Name.darkAqua.rawValue
-        XCTAssertEqual(harness.events, [
-            "setApplicationAppearance(\(darkAquaName))",
-            "synchronizeTerminalThemeWithAppearance(\(darkAquaName), cmuxApp.systemAppearanceObserver)",
-            "postSystemAppearanceDidChange"
-        ])
+        XCTAssertEqual(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count, 1)
 
-        // Pins that lastResolvedPrefersDark is updated on every apply, not just seeded at startObserving().
+        // Pins that lastResolvedPrefersDark is updated on every apply, not just
+        // seeded at startObserving() — fire the same (now-current) value again
+        // immediately after a real transition and confirm it's a no-op.
         harness.fireEffectiveAppearanceChanged()
 
-        XCTAssertEqual(harness.events.count, 3)
+        XCTAssertEqual(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count, 1)
     }
 
-    func testReentrantFireDuringKickDoesNotLoop() {
+    // (f) Re-entrant fire during postSystemAppearanceDidChange() does not loop.
+    func testReentrantFireDuringPostDoesNotLoop() {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
-        // Simulate our own NSApplication.appearance write re-firing KVO with the
-        // same resolved value; bound the re-entrancy so a regression cannot hang
-        // the suite.
+        // Simulate a notification observer re-triggering the KVO handler
+        // synchronously from within the post; bound the re-entrancy so a
+        // regression cannot hang the suite.
         var reentrantFireCount = 0
-        harness.onSetApplicationAppearance = { [unowned harness] _ in
-            guard reentrantFireCount < 2 else { return }
+        harness.onPostSystemAppearanceDidChange = { [unowned harness] in
+            guard reentrantFireCount < 1 else { return }
             reentrantFireCount += 1
             harness.fireEffectiveAppearanceChanged()
         }
@@ -744,52 +709,29 @@ final class SystemAppearanceObserverTests: XCTestCase {
         harness.prefersDark = true
         harness.fireEffectiveAppearanceChanged()
 
-        let darkAquaName = NSAppearance.Name.darkAqua.rawValue
         XCTAssertEqual(harness.events, [
-            "setApplicationAppearance(\(darkAquaName))",
-            "synchronizeTerminalThemeWithAppearance(\(darkAquaName), cmuxApp.systemAppearanceObserver)",
-            "postSystemAppearanceDidChange"
-        ])
-
-        harness.runScheduledBlock()
-
-        XCTAssertEqual(harness.events, [
-            "setApplicationAppearance(\(darkAquaName))",
-            "synchronizeTerminalThemeWithAppearance(\(darkAquaName), cmuxApp.systemAppearanceObserver)",
+            "effectivePrefersDark(false)",
+            "effectivePrefersDark(true)",
             "postSystemAppearanceDidChange",
-            "setApplicationAppearance(nil)"
+            "effectivePrefersDark(true)",
         ])
-        XCTAssertEqual(reentrantFireCount, 2)
+        XCTAssertEqual(reentrantFireCount, 1)
+        XCTAssertEqual(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count, 1)
     }
 
-    func testNilRestoreSkippedWhenModeLeftSystemBeforeTick() {
-        let harness = Harness()
-        let observer = SystemAppearanceObserver(environment: harness.environment)
-
-        observer.startObserving()
-        harness.prefersDark = true
-        harness.fireEffectiveAppearanceChanged()
-
-        let eventCountBeforeTick = harness.events.count
-        harness.modeRawValue = AppearanceMode.dark.rawValue
-        harness.runScheduledBlock()
-
-        XCTAssertEqual(harness.events.count, eventCountBeforeTick)
-    }
-
+    // (d) Firing after stopObserving() produces nothing.
     func testFireAfterStopObservingProducesNoEvents() {
         let harness = Harness()
         let observer = SystemAppearanceObserver(environment: harness.environment)
 
         observer.startObserving()
         observer.stopObserving()
+        let eventsAfterStop = harness.events
 
         harness.prefersDark = true
-        let callCountBeforeFire = harness.systemPrefersDarkCallCount
         harness.fireEffectiveAppearanceChanged()
 
-        XCTAssertTrue(harness.events.isEmpty)
-        XCTAssertEqual(harness.systemPrefersDarkCallCount, callCountBeforeFire)
+        XCTAssertEqual(harness.events, eventsAfterStop)
     }
 
     func testStartObservingIsIdempotentAndStopTearsDown() {
