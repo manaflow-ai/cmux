@@ -16,14 +16,19 @@ public import CoreGraphics
 /// between them in the witness: the degenerate-bounds defer is decided *before*
 /// `attachDropZoneOverlayIfNeeded()` reparents the overlay, while the
 /// show/update/raise/hide decision needs the *post*-attach measured frames.
-public enum TerminalDropZoneOverlayTransitionPlanner: Sendable {
+public struct TerminalDropZoneOverlayTransitionPlanner: Sendable {
+    private let terminalSurfaceGeometry = TerminalSurfaceGeometry()
+
+    /// Creates a stateless terminal drop-zone overlay transition planner.
+    public init() {}
+
     /// Pre-attach gate: a requested zone on degenerate bounds defers.
     ///
     /// Returns `.deferZeroBounds` when a zone is requested while the bounds are
     /// too small (≤ 2pt on either axis), so the witness can stash the pending
     /// zone and return before attaching/measuring. Returns `nil` when the
     /// witness should proceed to attach, measure, and call `transition`.
-    public static func deferralTransition(
+    public func deferralTransition(
         hasZone: Bool,
         boundsTooSmall: Bool
     ) -> DropZoneOverlayTransition? {
@@ -42,7 +47,7 @@ public enum TerminalDropZoneOverlayTransitionPlanner: Sendable {
     /// - `zoneChanged`: whether the active zone differs from the previous zone.
     /// - `targetFrame`: the measured destination frame for the active zone.
     /// - `currentFrame`: the overlay's live frame.
-    public static func transition(
+    public func transition(
         hasZone: Bool,
         isHidden: Bool,
         zoneChanged: Bool,
@@ -53,7 +58,7 @@ public enum TerminalDropZoneOverlayTransitionPlanner: Sendable {
             return isHidden ? .noop : .hide
         }
 
-        let needsFrameUpdate = !TerminalSurfaceGeometry.approxEqual(
+        let needsFrameUpdate = !terminalSurfaceGeometry.approxEqual(
             currentFrame,
             targetFrame,
             epsilon: 0.5

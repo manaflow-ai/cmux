@@ -2602,37 +2602,41 @@ final class FilePreviewPDFChromeTests: XCTestCase {
 
     func testThumbnailSidebarPreferredWidthShrinksToPortraitContent() throws {
         let document = try makePDFDocument(pageSizes: [NSSize(width: 80, height: 160)])
+        let pdfSizing = FilePreviewPDFSizing()
 
-        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
+        let width = pdfSizing.preferredThumbnailSidebarWidth(for: document)
 
-        XCTAssertEqual(width, FilePreviewPDFSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
+        XCTAssertEqual(width, pdfSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
     }
 
     func testThumbnailSidebarPreferredWidthUsesThumbnailMinimumWithoutDocument() {
-        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: nil)
+        let pdfSizing = FilePreviewPDFSizing()
+        let width = pdfSizing.preferredThumbnailSidebarWidth(for: nil)
 
-        XCTAssertEqual(width, FilePreviewPDFSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
+        XCTAssertEqual(width, pdfSizing.minimumThumbnailSidebarWidth, accuracy: 0.001)
     }
 
     func testThumbnailSidebarPreferredWidthExpandsForLandscapeContent() throws {
         let document = try makePDFDocument(pageSizes: [NSSize(width: 160, height: 90)])
+        let pdfSizing = FilePreviewPDFSizing()
 
-        let width = FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
+        let width = pdfSizing.preferredThumbnailSidebarWidth(for: document)
 
         XCTAssertGreaterThan(width, 200)
-        XCTAssertLessThan(width, FilePreviewPDFSizing.maximumSidebarWidth)
+        XCTAssertLessThan(width, pdfSizing.maximumSidebarWidth)
     }
 
     func testSidebarWidthClampReservesMinimumContentWidth() {
-        let width = FilePreviewPDFSizing.clampedSidebarWidth(
+        let pdfSizing = FilePreviewPDFSizing()
+        let width = pdfSizing.clampedSidebarWidth(
             240,
-            containerWidth: FilePreviewPDFSizing.minimumSidebarWidth
-                + FilePreviewPDFSizing.minimumContentWidth
+            containerWidth: pdfSizing.minimumSidebarWidth
+                + pdfSizing.minimumContentWidth
                 - 40,
             dividerThickness: 1
         )
 
-        XCTAssertEqual(width, FilePreviewPDFSizing.minimumSidebarWidth, accuracy: 0.001)
+        XCTAssertEqual(width, pdfSizing.minimumSidebarWidth, accuracy: 0.001)
     }
 
     func testThumbnailSidebarKeepsSingleSelectionWhenProgrammaticallyChangingPage() throws {
@@ -2662,7 +2666,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginUsesVisibleClipWidth() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport().clampedClipOrigin(
             documentPoint: CGPoint(x: 500, y: 700),
             anchorOffsetInClip: CGPoint(x: 200, y: 300),
             documentBounds: CGRect(x: 0, y: 0, width: 1_000, height: 1_400),
@@ -2674,7 +2678,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginCentersSmallerDocuments() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = FilePreviewViewport().clampedClipOrigin(
             documentPoint: CGPoint(x: 54, y: 224.5),
             anchorOffsetInClip: CGPoint(x: 300, y: 400),
             documentBounds: CGRect(x: 0, y: 0, width: 108, height: 449),
@@ -2732,8 +2736,9 @@ private final class FilePreviewFocusTestView: NSView {
 @MainActor
 final class FilePreviewFocusCoordinatorTests: XCTestCase {
     func testPDFKeyboardRoutingUsesFocusedRegion() {
+        let keyboardRouting = FilePreviewPDFKeyboardRouting()
         XCTAssertEqual(
-            FilePreviewPDFKeyboardRouting.action(
+            keyboardRouting.action(
                 keyCode: UInt16(kVK_UpArrow),
                 modifiers: [],
                 region: .pdfThumbnails
@@ -2741,7 +2746,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .navigatePage(-1)
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardRouting.action(
+            keyboardRouting.action(
                 keyCode: UInt16(kVK_DownArrow),
                 modifiers: [],
                 region: .pdfThumbnails
@@ -2749,7 +2754,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .navigatePage(1)
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardRouting.action(
+            keyboardRouting.action(
                 keyCode: UInt16(kVK_UpArrow),
                 modifiers: [],
                 region: .pdfCanvas
@@ -2757,7 +2762,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .native
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardRouting.action(
+            keyboardRouting.action(
                 keyCode: UInt16(kVK_DownArrow),
                 modifiers: [],
                 region: .pdfOutline
@@ -2765,7 +2770,7 @@ final class FilePreviewFocusCoordinatorTests: XCTestCase {
             .native
         )
         XCTAssertEqual(
-            FilePreviewPDFKeyboardRouting.action(
+            keyboardRouting.action(
                 keyCode: UInt16(kVK_PageDown),
                 modifiers: .command,
                 region: .pdfThumbnails

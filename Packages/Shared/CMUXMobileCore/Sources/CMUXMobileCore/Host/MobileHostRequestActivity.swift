@@ -18,6 +18,9 @@ import Foundation
 /// shape. `@unchecked Sendable` is justified because the `NSLock` serializes every
 /// read and write of the three counters.
 public final class MobileHostRequestActivity: @unchecked Sendable {
+    // lint:allow lock — sync cross-actor activity counter: bumped from nonisolated
+    // connection/request paths, read synchronously by the git-metadata scheduler's
+    // quiet-window checks; an actor would async-ify sync callers on the hot path.
     private let lock = NSLock()
     private var activeRequestCount = 0
     private var activeConnectionCount = 0

@@ -880,7 +880,7 @@ extension TerminalController: ControlWorkspaceContext {
     // MARK: - workspace.action
 
     func controlWorkspaceColorPalette() -> [ControlWorkspaceColorPaletteEntry] {
-        WorkspaceTabColorSettings.palette().map {
+        WorkspaceTabColorSettings().palette().map {
             ControlWorkspaceColorPaletteEntry(name: $0.name, hex: $0.hex)
         }
     }

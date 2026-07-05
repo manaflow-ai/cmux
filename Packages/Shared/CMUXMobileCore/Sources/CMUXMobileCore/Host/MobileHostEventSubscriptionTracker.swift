@@ -33,6 +33,8 @@ extension Notification.Name {
 /// `@unchecked Sendable` is justified because the `NSLock` serializes every read
 /// and write of the counter dictionary.
 public final class MobileHostEventSubscriptionTracker: @unchecked Sendable {
+    // lint:allow lock — synchronous cross-actor subscription registry read on
+    // the event-emit path; an actor would async-ify the synchronous emit checks.
     private let lock = NSLock()
     private var topicCounts: [String: Int] = [:]
 

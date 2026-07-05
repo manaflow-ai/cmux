@@ -7,9 +7,12 @@ public import AppKit
 /// The view supplies the live AppKit conditions (interactive-geometry-resize
 /// flag, drag-pasteboard presence, and the current event type) as plain values;
 /// this type owns only the stateless classification.
-public enum TerminalSurfaceResizeDeferralPolicy: Sendable {
+public struct TerminalSurfaceResizeDeferralPolicy: Sendable {
+    /// Creates a stateless terminal surface resize-deferral policy.
+    public init() {}
+
     /// Whether an event type represents an in-flight mouse drag.
-    public static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
+    public func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             return true
@@ -21,7 +24,7 @@ public enum TerminalSurfaceResizeDeferralPolicy: Sendable {
     /// Whether an event type represents an in-flight mouse drag, used by the
     /// drag-logging gate. Identical classification to ``isDragResizeEvent(_:)``,
     /// kept as a distinct name so the debug logging call sites read clearly.
-    public static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
+    public func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
             return true
@@ -38,7 +41,7 @@ public enum TerminalSurfaceResizeDeferralPolicy: Sendable {
     /// stuck at their old size. Interactive geometry resize already has an
     /// explicit fast path for sidebar and split-divider drags, so do not let
     /// stale drag-pasteboard state suppress those updates.
-    public static func shouldDefer(
+    public func shouldDefer(
         interactiveGeometryResizeActive: Bool,
         hasTabDragPasteboardTypes: Bool,
         currentEventType: NSEvent.EventType?

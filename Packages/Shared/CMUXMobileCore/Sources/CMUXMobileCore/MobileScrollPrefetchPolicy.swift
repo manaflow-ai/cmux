@@ -25,19 +25,14 @@ public struct MobileScrollPrefetchPolicy: Equatable, Hashable, Sendable {
     /// requests, keeping ordinary scroll RPCs small.
     public var prefetchScrollbackLineBudget: Int
 
-    /// The default policy: a 240-row cold-attach replay window and a 600-row
-    /// explicit-prefetch cap.
-    public static let standard = MobileScrollPrefetchPolicy(
-        replayScrollbackLineBudget: 240,
-        prefetchScrollbackLineBudget: 600
-    )
-
-    /// Creates a scroll-prefetch policy from explicit scrollback budgets.
+    /// Creates a scroll-prefetch policy from explicit scrollback budgets. The
+    /// defaults are the standard policy: a 240-row cold-attach replay window
+    /// and a 600-row explicit-prefetch cap.
     ///
     /// - Parameters:
     ///   - replayScrollbackLineBudget: Rows included in a cold-attach replay.
     ///   - prefetchScrollbackLineBudget: Cap for an explicit prefetch request.
-    public init(replayScrollbackLineBudget: Int, prefetchScrollbackLineBudget: Int) {
+    public init(replayScrollbackLineBudget: Int = 240, prefetchScrollbackLineBudget: Int = 600) {
         self.replayScrollbackLineBudget = replayScrollbackLineBudget
         self.prefetchScrollbackLineBudget = prefetchScrollbackLineBudget
     }

@@ -284,16 +284,17 @@ private extension FeedCoordinator {
             switch event.hookEventName {
             case .permissionRequest:
                 let permissionSource = WorkstreamSource(wireName: event.source) ?? .claude
+                let permissionActionPolicy = FeedPermissionActionPolicy()
                 categoryId = NotificationFeedPermissionCapabilities(
-                    supportsOnce: FeedPermissionActionPolicy.supportsOncePermissionMode(
+                    supportsOnce: permissionActionPolicy.supportsOncePermissionMode(
                         source: permissionSource,
                         toolInputJSON: event.toolInputJSON
                     ),
-                    supportsAlways: FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                    supportsAlways: permissionActionPolicy.supportsAlwaysPermissionMode(
                         source: permissionSource,
                         toolInputJSON: event.toolInputJSON
                     ),
-                    supportsAll: FeedPermissionActionPolicy.supportsAllPermissionMode(
+                    supportsAll: permissionActionPolicy.supportsAllPermissionMode(
                         source: permissionSource,
                         toolInputJSON: event.toolInputJSON
                     )

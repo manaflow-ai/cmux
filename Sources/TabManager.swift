@@ -1463,7 +1463,7 @@ class TabManager {
         // The palette-name → hex codec is an app-side `UserDefaults`-backed
         // settings namespace (a separate settings slice); resolve here, then
         // forward the resolved hex to the reorder coordinator's apply plan.
-        guard let color = WorkspaceTabColorSettings.currentColorHex(named: name) else { return }
+        guard let color = WorkspaceTabColorSettings().currentColorHex(named: name) else { return }
         applyWorkspaceColor(color, toWorkspaceIds: workspaceIds)
     }
 

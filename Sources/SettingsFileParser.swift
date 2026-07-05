@@ -389,21 +389,21 @@ struct SettingsFileParser {
                     continue
                 }
                 guard let hex = jsonString(rawValue),
-                      let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
+                      let normalizedHex = WorkspaceTabColorSettings().normalizedHex(hex) else {
                     settingsFileParserLogger.warning("ignoring invalid workspace color '\(name, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
                 normalizedPalette[name] = normalizedHex
             }
-            snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedPalette)
+            snapshot.managedUserDefaults[WorkspaceTabColorSettings().paletteKey] = .stringDictionary(normalizedPalette)
             return
         }
 
-        let validNames = Set(WorkspaceTabColorSettings.defaultPalette.map(\.name))
+        let validNames = Set(WorkspaceTabColorSettings().defaultPalette.map(\.name))
         var normalizedLegacyPalette: [String: String]? = nil
         if let rawOverrides = section["paletteOverrides"] as? [String: Any] {
             var palette = Dictionary(
-                uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+                uniqueKeysWithValues: WorkspaceTabColorSettings().defaultPalette.map { ($0.name, $0.hex) }
             )
             for (name, rawValue) in rawOverrides {
                 guard validNames.contains(name) else {
@@ -411,7 +411,7 @@ struct SettingsFileParser {
                     continue
                 }
                 guard let hex = jsonString(rawValue),
-                      let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
+                      let normalizedHex = WorkspaceTabColorSettings().normalizedHex(hex) else {
                     settingsFileParserLogger.warning("ignoring invalid workspace color override '\(name, privacy: .private(mask: .hash))' in \(sourcePath, privacy: .private(mask: .hash))")
                     continue
                 }
@@ -421,12 +421,12 @@ struct SettingsFileParser {
         }
         if let rawCustomColors = jsonStringArray(section["customColors"]) {
             var palette = normalizedLegacyPalette ?? Dictionary(
-                uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+                uniqueKeysWithValues: WorkspaceTabColorSettings().defaultPalette.map { ($0.name, $0.hex) }
             )
             var existingNames = Set(palette.keys)
             var seenCustomHexes: Set<String> = []
             for rawHex in rawCustomColors {
-                guard let normalizedHex = WorkspaceTabColorSettings.normalizedHex(rawHex),
+                guard let normalizedHex = WorkspaceTabColorSettings().normalizedHex(rawHex),
                       seenCustomHexes.insert(normalizedHex).inserted else { continue }
                 var index = 1
                 while existingNames.contains("Custom \(index)") {
@@ -439,7 +439,7 @@ struct SettingsFileParser {
             normalizedLegacyPalette = palette
         }
         if let normalizedLegacyPalette {
-            snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedLegacyPalette)
+            snapshot.managedUserDefaults[WorkspaceTabColorSettings().paletteKey] = .stringDictionary(normalizedLegacyPalette)
         }
     }
 
@@ -452,7 +452,7 @@ struct SettingsFileParser {
             snapshot.managedUserDefaults[SidebarMatchTerminalBackgroundSettings.userDefaultsKey] = .bool(value)
         }
         if let raw = jsonString(section["tintColor"]) {
-            guard let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+            guard let normalized = WorkspaceTabColorSettings().normalizedHex(raw) else {
                 logInvalid("sidebarAppearance.tintColor", sourcePath: sourcePath)
                 return
             }
@@ -520,7 +520,7 @@ struct SettingsFileParser {
             return .some(nil)
         }
         guard let raw = jsonString(rawValue),
-              let normalized = WorkspaceTabColorSettings.normalizedHex(raw) else {
+              let normalized = WorkspaceTabColorSettings().normalizedHex(raw) else {
             logInvalid(path, sourcePath: sourcePath)
             return nil
         }

@@ -4,9 +4,12 @@ public import PDFKit
 /// Resolves which PDF page is visible in the file-preview host by sampling clip-view points
 /// through the `PDFView` hit-test. Stateless; reads the views/document it is handed.
 @MainActor
-public enum FilePreviewPDFVisiblePageResolver {
+public struct FilePreviewPDFVisiblePageResolver {
+    /// Creates a stateless visible-page resolver.
+    public init() {}
+
     /// The page nearest the top of the visible clip region, falling back to `pdfView.currentPage`.
-    public static func topVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
+    public func topVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
         guard let scrollView else { return pdfView.currentPage }
         let clipView = scrollView.contentView
         let clipBounds = clipView.bounds
@@ -37,7 +40,7 @@ public enum FilePreviewPDFVisiblePageResolver {
 
     /// The page the user is most likely reading: a document edge page when scrolled to top/bottom,
     /// else the center-weighted dominant sampled page, else `topVisiblePage`.
-    public static func selectedVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
+    public func selectedVisiblePage(in pdfView: PDFView, scrollView: NSScrollView?) -> PDFPage? {
         guard let scrollView else { return pdfView.currentPage }
         guard let document = pdfView.document, document.pageCount > 0 else { return pdfView.currentPage }
 
@@ -63,7 +66,7 @@ public enum FilePreviewPDFVisiblePageResolver {
         return topVisiblePage(in: pdfView, scrollView: scrollView)
     }
 
-    static func verticalDocumentEdgePageIndex(
+    func verticalDocumentEdgePageIndex(
         pageCount: Int,
         clipBounds: CGRect,
         documentBounds: CGRect,
@@ -95,7 +98,7 @@ public enum FilePreviewPDFVisiblePageResolver {
         return nil
     }
 
-    private static func dominantVisiblePage(
+    private func dominantVisiblePage(
         in pdfView: PDFView,
         clipView: NSClipView,
         clipBounds: CGRect
@@ -128,7 +131,7 @@ public enum FilePreviewPDFVisiblePageResolver {
         return dominantPageIndex.flatMap { document.page(at: $0) }
     }
 
-    private static func centerWeightedScore(for yRatio: CGFloat) -> Int {
+    private func centerWeightedScore(for yRatio: CGFloat) -> Int {
         switch abs(yRatio - 0.5) {
         case 0..<0.01:
             4

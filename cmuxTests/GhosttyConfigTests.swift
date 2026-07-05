@@ -30,7 +30,7 @@ private typealias BrowserThemeMode = cmux.BrowserThemeMode
 final class SidebarPathFormatterTests: XCTestCase {
     func testShortenedPathReplacesExactHomeDirectory() {
         XCTAssertEqual(
-            SidebarPathFormatter.shortenedPath(
+            SidebarPathFormatter().shortenedPath(
                 "/Users/example",
                 homeDirectoryPath: "/Users/example"
             ),
@@ -40,7 +40,7 @@ final class SidebarPathFormatterTests: XCTestCase {
 
     func testShortenedPathReplacesHomeDirectoryPrefix() {
         XCTAssertEqual(
-            SidebarPathFormatter.shortenedPath(
+            SidebarPathFormatter().shortenedPath(
                 "/Users/example/projects/cmux",
                 homeDirectoryPath: "/Users/example"
             ),
@@ -50,7 +50,7 @@ final class SidebarPathFormatterTests: XCTestCase {
 
     func testShortenedPathLeavesExternalPathUnchanged() {
         XCTAssertEqual(
-            SidebarPathFormatter.shortenedPath(
+            SidebarPathFormatter().shortenedPath(
                 "/tmp/cmux",
                 homeDirectoryPath: "/Users/example"
             ),

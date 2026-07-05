@@ -9,7 +9,7 @@ import SwiftUI
 /// (`Config/WorkspaceTabColorSettings.swift`); this extension stays in the app
 /// target because it returns AppKit/SwiftUI color types.
 extension WorkspaceTabColorSettings {
-    static func displayColor(
+    func displayColor(
         hex: String,
         colorScheme: ColorScheme,
         forceBright: Bool = false
@@ -20,7 +20,7 @@ extension WorkspaceTabColorSettings {
         return Color(nsColor: color)
     }
 
-    static func displayNSColor(
+    func displayNSColor(
         hex: String,
         colorScheme: ColorScheme,
         forceBright: Bool = false
@@ -36,7 +36,7 @@ extension WorkspaceTabColorSettings {
         return baseColor
     }
 
-    private static func brightenedForDarkAppearance(_ color: NSColor) -> NSColor {
+    private func brightenedForDarkAppearance(_ color: NSColor) -> NSColor {
         let rgbColor = color.usingColorSpace(.sRGB) ?? color
         var hue: CGFloat = 0
         var saturation: CGFloat = 0

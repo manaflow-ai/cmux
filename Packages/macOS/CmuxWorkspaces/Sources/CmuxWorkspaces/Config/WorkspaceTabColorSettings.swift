@@ -10,21 +10,17 @@ import CmuxSettings
 /// On-disk format contract: reads and writes the same `workspaceColors.palette`
 /// UserDefaults key (sourced from the CmuxSettings catalog so the wire string is
 /// defined once) and the same two legacy keys, producing byte-identical persisted
-/// maps. Moved verbatim from the app target's `WorkspaceTabColorSettings` /
+/// maps. Moved from the app target's `WorkspaceTabColorSettings` /
 /// `WorkspaceTabColorResolution`.
-// lint:allow namespace-type — faithful byte-identical lift of the workspace
-// tab-color value/persistence namespace; preserving the on-disk Defaults format
-// is the priority, so an injected palette-repository redesign is deferred to a
-// separate PR.
-public enum WorkspaceTabColorSettings {
+public struct WorkspaceTabColorSettings {
     /// The UserDefaults key the effective palette persists under, sourced from the
     /// CmuxSettings `workspaceColors.palette` catalog entry.
-    public static let paletteKey = WorkspaceColorsCatalogSection().palette.userDefaultsKey
+    public let paletteKey = WorkspaceColorsCatalogSection().palette.userDefaultsKey
 
-    private static let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
-    private static let legacyCustomColorsKey = "workspaceTabColor.customColors"
+    private let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
+    private let legacyCustomColorsKey = "workspaceTabColor.customColors"
 
-    private static let originalPRPalette: [WorkspaceTabColorEntry] = [
+    private let originalPRPalette: [WorkspaceTabColorEntry] = [
         WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
         WorkspaceTabColorEntry(name: "Crimson", hex: "#922B21"),
         WorkspaceTabColorEntry(name: "Orange", hex: "#A04000"),
@@ -43,14 +39,17 @@ public enum WorkspaceTabColorSettings {
         WorkspaceTabColorEntry(name: "Charcoal", hex: "#3E4B5E"),
     ]
 
+    /// Creates a workspace tab color settings helper.
+    public init() {}
+
     /// The built-in default palette in its canonical display order.
-    public static var defaultPalette: [WorkspaceTabColorEntry] {
+    public var defaultPalette: [WorkspaceTabColorEntry] {
         originalPRPalette
     }
 
     /// The effective palette (built-ins in canonical order, then custom entries
     /// sorted by name), resolved from `defaults`.
-    public static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+    public func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
         let paletteMap = effectivePaletteMap(defaults: defaults)
         let builtInOrder = defaultPalette.compactMap { entry -> WorkspaceTabColorEntry? in
             guard let hex = paletteMap[entry.name] else { return nil }
@@ -67,26 +66,26 @@ public enum WorkspaceTabColorSettings {
     }
 
     /// The custom (non-built-in) entries from the effective palette.
-    public static func customPaletteEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+    public func customPaletteEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
         let builtInNames = Set(defaultPalette.map(\.name))
         return palette(defaults: defaults).filter { !builtInNames.contains($0.name) }
     }
 
     /// The built-in default hex for a named color, or `nil` when the name is not
     /// a built-in.
-    public static func defaultColorHex(named name: String) -> String? {
+    public func defaultColorHex(named name: String) -> String? {
         defaultPalette.first(where: { $0.name == name })?.hex
     }
 
     /// The current effective hex for a named color, or `nil` when the name is not
     /// in the effective palette.
-    public static func currentColorHex(named name: String, defaults: UserDefaults = .standard) -> String? {
+    public func currentColorHex(named name: String, defaults: UserDefaults = .standard) -> String? {
         effectivePaletteMap(defaults: defaults)[name]
     }
 
     /// Sets (or adds) the hex for a named color, persisting the updated palette.
     /// No-ops when the name or hex is invalid.
-    public static func setColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
+    public func setColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
         guard let normalizedName = normalizedColorName(name),
               let normalizedHex = normalizedHex(hex) else { return }
 
@@ -96,7 +95,7 @@ public enum WorkspaceTabColorSettings {
     }
 
     /// Removes a named color from the palette, persisting the result.
-    public static func removeColor(named name: String, defaults: UserDefaults = .standard) {
+    public func removeColor(named name: String, defaults: UserDefaults = .standard) {
         guard let normalizedName = normalizedColorName(name) else { return }
         var palette = editablePaletteMap(defaults: defaults)
         palette.removeValue(forKey: normalizedName)
@@ -106,7 +105,7 @@ public enum WorkspaceTabColorSettings {
     /// Persists `rawPalette` to `defaults`, normalizing entries and removing the
     /// key entirely when the result equals the built-in defaults. Always clears
     /// the two legacy keys.
-    public static func persistPaletteMap(_ rawPalette: [String: String], defaults: UserDefaults = .standard) {
+    public func persistPaletteMap(_ rawPalette: [String: String], defaults: UserDefaults = .standard) {
         let normalizedPalette = normalizedPaletteMap(rawPalette)
         if normalizedPalette == defaultPaletteMap {
             defaults.removeObject(forKey: paletteKey)
@@ -119,7 +118,7 @@ public enum WorkspaceTabColorSettings {
 
     /// The stored palette map (or its legacy migration) for backup, or `nil` when
     /// nothing is stored.
-    public static func backupPaletteMap(defaults: UserDefaults = .standard) -> [String: String]? {
+    public func backupPaletteMap(defaults: UserDefaults = .standard) -> [String: String]? {
         if let stored = storedPaletteMap(defaults: defaults) {
             return stored
         }
@@ -127,14 +126,14 @@ public enum WorkspaceTabColorSettings {
     }
 
     /// The effective palette as a name→hex map.
-    public static func resolvedPaletteMap(defaults: UserDefaults = .standard) -> [String: String] {
+    public func resolvedPaletteMap(defaults: UserDefaults = .standard) -> [String: String] {
         effectivePaletteMap(defaults: defaults)
     }
 
     /// Adds a custom color by hex, generating a `Custom N` name, and returns the
     /// normalized hex. Returns the existing match without adding a duplicate, or
     /// `nil` for an invalid hex.
-    public static func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
+    public func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
         guard let normalized = normalizedHex(hex) else { return nil }
         var palette = editablePaletteMap(defaults: defaults)
         if palette.contains(where: { $0.value == normalized }) {
@@ -148,7 +147,7 @@ public enum WorkspaceTabColorSettings {
 
     /// Resets the palette to built-in defaults by clearing the stored and legacy
     /// keys.
-    public static func reset(defaults: UserDefaults = .standard) {
+    public func reset(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: paletteKey)
         defaults.removeObject(forKey: legacyDefaultOverridesKey)
         defaults.removeObject(forKey: legacyCustomColorsKey)
@@ -156,7 +155,7 @@ public enum WorkspaceTabColorSettings {
 
     /// Normalizes a hex string to `#RRGGBB` uppercase, or `nil` when it is not a
     /// valid 6-digit hex color.
-    public static func normalizedHex(_ raw: String) -> String? {
+    public func normalizedHex(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
@@ -168,7 +167,7 @@ public enum WorkspaceTabColorSettings {
     /// Resolves a raw color string to a normalized hex: a literal hex normalizes
     /// directly, otherwise the value is matched case-insensitively against the
     /// effective palette's color names. Returns `nil` when neither resolves.
-    public static func resolvedColorHex(_ raw: String, defaults: UserDefaults = .standard) -> String? {
+    public func resolvedColorHex(_ raw: String, defaults: UserDefaults = .standard) -> String? {
         if let normalized = normalizedHex(raw) {
             return normalized
         }
@@ -182,14 +181,14 @@ public enum WorkspaceTabColorSettings {
 
     /// A stable fingerprint of the effective palette (sorted `name=hex` lines),
     /// used to invalidate parsed-config caches when the palette changes.
-    public static func paletteCacheFingerprint(defaults: UserDefaults = .standard) -> String {
+    public func paletteCacheFingerprint(defaults: UserDefaults = .standard) -> String {
         resolvedPaletteMap(defaults: defaults)
             .sorted { lhs, rhs in lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "\n")
     }
 
-    private static func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {
+    private func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {
         if let stored = storedPaletteMap(defaults: defaults) {
             return stored
         }
@@ -199,7 +198,7 @@ public enum WorkspaceTabColorSettings {
         return defaultPaletteMap
     }
 
-    private static func editablePaletteMap(defaults: UserDefaults) -> [String: String] {
+    private func editablePaletteMap(defaults: UserDefaults) -> [String: String] {
         if let stored = storedPaletteMap(defaults: defaults) {
             return stored
         }
@@ -209,12 +208,12 @@ public enum WorkspaceTabColorSettings {
         return defaultPaletteMap
     }
 
-    private static func storedPaletteMap(defaults: UserDefaults) -> [String: String]? {
+    private func storedPaletteMap(defaults: UserDefaults) -> [String: String]? {
         guard let raw = defaults.dictionary(forKey: paletteKey) as? [String: String] else { return nil }
         return normalizedPaletteMap(raw)
     }
 
-    private static func legacyPaletteMap(defaults: UserDefaults) -> [String: String]? {
+    private func legacyPaletteMap(defaults: UserDefaults) -> [String: String]? {
         let hasLegacyOverrides = defaults.object(forKey: legacyDefaultOverridesKey) != nil
         let hasLegacyCustomColors = defaults.object(forKey: legacyCustomColorsKey) != nil
         guard hasLegacyOverrides || hasLegacyCustomColors else { return nil }
@@ -248,7 +247,7 @@ public enum WorkspaceTabColorSettings {
         return palette
     }
 
-    private static func normalizedPaletteMap(_ rawPalette: [String: String]) -> [String: String] {
+    private func normalizedPaletteMap(_ rawPalette: [String: String]) -> [String: String] {
         var normalized: [String: String] = [:]
         for (rawName, rawHex) in rawPalette {
             guard let name = normalizedColorName(rawName),
@@ -258,16 +257,16 @@ public enum WorkspaceTabColorSettings {
         return normalized
     }
 
-    private static var defaultPaletteMap: [String: String] {
+    private var defaultPaletteMap: [String: String] {
         Dictionary(uniqueKeysWithValues: defaultPalette.map { ($0.name, $0.hex) })
     }
 
-    private static func normalizedColorName(_ raw: String) -> String? {
+    private func normalizedColorName(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func nextCustomColorName(
+    private func nextCustomColorName(
         existingNames: Set<String>,
         startingAt initialIndex: Int = 1
     ) -> String {

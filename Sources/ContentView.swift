@@ -149,6 +149,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
+    @State private var extensionSidebarInspectorWindowController = CmuxExtensionSidebarInspectorWindowController()
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     /// Owns the transient cursor / hit-band / pointer-monitor / drag-active state
     /// for the two sidebar resizer dividers. The width math and overlay views stay
@@ -240,7 +241,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
-        let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex)
+        let resolvedActivePaneBorderColorHex = WorkspaceTabColorSettings().normalizedHex(activePaneBorderColorHex)
         let shouldShowActivePaneBorder = shouldShowActivePaneBorder(for: workspace, colorHex: resolvedActivePaneBorderColorHex)
         guard usesWorkspacePaneOverlay || shouldShowActivePaneBorder else { return nil }
 
@@ -379,7 +380,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         if TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay { return true }
         if WindowTmuxWorkspacePaneOverlayController.controller(for: window, createIfNeeded: false)?.hasRenderedState == true { return true }
         guard let workspace = tabManager.selectedWorkspace else { return false }
-        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings.normalizedHex(activePaneBorderColorHex))
+        return shouldShowActivePaneBorder(for: workspace, colorHex: WorkspaceTabColorSettings().normalizedHex(activePaneBorderColorHex))
     }
 
     private func scheduleTmuxWorkspacePaneWindowOverlayGeometryRefresh(in window: NSWindow?) {
@@ -3679,7 +3680,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         .filter { !$0.isEmpty }
 
         var workspaceColor: [CommandPaletteCommandContribution] = []
-        for entry in WorkspaceTabColorSettings.palette() {
+        for entry in WorkspaceTabColorSettings().palette() {
             workspaceColor.append(
                 CommandPaletteCommandContribution(
                     commandId: CommandPaletteHashedCommandID(domain: .workspaceColor, key: entry.name).value,
@@ -4062,7 +4063,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             }
             tabManager.applyWorkspaceColor(nil, toWorkspaceIds: [workspace.id])
         }
-        for entry in WorkspaceTabColorSettings.palette() {
+        for entry in WorkspaceTabColorSettings().palette() {
             registry.register(commandId: CommandPaletteHashedCommandID(domain: .workspaceColor, key: entry.name).value) {
                 guard let workspace = tabManager.selectedWorkspace else {
                     NSSound.beep()
@@ -6899,7 +6900,7 @@ struct VerticalTabsSidebar: View {
         ExtensionSidebarSnapshotBuilder().renderedText(
             text,
             now: now,
-            relativeDate: { CmuxExtensionRelativeTimeFormatter.string(from: $0, to: $1) }
+            relativeDate: { CmuxExtensionRelativeTimeFormatter().string(from: $0, to: $1) }
         )
     }
 
@@ -6934,7 +6935,7 @@ struct VerticalTabsSidebar: View {
                 createExtensionWorktreeWorkspace(for: section.treeSection)
             },
             onSelect: selectExtensionSidebarWorkspace,
-            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
+            onOpenWindow: extensionSidebarInspectorWindowController.show
         )
     }
 
@@ -8151,7 +8152,7 @@ struct TabItemView: View, Equatable {
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
         let groupSelectedShortcut = KeyboardShortcutSettings.shortcut(for: .groupSelectedWorkspaces)
         let groupInputs = workspaceGroupMenuInputs(targetIds: targetIds)
-        let palette = WorkspaceTabColorSettings.palette().map { entry in
+        let palette = WorkspaceTabColorSettings().palette().map { entry in
             SidebarWorkspaceColorMenuItem(id: entry.id, name: entry.name, hex: entry.hex)
         }
         let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
@@ -8324,7 +8325,7 @@ struct TabItemView: View, Equatable {
     }
 
     private func tabColorSwatchColor(for hex: String) -> NSColor {
-        WorkspaceTabColorSettings.displayNSColor(
+        WorkspaceTabColorSettings().displayNSColor(
             hex: hex,
             colorScheme: colorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail

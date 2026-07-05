@@ -254,6 +254,7 @@ extension SessionIndexStore {
         guard !roots.isEmpty else { return [] }
 
         let fm = FileManager.default
+        let metadataReader = SessionJSONLMetadataReader()
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
 
         for root in roots {
@@ -276,8 +277,8 @@ extension SessionIndexStore {
                 let cwd = RovoDevMetadataFields.firstString(from: object, keys: registeredJSONLCWDKeys())
                 if let cwdFilter, cwd != cwdFilter { return false }
 
-                let title = SessionJSONLMetadataReader.antigravityHistoryTitle(in: object) ?? ""
-                guard SessionJSONLMetadataReader.antigravityHistoryMatchesNeedle(
+                let title = metadataReader.antigravityHistoryTitle(in: object) ?? ""
+                guard metadataReader.antigravityHistoryMatchesNeedle(
                     needle: needle,
                     sessionId: sessionId,
                     title: title,
@@ -286,7 +287,7 @@ extension SessionIndexStore {
                     return false
                 }
 
-                let modified = SessionJSONLMetadataReader.antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
+                let modified = metadataReader.antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
                 let metadata = AntigravityHistoryMetadata(
                     sessionId: sessionId,
                     title: title,
@@ -410,10 +411,11 @@ extension SessionIndexStore {
 
     nonisolated private static func extractGrokSessionMetadata(url: URL) -> GrokSessionMetadata {
         var metadata = GrokSessionMetadata()
+        let metadataReader = SessionJSONLMetadataReader()
         var remainingBranchProbeLines: Int?
         url.forEachJSONLine(maxBytes: 512 * 1024) { object in
             if metadata.title.isEmpty {
-                metadata.title = SessionJSONLMetadataReader.grokTitle(in: object) ?? ""
+                metadata.title = metadataReader.grokTitle(in: object) ?? ""
             }
             if metadata.model == nil {
                 metadata.model = RovoDevMetadataFields.firstString(from: object, keys: ["model", "modelId", "modelID", "model_id"])
@@ -458,6 +460,7 @@ extension SessionIndexStore {
         fallbackCWD: String?
     ) -> RegisteredAgentJSONLMetadata {
         var metadata = RegisteredAgentJSONLMetadata()
+        let metadataReader = SessionJSONLMetadataReader()
         let needsNativeSessionID: Bool
         switch registration.sessionIdSource {
         case .argvOption:
@@ -479,17 +482,17 @@ extension SessionIndexStore {
                 metadata.branch = RovoDevMetadataFields.firstString(from: object, keys: ["gitBranch", "branch"])
             }
             if metadata.title.isEmpty {
-                metadata.title = SessionJSONLMetadataReader.firstTopLevelTitle(in: object) ?? ""
+                metadata.title = metadataReader.firstTopLevelTitle(in: object) ?? ""
             }
             if metadata.title.isEmpty, let message = object["message"] as? [String: Any] {
-                if SessionJSONLMetadataReader.shouldUseMessageAsTitle(message) {
-                    metadata.title = SessionJSONLMetadataReader.firstText(in: message, keys: ["content", "text"]) ?? ""
+                if metadataReader.shouldUseMessageAsTitle(message) {
+                    metadata.title = metadataReader.firstText(in: message, keys: ["content", "text"]) ?? ""
                 }
             }
             if metadata.title.isEmpty, let messages = object["messages"] as? [[String: Any]] {
                 metadata.title = messages.compactMap { message in
-                    SessionJSONLMetadataReader.shouldUseMessageAsTitle(message)
-                        ? SessionJSONLMetadataReader.firstText(in: message, keys: ["content", "text"])
+                    metadataReader.shouldUseMessageAsTitle(message)
+                        ? metadataReader.firstText(in: message, keys: ["content", "text"])
                         : nil
                 }.first ?? ""
             }

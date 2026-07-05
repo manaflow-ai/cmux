@@ -8,7 +8,7 @@
 /// live AppKit conditions to plain `Bool`s and asks this type only which sibling
 /// the new view should be positioned above, so the decision stays a
 /// deterministic, testable value computation that references no AppKit.
-public enum TerminalOverlayZOrderPolicy: Sendable {
+public struct TerminalOverlayZOrderPolicy: Sendable {
     /// One of the scroll view's overlay siblings a view can be positioned above.
     public enum Sibling: Sendable, Equatable {
         /// The caller-supplied overlay sibling (a search or selection overlay).
@@ -26,13 +26,16 @@ public enum TerminalOverlayZOrderPolicy: Sendable {
         case aboveAll
     }
 
+    /// Creates a stateless terminal overlay z-order policy.
+    public init() {}
+
     /// Where the image-transfer indicator should sit relative to its siblings.
     ///
     /// Sits above the caller's overlay when that overlay is a live sibling;
     /// otherwise sits above the keyboard-copy-mode badge when the badge is a
     /// live, visible sibling; otherwise sits above everything. The witness has
     /// already applied the indicator's own `isHidden` guard before calling this.
-    public static func imageTransferIndicatorPlacement(
+    public func imageTransferIndicatorPlacement(
         overlayIsSelfSibling: Bool,
         badgeIsSelfSibling: Bool,
         badgeHidden: Bool
@@ -51,7 +54,7 @@ public enum TerminalOverlayZOrderPolicy: Sendable {
     /// Sits above the caller's overlay when that overlay is a live sibling;
     /// otherwise sits above everything. The witness has already applied the
     /// badge's own `isHidden` guard before calling this.
-    public static func keyboardCopyModeBadgePlacement(
+    public func keyboardCopyModeBadgePlacement(
         overlayIsSelfSibling: Bool
     ) -> Placement {
         overlayIsSelfSibling ? .above(.overlay) : .aboveAll

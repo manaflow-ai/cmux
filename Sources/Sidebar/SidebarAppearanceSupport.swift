@@ -199,7 +199,7 @@ func sidebarWorkspaceRowExplicitRailNSColor(
           let customColorHex else {
         return nil
     }
-    return WorkspaceTabColorSettings.displayNSColor(
+    return WorkspaceTabColorSettings().displayNSColor(
         hex: customColorHex,
         colorScheme: colorScheme,
         forceBright: true
@@ -220,7 +220,7 @@ func sidebarWorkspaceRowBackgroundStyle(
     )
     let accentBackground = cmuxAccentNSColor(for: colorScheme)
     let customBackground = customColorHex.flatMap {
-        WorkspaceTabColorSettings.displayNSColor(
+        WorkspaceTabColorSettings().displayNSColor(
             hex: $0,
             colorScheme: colorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail

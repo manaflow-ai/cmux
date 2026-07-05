@@ -4,7 +4,7 @@ import Foundation
 extension TerminalController {
     /// The scrollback-budget policy for the mobile terminal data plane,
     /// owning the replay/prefetch row windows and the prefetch clamp.
-    nonisolated static let mobileScrollPrefetchPolicy = MobileScrollPrefetchPolicy.standard
+    nonisolated static let mobileScrollPrefetchPolicy = MobileScrollPrefetchPolicy()
 
     /// Scrollback rows included in a cold-attach render-grid replay snapshot.
     nonisolated static var mobileReplayScrollbackLineBudget: Int {

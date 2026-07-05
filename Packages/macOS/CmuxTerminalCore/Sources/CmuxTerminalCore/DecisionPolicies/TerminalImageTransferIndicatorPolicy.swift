@@ -13,7 +13,10 @@
 /// plain `Bool`s and asks this type only whether to proceed, so the decisions
 /// stay deterministic, testable value computations that reference no AppKit and
 /// hold no reference to the app-target `TerminalImageTransferOperation`.
-public enum TerminalImageTransferIndicatorPolicy: Sendable {
+public struct TerminalImageTransferIndicatorPolicy: Sendable {
+    /// Creates a stateless terminal image-transfer indicator policy.
+    public init() {}
+
     /// Whether the delayed "reveal the spinner" work item should still run.
     ///
     /// The witness schedules a `DispatchWorkItem` 0.15s after a transfer begins.
@@ -24,7 +27,7 @@ public enum TerminalImageTransferIndicatorPolicy: Sendable {
     /// - `operationIsStillActive`: whether the scheduled operation is identical
     ///   (`===`) to the currently active operation.
     /// - `operationIsCancelled`: the operation's live `isCancelled` flag.
-    public static func shouldShowAfterDelay(
+    public func shouldShowAfterDelay(
         operationIsStillActive: Bool,
         operationIsCancelled: Bool
     ) -> Bool {
@@ -41,7 +44,7 @@ public enum TerminalImageTransferIndicatorPolicy: Sendable {
     ///   operation (`operation != nil`).
     /// - `requestedMatchesActive`: whether the requested operation is identical
     ///   (`===`) to the currently active operation.
-    public static func shouldEnd(
+    public func shouldEnd(
         hasRequestedOperation: Bool,
         requestedMatchesActive: Bool
     ) -> Bool {

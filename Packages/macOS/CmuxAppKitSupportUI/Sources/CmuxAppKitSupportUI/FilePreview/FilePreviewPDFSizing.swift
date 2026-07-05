@@ -4,22 +4,25 @@ public import PDFKit
 
 /// Pure sizing math for the file-preview PDF sidebar and thumbnails, derived from
 /// PDFKit page/outline values. Stateless; holds only layout constants.
-public enum FilePreviewPDFSizing {
-    public static let thumbnailMaximumSize = CGSize(width: 190, height: 106)
-    public static let thumbnailHorizontalPadding: CGFloat = 22
-    public static let defaultSidebarWidth: CGFloat = 128
-    public static let minimumThumbnailSidebarWidth: CGFloat = 104
-    public static let minimumSidebarWidth: CGFloat = 112
-    public static let maximumSidebarWidth: CGFloat = 320
-    public static let minimumContentWidth: CGFloat = 260
+public struct FilePreviewPDFSizing {
+    /// Creates a stateless PDF sizing helper.
+    public init() {}
 
-    private static let outlineHorizontalPadding: CGFloat = 34
-    private static let outlineIndentWidth: CGFloat = 16
-    private static let outlineSampleLimit = 100
-    private static let thumbnailSampleLimit = 16
+    public let thumbnailMaximumSize = CGSize(width: 190, height: 106)
+    public let thumbnailHorizontalPadding: CGFloat = 22
+    public let defaultSidebarWidth: CGFloat = 128
+    public let minimumThumbnailSidebarWidth: CGFloat = 104
+    public let minimumSidebarWidth: CGFloat = 112
+    public let maximumSidebarWidth: CGFloat = 320
+    public let minimumContentWidth: CGFloat = 260
+
+    private let outlineHorizontalPadding: CGFloat = 34
+    private let outlineIndentWidth: CGFloat = 16
+    private let outlineSampleLimit = 100
+    private let thumbnailSampleLimit = 16
 
     /// Preferred sidebar width to fit the widest sampled thumbnail, clamped to the minimum.
-    public static func preferredThumbnailSidebarWidth(for document: PDFDocument?) -> CGFloat {
+    public func preferredThumbnailSidebarWidth(for document: PDFDocument?) -> CGFloat {
         guard let document, document.pageCount > 0 else {
             return minimumThumbnailSidebarWidth
         }
@@ -34,7 +37,7 @@ public enum FilePreviewPDFSizing {
     }
 
     /// Preferred sidebar width to fit the widest sampled outline row, clamped to the minimum.
-    public static func preferredOutlineSidebarWidth(for outlineRoot: PDFOutline?) -> CGFloat {
+    public func preferredOutlineSidebarWidth(for outlineRoot: PDFOutline?) -> CGFloat {
         guard let outlineRoot, outlineRoot.numberOfChildren > 0 else {
             return minimumSidebarWidth
         }
@@ -53,12 +56,26 @@ public enum FilePreviewPDFSizing {
         return max(minimumSidebarWidth, preferredWidth)
     }
 
+    /// Clamps a proposed sidebar width using the default minimum sidebar width.
+    public func clampedSidebarWidth(
+        _ proposedWidth: CGFloat,
+        containerWidth: CGFloat,
+        dividerThickness: CGFloat
+    ) -> CGFloat {
+        clampedSidebarWidth(
+            proposedWidth,
+            containerWidth: containerWidth,
+            dividerThickness: dividerThickness,
+            minimumWidth: minimumSidebarWidth
+        )
+    }
+
     /// Clamps a proposed sidebar width to the container's available space and the min/max bounds.
-    public static func clampedSidebarWidth(
+    public func clampedSidebarWidth(
         _ proposedWidth: CGFloat,
         containerWidth: CGFloat,
         dividerThickness: CGFloat,
-        minimumWidth: CGFloat = minimumSidebarWidth
+        minimumWidth: CGFloat
     ) -> CGFloat {
         let availableWidth = max(0, containerWidth - dividerThickness)
         guard availableWidth > 0 else {
@@ -73,7 +90,7 @@ public enum FilePreviewPDFSizing {
     }
 
     /// Aspect-fit thumbnail size for a page within `thumbnailMaximumSize`, honoring page rotation.
-    public static func thumbnailSize(for page: PDFPage) -> CGSize {
+    public func thumbnailSize(for page: PDFPage) -> CGSize {
         let pageBounds = page.bounds(for: .cropBox)
         guard pageBounds.width > 0, pageBounds.height > 0 else {
             return thumbnailMaximumSize
@@ -94,7 +111,7 @@ public enum FilePreviewPDFSizing {
         )
     }
 
-    private static func measureOutlineChildren(
+    private func measureOutlineChildren(
         of outline: PDFOutline,
         depth: Int,
         font: NSFont,

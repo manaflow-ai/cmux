@@ -77,7 +77,7 @@ final class FilePreviewMediaSession {
         drawsBackground: Bool
     ) {
         view.isHidden = !isVisibleInUI
-        FilePreviewNativeBackground.applyRootLayer(
+        FilePreviewNativeBackground().applyRootLayer(
             to: view,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground

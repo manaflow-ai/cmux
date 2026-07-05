@@ -2563,6 +2563,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     ])
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
+    private static let terminalSurfaceResizeDeferralPolicy = TerminalSurfaceResizeDeferralPolicy()
 
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
@@ -2574,6 +2575,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
 
     weak var terminalSurface: TerminalSurface?
     var scrollbar: GhosttyScrollbar?
+    private let terminalDropAcceptancePolicy = TerminalDropAcceptancePolicy()
+    private let terminalSurfaceGeometry = TerminalSurfaceGeometry()
+    private let terminalWindowBackgroundPolicy = TerminalWindowBackgroundPolicy()
     /// Pending scrollbar value written from the action callback thread;
     /// read and cleared on the main thread by `flushPendingScrollbar()`.
     /// Access is guarded by `_scrollbarLock` because the action callback
@@ -2886,7 +2890,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
         let activeSelectedTabId = owningManager == nil
             ? appDelegate?.environment.mainWindowRouter.activeTabManager?.selectedTabId
             : nil
-        guard TerminalWindowBackgroundPolicy.shouldApplyWindowBackground(
+        guard terminalWindowBackgroundPolicy.shouldApplyWindowBackground(
             surfaceTabId: tabId,
             owningManagerExists: owningManager != nil,
             owningSelectedTabId: owningSelectedTabId,
@@ -3101,7 +3105,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     }
 
     private static func shouldDeferSurfaceResizeForActiveDrag() -> Bool {
-        TerminalSurfaceResizeDeferralPolicy.shouldDefer(
+        terminalSurfaceResizeDeferralPolicy.shouldDefer(
             interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive,
             hasTabDragPasteboardTypes: hasTabDragPasteboardTypes(),
             currentEventType: NSApp.currentEvent?.type
@@ -3270,14 +3274,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     }
 
     private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
-        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
+        terminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     func expectedPixelSize(for pointsSize: CGSize) -> CGSize {
         // Mirrors the surface-size derivation: window backing scale only, so
         // ancestor magnification (canvas zoom) never re-typesets the grid. Read
         // the live AppKit scale here; the clamp + multiply live in the kernel.
-        TerminalSurfaceGeometry.pixelSize(
+        terminalSurfaceGeometry.pixelSize(
             for: pointsSize,
             scale: window?.backingScaleFactor ?? layer?.contentsScale ?? 1.0
         )
@@ -6036,7 +6040,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     }
 
     private func debugImagePasteboardType(for url: URL) -> NSPasteboard.PasteboardType? {
-        guard let identifier = TerminalDropAcceptancePolicy.imagePasteboardTypeIdentifier(
+        guard let identifier = terminalDropAcceptancePolicy.imagePasteboardTypeIdentifier(
             forExtension: url.pathExtension
         ) else { return nil }
         return NSPasteboard.PasteboardType(identifier)
@@ -6079,7 +6083,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let types = sender.draggingPasteboard.types ?? []
-        if TerminalDropAcceptancePolicy.isBonsplitDrag(
+        if terminalDropAcceptancePolicy.isBonsplitDrag(
             draggedTypes: Set(types.map(\.rawValue)),
             tabTransferType: Self.tabTransferPasteboardType.rawValue,
             sidebarTabReorderType: Self.sidebarTabReorderPasteboardType.rawValue
@@ -6095,7 +6099,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations, TerminalWordPathHosting
     private func terminalDropDecision(
         for types: [NSPasteboard.PasteboardType]
     ) -> TerminalDropAcceptancePolicy.Decision {
-        TerminalDropAcceptancePolicy.decide(
+        terminalDropAcceptancePolicy.decide(
             draggedTypes: Set(types.map(\.rawValue)),
             dropTypes: Set(Self.dropTypes.map(\.rawValue)),
             tabTransferType: Self.tabTransferPasteboardType.rawValue,
@@ -6278,6 +6282,8 @@ extension GhosttyNSView: TerminalSurfaceGridReading {
 }
 
 final class GhosttySurfaceScrollView: NSView {
+    private static let terminalSurfaceGeometry = TerminalSurfaceGeometry()
+
     private static func flashPresentation(for style: TerminalPaneFlashStyle) -> WorkspaceAttentionFlashPresentation {
         switch style {
         case .navigation:
@@ -6292,6 +6298,11 @@ final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let terminalDropZoneOverlayTransitionPlanner = TerminalDropZoneOverlayTransitionPlanner()
+    private let terminalImageTransferIndicatorPolicy = TerminalImageTransferIndicatorPolicy()
+    private let terminalOverlayZOrderPolicy = TerminalOverlayZOrderPolicy()
+    private let terminalScrollbackViewportSync = TerminalScrollbackViewportSync()
+    private let terminalSurfaceResizeDeferralPolicy = TerminalSurfaceResizeDeferralPolicy()
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
@@ -6981,11 +6992,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func sizeApproximatelyEqual(_ lhs: CGSize, _ rhs: CGSize, epsilon: CGFloat = 0.0001) -> Bool {
-        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
+        Self.terminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     private func pointApproximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, epsilon: CGFloat = 0.5) -> Bool {
-        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
+        Self.terminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     private func dropZoneOverlayContainerView() -> NSView {
@@ -7038,7 +7049,7 @@ final class GhosttySurfaceScrollView: NSView {
         let eventType = NSApp.currentEvent?.type
         return activeDropZone != nil ||
             pendingDropZone != nil ||
-            ((hasTabDrag || hasSidebarDrag) && TerminalSurfaceResizeDeferralPolicy.isDragMouseEvent(eventType))
+            ((hasTabDrag || hasSidebarDrag) && terminalSurfaceResizeDeferralPolicy.isDragMouseEvent(eventType))
     }
 
     private func logDragGeometryChange(event: String, old: CGPoint, new: CGPoint) {
@@ -7069,7 +7080,7 @@ final class GhosttySurfaceScrollView: NSView {
         let hasActiveDrag =
             activeDropZone != nil ||
             pendingDropZone != nil ||
-            ((hasTabDrag || hasSidebarDrag) && TerminalSurfaceResizeDeferralPolicy.isDragMouseEvent(eventType))
+            ((hasTabDrag || hasSidebarDrag) && terminalSurfaceResizeDeferralPolicy.isDragMouseEvent(eventType))
         guard hasActiveDrag else { return }
 
         dragLayoutLogSequence &+= 1
@@ -7274,7 +7285,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateImageTransferIndicatorZOrder(relativeTo overlay: NSView?) {
         guard !imageTransferIndicatorContainerView.isHidden else { return }
-        let placement = TerminalOverlayZOrderPolicy.imageTransferIndicatorPlacement(
+        let placement = terminalOverlayZOrderPolicy.imageTransferIndicatorPlacement(
             overlayIsSelfSibling: overlay?.superview === self,
             badgeIsSelfSibling: keyboardCopyModeBadgeContainerView.superview === self,
             badgeHidden: keyboardCopyModeBadgeContainerView.isHidden
@@ -7288,7 +7299,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func updateKeyboardCopyModeBadgeZOrder(relativeTo overlay: NSView?) {
         guard !keyboardCopyModeBadgeContainerView.isHidden else { return }
-        let placement = TerminalOverlayZOrderPolicy.keyboardCopyModeBadgePlacement(
+        let placement = terminalOverlayZOrderPolicy.keyboardCopyModeBadgePlacement(
             overlayIsSelfSibling: overlay?.superview === self
         )
         addSubview(
@@ -7326,7 +7337,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard TerminalImageTransferIndicatorPolicy.shouldShowAfterDelay(
+            guard self.terminalImageTransferIndicatorPolicy.shouldShowAfterDelay(
                 operationIsStillActive: self.activeImageTransferOperation === operation,
                 operationIsCancelled: operation.isCancelled
             ) else { return }
@@ -7347,7 +7358,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        if !TerminalImageTransferIndicatorPolicy.shouldEnd(
+        if !terminalImageTransferIndicatorPolicy.shouldEnd(
             hasRequestedOperation: operation != nil,
             requestedMatchesActive: activeImageTransferOperation === operation
         ) {
@@ -7644,7 +7655,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
-        TerminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
+        terminalSurfaceGeometry.approxEqual(lhs, rhs, epsilon: epsilon)
     }
 
     func setDropZoneOverlay(zone: DropZone?) {
@@ -7658,7 +7669,7 @@ final class GhosttySurfaceScrollView: NSView {
         // Pre-attach defer gate: a requested zone on degenerate bounds stashes
         // the zone as pending and returns before attaching/measuring.
         if let zone,
-           TerminalDropZoneOverlayTransitionPlanner.deferralTransition(
+           terminalDropZoneOverlayTransitionPlanner.deferralTransition(
                hasZone: true,
                boundsTooSmall: bounds.width <= 2 || bounds.height <= 2
            ) != nil {
@@ -7681,7 +7692,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             attachDropZoneOverlayIfNeeded()
             let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
-            let transition = TerminalDropZoneOverlayTransitionPlanner.transition(
+            let transition = terminalDropZoneOverlayTransitionPlanner.transition(
                 hasZone: true,
                 isHidden: dropZoneOverlayView.isHidden,
                 zoneChanged: previousZone != zone,
@@ -7734,7 +7745,7 @@ final class GhosttySurfaceScrollView: NSView {
                 }
             }
         } else {
-            switch TerminalDropZoneOverlayTransitionPlanner.transition(
+            switch terminalDropZoneOverlayTransitionPlanner.transition(
                 hasZone: false,
                 isHidden: dropZoneOverlayView.isHidden,
                 zoneChanged: false,
@@ -9182,7 +9193,7 @@ final class GhosttySurfaceScrollView: NSView {
                 // bottom packets do not override an explicit scrollback review,
                 // but the first scrollbar packet caused by the user's own wheel
                 // input still re-pins the viewport via allowExplicitScrollbarSync.
-                let decision = TerminalScrollbackViewportSync.autoScrollDecision(
+                let decision = terminalScrollbackViewportSync.autoScrollDecision(
                     scrollbar: scrollbar,
                     cellHeight: cellHeight,
                     currentOriginY: currentOrigin.y,
@@ -9222,7 +9233,7 @@ final class GhosttySurfaceScrollView: NSView {
         // Live-scroll offset/row arithmetic + scrolled-away latch live in
         // CmuxTerminalCore; the witness keeps the cellHeight guard, the
         // row-dedupe, and the scroll_to_row: effect.
-        let decision = TerminalScrollbackViewportSync.liveScrollDecision(
+        let decision = terminalScrollbackViewportSync.liveScrollDecision(
             cellHeight: cellHeight,
             documentHeight: documentView.frame.height,
             visibleOriginY: visibleRect.origin.y,
@@ -9301,7 +9312,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func documentHeight() -> CGFloat {
-        TerminalScrollbackViewportSync.documentHeight(
+        terminalScrollbackViewportSync.documentHeight(
             contentHeight: scrollView.contentSize.height,
             cellHeight: surfaceView.cellSize.height,
             scrollbar: surfaceView.scrollbar

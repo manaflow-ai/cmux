@@ -11,6 +11,9 @@ public import Foundation
 /// and hands the result to `WKWebView.loadHTMLString(_:baseURL:)`. All four
 /// inputs are HTML-escaped here before interpolation into the template.
 public struct BrowserNavigationErrorPage: Sendable {
+    /// Creates a stateless browser navigation error-page renderer.
+    public init() {}
+
     /// Builds the error-page HTML document.
     ///
     /// Each parameter is HTML-escaped (`&`, `<`, `>`, `"`) before it is
@@ -23,7 +26,7 @@ public struct BrowserNavigationErrorPage: Sendable {
     ///     message.
     ///   - reloadLabel: The localized label for the reload button.
     /// - Returns: A complete HTML document string.
-    public static func html(
+    public func html(
         title: String,
         message: String,
         failedURL: String,

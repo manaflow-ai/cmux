@@ -5,13 +5,16 @@ import Carbon.HIToolbox
 /// Maps raw key events to file-preview PDF navigation actions, scoped to the
 /// focused region so the thumbnail strip is the only region that intercepts
 /// unmodified arrow and page keys.
-public enum FilePreviewPDFKeyboardRouting {
+public struct FilePreviewPDFKeyboardRouting {
+    /// Creates a stateless PDF keyboard router.
+    public init() {}
+
     /// Resolves the action for a key code and modifier set within `region`.
     ///
     /// Returns ``FilePreviewPDFKeyboardAction/native`` for any modifier-bearing
     /// event or any region other than ``FilePreviewPanelFocusIntent/pdfThumbnails``;
     /// otherwise maps up/page-up to a `-1` page delta and down/page-down to `+1`.
-    public static func action(
+    public func action(
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags,
         region: FilePreviewPanelFocusIntent
@@ -36,7 +39,7 @@ public enum FilePreviewPDFKeyboardRouting {
     }
 
     /// Resolves the action for an `NSEvent` within `region`.
-    public static func action(
+    public func action(
         for event: NSEvent,
         region: FilePreviewPanelFocusIntent
     ) -> FilePreviewPDFKeyboardAction {

@@ -17,9 +17,9 @@ internal import CMUXDebugLog
 /// is injected after construction via ``setHost(_:)``.
 public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate {
     private enum Metrics {
-        static let defaultSidebarWidth = FilePreviewPDFSizing.defaultSidebarWidth
-        static let minimumSidebarWidth = FilePreviewPDFSizing.minimumSidebarWidth
-        static let maximumSidebarWidth = FilePreviewPDFSizing.maximumSidebarWidth
+        static let defaultSidebarWidth = FilePreviewPDFSizing().defaultSidebarWidth
+        static let minimumSidebarWidth = FilePreviewPDFSizing().minimumSidebarWidth
+        static let maximumSidebarWidth = FilePreviewPDFSizing().maximumSidebarWidth
         static let floatingChromeHeight: CGFloat = 40
         static let floatingControlsWidth: CGFloat = 344
         static let floatingChromeCornerRadius: CGFloat = 20
@@ -30,6 +30,9 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
     private let contentHost = NSView()
     private let chromeHost = FilePreviewPDFChromeHostView()
     private let pdfView = FilePreviewMagnifyingPDFView()
+    private let nativeBackground = FilePreviewNativeBackground()
+    private let pdfSizing = FilePreviewPDFSizing()
+    private let visiblePageResolver = FilePreviewPDFVisiblePageResolver()
     private let thumbnailView = FilePreviewPDFThumbnailSidebarView()
     private let outlineScrollView = NSScrollView()
     private let outlineView = FilePreviewPDFOutlineView()
@@ -345,17 +348,17 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
     }
 
     private func applyBackgroundAppearance() {
-        FilePreviewNativeBackground.applyRootLayer(
+        nativeBackground.applyRootLayer(
             to: self,
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
         )
-        FilePreviewNativeBackground.applyRootLayer(
+        nativeBackground.applyRootLayer(
             to: contentHost,
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
         )
-        let resolvedBackgroundColor = FilePreviewNativeBackground.resolvedColor(
+        let resolvedBackgroundColor = nativeBackground.resolvedColor(
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
         )
@@ -364,7 +367,7 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
             resolvedBackgroundColor: resolvedBackgroundColor
         )
         guard shouldApplyPDFScrollBackground(scrollBackgroundAppearance) else { return }
-        FilePreviewNativeBackground.applyScrollBackgrounds(
+        nativeBackground.applyScrollBackgrounds(
             in: pdfView,
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
@@ -379,7 +382,7 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
     private func currentPDFScrollBackgroundAppearance(
         resolvedBackgroundColor: NSColor
     ) -> PDFScrollBackgroundAppearance {
-        var hostIdentifiers = FilePreviewNativeBackground.scrollBackgroundHostIdentifiers(in: pdfView)
+        var hostIdentifiers = nativeBackground.scrollBackgroundHostIdentifiers(in: pdfView)
         if hostIdentifiers.isEmpty {
             hostIdentifiers.insert(ObjectIdentifier(pdfView))
         }
@@ -637,11 +640,11 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
     }
 
     private func selectedVisiblePDFPage() -> PDFPage? {
-        FilePreviewPDFVisiblePageResolver.selectedVisiblePage(in: pdfView, scrollView: pdfScrollView())
+        visiblePageResolver.selectedVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func topVisiblePDFPage() -> PDFPage? {
-        FilePreviewPDFVisiblePageResolver.topVisiblePage(in: pdfView, scrollView: pdfScrollView())
+        visiblePageResolver.topVisiblePage(in: pdfView, scrollView: pdfScrollView())
     }
 
     private func updateSidebarVisibility() {
@@ -667,7 +670,7 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
     }
 
     private func clampedSidebarWidth(_ proposedWidth: CGFloat) -> CGFloat {
-        FilePreviewPDFSizing.clampedSidebarWidth(
+        pdfSizing.clampedSidebarWidth(
             proposedWidth,
             containerWidth: max(splitView.bounds.width, bounds.width),
             dividerThickness: splitView.dividerThickness,
@@ -678,7 +681,7 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
     private func minimumSidebarWidthForCurrentMode() -> CGFloat {
         switch sidebarMode {
         case .thumbnails:
-            FilePreviewPDFSizing.minimumThumbnailSidebarWidth
+            pdfSizing.minimumThumbnailSidebarWidth
         case .tableOfContents:
             Metrics.minimumSidebarWidth
         }
@@ -689,7 +692,7 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
         case .thumbnails:
             thumbnailView.preferredSidebarWidth()
         case .tableOfContents:
-            FilePreviewPDFSizing.preferredOutlineSidebarWidth(for: outlineRoot)
+            pdfSizing.preferredOutlineSidebarWidth(for: outlineRoot)
         }
     }
 
@@ -703,7 +706,7 @@ public final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSO
         let currentWidth = sidebarHost.frame.width
         let preferredWidth = preferredSidebarWidthForCurrentMode()
         let thumbnailWidth = thumbnailView.preferredSidebarWidth()
-        let tocWidth = FilePreviewPDFSizing.preferredOutlineSidebarWidth(for: outlineRoot)
+        let tocWidth = pdfSizing.preferredOutlineSidebarWidth(for: outlineRoot)
         CMUXDebugLog.logDebugEvent(
             "filePreview.pdf.sidebarWidth reason=\(reason) mode=\(mode) " +
             "current=\(formatSidebarWidth(currentWidth)) " +

@@ -72,7 +72,7 @@ extension AppDelegate: DebugTerminalActionsHosting {
     }
 
     func debugColorComparisonPalette() -> [DebugColorComparisonEntry] {
-        WorkspaceTabColorSettings.palette().map { entry in
+        WorkspaceTabColorSettings().palette().map { entry in
             DebugColorComparisonEntry(name: entry.name, hex: entry.hex)
         }
     }

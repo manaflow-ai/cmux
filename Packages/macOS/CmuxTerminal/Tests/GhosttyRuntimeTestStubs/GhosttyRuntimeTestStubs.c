@@ -51,3 +51,8 @@ void ghostty_set_window_background_blur(void *app, void *window) {
     (void)app;
     (void)window;
 }
+
+uint32_t ghostty_surface_key_translation_mods(void *surface, uint32_t mods) {
+    (void)surface;
+    return mods;
+}

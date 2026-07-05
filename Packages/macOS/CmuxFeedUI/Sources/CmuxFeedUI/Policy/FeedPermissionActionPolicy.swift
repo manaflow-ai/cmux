@@ -11,40 +11,43 @@ public import CMUXAgentLaunch
 /// This is a pure value policy shared by the Feed UI (`PermissionActionArea`),
 /// the Feed coordinator, the notification-delivery seam, and the control-socket
 /// feed context, so its decisions stay identical across every entrypoint.
-public enum FeedPermissionActionPolicy {
+public struct FeedPermissionActionPolicy: Sendable {
     private typealias CodexPermissionCapabilities = (supportsOnce: Bool, supportsAlways: Bool, supportsAll: Bool)
 
-    public static func supportsPersistentPermissionModes(source: WorkstreamSource) -> Bool {
+    /// Creates a stateless feed permission-action policy.
+    public init() {}
+
+    public func supportsPersistentPermissionModes(source: WorkstreamSource) -> Bool {
         source != .hermesAgent
     }
 
-    public static func supportsOncePermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+    public func supportsOncePermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard source == .codex else { return true }
         return codexCapabilities(toolInputJSON: toolInputJSON).supportsOnce
     }
 
-    public static func supportsAlwaysPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+    public func supportsAlwaysPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard supportsPersistentPermissionModes(source: source) else { return false }
         guard source == .codex else { return true }
         return codexCapabilities(toolInputJSON: toolInputJSON).supportsAlways
     }
 
-    public static func supportsAllPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
+    public func supportsAllPermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
         guard supportsPersistentPermissionModes(source: source) else { return false }
         guard source == .codex else { return true }
         return codexCapabilities(toolInputJSON: toolInputJSON).supportsAll
     }
 
-    public static func supportsBypassPermissions(source: WorkstreamSource) -> Bool {
+    public func supportsBypassPermissions(source: WorkstreamSource) -> Bool {
         source != .codex && source != .claude && source != .hermesAgent
     }
 
-    public static func codexCapabilityToolInputJSON(source: WorkstreamSource, toolInputJSON: String) -> String? {
+    public func codexCapabilityToolInputJSON(source: WorkstreamSource, toolInputJSON: String) -> String? {
         guard source == .codex else { return nil }
         return codexCapabilityToolInputJSON(toolInputJSON: toolInputJSON)
     }
 
-    private static func codexCapabilityToolInputJSON(toolInputJSON: String) -> String? {
+    private func codexCapabilityToolInputJSON(toolInputJSON: String) -> String? {
         guard let data = toolInputJSON.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else {
@@ -73,7 +76,7 @@ public enum FeedPermissionActionPolicy {
         return String(data: snapshotData, encoding: .utf8)
     }
 
-    private static func codexCapabilities(toolInputJSON: String?) -> CodexPermissionCapabilities {
+    private func codexCapabilities(toolInputJSON: String?) -> CodexPermissionCapabilities {
         guard let toolInputJSON else {
             return (supportsOnce: true, supportsAlways: true, supportsAll: true)
         }
@@ -115,7 +118,7 @@ public enum FeedPermissionActionPolicy {
         }
     }
 
-    private static func codexSupportsAmendmentDecision(object: [String: Any], decisions: Set<String>?) -> Bool {
+    private func codexSupportsAmendmentDecision(object: [String: Any], decisions: Set<String>?) -> Bool {
         if let amendment = object["proposed_execpolicy_amendment"],
            codexDecisionAvailableOrUnspecified("acceptWithExecpolicyAmendment", decisions: decisions),
            !(amendment is NSNull) {
@@ -129,7 +132,7 @@ public enum FeedPermissionActionPolicy {
         return false
     }
 
-    private static func codexAvailableDecisions(in object: [String: Any]) -> Set<String>? {
+    private func codexAvailableDecisions(in object: [String: Any]) -> Set<String>? {
         guard let raw = object["available_decisions"] ?? object["availableDecisions"] else {
             return nil
         }
@@ -146,7 +149,7 @@ public enum FeedPermissionActionPolicy {
         })
     }
 
-    private static func codexDecisionAvailableOrUnspecified(_ decision: String, decisions: Set<String>?) -> Bool {
+    private func codexDecisionAvailableOrUnspecified(_ decision: String, decisions: Set<String>?) -> Bool {
         decisions?.contains(decision) ?? true
     }
 }

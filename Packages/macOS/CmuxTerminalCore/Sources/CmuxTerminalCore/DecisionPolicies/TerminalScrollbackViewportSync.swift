@@ -23,7 +23,7 @@ extension GhosttyScrollbar {
 /// latches. It hands the sampled geometry to this type and gets back the
 /// deterministic position arithmetic plus the next "scrolled away from bottom"
 /// latch, so the math stays testable and references no AppKit.
-public enum TerminalScrollbackViewportSync: Sendable {
+public struct TerminalScrollbackViewportSync: Sendable {
     /// Decision for a passive scrollbar packet (`synchronizeScrollView`).
     public struct AutoScrollDecision: Sendable, Equatable {
         /// The document-space y origin the clip view should scroll to so the
@@ -51,6 +51,9 @@ public enum TerminalScrollbackViewportSync: Sendable {
         }
     }
 
+    /// Creates a stateless terminal scrollback viewport sync policy.
+    public init() {}
+
     /// Resolves the auto-scroll decision for a passive scrollbar packet.
     ///
     /// Mirrors the arithmetic that lived in
@@ -61,7 +64,7 @@ public enum TerminalScrollbackViewportSync: Sendable {
     /// re-pins the viewport when the user has not scrolled away, unless the
     /// caller's one-shot `allowExplicitScrollbarSync` overrides it for the first
     /// packet caused by the user's own wheel input.
-    public static func autoScrollDecision(
+    public func autoScrollDecision(
         scrollbar: GhosttyScrollbar,
         cellHeight: CGFloat,
         currentOriginY: CGFloat,
@@ -92,7 +95,7 @@ public enum TerminalScrollbackViewportSync: Sendable {
     /// (`contentHeight - len * cellHeight`); before the first packet (or a
     /// zero cell height) it falls back to the clip view's content height. The
     /// witness samples `contentSize`, `cellSize`, and the live ``GhosttyScrollbar``.
-    public static func documentHeight(
+    public func documentHeight(
         contentHeight: CGFloat,
         cellHeight: CGFloat,
         scrollbar: GhosttyScrollbar?
@@ -124,7 +127,7 @@ public enum TerminalScrollbackViewportSync: Sendable {
     /// past the drift threshold latches "scrolled away", and returning to (or
     /// past) the bottom clears it. The witness still owns the `cellHeight > 0`
     /// guard, the `row == lastSentRow` dedupe, and the `scroll_to_row:` effect.
-    public static func liveScrollDecision(
+    public func liveScrollDecision(
         cellHeight: CGFloat,
         documentHeight: CGFloat,
         visibleOriginY: CGFloat,

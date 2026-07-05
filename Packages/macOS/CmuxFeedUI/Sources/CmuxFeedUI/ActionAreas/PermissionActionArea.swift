@@ -37,6 +37,7 @@ public struct PermissionActionArea: View {
     }
 
     public var body: some View {
+        let permissionActionPolicy = FeedPermissionActionPolicy()
         VStack(alignment: .leading, spacing: 10) {
             toolLabel
             codeBlock
@@ -48,7 +49,7 @@ public struct PermissionActionArea: View {
                         onApprove(.deny)
                     }
                         .accessibilityIdentifier("FeedPermissionDenyButton")
-                    if FeedPermissionActionPolicy.supportsOncePermissionMode(
+                    if permissionActionPolicy.supportsOncePermissionMode(
                         source: source,
                         toolInputJSON: toolInputJSON
                     ) {
@@ -59,7 +60,7 @@ public struct PermissionActionArea: View {
                         }
                             .accessibilityIdentifier("FeedPermissionAllowOnceButton")
                     }
-                    if FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                    if permissionActionPolicy.supportsAlwaysPermissionMode(
                         source: source,
                         toolInputJSON: toolInputJSON
                     ) {
@@ -70,7 +71,7 @@ public struct PermissionActionArea: View {
                         }
                             .accessibilityIdentifier("FeedPermissionAlwaysAllowButton")
                     }
-                    if FeedPermissionActionPolicy.supportsAllPermissionMode(
+                    if permissionActionPolicy.supportsAllPermissionMode(
                         source: source,
                         toolInputJSON: toolInputJSON
                     ) {
@@ -81,7 +82,7 @@ public struct PermissionActionArea: View {
                         }
                             .accessibilityIdentifier("FeedPermissionAllToolsButton")
                     }
-                    if FeedPermissionActionPolicy.supportsBypassPermissions(source: source) {
+                    if permissionActionPolicy.supportsBypassPermissions(source: source) {
                         FeedButton(label: String(localized: "feed.permission.bypass", defaultValue: "Bypass", bundle: .main),
                                    kind: .destructive, size: .medium, fullWidth: true) {
                             onActionRow()

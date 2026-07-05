@@ -1759,7 +1759,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// tab-color and terminal-scrollbar state-transition logic, reaching the
     /// workspace's `@Published` appearance vocabulary (`customColor`,
     /// `terminalScrollBarHidden`) plus the two app-coupled effects
-    /// (`WorkspaceTabColorSettings.normalizedHex`, the
+    /// (workspace color settings normalization, the
     /// `terminalScrollBarHiddenDidChangeNotification` post) through
     /// ``WorkspaceAppearanceHosting`` (which `Workspace` conforms). The methods
     /// below forward here byte-identically.
@@ -4136,7 +4136,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     func workspaceAppearanceNormalizedColorHex(_ hex: String) -> String? {
-        WorkspaceTabColorSettings.normalizedHex(hex)
+        WorkspaceTabColorSettings().normalizedHex(hex)
     }
 
     func workspaceAppearancePostTerminalScrollBarHiddenDidChange() {

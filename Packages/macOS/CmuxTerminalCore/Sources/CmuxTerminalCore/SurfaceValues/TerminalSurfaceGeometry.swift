@@ -5,11 +5,14 @@ public import CoreGraphics
 /// These are the epsilon-comparison and backing-scale derivations that were
 /// duplicated inside `GhosttyNSView` and `GhosttySurfaceScrollView`. They hold
 /// no state and touch no AppKit object, so they live here as static `Sendable`
-/// helpers; the witnesses keep their private/static one-line forwarders and
+/// helpers; the witnesses keep their private one-line forwarders and
 /// read live `window`/`layer` scale app-side before calling in.
-public enum TerminalSurfaceGeometry {
+public struct TerminalSurfaceGeometry: Sendable {
+    /// Creates a stateless terminal surface geometry helper.
+    public init() {}
+
     /// Whether two scalars are within `epsilon` of each other.
-    public static func approxEqual(
+    public func approxEqual(
         _ lhs: CGFloat,
         _ rhs: CGFloat,
         epsilon: CGFloat
@@ -18,7 +21,7 @@ public enum TerminalSurfaceGeometry {
     }
 
     /// Whether two sizes are within `epsilon` on both axes.
-    public static func approxEqual(
+    public func approxEqual(
         _ lhs: CGSize,
         _ rhs: CGSize,
         epsilon: CGFloat
@@ -27,7 +30,7 @@ public enum TerminalSurfaceGeometry {
     }
 
     /// Whether two points are within `epsilon` on both axes.
-    public static func approxEqual(
+    public func approxEqual(
         _ lhs: CGPoint,
         _ rhs: CGPoint,
         epsilon: CGFloat
@@ -36,7 +39,7 @@ public enum TerminalSurfaceGeometry {
     }
 
     /// Whether two rects are within `epsilon` on origin and size.
-    public static func approxEqual(
+    public func approxEqual(
         _ lhs: CGRect,
         _ rhs: CGRect,
         epsilon: CGFloat
@@ -53,7 +56,7 @@ public enum TerminalSurfaceGeometry {
     /// backing scale (falling back to the layer's `contentsScale`, then `1`),
     /// so ancestor magnification (canvas zoom) never re-typesets the grid. The
     /// scale is clamped to at least `1` before multiplying.
-    public static func pixelSize(for pointsSize: CGSize, scale: CGFloat) -> CGSize {
+    public func pixelSize(for pointsSize: CGSize, scale: CGFloat) -> CGSize {
         let clamped = max(1.0, scale)
         return CGSize(width: pointsSize.width * clamped, height: pointsSize.height * clamped)
     }

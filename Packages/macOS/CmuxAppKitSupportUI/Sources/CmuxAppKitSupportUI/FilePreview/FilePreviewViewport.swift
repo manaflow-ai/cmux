@@ -2,16 +2,19 @@ public import AppKit
 
 /// Pure viewport clamp/anchor geometry for the file-preview PDF host. Stateless; operates
 /// on the document/clip rectangles it is handed and returns the clamped scroll origin.
-public enum FilePreviewViewport {
+public struct FilePreviewViewport {
+    /// Creates a stateless viewport geometry helper.
+    public init() {}
+
     /// The position of `value` along `length`, normalized to `0...1` (`0.5` when degenerate).
-    public static func normalizedAnchorRatio(_ value: CGFloat, length: CGFloat) -> CGFloat {
+    public func normalizedAnchorRatio(_ value: CGFloat, length: CGFloat) -> CGFloat {
         guard length > 1 else { return 0.5 }
         return min(max(value / length, 0), 1)
     }
 
     /// The clip-view origin that places `documentPoint` under `anchorOffsetInClip`, clamped so
     /// the clip stays within (or centered on) the document bounds on each axis.
-    public static func clampedClipOrigin(
+    public func clampedClipOrigin(
         documentPoint: CGPoint,
         anchorOffsetInClip: CGPoint,
         documentBounds: CGRect,
@@ -33,7 +36,7 @@ public enum FilePreviewViewport {
         )
     }
 
-    private static func clampedAxisOrigin(
+    private func clampedAxisOrigin(
         rawOrigin: CGFloat,
         documentMin: CGFloat,
         documentLength: CGFloat,

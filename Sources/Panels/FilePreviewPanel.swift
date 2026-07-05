@@ -950,11 +950,12 @@ final class FilePreviewImageContainerView: NSView {
     }
 
     private func applyBackgroundAppearance() {
-        let resolvedBackgroundColor = FilePreviewNativeBackground.resolvedColor(
+        let nativeBackground = FilePreviewNativeBackground()
+        let resolvedBackgroundColor = nativeBackground.resolvedColor(
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
         )
-        FilePreviewNativeBackground.applyRootLayer(
+        nativeBackground.applyRootLayer(
             to: self,
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
@@ -1047,12 +1048,13 @@ final class FilePreviewImageContainerView: NSView {
         let anchorInClip = CGPoint(x: clipBounds.midX, y: clipBounds.midY)
         let oldImageFrame = documentView.imageView.frame
         let anchorInDocument = documentView.convert(anchorInClip, from: scrollView.contentView)
+        let viewport = FilePreviewViewport()
         let anchorRatio = CGPoint(
-            x: FilePreviewViewport.normalizedAnchorRatio(
+            x: viewport.normalizedAnchorRatio(
                 anchorInDocument.x - oldImageFrame.minX,
                 length: oldImageFrame.width
             ),
-            y: FilePreviewViewport.normalizedAnchorRatio(
+            y: viewport.normalizedAnchorRatio(
                 anchorInDocument.y - oldImageFrame.minY,
                 length: oldImageFrame.height
             )
@@ -1251,4 +1253,3 @@ private struct QuickLookPreviewView: NSViewRepresentable {
         coordinator.quickLook = nil
     }
 }
-

@@ -8,14 +8,17 @@ public import Foundation
 /// switches the global active tab manager can lag behind, so the owning
 /// window's selected workspace is preferred when available. The view resolves
 /// the live tab-manager identities and passes them in as plain values.
-public enum TerminalWindowBackgroundPolicy: Sendable {
+public struct TerminalWindowBackgroundPolicy: Sendable {
+    /// Creates a stateless terminal window background policy.
+    public init() {}
+
     /// Whether the surface owning `surfaceTabId` should apply its background.
     ///
     /// A surface with no tab id always applies. When the surface has an owning
     /// tab manager, only the owner's currently-selected tab applies; otherwise
     /// the active manager's selection decides, defaulting to apply when neither
     /// selection is known.
-    public static func shouldApplyWindowBackground(
+    public func shouldApplyWindowBackground(
         surfaceTabId: UUID?,
         owningManagerExists: Bool,
         owningSelectedTabId: UUID?,

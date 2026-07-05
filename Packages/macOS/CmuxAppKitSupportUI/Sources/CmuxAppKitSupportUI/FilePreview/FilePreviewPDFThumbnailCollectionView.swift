@@ -10,6 +10,8 @@ import CmuxFoundation
 /// ``FilePreviewPDFKeyboardRouting`` and surface a page delta on
 /// ``onPageNavigation`` when they map to a navigation action.
 public final class FilePreviewPDFThumbnailCollectionView: NSCollectionView {
+    private let keyboardRouting = FilePreviewPDFKeyboardRouting()
+
     /// Invoked when first-responder status is gained (`true`) or lost (`false`).
     public var onFocusChanged: ((Bool) -> Void)?
     /// Invoked with a signed page delta when an arrow/page key requests navigation.
@@ -63,7 +65,7 @@ public final class FilePreviewPDFThumbnailCollectionView: NSCollectionView {
     }
 
     private func handlePageNavigation(_ event: NSEvent) -> Bool {
-        guard case .navigatePage(let delta) = FilePreviewPDFKeyboardRouting.action(
+        guard case .navigatePage(let delta) = keyboardRouting.action(
             for: event,
             region: .pdfThumbnails
         ), let onPageNavigation else {

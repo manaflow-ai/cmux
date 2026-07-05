@@ -40,12 +40,13 @@ public struct FilePreviewPDFViewportSnapshot {
         )
         let documentBounds = documentView.bounds
         let anchorInDocument = documentView.convert(anchorInClip, from: clipView)
+        let viewport = FilePreviewViewport()
         let anchorRatio = CGPoint(
-            x: FilePreviewViewport.normalizedAnchorRatio(
+            x: viewport.normalizedAnchorRatio(
                 anchorInDocument.x - documentBounds.minX,
                 length: documentBounds.width
             ),
-            y: FilePreviewViewport.normalizedAnchorRatio(
+            y: viewport.normalizedAnchorRatio(
                 anchorInDocument.y - documentBounds.minY,
                 length: documentBounds.height
             )
@@ -81,7 +82,7 @@ public struct FilePreviewPDFViewportSnapshot {
             x: documentBounds.minX + (documentBounds.width * documentAnchorRatio.x),
             y: documentBounds.minY + (documentBounds.height * documentAnchorRatio.y)
         )
-        let nextOrigin = FilePreviewViewport.clampedClipOrigin(
+        let nextOrigin = FilePreviewViewport().clampedClipOrigin(
             documentPoint: targetDocumentPoint,
             anchorOffsetInClip: anchorOffsetInClip,
             documentBounds: documentBounds,

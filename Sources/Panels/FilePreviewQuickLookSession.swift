@@ -105,9 +105,9 @@ final class FilePreviewQuickLookSession {
         if let container = view as? FilePreviewQuickLookContainerView,
            let previewView = container.livePreviewView() {
             panel.attachPreviewFocus(root: container, primaryResponder: previewView, intent: .quickLook)
-            previewView.previewItem = previewItem(for: panel.fileURL, title: panel.displayTitle)
+                previewView.previewItem = previewItem(for: panel.fileURL, title: panel.displayTitle)
         }
-        FilePreviewNativeBackground.applyRootLayer(
+        FilePreviewNativeBackground().applyRootLayer(
             to: view,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground

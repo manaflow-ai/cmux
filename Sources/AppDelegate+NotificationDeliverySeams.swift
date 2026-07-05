@@ -48,16 +48,17 @@ extension AppDelegate {
             return nil
         }
 
+        let permissionActionPolicy = FeedPermissionActionPolicy()
         return NotificationFeedPermissionCapabilities(
-            supportsOnce: FeedPermissionActionPolicy.supportsOncePermissionMode(
+            supportsOnce: permissionActionPolicy.supportsOncePermissionMode(
                 source: item.source,
                 toolInputJSON: toolInputJSON
             ),
-            supportsAlways: FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+            supportsAlways: permissionActionPolicy.supportsAlwaysPermissionMode(
                 source: item.source,
                 toolInputJSON: toolInputJSON
             ),
-            supportsAll: FeedPermissionActionPolicy.supportsAllPermissionMode(
+            supportsAll: permissionActionPolicy.supportsAllPermissionMode(
                 source: item.source,
                 toolInputJSON: toolInputJSON
             )

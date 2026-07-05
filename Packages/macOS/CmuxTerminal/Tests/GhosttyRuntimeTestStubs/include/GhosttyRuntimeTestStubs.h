@@ -60,4 +60,10 @@ ghostty_string_s ghostty_surface_tty_name(void *surface);
 // `void ghostty_set_window_background_blur(ghostty_app_t, void*)`.
 void ghostty_set_window_background_blur(void *app, void *window);
 
+// Test-only stand-in for the GhosttyKit symbol referenced by CmuxTerminal's
+// NSEvent+GhosttyKeyEvent (translation-mods resolution). No test calls it; the
+// linker only needs the symbol. Real signature returns/takes ghostty_input_mods_e
+// (a uint32-backed enum); the width matches so the C stub links cleanly.
+uint32_t ghostty_surface_key_translation_mods(void *surface, uint32_t mods);
+
 #endif

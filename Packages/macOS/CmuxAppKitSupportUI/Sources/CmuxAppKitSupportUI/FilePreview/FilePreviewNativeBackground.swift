@@ -7,14 +7,17 @@ public import AppKit
 /// main-actor under Swift 6.1 (CI Xcode 16.4). `resolvedColor` is pure NSColor and
 /// stays `nonisolated`.
 @MainActor
-public enum FilePreviewNativeBackground {
+public struct FilePreviewNativeBackground {
+    /// Creates a stateless file-preview background helper.
+    public init() {}
+
     /// The effective background color, or `.clear` when the host does not draw a background.
-    public nonisolated static func resolvedColor(backgroundColor: NSColor, drawsBackground: Bool) -> NSColor {
+    public nonisolated func resolvedColor(backgroundColor: NSColor, drawsBackground: Bool) -> NSColor {
         drawsBackground ? backgroundColor : .clear
     }
 
     /// Sets the view's backing layer color and opacity from the resolved background.
-    public static func applyRootLayer(
+    public func applyRootLayer(
         to view: NSView,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -29,7 +32,7 @@ public enum FilePreviewNativeBackground {
     }
 
     /// Recursively applies the resolved background to every scroll/clip view in the hierarchy.
-    public static func applyScrollBackgrounds(
+    public func applyScrollBackgrounds(
         in view: NSView,
         backgroundColor: NSColor,
         drawsBackground: Bool
@@ -56,13 +59,13 @@ public enum FilePreviewNativeBackground {
     }
 
     /// Identifiers of every scroll/clip view in the hierarchy, used to detect background hosts.
-    public static func scrollBackgroundHostIdentifiers(in view: NSView) -> Set<ObjectIdentifier> {
+    public func scrollBackgroundHostIdentifiers(in view: NSView) -> Set<ObjectIdentifier> {
         var identifiers = Set<ObjectIdentifier>()
         collectScrollBackgroundHostIdentifiers(in: view, into: &identifiers)
         return identifiers
     }
 
-    private static func collectScrollBackgroundHostIdentifiers(
+    private func collectScrollBackgroundHostIdentifiers(
         in view: NSView,
         into identifiers: inout Set<ObjectIdentifier>
     ) {

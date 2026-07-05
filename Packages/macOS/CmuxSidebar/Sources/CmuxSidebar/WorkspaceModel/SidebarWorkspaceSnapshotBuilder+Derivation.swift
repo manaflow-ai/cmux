@@ -136,7 +136,8 @@ extension SidebarWorkspaceSnapshotBuilder {
         showsGitBranch: Bool,
         usesViewportAwarePath: Bool
     ) -> [VerticalBranchDirectoryLine] {
-        let home = SidebarPathFormatter.homeDirectoryPath
+        let pathFormatter = SidebarPathFormatter()
+        let home = pathFormatter.homeDirectoryPath
         return entries.compactMap { entry in
             let branchText: String? = {
                 guard showsGitBranch, let branch = entry.branch else { return nil }
@@ -146,9 +147,9 @@ extension SidebarWorkspaceSnapshotBuilder {
             let directoryCandidates: [String] = {
                 guard let directory = entry.directory else { return [] }
                 if usesViewportAwarePath {
-                    return SidebarPathFormatter.pathCandidates(directory, homeDirectoryPath: home)
+                    return pathFormatter.pathCandidates(directory, homeDirectoryPath: home)
                 }
-                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
+                let shortened = pathFormatter.shortenedPath(directory, homeDirectoryPath: home)
                 return shortened.isEmpty ? [] : [shortened]
             }()
 
@@ -175,19 +176,20 @@ extension SidebarWorkspaceSnapshotBuilder {
         directories: [String],
         usesViewportAwarePath: Bool
     ) -> [String] {
-        let home = SidebarPathFormatter.homeDirectoryPath
+        let pathFormatter = SidebarPathFormatter()
+        let home = pathFormatter.homeDirectoryPath
         guard !directories.isEmpty else { return [] }
 
         if !usesViewportAwarePath {
             let joined = directories
-                .map { SidebarPathFormatter.shortenedPath($0, homeDirectoryPath: home) }
+                .map { pathFormatter.shortenedPath($0, homeDirectoryPath: home) }
                 .filter { !$0.isEmpty }
                 .joined(separator: " | ")
             return joined.isEmpty ? [] : [joined]
         }
 
         let perDirectoryCandidates: [[String]] = directories
-            .map { SidebarPathFormatter.pathCandidates($0, homeDirectoryPath: home) }
+            .map { pathFormatter.pathCandidates($0, homeDirectoryPath: home) }
             .filter { !$0.isEmpty }
         guard !perDirectoryCandidates.isEmpty else { return [] }
 

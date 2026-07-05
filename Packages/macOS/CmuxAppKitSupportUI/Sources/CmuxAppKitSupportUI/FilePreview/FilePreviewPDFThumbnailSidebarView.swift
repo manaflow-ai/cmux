@@ -13,12 +13,13 @@ public import PDFKit
 /// size tracks the scroll view's content width so thumbnails fill the column.
 public final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewDataSource, NSCollectionViewDelegate, NSCollectionViewDelegateFlowLayout {
     private enum Metrics {
-        static let thumbnailHeight = FilePreviewPDFSizing.thumbnailMaximumSize.height
+        static let thumbnailHeight = FilePreviewPDFSizing().thumbnailMaximumSize.height
         static let labelHeight: CGFloat = 22
         static let itemSpacing: CGFloat = 12
         static let verticalInset: CGFloat = 24
     }
 
+    private let pdfSizing = FilePreviewPDFSizing()
     private let scrollView = NSScrollView()
     private let collectionView = FilePreviewPDFThumbnailCollectionView()
     private let flowLayout = NSCollectionViewFlowLayout()
@@ -108,7 +109,7 @@ public final class FilePreviewPDFThumbnailSidebarView: NSView, NSCollectionViewD
 
     /// Sidebar width that fits the widest sampled thumbnail for the document.
     public func preferredSidebarWidth() -> CGFloat {
-        FilePreviewPDFSizing.preferredThumbnailSidebarWidth(for: document)
+        pdfSizing.preferredThumbnailSidebarWidth(for: document)
     }
 
     /// The collection view the container makes first responder for keyboard focus.

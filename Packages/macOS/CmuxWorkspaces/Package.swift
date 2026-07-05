@@ -71,6 +71,14 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            // Transitively links GhosttyKit (via CmuxTerminalCore), whose static
+            // archive carries C++ objects. When realized as a dynamic
+            // PackageProduct.framework the link must resolve those std:: symbols
+            // itself. See the matching note in CmuxTerminalCore's Package.swift.
+            // Harmless when static.
+            linkerSettings: [
+                .linkedLibrary("c++"),
             ]
         ),
         // Test-only stand-in for the @_silgen_name libghostty symbols bound by

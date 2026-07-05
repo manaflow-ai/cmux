@@ -153,7 +153,7 @@ public struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         case .localized(let localized):
             return CmuxExtensionSidebarSelection().localizedText(localized)
         case .relativeDate(let date, _):
-            return CmuxExtensionRelativeTimeFormatter.string(from: date, to: relativeNow)
+            return CmuxExtensionRelativeTimeFormatter().string(from: date, to: relativeNow)
         }
     }
 }
@@ -180,9 +180,12 @@ struct CmuxExtensionWorkspaceInspectorDraft: Equatable {
 
 /// Formats a compact relative timestamp ("now", "5m", "3h", "2d", "1w") for
 /// extension-sidebar rows, localized via the main bundle's `Localizable` table.
-public enum CmuxExtensionRelativeTimeFormatter {
+public struct CmuxExtensionRelativeTimeFormatter: Sendable {
+    /// Creates a stateless compact relative-time formatter.
+    public init() {}
+
     /// Returns the localized compact relative-time string between `date` and `now`.
-    public static func string(from date: Date, to now: Date) -> String {
+    public func string(from date: Date, to now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         if seconds < 60 { return String(localized: "relativeTime.now", defaultValue: "now") }
         let minutes = seconds / 60
@@ -195,7 +198,7 @@ public enum CmuxExtensionRelativeTimeFormatter {
         return localizedCount("relativeTime.weeks", defaultValue: "%lldw", count: weeks)
     }
 
-    private static func localizedCount(_ key: String, defaultValue: String, count: Int) -> String {
+    private func localizedCount(_ key: String, defaultValue: String, count: Int) -> String {
         let format = NSLocalizedString(
             key,
             tableName: "Localizable",
@@ -343,12 +346,15 @@ struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
 /// second open focuses the existing window instead of spawning a duplicate.
 @MainActor
 public final class CmuxExtensionSidebarInspectorWindowController {
-    private static var controllers: [UUID: NSWindowController] = [:]
-    private static var closeObservers: [UUID: any NSObjectProtocol] = [:]
+    private var controllers: [UUID: NSWindowController] = [:]
+    private var closeObservers: [UUID: any NSObjectProtocol] = [:]
+
+    /// Creates an inspector-window controller with no open windows.
+    public init() {}
 
     /// Opens (or focuses) the inspector window for the given workspace snapshot.
     /// - Parameter workspace: The provider workspace snapshot to inspect.
-    public static func show(workspace: CmuxSidebarProviderWorkspace) {
+    public func show(workspace: CmuxSidebarProviderWorkspace) {
         if let controller = controllers[workspace.id] {
             controller.window?.title = workspace.title
             controller.window?.setContentSize(NSSize(width: 620, height: 440))
@@ -357,8 +363,8 @@ public final class CmuxExtensionSidebarInspectorWindowController {
             return
         }
 
-        let view = CmuxExtensionWorkspaceInspectorWindowContentView(workspace: workspace) {
-            show(workspace: workspace)
+        let view = CmuxExtensionWorkspaceInspectorWindowContentView(workspace: workspace) { [weak self] in
+            self?.show(workspace: workspace)
         }
         let hostingController = NSHostingController(rootView: view.frame(width: 620, height: 440))
         let window = NSWindow(contentViewController: hostingController)
@@ -372,10 +378,11 @@ public final class CmuxExtensionSidebarInspectorWindowController {
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { _ in
-            Task { @MainActor in
-                controllers.removeValue(forKey: workspace.id)
-                if let observer = closeObservers.removeValue(forKey: workspace.id) {
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.controllers.removeValue(forKey: workspace.id)
+                if let observer = self.closeObservers.removeValue(forKey: workspace.id) {
                     NotificationCenter.default.removeObserver(observer)
                 }
             }

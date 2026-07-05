@@ -61,22 +61,23 @@ struct FeedCoordinatorTests {
     }
 
     @Test func claudePermissionActionPolicyKeepsBypassUserOwned() {
-        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
-        #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .claude))
+        let permissionActionPolicy = FeedPermissionActionPolicy()
+        #expect(permissionActionPolicy.supportsPersistentPermissionModes(source: .claude))
+        #expect(!permissionActionPolicy.supportsBypassPermissions(source: .claude))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("claude"))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("claude"))
 
-        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
-        #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .codex))
+        #expect(permissionActionPolicy.supportsPersistentPermissionModes(source: .codex))
+        #expect(!permissionActionPolicy.supportsBypassPermissions(source: .codex))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("codex"))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("codex"))
 
         let codexOneShotOnly = #"""
         {"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept","decline"]}
         """#
-        #expect(FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
-        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
-        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
+        #expect(permissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
+        #expect(!permissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
+        #expect(!permissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexOneShotOnly))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode("codex", toolInputJSON: codexOneShotOnly))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexOneShotOnly))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: codexOneShotOnly))
@@ -84,13 +85,13 @@ struct FeedCoordinatorTests {
         let codexSession = #"""
         {"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept","acceptForSession","decline"]}
         """#
-        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexSession))
+        #expect(permissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexSession))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexSession))
 
         let truncatedCodexToolInput = #"{"app_server_method":"item/commandExecution/requestApproval","available_decisions":["accept"]"#
-        #expect(!FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
-        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
-        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
+        #expect(!permissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
+        #expect(!permissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
+        #expect(!permissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: truncatedCodexToolInput))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode("codex", toolInputJSON: truncatedCodexToolInput))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: truncatedCodexToolInput))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: truncatedCodexToolInput))
@@ -98,26 +99,26 @@ struct FeedCoordinatorTests {
         let codexFileChangeFallback = #"""
         {"app_server_method":"item/fileChange/requestApproval"}
         """#
-        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexFileChangeFallback))
+        #expect(permissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexFileChangeFallback))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexFileChangeFallback))
 
         let codexAmendment = #"""
         {"app_server_method":"item/commandExecution/requestApproval","available_decisions":[{"acceptWithExecpolicyAmendment":{}}],"proposed_execpolicy_amendment":[{"kind":"prefix","value":"npm test"}]}
         """#
-        #expect(!FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexAmendment))
-        #expect(!FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexAmendment))
-        #expect(FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexAmendment))
+        #expect(!permissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: codexAmendment))
+        #expect(!permissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: codexAmendment))
+        #expect(permissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: codexAmendment))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsOncePermissionMode("codex", toolInputJSON: codexAmendment))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsAlwaysPermissionMode("codex", toolInputJSON: codexAmendment))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsAllPermissionMode("codex", toolInputJSON: codexAmendment))
 
-        #expect(FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
-        #expect(FeedPermissionActionPolicy.supportsBypassPermissions(source: .opencode))
+        #expect(permissionActionPolicy.supportsPersistentPermissionModes(source: .opencode))
+        #expect(permissionActionPolicy.supportsBypassPermissions(source: .opencode))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("opencode"))
         #expect(CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("opencode"))
 
-        #expect(!FeedPermissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
-        #expect(!FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
+        #expect(!permissionActionPolicy.supportsPersistentPermissionModes(source: .hermesAgent))
+        #expect(!permissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsPersistentPermissionModes("hermes-agent"))
         #expect(!CodexTeamsApprovalBridge.feedSourceSupportsBypassPermissions("hermes-agent"))
     }
@@ -144,8 +145,9 @@ struct FeedCoordinatorTests {
             )
         )
 
+        let permissionActionPolicy = FeedPermissionActionPolicy()
         let dict = item.socketEncodedDictionary(
-            codexCapabilityToolInputJSON: FeedPermissionActionPolicy.codexCapabilityToolInputJSON
+            codexCapabilityToolInputJSON: permissionActionPolicy.codexCapabilityToolInputJSON
         )
         let displayToolInput = try #require(dict["tool_input"] as? String)
         let capabilityToolInput = try #require(dict["tool_input_capabilities"] as? String)
@@ -153,9 +155,9 @@ struct FeedCoordinatorTests {
         #expect(displayToolInput.count == 8_000)
         #expect(dict["tool_input_truncated"] as? Bool == true)
         #expect(capabilityToolInput.count < displayToolInput.count)
-        #expect(FeedPermissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
-        #expect(FeedPermissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
-        #expect(!FeedPermissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
+        #expect(permissionActionPolicy.supportsOncePermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
+        #expect(permissionActionPolicy.supportsAlwaysPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
+        #expect(!permissionActionPolicy.supportsAllPermissionMode(source: .codex, toolInputJSON: capabilityToolInput))
     }
 
     @Test func codexAppServerApprovalBuildsActionableFeedEvent() throws {

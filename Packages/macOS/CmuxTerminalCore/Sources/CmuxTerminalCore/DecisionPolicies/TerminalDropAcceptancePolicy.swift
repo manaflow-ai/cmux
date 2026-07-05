@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 /// type `rawValue`s plus the surface's drop-type / tab-transfer /
 /// sidebar-reorder `rawValue`s, and forwards the stateless classification here
 /// so the decision stays a deterministic, testable value computation.
-public enum TerminalDropAcceptancePolicy: Sendable {
+public struct TerminalDropAcceptancePolicy: Sendable {
     /// Whether a terminal surface should accept (`.copy`) or refuse a drag.
     public enum Decision: Sendable, Equatable {
         /// The drag is not for the terminal; bonsplit or another destination
@@ -22,6 +22,9 @@ public enum TerminalDropAcceptancePolicy: Sendable {
         case copy
     }
 
+    /// Creates a stateless terminal drop-acceptance policy.
+    public init() {}
+
     /// Whether a drag should be deferred to bonsplit because a tab-transfer or
     /// sidebar-reorder drag is in flight.
     ///
@@ -30,7 +33,7 @@ public enum TerminalDropAcceptancePolicy: Sendable {
     /// these drags. `performDragOperation` uses only this gate (it has already
     /// been vetted by `draggingEntered`/`draggingUpdated`), while the entered /
     /// updated phases additionally apply the drop-type test via ``decide``.
-    public static func isBonsplitDrag(
+    public func isBonsplitDrag(
         draggedTypes: Set<String>,
         tabTransferType: String,
         sidebarTabReorderType: String
@@ -44,7 +47,7 @@ public enum TerminalDropAcceptancePolicy: Sendable {
     /// flight (see ``isBonsplitDrag(draggedTypes:tabTransferType:sidebarTabReorderType:)``),
     /// rejects when the dragged types share nothing with the surface's accepted
     /// drop types, and otherwise accepts the drag as a copy.
-    public static func decide(
+    public func decide(
         draggedTypes: Set<String>,
         dropTypes: Set<String>,
         tabTransferType: String,
@@ -69,7 +72,7 @@ public enum TerminalDropAcceptancePolicy: Sendable {
     /// Trims whitespace from the extension, resolves its `UTType`, and returns
     /// the identifier only when the type conforms to `.image`. Used by the
     /// DEBUG drop-injection path to write image data under the right type.
-    public static func imagePasteboardTypeIdentifier(forExtension pathExtension: String) -> String? {
+    public func imagePasteboardTypeIdentifier(forExtension pathExtension: String) -> String? {
         let trimmed = pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let utType = UTType(filenameExtension: trimmed),
               utType.conforms(to: .image) else { return nil }

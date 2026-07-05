@@ -12,6 +12,7 @@ public final class FilePreviewPDFThumbnailItem: NSCollectionViewItem {
     /// Reuse identifier registered with the thumbnail collection view.
     public static let reuseIdentifier = NSUserInterfaceItemIdentifier("filePreviewPDFThumbnailItem")
 
+    private let pdfSizing = FilePreviewPDFSizing()
     private var thumbnailItemView: FilePreviewPDFThumbnailItemView? {
         view as? FilePreviewPDFThumbnailItemView
     }
@@ -49,7 +50,7 @@ public final class FilePreviewPDFThumbnailItem: NSCollectionViewItem {
         isSelectedForPreview: Bool,
         isSelectionActiveForPreview: Bool
     ) {
-        let thumbnail = page?.thumbnail(of: FilePreviewPDFSizing.thumbnailMaximumSize, for: .cropBox)
+        let thumbnail = page?.thumbnail(of: pdfSizing.thumbnailMaximumSize, for: .cropBox)
         thumbnailItemView?.configure(image: thumbnail, pageNumber: "\(pageNumber)")
         thumbnailItemView?.isSelectedForPreview = isSelectedForPreview
         thumbnailItemView?.isSelectionActiveForPreview = isSelectionActiveForPreview
