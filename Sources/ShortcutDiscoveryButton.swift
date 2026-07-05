@@ -17,7 +17,9 @@ struct ShortcutDiscoveryButton: View {
         defaultValue: "Show all shortcuts"
     )
 
-    @State private var isPopoverPresented = false
+    /// Owned by the footer so the popover survives releasing ⌘ (which unmounts
+    /// the ⌘-hold reveal); the footer keeps this view mounted while it is true.
+    @Binding var isPopoverPresented: Bool
 
     var body: some View {
         Button {

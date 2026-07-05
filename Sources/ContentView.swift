@@ -12803,6 +12803,8 @@ private struct SidebarFooterButtons: View {
     // (the monitor is `@Observable`) here localizes the reveal re-render to the
     // footer instead of the whole sidebar body.
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    /// Owns the discovery popover so it persists after ⌘ is released.
+    @State private var isShortcutPopoverPresented = false
 
     var body: some View {
         HStack(spacing: 4) {
@@ -12833,9 +12835,10 @@ private struct SidebarFooterButtons: View {
             // Command-hold reveal: sits at the trailing end of the footer, so it
             // appears next to the update pill when one is showing, otherwise next
             // to the help button. Hidden unless ⌘ is held (the shortcut-hint
-            // signal), matching the sidebar's modifier-hold badges.
-            if showModifierHoldHints && modifierKeyMonitor.isModifierPressed {
-                ShortcutDiscoveryButton()
+            // signal), matching the sidebar's modifier-hold badges. Stays mounted
+            // while its popover is open so releasing ⌘ does not dismiss it.
+            if (showModifierHoldHints && modifierKeyMonitor.isModifierPressed) || isShortcutPopoverPresented {
+                ShortcutDiscoveryButton(isPopoverPresented: $isShortcutPopoverPresented)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
