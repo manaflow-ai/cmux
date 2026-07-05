@@ -117,3 +117,52 @@ private struct FakeSSHEnvironment {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
+
+// MARK: - Post-fix classifier coverage (compiles only with the fix)
+
+@Suite struct RemoteTmuxMissingTmuxPostFixTests {
+    @Test(arguments: [
+        RemoteTmuxCommandFailureShape(exitCode: 127, stderr: "cmux-remote-tmux: line 0: exec: tmux: not found"),
+        RemoteTmuxCommandFailureShape(exitCode: 127, stderr: "cmux-remote-tmux: 1: exec: tmux: not found"),
+        RemoteTmuxCommandFailureShape(exitCode: 127, stderr: "cmux-remote-tmux: tmux not found"),
+        RemoteTmuxCommandFailureShape(exitCode: 127, stderr: "bash: tmux: command not found"),
+    ])
+    func classifiesMissingTmux(shape: RemoteTmuxCommandFailureShape) {
+        #expect(RemoteTmuxSSHTransport.indicatesTmuxMissing(exitCode: shape.exitCode, stderr: shape.stderr))
+    }
+
+    @Test(arguments: [
+        RemoteTmuxCommandFailureShape(exitCode: 0, stderr: "cmux-remote-tmux: tmux not found"),
+        RemoteTmuxCommandFailureShape(exitCode: 1, stderr: "cmux-remote-tmux: tmux not found"),
+        RemoteTmuxCommandFailureShape(exitCode: 1, stderr: "no server running on /tmp/tmux-501/default"),
+        RemoteTmuxCommandFailureShape(exitCode: 255, stderr: "Permission denied (publickey)"),
+        RemoteTmuxCommandFailureShape(exitCode: 127, stderr: "Permission denied (publickey)"),
+        RemoteTmuxCommandFailureShape(exitCode: 127, stderr: ""),
+        RemoteTmuxCommandFailureShape(exitCode: 127, stderr: "cmux-remote-tmux: line 0: exec: htop: not found"),
+    ])
+    func doesNotClassifyUnrelatedFailuresAsMissingTmux(shape: RemoteTmuxCommandFailureShape) {
+        #expect(!RemoteTmuxSSHTransport.indicatesTmuxMissing(exitCode: shape.exitCode, stderr: shape.stderr))
+    }
+
+    @Test func tmuxNotFoundMessageIsActionableAndSanitized() {
+        let message = RemoteTmuxError.tmuxNotFound(destination: "user@host").message
+
+        #expect(message.contains("tmux was not found on user@host"))
+        #expect(message.contains(RemoteTmuxVersion.minimumSupported.displayString))
+        #expect(message.contains("brew install tmux"))
+
+        let sanitized = RemoteTmuxError.tmuxNotFound(destination: "user@host\u{1b}[31m").message
+        #expect(!sanitized.contains("\u{1b}"))
+        #expect(sanitized.contains("user@host [31m"))
+    }
+
+    @Test func resolverSentinelAndClassifierStayInSync() {
+        let command = RemoteTmuxHost.tmuxRemoteCommand(arguments: [])
+
+        #expect(command.contains(RemoteTmuxHost.tmuxNotFoundSentinel))
+        #expect(RemoteTmuxSSHTransport.indicatesTmuxMissing(
+            exitCode: 127,
+            stderr: RemoteTmuxHost.tmuxNotFoundSentinel
+        ))
+    }
+}
