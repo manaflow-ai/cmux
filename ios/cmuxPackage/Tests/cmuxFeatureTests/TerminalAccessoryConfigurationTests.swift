@@ -24,6 +24,13 @@ struct TerminalAccessoryConfigurationTests {
 
     private func id(_ action: TerminalInputAccessoryAction) -> ToolbarItemID { action.itemID }
 
+    private func persistedV4Rows(in defaults: UserDefaults) -> [[String]]? {
+        guard let rows = defaults.array(forKey: "cmux.terminal.toolbar.rows.v4") else { return nil }
+        return rows.map { row in
+            (row as? [String]) ?? []
+        }
+    }
+
     // MARK: - Gating test #1: fresh-install default order
 
     @Test("fresh install puts modifiers (incl. ⇧) at the front and zoom at the back, all shown")
@@ -98,6 +105,19 @@ struct TerminalAccessoryConfigurationTests {
         // A fresh instance over the same defaults sees the moved order.
         let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
         #expect(reloaded.displayOrder.last == id(.control))
+    }
+
+    @Test("selecting an item's current toolbar row preserves row order")
+    func movingItemToCurrentRowIsNoOp() {
+        let config = TerminalAccessoryConfiguration(defaults: freshDefaults())
+        config.setRowCount(2)
+        config.moveItem(id(.tab), toRow: 1)
+        config.moveItem(id(.escape), toRow: 1)
+        let rowsBeforeSameRowMove = config.displayRows
+
+        config.moveItem(id(.tab), toRow: 1)
+
+        #expect(config.displayRows == rowsBeforeSameRowMove)
     }
 
     @Test("hiding a modifier persists across reload and keeps it in the order")
@@ -176,24 +196,23 @@ struct TerminalAccessoryConfigurationTests {
         #expect(config.isEnabled(id(.zoomIn)))
     }
 
-    @Test("an upgraded config re-persists under the v3 keys so the migration runs once")
-    func migrationPersistsUnderV3Keys() {
+    @Test("an upgraded config re-persists under the v4 rows so the migration runs once")
+    func migrationPersistsUnderV4Rows() throws {
         let defaults = freshDefaults()
         defaults.set([id(.tab).storageKey], forKey: "cmux.terminal.toolbar.order.v2")
         defaults.set([id(.tab).storageKey], forKey: "cmux.terminal.toolbar.enabled.v2")
 
         _ = TerminalAccessoryConfiguration(defaults: defaults)
 
-        // After init, v3 keys exist; a second load takes the v3 path (no second
+        // After init, v4 rows exist; a second load takes the v4 path (no second
         // force-enable), so hiding a modifier then would persist.
-        let v3Order = defaults.array(forKey: "cmux.terminal.toolbar.order.v3") as? [String]
-        #expect(v3Order != nil)
-        #expect(v3Order?.contains(id(.control).storageKey) == true)
+        let v4Rows = try #require(persistedV4Rows(in: defaults))
+        #expect(v4Rows.flatMap { $0 }.contains(id(.control).storageKey))
 
         let reloaded = TerminalAccessoryConfiguration(defaults: defaults)
         reloaded.setEnabled(id(.control), false)
         let reloadedAgain = TerminalAccessoryConfiguration(defaults: defaults)
-        // The v3 path honored the hidden modifier rather than re-forcing it on.
+        // The v4 path honored the hidden modifier rather than re-forcing it on.
         #expect(!reloadedAgain.isEnabled(id(.control)))
     }
 
@@ -381,8 +400,8 @@ struct TerminalAccessoryConfigurationTests {
         #expect(!config.isEnabled(id(.returnKey)))
     }
 
-    @Test("the Return fold re-persists under v3 keys so it runs once")
-    func returnFoldPersistsUnderV3Keys() {
+    @Test("the Return fold re-persists under v4 rows so it runs once")
+    func returnFoldPersistsUnderV4Rows() throws {
         let defaults = freshDefaults()
         let preReturn: [TerminalInputAccessoryAction] = [.control, .alternate, .command, .shift, .paste, .tab, .escape]
         defaults.set(preReturn.map { id($0).storageKey }, forKey: "cmux.terminal.toolbar.order.v3")
@@ -390,10 +409,10 @@ struct TerminalAccessoryConfigurationTests {
 
         _ = TerminalAccessoryConfiguration(defaults: defaults)
 
-        // After init, Return lives in the persisted v3 order, so the next load
+        // After init, Return lives in the persisted v4 rows, so the next load
         // takes the no-op path and a later hide would persist.
-        let v3Order = defaults.array(forKey: "cmux.terminal.toolbar.order.v3") as? [String]
-        #expect(v3Order?.contains(id(.returnKey).storageKey) == true)
+        let v4Rows = try #require(persistedV4Rows(in: defaults))
+        #expect(v4Rows.flatMap { $0 }.contains(id(.returnKey).storageKey))
     }
 
     @Test("a v2 upgrade also surfaces Return force-enabled")

@@ -3,7 +3,8 @@ import Foundation
 import Observation
 
 /// User-editable configuration of the terminal input-accessory bar: which
-/// buttons appear, in what order, and any user-defined ``CustomToolbarAction``s.
+/// buttons appear, which row they occupy, in what order, and any user-defined
+/// ``CustomToolbarAction``s.
 ///
 /// Every button on the bar is configurable: the modifier keys (⌃ ⌥ ⌘ ⇧), the zoom
 /// controls, paste, the shipped insertable shortcuts (Esc, Tab, arrows, the agent
@@ -30,14 +31,23 @@ public final class TerminalAccessoryConfiguration {
     /// UIKit input-accessory bar can rebuild its configurable buttons.
     public static let didChangeNotification = Notification.Name("cmux.terminal.accessoryConfigurationDidChange")
 
+    /// Minimum number of configurable toolbar rows.
+    public static let minimumRowCount = 1
+    /// Maximum number of configurable toolbar rows.
+    public static let maximumRowCount = 3
+
+    // v4 schema, keyed by rows of ``ToolbarItemID`` storage keys + JSON custom
+    // actions. Empty rows are persisted so an explicit row count survives.
+    private static let rowsDefaultsKey = "cmux.terminal.toolbar.rows.v4"
+    private static let enabledDefaultsKey = "cmux.terminal.toolbar.enabled.v4"
     // v3 schema, keyed by ``ToolbarItemID`` storage keys + JSON custom actions.
     // v3 widened the configurable region to include the modifier/zoom/paste
     // built-ins that v1/v2 pinned, so its enabled set is authoritative (it knows
     // those built-ins are hideable); presence of these keys means "skip the
     // force-enable widening migration".
-    private static let orderDefaultsKey = "cmux.terminal.toolbar.order.v3"
-    private static let enabledDefaultsKey = "cmux.terminal.toolbar.enabled.v3"
-    // Custom actions are schema-stable across v2 and v3, so the v2 key is reused.
+    private static let legacyV3OrderDefaultsKey = "cmux.terminal.toolbar.order.v3"
+    private static let legacyV3EnabledDefaultsKey = "cmux.terminal.toolbar.enabled.v3"
+    // Custom actions are schema-stable across v2-v4, so the v2 key is reused.
     private static let customDefaultsKey = "cmux.terminal.toolbar.custom.v2"
     // v2 schema (ToolbarItemID storage keys, configurable region = trailing
     // shortcuts only), read once to forward-migrate an upgrading user.
@@ -48,9 +58,14 @@ public final class TerminalAccessoryConfiguration {
     private static let legacyV1OrderDefaultsKey = "cmux.terminal.accessory.displayOrder.v1"
     private static let legacyV1EnabledDefaultsKey = "cmux.terminal.accessory.enabled.v1"
 
-    /// The configurable items in the order the user has arranged them, as unified
-    /// identifiers (built-ins and custom actions together).
-    public private(set) var displayOrder: [ToolbarItemID]
+    /// The configurable items arranged into the toolbar rows the user configured,
+    /// as unified identifiers (built-ins and custom actions together).
+    public private(set) var displayRows: [[ToolbarItemID]]
+
+    /// The configurable items in row-major order.
+    public var displayOrder: [ToolbarItemID] {
+        displayRows.flatMap { $0 }
+    }
 
     /// The subset of ``displayOrder`` currently shown on the bar.
     public private(set) var enabledSet: Set<ToolbarItemID>
@@ -75,9 +90,21 @@ public final class TerminalAccessoryConfiguration {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
-        let loadedCustoms = Self.loadCustomActions(from: defaults)
+        let loadedCustoms: [CustomToolbarAction]
+        if let data = defaults.data(forKey: Self.customDefaultsKey),
+           let decoded = try? JSONDecoder().decode([CustomToolbarAction].self, from: data) {
+            loadedCustoms = decoded
+        } else {
+            loadedCustoms = []
+        }
         self.customActions = loadedCustoms
-        self.reducer = Self.makeReducer(customActions: loadedCustoms)
+        let builtinIDs = TerminalInputAccessoryAction.configurableActions.map(\.itemID)
+        let customIDs = loadedCustoms.map(\.itemID)
+        let defaultOrder = TerminalInputAccessoryAction.defaultConfigurableOrder.map(\.itemID) + customIDs
+        self.reducer = TerminalAccessoryLayoutReducer(
+            configurable: builtinIDs + customIDs,
+            defaultOrder: defaultOrder
+        )
 
         // Resolve the persisted layout across schema generations:
         //   v3 present  → authoritative; load as-is (modifiers can stay hidden).
@@ -86,11 +113,23 @@ public final class TerminalAccessoryConfiguration {
         //   else v1 present → relabel v1→ids, then widen to v3 the same way.
         //   else fresh install → empty saved + nil enabled ⇒ default layout,
         //                        which already includes modifiers/zoom/paste.
-        let savedOrder: [ToolbarItemID]
+        let savedRows: [[ToolbarItemID]]?
+        var savedOrder: [ToolbarItemID] = []
         let savedEnabled: [ToolbarItemID]?
-        if let v3Order = defaults.array(forKey: Self.orderDefaultsKey) as? [String] {
+        let rowCount: Int
+        let v4Rows = defaults.array(forKey: Self.rowsDefaultsKey)?.map { row in
+            guard let storageKeys = row as? [String] else { return [] }
+            return storageKeys.compactMap(ToolbarItemID.init(storageKey:))
+        }
+        if let v4Rows {
+            savedRows = v4Rows
+            savedEnabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
+                .compactMap(ToolbarItemID.init(storageKey:))
+            rowCount = min(max(v4Rows.count, Self.minimumRowCount), Self.maximumRowCount)
+        } else if let v3Order = defaults.array(forKey: Self.legacyV3OrderDefaultsKey) as? [String] {
+            savedRows = nil
             let order = v3Order.compactMap(ToolbarItemID.init(storageKey:))
-            let enabled = (defaults.array(forKey: Self.enabledDefaultsKey) as? [String])?
+            let enabled = (defaults.array(forKey: Self.legacyV3EnabledDefaultsKey) as? [String])?
                 .compactMap(ToolbarItemID.init(storageKey:))
             // ⇧ and Return each became user-configurable after the v3 schema
             // shipped, so a layout persisted under the v3 keys has no record of
@@ -103,7 +142,9 @@ public final class TerminalAccessoryConfiguration {
             let folded = Self.foldNewlyConfigurableV3(order: order, enabled: enabled, migration: migration)
             savedOrder = folded.order
             savedEnabled = folded.enabled
+            rowCount = Self.minimumRowCount
         } else if let v2Order = defaults.array(forKey: Self.legacyV2OrderDefaultsKey) as? [String] {
+            savedRows = nil
             let widened = migration.widenedToV3(
                 order: v2Order.compactMap(ToolbarItemID.init(storageKey:)),
                 enabled: (defaults.array(forKey: Self.legacyV2EnabledDefaultsKey) as? [String])?
@@ -116,7 +157,9 @@ public final class TerminalAccessoryConfiguration {
             let folded = Self.foldNewlyConfigurableV3(order: widened.order, enabled: widened.enabled, migration: migration)
             savedOrder = folded.order
             savedEnabled = folded.enabled
+            rowCount = Self.minimumRowCount
         } else if let v1Order = defaults.array(forKey: Self.legacyV1OrderDefaultsKey) as? [Int] {
+            savedRows = nil
             let widened = migration.widenedToV3(
                 order: migration.migratedOrder(legacy: v1Order),
                 enabled: migration.migratedEnabled(
@@ -130,15 +173,22 @@ public final class TerminalAccessoryConfiguration {
             let folded = Self.foldNewlyConfigurableV3(order: widened.order, enabled: widened.enabled, migration: migration)
             savedOrder = folded.order
             savedEnabled = folded.enabled
+            rowCount = Self.minimumRowCount
         } else {
-            savedOrder = []
+            savedRows = nil
             savedEnabled = nil
+            rowCount = Self.minimumRowCount
         }
 
-        let layout = reducer.load(savedOrder: savedOrder, savedEnabled: savedEnabled)
-        self.displayOrder = layout.order
+        let layout = reducer.load(
+            savedRows: savedRows,
+            savedOrder: savedOrder,
+            savedEnabled: savedEnabled,
+            rowCount: rowCount
+        )
+        self.displayRows = layout.rows
         self.enabledSet = layout.enabled
-        // Persist the normalized (and possibly migrated) layout under the v3 keys
+        // Persist the normalized (and possibly migrated) layout under the v4 keys
         // so the migration path runs at most once.
         persist()
     }
@@ -211,6 +261,25 @@ public final class TerminalAccessoryConfiguration {
         displayOrder.filter { enabledSet.contains($0) }.compactMap(resolve)
     }
 
+    /// Every configurable item arranged by toolbar row, regardless of
+    /// shown/hidden state.
+    public var displayItemRows: [[ResolvedToolbarItem]] {
+        displayRows.map { row in row.compactMap(resolve) }
+    }
+
+    /// The shown items arranged by toolbar row — exactly what the toolbar renders,
+    /// ahead of the fixed trailing "customize" control.
+    public var enabledItemRows: [[ResolvedToolbarItem]] {
+        displayRows.map { row in
+            row.filter { enabledSet.contains($0) }.compactMap(resolve)
+        }
+    }
+
+    /// The number of persisted toolbar rows.
+    public var rowCount: Int {
+        displayRows.count
+    }
+
     /// Whether `id` is currently shown on the bar.
     public func isEnabled(_ id: ToolbarItemID) -> Bool {
         enabledSet.contains(id)
@@ -231,22 +300,68 @@ public final class TerminalAccessoryConfiguration {
         persistAndNotify()
     }
 
-    /// Reorder the configurable items using a complete desired order.
+    /// Reorder the configurable items within a specific toolbar row.
+    public func moveItems(from offsets: IndexSet, to destination: Int, inRow rowIndex: Int) {
+        apply(reducer.move(from: offsets, to: destination, inRow: rowIndex, in: currentLayout))
+        persistAndNotify()
+    }
+
+    /// Move one configurable item to the end of another toolbar row.
+    ///
+    /// Selecting the row the item already occupies is a no-op.
+    public func moveItem(_ id: ToolbarItemID, toRow rowIndex: Int) {
+        guard displayRows.indices.contains(rowIndex),
+              !displayRows[rowIndex].contains(id)
+        else { return }
+        apply(reducer.move(id, toRow: rowIndex, in: currentLayout))
+        persistAndNotify()
+    }
+
+    /// Change the number of visible toolbar rows.
+    public func setRowCount(_ rowCount: Int) {
+        let clampedRowCount = min(max(rowCount, Self.minimumRowCount), Self.maximumRowCount)
+        apply(reducer.setRowCount(clampedRowCount, in: currentLayout))
+        persistAndNotify()
+    }
+
+    /// Reorder the configurable items inside their current toolbar rows.
     ///
     /// Unknown identifiers are dropped and any omitted current/configurable ids
-    /// are appended by the reducer load path, matching launch-time normalization.
+    /// keep their current relative order. Moving an item between rows must go
+    /// through ``moveItem(_:toRow:)`` so row assignment never changes implicitly.
     public func reorderItems(_ orderedIDs: [ToolbarItemID]) {
-        apply(reducer.load(savedOrder: orderedIDs, savedEnabled: Array(enabledSet)))
+        apply(reducer.reorder(orderedIDs, limitedTo: Set(displayOrder), in: currentLayout))
+        persistAndNotify()
+    }
+
+    /// Reorder a scoped subset of configurable items inside their current rows.
+    ///
+    /// This keeps every non-scoped item in its exact row position and only reorders
+    /// `scopedIDs` among the scoped slots in the row each item already occupies.
+    public func reorderItems(_ orderedIDs: [ToolbarItemID], limitedTo scopedIDs: Set<ToolbarItemID>) {
+        apply(reducer.reorder(orderedIDs, limitedTo: scopedIDs, in: currentLayout))
+        persistAndNotify()
+    }
+
+    /// Reorder a scoped subset of configurable items across row-major slots.
+    ///
+    /// Non-scoped items keep their exact row positions, while scoped items can
+    /// trade places across the slots occupied by that scope. This keeps flat
+    /// settings surfaces aligned with flat runtime consumers without moving
+    /// terminal-only items.
+    public func reorderItemsAcrossRows(_ orderedIDs: [ToolbarItemID], limitedTo scopedIDs: Set<ToolbarItemID>) {
+        apply(reducer.reorderAcrossRows(orderedIDs, limitedTo: scopedIDs, in: currentLayout))
         persistAndNotify()
     }
 
     /// Append a new custom action, shown at the end of the configurable region.
     public func addCustomAction(_ action: CustomToolbarAction) {
         customActions.append(action)
-        reducer = Self.makeReducer(customActions: customActions)
+        reducer = makeReducer()
         apply(reducer.load(
-            savedOrder: displayOrder,
-            savedEnabled: Array(enabledSet) + [action.itemID]
+            savedRows: displayRows,
+            savedEnabled: Array(enabledSet) + [action.itemID],
+            rowCount: rowCount
         ))
         persistAndNotify()
     }
@@ -256,7 +371,7 @@ public final class TerminalAccessoryConfiguration {
     public func updateCustomAction(_ action: CustomToolbarAction) {
         guard let index = customActions.firstIndex(where: { $0.id == action.id }) else { return }
         customActions[index] = action
-        reducer = Self.makeReducer(customActions: customActions)
+        reducer = makeReducer()
         persistAndNotify()
     }
 
@@ -264,8 +379,8 @@ public final class TerminalAccessoryConfiguration {
     public func removeCustomAction(id: UUID) {
         guard customActions.contains(where: { $0.id == id }) else { return }
         customActions.removeAll { $0.id == id }
-        reducer = Self.makeReducer(customActions: customActions)
-        apply(reducer.load(savedOrder: displayOrder, savedEnabled: Array(enabledSet)))
+        reducer = makeReducer()
+        apply(reducer.load(savedRows: displayRows, savedEnabled: Array(enabledSet), rowCount: rowCount))
         persistAndNotify()
     }
 
@@ -288,17 +403,15 @@ public final class TerminalAccessoryConfiguration {
     }
 
     private var currentLayout: TerminalAccessoryLayoutReducer<ToolbarItemID>.Layout {
-        .init(order: displayOrder, enabled: enabledSet)
+        .init(rows: displayRows, enabled: enabledSet)
     }
 
     private func apply(_ layout: TerminalAccessoryLayoutReducer<ToolbarItemID>.Layout) {
-        displayOrder = layout.order
+        displayRows = layout.rows
         enabledSet = layout.enabled
     }
 
-    private static func makeReducer(
-        customActions: [CustomToolbarAction]
-    ) -> TerminalAccessoryLayoutReducer<ToolbarItemID> {
+    private func makeReducer() -> TerminalAccessoryLayoutReducer<ToolbarItemID> {
         let builtin = TerminalInputAccessoryAction.configurableActions.map(\.itemID)
         let custom = customActions.map(\.itemID)
         // The redesigned bar's curated built-in arrangement first, then customs,
@@ -307,16 +420,8 @@ public final class TerminalAccessoryConfiguration {
         return TerminalAccessoryLayoutReducer(configurable: builtin + custom, defaultOrder: defaultOrder)
     }
 
-    private static func loadCustomActions(from defaults: UserDefaults) -> [CustomToolbarAction] {
-        guard let data = defaults.data(forKey: Self.customDefaultsKey),
-              let decoded = try? JSONDecoder().decode([CustomToolbarAction].self, from: data) else {
-            return []
-        }
-        return decoded
-    }
-
     private func persist() {
-        defaults.set(displayOrder.map(\.storageKey), forKey: Self.orderDefaultsKey)
+        defaults.set(displayRows.map { row in row.map(\.storageKey) }, forKey: Self.rowsDefaultsKey)
         defaults.set(
             displayOrder.filter { enabledSet.contains($0) }.map(\.storageKey),
             forKey: Self.enabledDefaultsKey
