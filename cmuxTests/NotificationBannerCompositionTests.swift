@@ -137,4 +137,28 @@ import Testing
 
         #expect(body == "Finished: Investigate warnings")
     }
+
+    @Test func openCodeStopDeduperDropsRepeatedTurnFingerprints() {
+        let deduper = OpenCodeStopNotificationDeduper()
+        let surface = UUID()
+        let otherSurface = UUID()
+
+        #expect(deduper.shouldNotify(surfaceId: surface, fingerprint: "s1|done|prompt"))
+        #expect(!deduper.shouldNotify(surfaceId: surface, fingerprint: "s1|done|prompt"))
+        #expect(deduper.shouldNotify(surfaceId: surface, fingerprint: "s1|next answer|prompt"))
+        #expect(deduper.shouldNotify(surfaceId: otherSurface, fingerprint: "s1|done|prompt"))
+    }
+
+    @Test func openCodeStopDeduperBoundsItsMap() {
+        let deduper = OpenCodeStopNotificationDeduper(capacity: 2)
+        let first = UUID()
+
+        #expect(deduper.shouldNotify(surfaceId: first, fingerprint: "a"))
+        #expect(deduper.shouldNotify(surfaceId: UUID(), fingerprint: "b"))
+        // Third surface trips the capacity reset and still notifies.
+        #expect(deduper.shouldNotify(surfaceId: UUID(), fingerprint: "c"))
+        // The reset dropped `first`; the same turn may notify once more, never loop.
+        #expect(deduper.shouldNotify(surfaceId: first, fingerprint: "a"))
+        #expect(!deduper.shouldNotify(surfaceId: first, fingerprint: "a"))
+    }
 }
