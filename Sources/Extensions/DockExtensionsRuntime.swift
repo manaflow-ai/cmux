@@ -24,12 +24,25 @@ final class DockExtensionsRuntime {
     let installCoordinator: ExtensionInstallCoordinator
 
     private let host: DockExtensionsAppHost
+    private let directories: DockExtensionDirectories
     private var settingsState: ExtensionsSettingsState?
+    /// Consent previews minted for socket/CLI flows, keyed by token; the CLI
+    /// renders the preview, asks the user, then confirms or discards by token.
+    private var socketPreviewGrants: [String: SocketPreviewGrant] = [:]
+
+    private struct SocketPreviewGrant {
+        let preview: DockExtensionInstallPreview
+        let createdAt: Date
+    }
+
+    /// How long an unconfirmed socket preview (and its staged checkout) lives.
+    static let socketPreviewLifetime: TimeInterval = 15 * 60
 
     private init() {
         let directories = DockExtensionDirectories(
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser
         )
+        self.directories = directories
         let store = DockExtensionsStore(
             directories: directories,
             repository: InstalledDockExtensionsRepository(fileURL: directories.lockFileURL)
@@ -100,6 +113,66 @@ final class DockExtensionsRuntime {
                     iconSystemName: installed.iconSystemName
                 )
             }
+        }
+    }
+
+    // MARK: - Socket/CLI consent flow
+
+    /// Stages a preview for `cmux extension install/update` and returns a
+    /// one-shot token the CLI confirms or discards after showing the preview.
+    func socketPreview(
+        sourceInput: String?,
+        updateId: String?,
+        ref: String?
+    ) async throws -> (token: String, preview: DockExtensionInstallPreview) {
+        expireStaleSocketPreviews()
+        let preview: DockExtensionInstallPreview
+        if let updateId, !updateId.isEmpty {
+            preview = try await store.previewUpdate(id: updateId)
+        } else if let sourceInput, !sourceInput.isEmpty {
+            preview = try await store.previewInstall(input: sourceInput, ref: ref)
+        } else {
+            throw DockExtensionError.invalidSource("")
+        }
+        let token = UUID().uuidString.lowercased()
+        socketPreviewGrants[token] = SocketPreviewGrant(preview: preview, createdAt: Date())
+        return (token, preview)
+    }
+
+    /// Executes a previously granted preview. Returns `nil` for an unknown or
+    /// expired token.
+    func socketInstall(token: String) async throws -> DockExtensionInstallPreview? {
+        guard let grant = socketPreviewGrants.removeValue(forKey: token) else { return nil }
+        try await store.install(grant.preview)
+        return grant.preview
+    }
+
+    /// Discards a granted preview's staged checkout (the CLI's "n" answer).
+    /// Returns `false` for an unknown or expired token.
+    func socketDiscard(token: String) -> Bool {
+        guard let grant = socketPreviewGrants.removeValue(forKey: token) else { return false }
+        store.discard(grant.preview)
+        return true
+    }
+
+    /// The on-disk locations for an installed extension (for
+    /// `cmux extension config-dir`/`paths`), or `nil` when not installed.
+    func socketPaths(id: String) -> [String: Any]? {
+        guard let installed = store.installedExtension(id: id) else { return nil }
+        return [
+            "id": id,
+            "root": installed.rootDirectory.path,
+            "config_dir": directories.configDirectory(id: id).path,
+            "state_dir": directories.stateDirectory(id: id).path,
+            "logs_dir": directories.logsDirectory(id: id).path,
+        ]
+    }
+
+    private func expireStaleSocketPreviews() {
+        let cutoff = Date().addingTimeInterval(-Self.socketPreviewLifetime)
+        for (token, grant) in socketPreviewGrants where grant.createdAt < cutoff {
+            socketPreviewGrants.removeValue(forKey: token)
+            store.discard(grant.preview)
         }
     }
 

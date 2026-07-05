@@ -15,7 +15,8 @@ public protocol DockExtensionsHost: AnyObject {
     func openExtensionPane(_ request: DockExtensionPaneOpenRequest) -> Bool
 
     /// Called after a successful install: enables the Dock beta feature (the
-    /// locked product decision — installing an extension turns the Dock on)
-    /// and reveals the Dock so the user sees where panes will live.
+    /// locked product decision — installing an extension turns the Dock on).
+    /// Must not raise windows or steal focus — it also runs for socket/CLI
+    /// installs; GUI surfaces do their own reveal.
     func activateDockForExtensions()
 }

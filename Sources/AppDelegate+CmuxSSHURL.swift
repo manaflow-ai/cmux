@@ -444,6 +444,9 @@ extension AppDelegate {
         if handleCmuxTextURLs(from: urls) {
             return true
         }
+        if handleCmuxExtensionInstallURLs(from: urls) {
+            return true
+        }
         return false
     }
 
@@ -451,9 +454,10 @@ extension AppDelegate {
         var ssh = 0
         var navigation = 0
         var text = 0
+        var extensionInstall = 0
 
         var total: Int {
-            ssh + navigation + text
+            ssh + navigation + text + extensionInstall
         }
     }
 
@@ -478,8 +482,51 @@ extension AppDelegate {
             case .success(nil):
                 break
             }
+            switch CmuxExtensionInstallURLRequest.parse(url) {
+            case .success(.some), .failure:
+                nextCounts.extensionInstall += 1
+            case .success(nil):
+                break
+            }
             return nextCounts
         }
+    }
+
+    /// `cmux://extensions/install?repo=…` — opens the extension consent
+    /// window; nothing installs without the user approving the previewed
+    /// commands there (a deep link can never skip consent).
+    @discardableResult
+    func handleCmuxExtensionInstallURLs(from urls: [URL]) -> Bool {
+        var requests: [CmuxExtensionInstallURLRequest] = []
+        var parseErrorCount = 0
+
+        for url in urls {
+            switch CmuxExtensionInstallURLRequest.parse(url) {
+            case .success(.some(let request)):
+                requests.append(request)
+            case .success(nil):
+                break
+            case .failure(let error):
+#if DEBUG
+                cmuxDebugLog("extensionInstallURL.blocked reason=\(error) url=\(url.absoluteString.prefix(160))")
+#endif
+                parseErrorCount += 1
+            }
+        }
+
+        let intentCount = requests.count + parseErrorCount
+        guard intentCount > 0 else { return false }
+        guard intentCount == 1, let request = requests.first else {
+            // Malformed or multiple install links: recognized, but never acted
+            // on. The consent window is the only path to an install.
+            return true
+        }
+
+        DockExtensionsRuntime.shared.installCoordinator.beginInstall(
+            input: request.source,
+            ref: request.ref
+        )
+        return true
     }
 
     @discardableResult

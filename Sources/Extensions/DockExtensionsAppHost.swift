@@ -2,8 +2,8 @@ import AppKit
 import CmuxDockExtensions
 
 /// App-side ``DockExtensionsHost``: opens extension panes in the active
-/// window's Dock and enables/reveals the Dock beta feature on install (the
-/// locked product decision — installing an extension turns the Dock on).
+/// window's Dock and enables the Dock beta feature on install (the locked
+/// product decision — installing an extension turns the Dock on).
 @MainActor
 final class DockExtensionsAppHost: DockExtensionsHost {
     var currentAppVersion: String {
@@ -40,11 +40,10 @@ final class DockExtensionsAppHost: DockExtensionsHost {
     }
 
     func activateDockForExtensions() {
+        // Flag-only, no window raising: this also runs for socket/CLI installs,
+        // which must not steal focus (socket policy). GUI installs reveal the
+        // Dock from the consent coordinator, an explicit user action.
         enableDockBetaFlagIfNeeded()
-        AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-            mode: .dock,
-            focusFirstItem: false
-        )
     }
 
     private func enableDockBetaFlagIfNeeded() {

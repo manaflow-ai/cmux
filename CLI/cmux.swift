@@ -4907,6 +4907,13 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "extension":
+            try runExtensionCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+
         case "sidebar":
             try runSidebarCommand(
                 commandArgs: commandArgs,
@@ -15791,6 +15798,23 @@ struct CMUXCLI {
               cmux right-sidebar toggle
               cmux right-sidebar set find
               cmux right-sidebar mode
+            """)
+        case "extension":
+            return String(localized: "cli.extension.usage", defaultValue: """
+            Usage: cmux extension <list|install|update|uninstall|link|unlink|open|config-dir|paths> [args] [--json]
+            Dock TUI extensions: GitHub repos with a cmux-extension.json manifest, run as Dock panes.
+            Commands:
+              list                          Installed extensions and their panes
+              install <owner/repo[/sub]>    Preview the pinned commit + commands, confirm, install
+                  [--ref <ref>] [--yes]     --ref pins a branch/tag/SHA; --yes skips the prompt
+              update <id> [--yes]           Re-resolve the source and re-consent to the new commit
+              uninstall <id>                Remove the extension and its checkout (config/state kept)
+              link <path>                   Register a local directory for development (no pin/build)
+              unlink <id>                   Remove the record without touching files
+              open <id | id.pane>           Open an extension pane in the Dock
+              config-dir <id>               Print the extension's config directory
+              paths <id>                    Print root, config, state, and logs directories
+            Extensions are not reviewed by cmux; they run as you. Manifest docs: https://cmux.io/docs/extensions
             """)
         case "sidebar":
             return String(localized: "cli.sidebar.usage", defaultValue: """
@@ -34378,6 +34402,7 @@ export default CMUXSessionRestore;
           jump-to-unread
           clear-notifications [--workspace <id|ref|index>] [--window <id|ref|index>]
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          extension <list|install|update|uninstall|link|unlink|open|config-dir|paths>
           sidebar <validate|reload|select|open> [name]
           set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]

@@ -63,6 +63,19 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Dock TUI extension verbs run long awaits (network git resolve/clone
+        // for preview, build steps for install, disk projection for list) —
+        // the worker lane keeps the socket pipeline free. Their bodies hop to
+        // the main actor only for the extensions store, whose calls suspend
+        // into service actors rather than block. `extension.open` and
+        // `extension.paths` stay main-actor (quick; open is focus-intent).
+        "extension.list",
+        "extension.preview",
+        "extension.install",
+        "extension.discard",
+        "extension.uninstall",
+        "extension.link",
+        "extension.unlink",
         // `mobile.terminal.set_font` only validates params and emits a
         // `terminal.set_font` push event via thread-safe MobileHostService
         // statics (no main-actor UI access), so it runs on the socket worker
