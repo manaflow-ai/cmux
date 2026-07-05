@@ -9,6 +9,7 @@ import {
   noOpVmBillingGateway,
   type VmBillingGatewayShape,
 } from "../services/vms/billingGateway";
+import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   VmRepository,
@@ -37,6 +38,9 @@ const dbTest = runDbTests ? test : test.skip;
 
 let sql: Sql | null = null;
 
+type RecordedUsageEvent = Parameters<VmRepositoryShape["recordUsageEvent"]>[0];
+type RecordedLease = Parameters<VmRepositoryShape["recordLease"]>[0];
+
 function databaseURL() {
   const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) {
@@ -56,6 +60,18 @@ function providerLayer(
   );
 }
 
+function workflowLayer(
+  repo: VmRepositoryShape,
+  provider: VmProviderGatewayShape,
+  billing: VmBillingGatewayShape = noOpVmBillingGateway(),
+) {
+  return Layer.mergeAll(
+    Layer.succeed(VmRepository, repo),
+    Layer.succeed(VmProviderGateway, provider),
+    Layer.succeed(VmBillingGateway, billing),
+  );
+}
+
 beforeAll(() => {
   if (!runDbTests) return;
   sql = postgres(databaseURL(), { max: 1 });
@@ -67,6 +83,349 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("exec resumes a paused VM, retries once, and records one usage event", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000101",
+      userId: "user-workflow-exec-resume",
+      billingTeamId: "team-workflow-exec-resume",
+      providerVmId: "provider-vm-exec-resume",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const originalError = providerOperationError("exec", "provider exec unavailable");
+    let execCalls = 0;
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.suspend(() => {
+          execCalls += 1;
+          if (execCalls === 1) return Effect.fail(originalError);
+          return Effect.succeed({ exitCode: 7, stdout: "retried", stderr: "" });
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "paused" as const;
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-exec-resume" });
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-resume",
+        providerVmId: "provider-vm-exec-resume",
+        command: "echo retried",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual({ exitCode: 7, stdout: "retried", stderr: "" });
+    expect(execCalls).toBe(2);
+    expect(statusCalls).toBe(1);
+    expect(resumeCalls).toBe(1);
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      eventType: "vm.exec",
+      vmId: vm.id,
+      metadata: { commandLength: "echo retried".length, exitCode: 7 },
+    });
+  });
+
+  test("exec failure with running provider status propagates the original error without retry", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000102",
+      userId: "user-workflow-exec-running",
+      providerVmId: "provider-vm-exec-running",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const originalError = providerOperationError("exec", "provider exec unavailable");
+    let execCalls = 0;
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.suspend(() => {
+          execCalls += 1;
+          return Effect.fail(originalError);
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-exec-running" });
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-running",
+        providerVmId: "provider-vm-exec-running",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(originalError);
+    expect(execCalls).toBe(1);
+    expect(statusCalls).toBe(1);
+    expect(resumeCalls).toBe(0);
+    expect(usageEvents).toHaveLength(0);
+  });
+
+  test("exec failure where resume also fails propagates the original exec error", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000103",
+      userId: "user-workflow-exec-resume-fails",
+      providerVmId: "provider-vm-exec-resume-fails",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    const originalError = providerOperationError("exec", "provider exec unavailable");
+    const resumeError = providerOperationError("resume", "provider resume unavailable");
+    let execCalls = 0;
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.suspend(() => {
+          execCalls += 1;
+          return Effect.fail(originalError);
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "paused" as const;
+        }),
+      resume: () =>
+        Effect.suspend(() => {
+          resumeCalls += 1;
+          return Effect.fail(resumeError);
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-resume-fails",
+        providerVmId: "provider-vm-exec-resume-fails",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(originalError);
+    expect(execCalls).toBe(1);
+    expect(statusCalls).toBe(1);
+    expect(resumeCalls).toBe(1);
+  });
+
+  test("exec failure without gateway getStatus propagates the original error", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000104",
+      userId: "user-workflow-exec-no-status",
+      providerVmId: "provider-vm-exec-no-status",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    const originalError = providerOperationError("exec", "provider exec unavailable");
+    let execCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.suspend(() => {
+          execCalls += 1;
+          return Effect.fail(originalError);
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-exec-no-status" });
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-no-status",
+        providerVmId: "provider-vm-exec-no-status",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(originalError);
+    expect(execCalls).toBe(1);
+    expect(resumeCalls).toBe(0);
+  });
+
+  test("exec failure without gateway resume skips recovery and propagates the original error", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000107",
+      userId: "user-workflow-exec-no-resume",
+      providerVmId: "provider-vm-exec-no-resume",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const originalError = providerOperationError("exec", "provider exec unavailable");
+    let execCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.suspend(() => {
+          execCalls += 1;
+          return Effect.fail(originalError);
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "paused" as const;
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      execVm({
+        userId: "user-workflow-exec-no-resume",
+        providerVmId: "provider-vm-exec-no-resume",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBe(originalError);
+    expect(execCalls).toBe(1);
+    expect(statusCalls).toBe(0);
+    expect(usageEvents).toHaveLength(0);
+  });
+
+  test("openAttachEndpoint resumes a paused VM and retries attach once", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000105",
+      userId: "user-workflow-attach-resume",
+      billingTeamId: "team-workflow-attach-resume",
+      providerVmId: "provider-vm-attach-resume",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, leases });
+    const originalError = providerOperationError("openAttach", "provider attach unavailable");
+    const endpoint = testAttachEndpoint();
+    let attachCalls = 0;
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openAttach: () =>
+        Effect.suspend(() => {
+          attachCalls += 1;
+          if (attachCalls === 1) return Effect.fail(originalError);
+          return Effect.succeed(endpoint);
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "paused" as const;
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-attach-resume" });
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-resume",
+        providerVmId: "provider-vm-attach-resume",
+        options: { requireDaemon: true },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual(endpoint);
+    expect(attachCalls).toBe(2);
+    expect(statusCalls).toBe(1);
+    expect(resumeCalls).toBe(1);
+    expect(leases).toHaveLength(1);
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      eventType: "vm.attach",
+      vmId: vm.id,
+      metadata: { transport: "websocket", requireDaemon: true, daemonAvailable: false },
+    });
+  });
+
+  test("openSshEndpoint resumes a paused VM and retries SSH endpoint minting once", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000106",
+      userId: "user-workflow-ssh-resume",
+      billingTeamId: "team-workflow-ssh-resume",
+      providerVmId: "provider-vm-ssh-resume",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, leases });
+    const originalError = providerOperationError("openSSH", "provider ssh unavailable");
+    const endpoint = testSshEndpoint();
+    let sshCalls = 0;
+    let statusCalls = 0;
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      openSSH: () =>
+        Effect.suspend(() => {
+          sshCalls += 1;
+          if (sshCalls === 1) return Effect.fail(originalError);
+          return Effect.succeed(endpoint);
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "paused" as const;
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: "provider-vm-ssh-resume" });
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      openSshEndpoint({
+        userId: "user-workflow-ssh-resume",
+        providerVmId: "provider-vm-ssh-resume",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual(endpoint);
+    expect(sshCalls).toBe(2);
+    expect(statusCalls).toBe(1);
+    expect(resumeCalls).toBe(1);
+    expect(leases).toHaveLength(1);
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      eventType: "vm.ssh_endpoint",
+      vmId: vm.id,
+      metadata: { credentialKind: "password" },
+    });
+  });
+
   dbTest("does not block create when usage event recording fails", async () => {
     const requested = testCloudVmRow({
       status: "provisioning",
@@ -1454,6 +1813,109 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     ...overrides,
+  };
+}
+
+function testWorkflowRepo(input: {
+  readonly vm: CloudVmRow;
+  readonly usageEvents?: RecordedUsageEvent[];
+  readonly leases?: RecordedLease[];
+}): VmRepositoryShape {
+  return {
+    listUserVms: () => Effect.succeed([]),
+    claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
+    markBillingGrantApplied: () => Effect.void,
+    deleteBillingGrant: () => Effect.void,
+    beginCreate: () => unusedDatabaseEffect("beginCreate"),
+    activeLimitCandidates: () => Effect.succeed([]),
+    markProviderObservedStatus: () => Effect.succeed(false),
+    markCreateRunning: () => unusedDatabaseEffect("markCreateRunning"),
+    markCreateFailed: () => Effect.void,
+    findUserVm: ({ userId, providerVmId }) =>
+      Effect.succeed(
+        input.vm.userId === userId && input.vm.providerVmId === providerVmId
+          ? input.vm
+          : null,
+      ),
+    markDestroyed: () => Effect.void,
+    recordLease: (lease) =>
+      Effect.sync(() => {
+        input.leases?.push(lease);
+      }),
+    activeIdentityLeases: () => Effect.succeed([]),
+    markLeasesRevoked: () => Effect.void,
+    recordUsageEvent: (event) =>
+      Effect.sync(() => {
+        input.usageEvents?.push(event);
+      }),
+    recordUsageEvents: (events) =>
+      Effect.sync(() => {
+        input.usageEvents?.push(...events);
+      }),
+  };
+}
+
+function unusedProviderGateway(): VmProviderGatewayShape {
+  return {
+    create: () => unusedProviderEffect("create"),
+    destroy: () => Effect.void,
+    exec: () => unusedProviderEffect("exec"),
+    openAttach: () => unusedProviderEffect("openAttach"),
+    openSSH: () => unusedProviderEffect("openSSH"),
+    revokeSSHIdentity: () => Effect.void,
+  };
+}
+
+function unusedDatabaseEffect<A>(operation: string): Effect.Effect<A, VmDatabaseError> {
+  return Effect.fail(new VmDatabaseError({
+    operation,
+    cause: new Error(`${operation} should not be called`),
+  }));
+}
+
+function unusedProviderEffect<A>(operation: string): Effect.Effect<A, VmProviderOperationError> {
+  return Effect.fail(providerOperationError(operation, `${operation} should not be called`));
+}
+
+function providerOperationError(operation: string, message: string): VmProviderOperationError {
+  return new VmProviderOperationError({
+    provider: "freestyle",
+    operation,
+    cause: new Error(message),
+  });
+}
+
+function testVmHandle(overrides: Partial<VMHandle> = {}): VMHandle {
+  return {
+    provider: "freestyle",
+    providerVmId: "provider-vm-test",
+    status: "running",
+    image: "snapshot-test",
+    createdAt: Date.now(),
+    ...overrides,
+  };
+}
+
+function testAttachEndpoint(): AttachEndpoint {
+  return {
+    transport: "websocket",
+    url: "wss://example.invalid/pty",
+    headers: {},
+    token: "pty-token",
+    sessionId: "pty-session",
+    expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+  };
+}
+
+function testSshEndpoint(): SSHEndpoint {
+  return {
+    transport: "ssh",
+    host: "vm-ssh.freestyle.sh",
+    port: 22,
+    username: "provider-vm-ssh-resume+cmux",
+    publicKeyFingerprint: null,
+    credential: { kind: "password", value: "token" },
+    identityHandle: "identity-ssh-resume",
   };
 }
 
