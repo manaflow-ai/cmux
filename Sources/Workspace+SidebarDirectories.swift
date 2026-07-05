@@ -46,6 +46,9 @@ extension Workspace {
         guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),
               !isRemoteTerminalSurface(panelId),
               !isRemoteTmuxMirror else { return false }
+        if let agentPanel = panels[panelId] as? AgentSessionPanel {
+            return normalizedSidebarDirectory(agentPanel.workingDirectory) != nil
+        }
         return terminalPanel(for: panelId) != nil
     }
 

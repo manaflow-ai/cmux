@@ -169,6 +169,7 @@ import CmuxGit
         host.pollingEnabled = true
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/remote")
         host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.hasTrustedRemoteDirectory = true
         host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(branch: "feature/x", isDirty: false)
         host.workspaces[0].state.panels[panelId]?.badge = badge(number: 7, status: .open)
         let clock = ManualGitPollClock()

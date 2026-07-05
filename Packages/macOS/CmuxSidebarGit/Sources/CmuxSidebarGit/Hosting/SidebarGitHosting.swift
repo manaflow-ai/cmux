@@ -96,3 +96,11 @@ public protocol SidebarGitHosting: AnyObject {
     /// How long until the mobile host has been quiet for `interval` seconds.
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval
 }
+
+extension SidebarGitHosting {
+    func shouldSkipLocalGitMetadata(workspaceId: UUID, panelId: UUID) -> Bool {
+        isRemoteWorkspace(workspaceId) == true &&
+            (isRemoteTerminalPanel(workspaceId: workspaceId, panelId: panelId) ||
+                hasTrustedRemotePanelDirectory(workspaceId: workspaceId, panelId: panelId))
+    }
+}

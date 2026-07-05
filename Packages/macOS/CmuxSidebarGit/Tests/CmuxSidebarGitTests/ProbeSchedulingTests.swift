@@ -40,6 +40,7 @@ import CmuxGit
     @Test func initialProbeWalksRetryOffsetsAsSequentialGaps() async throws {
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/probe-test")
+        host.workspaces[0].state.isRemote = true
         let clock = ManualGitPollClock()
         let reader = GatedMetadataReader(metadata: .nonRepository, gated: true)
         let service = makeService(host: host, reader: reader, clock: clock)
@@ -60,11 +61,12 @@ import CmuxGit
         await reader.openGate()
     }
 
-    /// A remote workspace never schedules the initial probe.
-    @Test func remoteWorkspaceSkipsInitialProbe() async throws {
+    /// A remote terminal panel never schedules the initial local probe.
+    @Test func remoteTerminalPanelSkipsInitialProbe() async throws {
         let host = RecordingSidebarGitHost()
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/remote")
         host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.isRemoteTerminal = true
         let clock = ManualGitPollClock()
         let service = makeService(
             host: host,
@@ -431,7 +433,7 @@ import CmuxGit
 
         // Wait until the snapshot probe has started reading, then move the
         // panel to a different directory before letting the read finish.
-        #expect(await reader.waitForTrackedPathEventGenerationProbe())
+        #expect(await reader.waitForProbe())
         host.workspaces[0].state.panels[panelId]?.directory = "/tmp/new"
         await reader.openGate()
 

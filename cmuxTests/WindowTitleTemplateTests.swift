@@ -427,6 +427,23 @@ struct WindowTitleTemplateTests {
         #expect(workspace.reportedPanelDirectory(panelId: panelId) == remoteDirectory)
     }
 
+    @MainActor
+    @Test func remoteWorkspaceReportsExplicitLocalAgentDirectory() throws {
+        let localDirectory = "/Users/alice/local-agent"
+        let workspace = Workspace(workingDirectory: "/Users/alice/development")
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: "ssh seepine@192.168.5.20"), autoConnect: false)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let agentPanel = try #require(workspace.newAgentSessionSurface(
+            inPane: paneId,
+            rendererKind: .react,
+            workingDirectory: localDirectory,
+            focus: true
+        ))
+
+        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == localDirectory)
+        #expect(workspace.presentedCurrentDirectory == localDirectory)
+    }
+
     private func isolatedDefaults() throws -> UserDefaults {
         let suiteName = "cmux.WindowTitleTemplateTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

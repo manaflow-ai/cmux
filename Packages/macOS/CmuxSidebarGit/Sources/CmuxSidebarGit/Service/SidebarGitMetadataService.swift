@@ -266,7 +266,6 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         activeProbeKeys: Set<WorkspaceGitProbeKey>
     ) -> Set<UUID> {
         guard let host else { return [] }
-        guard host.isRemoteWorkspace(workspaceId) == false else { return [] }
         var candidatePanelIds = host.panelGitBranchPanelIds(in: workspaceId)
         candidatePanelIds.formUnion(host.panelPullRequestPanelIds(in: workspaceId))
         // Only keep background polling panels whose current directory has already
@@ -294,7 +293,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
         return Set(candidatePanelIds.filter { panelId in
             let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-            return !activeProbeKeys.contains(probeKey)
+            return !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) &&
+                !activeProbeKeys.contains(probeKey)
         })
     }
 
