@@ -33,19 +33,19 @@ enum SupervisorSignalKind: CaseIterable {
         case .provisionFailed:
             .provisionFailed(taskID: FleetTestSupport.taskID, message: "failed", at: date)
         case .agentSessionStarted:
-            .agentSessionStarted(taskID: FleetTestSupport.taskID, sessionID: "session", pid: 42, at: date)
+            .agentSessionStarted(taskID: FleetTestSupport.taskID, attempt: 1, sessionID: "session", pid: 42, at: date)
         case .activity:
-            .activity(taskID: FleetTestSupport.taskID, at: date)
+            .activity(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .blockingItemReceived:
-            .blockingItemReceived(taskID: FleetTestSupport.taskID, at: date)
+            .blockingItemReceived(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .blockingItemResolved:
-            .blockingItemResolved(taskID: FleetTestSupport.taskID, at: date)
+            .blockingItemResolved(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .agentStopped:
-            .agentStopped(taskID: FleetTestSupport.taskID, at: date)
+            .agentStopped(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .pidExited:
             .pidExited(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .promptIdleObserved:
-            .promptIdleObserved(taskID: FleetTestSupport.taskID, at: date)
+            .promptIdleObserved(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .stallTimeout:
             .stallTimeout(taskID: FleetTestSupport.taskID, attempt: 1, at: date)
         case .backoffElapsed:
@@ -185,7 +185,7 @@ struct FleetSupervisorTests {
 
         let reduced = FleetSupervisor().reduce(
             task: task,
-            signal: .blockingItemReceived(taskID: task.id, at: FleetTestSupport.eventDate)
+            signal: .blockingItemReceived(taskID: task.id, attempt: 1, at: FleetTestSupport.eventDate)
         )
 
         #expect(reduced.0.state == .needsInput)
@@ -198,7 +198,7 @@ struct FleetSupervisorTests {
 
         let reduced = FleetSupervisor().reduce(
             task: task,
-            signal: .blockingItemResolved(taskID: task.id, at: FleetTestSupport.eventDate)
+            signal: .blockingItemResolved(taskID: task.id, attempt: 1, at: FleetTestSupport.eventDate)
         )
 
         #expect(reduced.0.state == .running)
@@ -214,7 +214,7 @@ struct FleetSupervisorTests {
 
         let reduced = FleetSupervisor().reduce(
             task: task,
-            signal: .agentStopped(taskID: task.id, at: FleetTestSupport.eventDate)
+            signal: .agentStopped(taskID: task.id, attempt: 1, at: FleetTestSupport.eventDate)
         )
 
         #expect(reduced.0.state == .awaitingReview)
@@ -229,7 +229,7 @@ struct FleetSupervisorTests {
 
         let reduced = FleetSupervisor().reduce(
             task: task,
-            signal: .agentStopped(taskID: task.id, at: FleetTestSupport.eventDate)
+            signal: .agentStopped(taskID: task.id, attempt: 1, at: FleetTestSupport.eventDate)
         )
 
         #expect(reduced.0.state == .done)
@@ -240,7 +240,7 @@ struct FleetSupervisorTests {
         let retrying = FleetTestSupport.task(state: .running, attempts: 1)
         let retry = FleetSupervisor().reduce(
             task: retrying,
-            signal: .agentStopped(taskID: retrying.id, at: FleetTestSupport.eventDate)
+            signal: .agentStopped(taskID: retrying.id, attempt: 1, at: FleetTestSupport.eventDate)
         )
         #expect(retry.0.state == .retryBackoff)
         #expect(retry.1 == [.scheduleBackoff(taskID: retrying.id, attempt: 1, delayMS: 10_000)])
@@ -248,7 +248,7 @@ struct FleetSupervisorTests {
         let exhausted = FleetTestSupport.task(state: .running, attempts: 3)
         let failed = FleetSupervisor().reduce(
             task: exhausted,
-            signal: .agentStopped(taskID: exhausted.id, at: FleetTestSupport.eventDate)
+            signal: .agentStopped(taskID: exhausted.id, attempt: 3, at: FleetTestSupport.eventDate)
         )
         #expect(failed.0.state == .failed)
         #expect(failed.1.isEmpty)
@@ -284,7 +284,7 @@ struct FleetSupervisorTests {
         let needsInput = FleetTestSupport.task(state: .needsInput, attempts: 2)
         let ignored = FleetSupervisor().reduce(
             task: needsInput,
-            signal: .promptIdleObserved(taskID: needsInput.id, at: FleetTestSupport.eventDate)
+            signal: .promptIdleObserved(taskID: needsInput.id, attempt: 2, at: FleetTestSupport.eventDate)
         )
         #expect(ignored.0 == needsInput)
         #expect(ignored.1.isEmpty)

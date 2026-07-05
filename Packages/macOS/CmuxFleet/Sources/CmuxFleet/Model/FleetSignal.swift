@@ -1,6 +1,8 @@
 public import Foundation
 
 /// Describes deterministic inputs consumed by the pure Fleet supervisor.
+///
+/// Signals about a specific agent run carry the attempt that produced them; the reducer drops mismatches.
 public enum FleetSignal: Equatable, Codable, Sendable {
     /// A work source produced a fresh normalized task list.
     case sourceSync(tasks: [FleetTask], at: Date)
@@ -14,26 +16,26 @@ public enum FleetSignal: Equatable, Codable, Sendable {
     /// Workspace provisioning failed for a task.
     case provisionFailed(taskID: FleetTaskID, message: String, at: Date)
 
-    /// An agent session started for a task.
-    case agentSessionStarted(taskID: FleetTaskID, sessionID: String, pid: Int32?, at: Date)
+    /// An agent session started for a specific task attempt.
+    case agentSessionStarted(taskID: FleetTaskID, attempt: Int, sessionID: String, pid: Int32?, at: Date)
 
-    /// Fleet observed activity for a task.
-    case activity(taskID: FleetTaskID, at: Date)
+    /// Fleet observed activity for a specific task attempt.
+    case activity(taskID: FleetTaskID, attempt: Int, at: Date)
 
-    /// The agent requested human input for a task.
-    case blockingItemReceived(taskID: FleetTaskID, at: Date)
+    /// The agent requested human input for a specific task attempt.
+    case blockingItemReceived(taskID: FleetTaskID, attempt: Int, at: Date)
 
-    /// The human-input blocker for a task was resolved.
-    case blockingItemResolved(taskID: FleetTaskID, at: Date)
+    /// The human-input blocker for a specific task attempt was resolved.
+    case blockingItemResolved(taskID: FleetTaskID, attempt: Int, at: Date)
 
-    /// The agent stopped and emitted its normal stop signal.
-    case agentStopped(taskID: FleetTaskID, at: Date)
+    /// The agent stopped and emitted its normal stop signal for a specific task attempt.
+    case agentStopped(taskID: FleetTaskID, attempt: Int, at: Date)
 
     /// The agent process exited without a normal stop signal for a specific task attempt.
     case pidExited(taskID: FleetTaskID, attempt: Int, at: Date)
 
-    /// The terminal returned to an idle prompt while the agent was expected to be running.
-    case promptIdleObserved(taskID: FleetTaskID, at: Date)
+    /// The terminal returned to an idle prompt while a specific attempt was expected to be running.
+    case promptIdleObserved(taskID: FleetTaskID, attempt: Int, at: Date)
 
     /// Fleet's stall timeout elapsed for a specific task attempt.
     case stallTimeout(taskID: FleetTaskID, attempt: Int, at: Date)

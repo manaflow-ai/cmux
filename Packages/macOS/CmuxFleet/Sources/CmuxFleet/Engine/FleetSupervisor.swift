@@ -53,23 +53,23 @@ public struct FleetSupervisor: Sendable {
             var next = task
             next.lastError = message
             return transition(task: next, to: .failed, at: at)
-        case let .agentSessionStarted(taskID, sessionID, pid, at):
-            guard taskID == task.id, task.state == .launching else {
+        case let .agentSessionStarted(taskID, attempt, sessionID, pid, at):
+            guard taskID == task.id, attempt == task.attempts, task.state == .launching else {
                 return (task, [])
             }
             _ = sessionID
             _ = pid
             return transition(task: task, to: .running, at: at)
-        case let .activity(taskID, at):
-            guard taskID == task.id, !task.state.isTerminal else {
+        case let .activity(taskID, attempt, at):
+            guard taskID == task.id, attempt == task.attempts, !task.state.isTerminal else {
                 return (task, [])
             }
             var next = task
             next.lastActivityAt = at
             next.updatedAt = at
             return (next, [])
-        case let .blockingItemReceived(taskID, at):
-            guard taskID == task.id, task.state == .running else {
+        case let .blockingItemReceived(taskID, attempt, at):
+            guard taskID == task.id, attempt == task.attempts, task.state == .running else {
                 return (task, [])
             }
             var next = task
@@ -78,15 +78,15 @@ public struct FleetSupervisor: Sendable {
             return (transitioned.0, transitioned.1 + [
                 .postNotification(taskID: task.id, kind: .needsInput),
             ])
-        case let .blockingItemResolved(taskID, at):
-            guard taskID == task.id, task.state == .needsInput else {
+        case let .blockingItemResolved(taskID, attempt, at):
+            guard taskID == task.id, attempt == task.attempts, task.state == .needsInput else {
                 return (task, [])
             }
             var next = task
             next.isBlocked = false
             return transition(task: next, to: .running, at: at)
-        case let .agentStopped(taskID, at):
-            guard taskID == task.id, acceptsAgentStop(from: task.state) else {
+        case let .agentStopped(taskID, attempt, at):
+            guard taskID == task.id, attempt == task.attempts, acceptsAgentStop(from: task.state) else {
                 return (task, [])
             }
             if task.pr?.isTerminal == true {
@@ -104,8 +104,8 @@ public struct FleetSupervisor: Sendable {
                 return (task, [])
             }
             return retryOrFail(task: task, at: at, killAgent: false)
-        case let .promptIdleObserved(taskID, at):
-            guard taskID == task.id, task.state == .running else {
+        case let .promptIdleObserved(taskID, attempt, at):
+            guard taskID == task.id, attempt == task.attempts, task.state == .running else {
                 return (task, [])
             }
             return retryOrFail(task: task, at: at, killAgent: false)
