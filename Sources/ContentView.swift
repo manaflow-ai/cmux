@@ -2392,13 +2392,13 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
+        if tab.usesRemoteDirectoryProvenance { return nil }
         if let focusedPanelId = tab.focusedPanelId,
            !tab.isRemoteTerminalSurface(focusedPanelId),
            let panelDir = tab.reportedPanelDirectory(panelId: focusedPanelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !panelDir.isEmpty {
             return panelDir
         }
-        if tab.isRemoteWorkspace { return nil }
         return tab.presentedCurrentDirectory
     }
 

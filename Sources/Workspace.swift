@@ -1236,11 +1236,13 @@ extension Workspace {
                 }
             }
             let effectiveResumeBinding = restoredBindingLaunch == nil ? nil : resumeBinding
-            let savedWorkingDirectory =
-                effectiveResumeBinding?.cwd
-                ?? snapshot.terminal?.workingDirectory
-                ?? restorableAgent?.workingDirectory
-                ?? snapshot.directory
+            let usesUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
+                (snapshot.directoryRequiresRemoteTrust == true ||
+                    (remoteConfiguration != nil && snapshot.directoryIsTrustedRemoteReport == nil && snapshot.directoryRequiresRemoteTrust == nil))
+            let savedWorkingDirectory = effectiveResumeBinding?.cwd
+                ?? (usesUntrustedSavedDirectory ? nil : snapshot.terminal?.workingDirectory)
+                ?? (usesUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
+                ?? (usesUntrustedSavedDirectory ? nil : snapshot.directory)
             // A persisted terminal cwd can already be the stray fallback cwd
             // from a prior auto-resume restore; the transient rescue/guard must
             // remember where the resume launcher actually sends the agent.

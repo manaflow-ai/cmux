@@ -205,6 +205,27 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(restored.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [restoredPanelId]).isEmpty)
     }
 
+    @MainActor
+    @Test("trust-required remote restore does not launch with remote cwd as local")
+    func trustRequiredRemoteRestoreDoesNotLaunchWithRemoteDirectoryAsLocal() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let remotePanelId = try #require(workspace.focusedPanelId)
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
+        workspace.disconnectRemoteConnection()
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[remotePanelId])
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restored.panelDirectories[restoredPanelId] == remoteDirectory)
+        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
