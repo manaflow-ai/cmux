@@ -38,7 +38,7 @@ final class OpenCodeStopNotificationDeduper: Sendable {
 }
 
 extension TerminalController {
-    private static let opencodeStopNotificationDeduper = OpenCodeStopNotificationDeduper()
+    private nonisolated static let opencodeStopNotificationDeduper = OpenCodeStopNotificationDeduper()
 
     nonisolated func v2PostOpenCodeStopNotificationIfNeeded(for event: WorkstreamEvent) {
         guard event.source == "opencode",
