@@ -399,17 +399,27 @@ public final class DockExtensionsStore {
     private func cleanUpStaleStaging() {
         guard busyExtensionIds.isEmpty else { return }
         let stagingRoot = directories.stagingRoot
-        let active = activeStagingPaths
-        Task.detached(priority: .background) {
+        Task.detached(priority: .background) { [weak self] in
             let fileManager = FileManager.default
             guard let children = try? fileManager.contentsOfDirectory(
                 at: stagingRoot,
                 includingPropertiesForKeys: nil
             ) else { return }
+            // Snapshot the active set AFTER listing: previews register their
+            // staging path before creating the directory, so every live
+            // staged checkout that made it into `children` is already in this
+            // snapshot — a preview started mid-cleanup can never be deleted.
+            guard let active = await self?.stagingPathsActiveNow() else { return }
             for child in children where !active.contains(child.path) {
                 try? fileManager.removeItem(at: child)
             }
         }
+    }
+
+    /// The staging paths belonging to previews/installs alive right now
+    /// (main-actor read for the cleanup task's post-listing snapshot).
+    private func stagingPathsActiveNow() -> Set<String> {
+        activeStagingPaths
     }
 
     private nonisolated static func moveIntoPlace(staging: URL, destination: URL) throws {
